@@ -68,6 +68,10 @@ function task(overrides: Partial<TaskListItem>): TaskListItem {
     dueAt: overrides.dueAt ?? null,
     timezone: overrides.timezone ?? "Asia/Singapore",
     calendarUrl: overrides.calendarUrl ?? null,
+    reminderIntervalMinutes: overrides.reminderIntervalMinutes ?? 180,
+    nextReminderAt: overrides.nextReminderAt ?? null,
+    snoozedUntil: overrides.snoozedUntil ?? null,
+    lastRemindedAt: overrides.lastRemindedAt ?? null,
     reminderCount: overrides.reminderCount ?? 0,
     createdAt: overrides.createdAt ?? new Date("2026-07-05T00:00:00.000Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-07-05T00:00:00.000Z")

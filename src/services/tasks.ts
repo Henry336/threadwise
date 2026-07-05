@@ -16,6 +16,10 @@ export type TaskListItem = {
   dueAt?: Date | null;
   timezone?: string | null;
   calendarUrl?: string | null;
+  reminderIntervalMinutes?: number | null;
+  nextReminderAt?: Date | null;
+  snoozedUntil?: Date | null;
+  lastRemindedAt?: Date | null;
   reminderCount: number;
   createdAt: Date;
   updatedAt: Date;

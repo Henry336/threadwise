@@ -25,9 +25,13 @@ Threadwise is intentionally split into small modules so future contributors can 
 2. It checks quiet hours and max reminders per day.
 3. It sends a Telegram DM with inline buttons.
 4. It records `ReminderDelivery`.
-5. It advances `nextReminderAt`.
+5. It advances `nextReminderAt` using the user's current reminder interval.
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
+
+Scheduled reminders have one important exception: the first due reminder for a dated task bypasses quiet hours and daily caps so an explicit "remind me at 1:29 AM" request fires at the requested time. Repeat nudges after that respect quiet hours and reminder caps.
+
+Changing `/settings interval` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short intervals, Threadwise also raises an obviously-too-low daily cap so the new cadence can actually repeat. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
 
 ## AI Adapter
 
@@ -60,4 +64,3 @@ The first implementation stores due dates and returns:
 - `.ics` files
 
 Full OAuth sync should be added as a provider module later, with token storage scoped per user.
-

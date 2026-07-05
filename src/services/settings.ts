@@ -1,6 +1,7 @@
-import { ReminderMode } from "@prisma/client";
+import { Prisma, ReminderMode, TaskStatus } from "@prisma/client";
 import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
+import { nextReminderAfterSettingChange } from "./reminders";
 
 export type SettingsUpdateResult = {
   message: string;
@@ -24,8 +25,26 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return { message: "Reminder interval must be an integer of at least 15 minutes." };
     }
 
-    await prisma.userSettings.update({ where: { userId }, data: { reminderIntervalMinutes: minutes } });
-    return { message: `Reminder interval set to ${minutes} minutes.` };
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.userSettings.findUniqueOrThrow({ where: { userId } });
+      const recommendedMax = recommendedMaxForInterval(minutes);
+      const raisedMax = Boolean(recommendedMax && existing.maxRemindersPerDay < recommendedMax);
+      const maxRemindersPerDay = raisedMax && recommendedMax ? recommendedMax : existing.maxRemindersPerDay;
+
+      await tx.userSettings.update({
+        where: { userId },
+        data: {
+          reminderIntervalMinutes: minutes,
+          maxRemindersPerDay
+        }
+      });
+
+      const updatedTasks = await rescheduleOpenTasksForInterval(tx, userId, minutes);
+      return { updatedTasks, raisedMax, maxRemindersPerDay };
+    });
+
+    const maxNote = result.raisedMax ? ` Daily cap raised to ${result.maxRemindersPerDay} so the short interval can actually repeat.` : "";
+    return { message: `Reminder interval set to ${minutes} minutes. Updated ${result.updatedTasks} open task${result.updatedTasks === 1 ? "" : "s"}.${maxNote}` };
   }
 
   if (setting === "timezone") {
@@ -39,8 +58,12 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
   if (setting === "quiet") {
     if (value.toLowerCase() === "off") {
-      await prisma.userSettings.update({ where: { userId }, data: { quietHoursStart: null, quietHoursEnd: null } });
-      return { message: "Quiet hours turned off." };
+      const updatedTasks = await prisma.$transaction(async (tx) => {
+        const settings = await tx.userSettings.update({ where: { userId }, data: { quietHoursStart: null, quietHoursEnd: null } });
+        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes);
+      });
+
+      return { message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
     }
 
     const [start, end] = rest;
@@ -83,6 +106,7 @@ export async function formatSettings(userId: string): Promise<string> {
     `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
     `${bold("Max reminders/day")} ${settings.maxRemindersPerDay}`,
     `${bold("Reminder mode")} ${h(settings.reminderMode.toLowerCase())}`,
+    reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
     "",
     bold("Examples"),
     code("/settings interval 180"),
@@ -92,6 +116,54 @@ export async function formatSettings(userId: string): Promise<string> {
     code("/settings max 5"),
     code("/settings digest on")
   ].join("\n");
+}
+
+async function rescheduleOpenTasksForInterval(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  intervalMinutes: number
+): Promise<number> {
+  const now = new Date();
+  const tasks = await tx.task.findMany({
+    where: { userId, status: TaskStatus.OPEN },
+    select: {
+      id: true,
+      dueAt: true,
+      nextReminderAt: true,
+      lastRemindedAt: true,
+      reminderCount: true
+    }
+  });
+
+  for (const task of tasks) {
+    await tx.task.update({
+      where: { id: task.id },
+      data: {
+        reminderIntervalMinutes: intervalMinutes,
+        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes)
+      }
+    });
+  }
+
+  return tasks.length;
+}
+
+function reminderCapacityWarning(intervalMinutes: number, maxRemindersPerDay: number): string | undefined {
+  if (intervalMinutes > 30 || maxRemindersPerDay > 10) {
+    return undefined;
+  }
+
+  const coveredMinutes = intervalMinutes * maxRemindersPerDay;
+  const coveredHours = Math.round((coveredMinutes / 60) * 10) / 10;
+  return `${bold("Reminder cap note")} ${h(`${maxRemindersPerDay} reminders at ${intervalMinutes} minutes covers about ${coveredHours} hours/day.`)}`;
+}
+
+function recommendedMaxForInterval(intervalMinutes: number): number | undefined {
+  if (intervalMinutes > 30) {
+    return undefined;
+  }
+
+  return Math.ceil((12 * 60) / intervalMinutes);
 }
 
 function isValidClock(value: string): boolean {

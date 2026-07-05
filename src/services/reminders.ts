@@ -89,7 +89,8 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
           data: {
             lastRemindedAt: now,
             reminderCount: { increment: 1 },
-            nextReminderAt: new Date(now.getTime() + (task.reminderIntervalMinutes ?? settings.reminderIntervalMinutes) * 60_000)
+            reminderIntervalMinutes: settings.reminderIntervalMinutes,
+            nextReminderAt: nextIntervalReminderAt(now, settings.reminderIntervalMinutes)
           }
         })
       ]);
@@ -109,6 +110,29 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
 
 export function shouldBypassReminderLimits(task: { dueAt?: Date | null; lastRemindedAt?: Date | null; reminderCount: number }): boolean {
   return Boolean(task.dueAt && !task.lastRemindedAt && task.reminderCount === 0);
+}
+
+export function nextIntervalReminderAt(now: Date, intervalMinutes: number): Date {
+  return new Date(now.getTime() + intervalMinutes * 60_000);
+}
+
+export function nextReminderAfterSettingChange(task: {
+  dueAt?: Date | null;
+  nextReminderAt?: Date | null;
+  lastRemindedAt?: Date | null;
+  reminderCount: number;
+}, now: Date, intervalMinutes: number): Date {
+  const nextInterval = nextIntervalReminderAt(now, intervalMinutes);
+
+  if (shouldBypassReminderLimits(task) && task.dueAt && task.dueAt.getTime() > now.getTime()) {
+    return task.dueAt;
+  }
+
+  if (!task.nextReminderAt || task.nextReminderAt.getTime() > nextInterval.getTime()) {
+    return nextInterval;
+  }
+
+  return task.nextReminderAt;
 }
 
 export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {

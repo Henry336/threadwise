@@ -34,7 +34,14 @@ export function formatOpenTasks(
   ].join("\n");
 }
 
-export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC"): string {
+export type ReminderSettingsView = {
+  reminderIntervalMinutes: number;
+  maxRemindersPerDay: number;
+  quietHoursStart?: string | null;
+  quietHoursEnd?: string | null;
+};
+
+export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
   const timezone = task.timezone ?? fallbackTimezone;
   return [
     `${code(task.publicId)} ${bold(task.title)}`,
@@ -42,6 +49,18 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC"): 
     task.description ? h(task.description) : undefined,
     `${bold("Status")} ${h(task.status.toLowerCase())}`,
     task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : `${bold("Due")} none`,
+    task.nextReminderAt ? `${bold("Next reminder")} ${h(formatDateTimeForUser(task.nextReminderAt, timezone))}` : `${bold("Next reminder")} none`,
+    settings ? `${bold("Current interval")} ${settings.reminderIntervalMinutes} minutes` : undefined,
+    task.reminderIntervalMinutes && settings && task.reminderIntervalMinutes !== settings.reminderIntervalMinutes
+      ? `${bold("Stored task interval")} ${task.reminderIntervalMinutes} minutes`
+      : undefined,
+    settings ? `${bold("Daily cap")} ${settings.maxRemindersPerDay} reminders/day` : undefined,
+    settings
+      ? `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`
+      : undefined,
+    settings && settings.reminderIntervalMinutes <= 30 && settings.maxRemindersPerDay <= 10
+      ? `${bold("Cap note")} ${h(`At this interval, the daily cap covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)}`
+      : undefined,
     `${bold("Reminders sent")} ${task.reminderCount}`,
     task.calendarUrl ? `${bold("Calendar")} ${h(task.calendarUrl)}` : undefined,
     "",

@@ -14,7 +14,7 @@ Current deployment: https://threadwise-90du.onrender.com
 - Reviews the current inbox with `/review`, including task pressure, recent notes, ideas, and reflections.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
-- Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges respect quiet hours and reminder caps.
+- Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current interval setting and respect quiet hours and reminder caps.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
@@ -70,6 +70,17 @@ Current deployment: https://threadwise-90du.onrender.com
 Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then asks for confirmation before saving.
 
 `TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
+
+## Reminder Behavior
+
+Reminders are database-driven. Each open task has a `nextReminderAt`, and the reminder loop polls due tasks instead of relying on in-memory timers.
+
+- The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
+- Repeat nudges use the current `/settings interval` value. Changing the interval also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
+- Short intervals automatically raise an obviously-too-low daily cap so `/settings interval 15` can actually keep nudging for more than a few reminders. You can still override the cap with `/settings max <n>`.
+- `/settings quiet off` disables quiet hours and rechecks open tasks so reminders deferred by quiet hours can become eligible again.
+- `/settings max <n>` limits total reminders per user per day. If you manually lower the cap with a short interval, `/settings` will show how much reminder coverage that allows.
+- `/task 1` shows reminder debug details, including the next reminder time, current interval, daily cap, and quiet hours.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 

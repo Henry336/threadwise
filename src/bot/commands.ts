@@ -180,7 +180,17 @@ async function handleTaskDetail(ctx: Context) {
 
   try {
     const task = await findTaskReference(user.id, normalizePublicId(id));
-    await replyHtml(ctx, formatTaskDetail(task, user.settings?.timezone));
+    await replyHtml(
+      ctx,
+      formatTaskDetail(task, user.settings?.timezone, user.settings
+        ? {
+            reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
+            maxRemindersPerDay: user.settings.maxRemindersPerDay,
+            quietHoursStart: user.settings.quietHoursStart,
+            quietHoursEnd: user.settings.quietHoursEnd
+          }
+        : undefined)
+    );
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
