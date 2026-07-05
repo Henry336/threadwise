@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinQuietHours, parseDueDate, parseDurationMinutes, splitReminderText } from "./dates";
+import { formatDateTimeForUser, isWithinQuietHours, parseDueDate, parseDurationMinutes, splitReminderText } from "./dates";
 
 describe("date utilities", () => {
   it("parses relative durations", () => {
@@ -18,6 +18,17 @@ describe("date utilities", () => {
     const now = new Date("2026-07-05T04:00:00.000Z");
     const due = parseDueDate("at 6pm", "Asia/Singapore", now);
     expect(due?.toISOString()).toBe("2026-07-05T10:00:00.000Z");
+  });
+
+  it("parses same-day early-morning reminders in the user timezone", () => {
+    const now = new Date("2026-07-05T17:15:00.000Z");
+    const due = parseDueDate("remind me to go to the bathroom today at 1:19 am", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-05T17:19:00.000Z");
+  });
+
+  it("formats stored UTC dates in the user's timezone", () => {
+    const due = new Date("2026-07-05T17:19:00.000Z");
+    expect(formatDateTimeForUser(due, "Asia/Singapore")).toContain("1:19");
   });
 
   it("parses weekday reminders", () => {

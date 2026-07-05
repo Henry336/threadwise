@@ -10,6 +10,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
+- Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lets users complete or snooze tasks with commands or inline buttons.
 - Handles normal messages with natural-language classification and asks before saving them.
@@ -48,7 +49,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 /settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise classifies them as a possible task, idea, note, reflection, or noise, then asks for confirmation before saving.
+Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then asks for confirmation before saving.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 

@@ -47,7 +47,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "task") {
     const task = await createTask(user.id, pending.sourceText, ai);
-    await ctx.reply(formatTaskCreated(task));
+    await ctx.reply(formatTaskCreated(task, user.settings?.timezone));
     return;
   }
 

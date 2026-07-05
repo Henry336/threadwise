@@ -60,6 +60,16 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   return undefined;
 }
 
+export function formatDateTimeForUser(date: Date, timezone: string): string {
+  return DateTime.fromJSDate(date)
+    .setZone(timezone)
+    .toLocaleString({
+      ...DateTime.DATETIME_MED,
+      hour12: true,
+      timeZoneName: "short"
+    });
+}
+
 export function splitReminderText(input: string): { whenText: string; taskText: string } | undefined {
   const pipeParts = input.split("|").map((part) => part.trim()).filter(Boolean);
   if (pipeParts.length >= 2) {

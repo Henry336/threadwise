@@ -79,7 +79,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   const task = await createTask(user.id, text, ai);
-  await ctx.reply(formatTaskCreated(task), { reply_markup: taskActionsKeyboard(task.id) });
+  await ctx.reply(formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task.id) });
 }
 
 async function handleRemind(ctx: Context, ai: AiProvider) {
@@ -119,13 +119,13 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   }
 
   const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
-  await ctx.reply(formatTaskCreated(task), { reply_markup: taskActionsKeyboard(task.id) });
+  await ctx.reply(formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task.id) });
 }
 
 async function handleTasks(ctx: Context) {
   const user = await ensureUser(ctx);
   const tasks = await listOpenTasks(user.id);
-  await ctx.reply(formatOpenTasks(tasks));
+  await ctx.reply(formatOpenTasks(tasks, user.settings?.timezone));
 }
 
 async function handleDone(ctx: Context) {

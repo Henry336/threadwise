@@ -1,8 +1,12 @@
 import type { IdeaScore } from "../ai/types";
 import type { SearchResult } from "../services/search";
+import { formatDateTimeForUser } from "../utils/dates";
 import { truncate } from "../utils/text";
 
-export function formatOpenTasks(tasks: Array<{ publicId: string; title: string; dueAt?: Date | null; reminderCount: number }>): string {
+export function formatOpenTasks(
+  tasks: Array<{ publicId: string; title: string; dueAt?: Date | null; timezone?: string | null; reminderCount: number }>,
+  fallbackTimezone = "UTC"
+): string {
   if (tasks.length === 0) {
     return "No open tasks. Nice and quiet.";
   }
@@ -11,7 +15,7 @@ export function formatOpenTasks(tasks: Array<{ publicId: string; title: string; 
     "Open tasks",
     "",
     ...tasks.map((task) => {
-      const due = task.dueAt ? ` due ${task.dueAt.toLocaleString()}` : "";
+      const due = task.dueAt ? ` due ${formatDateTimeForUser(task.dueAt, task.timezone ?? fallbackTimezone)}` : "";
       const count = task.reminderCount > 0 ? ` (${task.reminderCount} reminders sent)` : "";
       return `${task.publicId}: ${task.title}${due}${count}`;
     })
@@ -53,4 +57,3 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
     `Don't: ${score.donts.join("; ") || "None listed."}`
   ].join("\n");
 }
-

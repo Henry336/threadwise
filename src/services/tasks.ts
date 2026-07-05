@@ -1,7 +1,7 @@
 import { TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
-import { parseDueDate, parseDurationMinutes } from "../utils/dates";
+import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../utils/dates";
 import { createGoogleCalendarUrl } from "./calendar";
 import { nextPublicId } from "./publicIds";
 
@@ -13,10 +13,13 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   }
 
   const structured = await ai.structureTask(sourceText);
-  const dueAt = structured.dueDateText ? parseDueDate(structured.dueDateText, settings.timezone) : parseDueDate(sourceText, settings.timezone);
+  const dueAt = structured.dueDateText
+    ? parseDueDate(structured.dueDateText, settings.timezone) ?? parseDueDate(sourceText, settings.timezone)
+    : parseDueDate(sourceText, settings.timezone);
   const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
-  const nextReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
+  const intervalReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
+  const nextReminderAt = dueAt && dueAt.getTime() > Date.now() ? dueAt : intervalReminderAt;
   const calendarUrl = dueAt
     ? createGoogleCalendarUrl({
         title: structured.title,
@@ -121,10 +124,14 @@ export async function findTask(userId: string, publicOrUuid: string) {
   });
 }
 
-export function formatTaskCreated(task: { publicId: string; title: string; dueAt?: Date | null; calendarUrl?: string | null }): string {
+export function formatTaskCreated(
+  task: { publicId: string; title: string; dueAt?: Date | null; timezone?: string | null; calendarUrl?: string | null },
+  fallbackTimezone = "UTC"
+): string {
+  const timezone = task.timezone ?? fallbackTimezone;
   return [
     `Added ${task.publicId}: ${task.title}`,
-    task.dueAt ? `Due: ${task.dueAt.toLocaleString()}` : undefined,
+    task.dueAt ? `Due: ${formatDateTimeForUser(task.dueAt, timezone)}` : undefined,
     "I will keep reminding you until this is done.",
     task.calendarUrl ? `Calendar: ${task.calendarUrl}` : undefined
   ]

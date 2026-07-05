@@ -2,6 +2,7 @@ import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
+import { parseDueDate } from "../utils/dates";
 import { captureConfirmationKeyboard } from "./keyboards";
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
@@ -20,14 +21,19 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
     }
 
     const pending = await createPendingCapture(user.id, text, classification);
+    const hasReminderTime =
+      classification.kind === "task" &&
+      Boolean(parseDueDate(classification.dueDateText ?? text, user.settings?.timezone ?? "UTC"));
     const label =
-      classification.kind === "task"
-        ? "a task"
-        : classification.kind === "idea"
-          ? "an idea"
-          : classification.kind === "note"
-            ? "a note"
-            : "a relationship reflection";
+      hasReminderTime
+        ? "a scheduled reminder"
+        : classification.kind === "task"
+          ? "a task"
+          : classification.kind === "idea"
+            ? "an idea"
+            : classification.kind === "note"
+              ? "a note"
+              : "a relationship reflection";
 
     await ctx.reply(`This sounds like ${label}. Save it?`, {
       reply_markup: captureConfirmationKeyboard(pending.id)
