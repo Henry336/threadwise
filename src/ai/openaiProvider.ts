@@ -1,8 +1,11 @@
 import OpenAI from "openai";
 import { env } from "../config/env";
+import { logger } from "../logger";
 import { safeJsonParse, clampScore } from "./json";
 import type {
   AiProvider,
+  AiProviderHealthCheck,
+  AiProviderStatus,
   Classification,
   IdeaScore,
   MergedNotePreview,
@@ -17,9 +20,52 @@ import type {
 
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAI;
+  private readonly chatModels: string[];
+  private activeChatModel: string;
+  private lastSuccessfulChatAt?: string;
+  private lastRateLimit?: { model: string; at: string };
+  private lastError?: { model?: string; at: string; message: string };
 
   constructor(apiKey: string) {
     this.client = new OpenAI({ apiKey });
+    this.chatModels = uniqueModels([env.OPENAI_MODEL, ...parseModelList(env.OPENAI_MODEL_FALLBACKS)]);
+    this.activeChatModel = this.chatModels[0] ?? env.OPENAI_MODEL;
+  }
+
+  getStatus(): AiProviderStatus {
+    return {
+      provider: "openai",
+      apiKeyConfigured: true,
+      chatModels: this.chatModels,
+      activeChatModel: this.activeChatModel,
+      embeddingModel: env.OPENAI_EMBEDDING_MODEL,
+      lastSuccessfulChatAt: this.lastSuccessfulChatAt,
+      lastRateLimit: this.lastRateLimit,
+      lastError: this.lastError
+    };
+  }
+
+  async checkHealth(): Promise<AiProviderHealthCheck> {
+    const checkedAt = new Date().toISOString();
+    try {
+      const model = await this.jsonCompletion(
+        "Return JSON only.",
+        'Return exactly: { "ok": true }'
+      );
+      return {
+        ok: Boolean(model),
+        checkedAt,
+        provider: this.getStatus(),
+        model: this.activeChatModel
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        checkedAt,
+        provider: this.getStatus(),
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   async classifyMessage(text: string): Promise<Classification> {
@@ -160,17 +206,83 @@ export class OpenAiProvider implements AiProvider {
   }
 
   private async jsonCompletion(system: string, user: string): Promise<string> {
-    const response = await this.client.chat.completions.create({
-      model: env.OPENAI_MODEL,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ]
-    });
+    const response = await this.chatCompletionWithFallback(system, user);
 
     return response.choices[0]?.message.content ?? "{}";
   }
+
+  private async chatCompletionWithFallback(system: string, user: string) {
+    let lastError: unknown;
+    for (const model of this.orderedModelsForAttempt()) {
+      try {
+        const response = await this.client.chat.completions.create({
+          model,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user }
+          ]
+        });
+
+        this.activeChatModel = model;
+        this.lastSuccessfulChatAt = new Date().toISOString();
+        this.lastError = undefined;
+        return response;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        this.lastError = { model, at: new Date().toISOString(), message };
+
+        if (isRateLimitError(error)) {
+          this.lastRateLimit = { model, at: new Date().toISOString() };
+          logger.warn("OpenAI chat model hit a rate limit; trying fallback model if configured.", { model });
+          continue;
+        }
+
+        if (isModelAvailabilityError(error)) {
+          logger.warn("OpenAI chat model was unavailable; trying fallback model if configured.", { model });
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "OpenAI request failed."));
+  }
+
+  private orderedModelsForAttempt(): string[] {
+    const models = uniqueModels([this.activeChatModel, ...this.chatModels]);
+    return models.length ? models : [env.OPENAI_MODEL];
+  }
+}
+
+function parseModelList(value?: string): string[] {
+  return value?.split(",").map((model) => model.trim()).filter(Boolean) ?? [];
+}
+
+function uniqueModels(models: string[]): string[] {
+  return [...new Set(models.filter(Boolean))];
+}
+
+function isRateLimitError(error: unknown): boolean {
+  const maybeError = error as { status?: unknown; code?: unknown; type?: unknown };
+  return maybeError.status === 429 || maybeError.code === "rate_limit_exceeded" || maybeError.type === "rate_limit_exceeded";
+}
+
+function isModelAvailabilityError(error: unknown): boolean {
+  const maybeError = error as { status?: unknown; code?: unknown; type?: unknown; message?: unknown };
+  const message = error instanceof Error ? error.message.toLowerCase() : String(maybeError.message ?? "").toLowerCase();
+
+  if (maybeError.code === "model_not_found" || maybeError.type === "model_not_found" || maybeError.status === 404) {
+    return true;
+  }
+
+  return (
+    maybeError.status === 400 &&
+    message.includes("model") &&
+    (message.includes("not found") || message.includes("does not exist") || message.includes("unsupported"))
+  );
 }
 
 function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {

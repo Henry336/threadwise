@@ -88,7 +88,35 @@ export type IdeaScore = {
   donts: string[];
 };
 
+export type AiProviderStatus = {
+  provider: "openai" | "heuristic";
+  apiKeyConfigured: boolean;
+  chatModels: string[];
+  activeChatModel?: string;
+  embeddingModel?: string;
+  lastSuccessfulChatAt?: string;
+  lastRateLimit?: {
+    model: string;
+    at: string;
+  };
+  lastError?: {
+    model?: string;
+    at: string;
+    message: string;
+  };
+};
+
+export type AiProviderHealthCheck = {
+  ok: boolean;
+  checkedAt: string;
+  provider: AiProviderStatus;
+  model?: string;
+  error?: string;
+};
+
 export interface AiProvider {
+  getStatus(): AiProviderStatus;
+  checkHealth(): Promise<AiProviderHealthCheck>;
   classifyMessage(text: string): Promise<Classification>;
   structureIdea(text: string): Promise<StructuredIdea>;
   structureTask(text: string): Promise<StructuredTask>;

@@ -117,6 +117,7 @@ Reminders are database-driven. Each open task has a `nextReminderAt`, and the re
 - Prisma for schema and migrations
 - Zod for environment validation
 - OpenAI-compatible adapter for classification, embeddings, idea scoring, and reflection advice
+- Private AI status endpoint for checking whether OpenAI is configured and which chat model is active
 - Vitest for unit tests
 - Render for deployment
 
@@ -210,6 +211,9 @@ Set these Render environment variables:
 ```text
 TELEGRAM_BOT_TOKEN
 OPENAI_API_KEY
+OPENAI_MODEL
+OPENAI_MODEL_FALLBACKS
+ADMIN_STATUS_TOKEN
 WEBHOOK_URL
 BOT_ALLOWED_TELEGRAM_IDS
 ```
@@ -241,6 +245,42 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 ```
 
 Leave it blank to allow any Telegram user who can find the bot to use their own isolated Threadwise account.
+
+## Private AI Status
+
+Set `ADMIN_STATUS_TOKEN` to enable:
+
+```text
+GET /admin/ai/status
+GET /admin/ai/status?check=1
+```
+
+Send the token as:
+
+```text
+Authorization: Bearer <ADMIN_STATUS_TOKEN>
+```
+
+Without the token configured, or with the wrong token, the endpoint returns `404`.
+
+`ADMIN_STATUS_TOKEN` should be a long random secret that you create yourself, not your OpenAI API key or Telegram bot token. For example:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Set that generated value in Render, then pass the same value when calling the endpoint.
+
+`/admin/ai/status` reports whether Threadwise is using the OpenAI provider or heuristic fallback, the configured chat model chain, the active chat model, embedding model, last successful chat call, and the last recorded rate-limit event. `?check=1` performs a tiny live OpenAI chat check, so use it intentionally.
+
+`OPENAI_MODEL_FALLBACKS` is a comma-separated list tried after the current chat model hits a rate limit or is unavailable. Example:
+
+```text
+OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL_FALLBACKS=gpt-5.5,gpt-5.4,gpt-5.4-nano
+```
+
+The order is yours: put a stronger preferred fallback first, then cheaper/lower models after it.
 
 ## Validation
 

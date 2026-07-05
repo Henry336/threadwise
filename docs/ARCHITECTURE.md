@@ -49,8 +49,13 @@ The `AiProvider` interface supports:
 - Relationship reflection guidance
 - Idea scoring
 - Embeddings
+- Provider status and a small live health check for the private admin endpoint
 
 `OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key.
+
+OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted.
+
+The private `GET /admin/ai/status` endpoint is enabled only when `ADMIN_STATUS_TOKEN` is set. It is intentionally not exposed through Telegram.
 
 ## Search
 

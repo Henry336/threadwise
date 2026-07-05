@@ -17,6 +17,12 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: OPENAI_MODEL_FALLBACKS
+        value: gpt-5.5,gpt-5.4,gpt-5.4-nano
+      - key: ADMIN_STATUS_TOKEN
+        sync: false
       - key: WEBHOOK_URL
         sync: false
       - key: WEBHOOK_SECRET_PATH

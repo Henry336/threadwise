@@ -27,7 +27,7 @@ async function main() {
   if (env.WEBHOOK_URL) {
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
     await bot.api.setWebhook(webhookUrl);
-    server = await startServer(bot, { port: env.PORT, webhookPath: env.WEBHOOK_SECRET_PATH });
+    server = await startServer(bot, ai, { port: env.PORT, webhookPath: env.WEBHOOK_SECRET_PATH, adminStatusToken: env.ADMIN_STATUS_TOKEN });
     logger.info("Threadwise is running with Telegram webhooks.", { webhookUrl });
   } else {
     await bot.api.deleteWebhook();
