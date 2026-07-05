@@ -6,6 +6,7 @@ import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
 import { createTask, completeTask, findTask, formatTaskCreated, listOpenTasks, snoozeTask } from "../services/tasks";
+import { analyzeNoteStyle, createNote, formatNoteAnalysis, formatNoteCreated, formatRecentNotes, listRecentNotes } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 import { formatSettings, updateSetting } from "../services/settings";
 import { semanticSearch } from "../services/search";
@@ -16,6 +17,9 @@ import { taskActionsKeyboard } from "./keyboards";
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["start", "help"], async (ctx) => ctx.reply(HELP_TEXT));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
+  bot.command("note", async (ctx) => handleNote(ctx, ai));
+  bot.command("notes", async (ctx) => handleNotes(ctx));
+  bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
   bot.command("add", async (ctx) => handleAdd(ctx, ai));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
@@ -38,6 +42,30 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
 
   const idea = await createIdea(user.id, text, ai);
   await ctx.reply(formatIdeaCreated(idea));
+}
+
+async function handleNote(ctx: Context, ai: AiProvider) {
+  const user = await ensureUser(ctx);
+  const text = commandBody(ctx.message?.text ?? "", "note");
+  if (!text) {
+    await ctx.reply("Usage: /note important thing I want to remember...");
+    return;
+  }
+
+  const note = await createNote(user.id, text, ai);
+  await ctx.reply(formatNoteCreated(note));
+}
+
+async function handleNotes(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const notes = await listRecentNotes(user.id);
+  await ctx.reply(formatRecentNotes(notes));
+}
+
+async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
+  const user = await ensureUser(ctx);
+  const analysis = await analyzeNoteStyle(user.id, ai);
+  await ctx.reply(formatNoteAnalysis(analysis));
 }
 
 async function handleAdd(ctx: Context, ai: AiProvider) {

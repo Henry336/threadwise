@@ -1,18 +1,20 @@
 # Threadwise
 
-Threadwise is a private Telegram life inbox for capturing ideas, managing tasks with recurring reminders, reflecting on relationship situations, searching across saved thoughts, and scoring product ideas.
+Threadwise is a private Telegram life inbox for capturing ideas, notes, tasks, relationship reflections, searchable personal knowledge, and product implementation briefs.
 
 It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL persistence, Prisma schema management, Telegram webhooks for Render, and clear service boundaries for future contributors.
 
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
+- Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Captures tasks with `/add <task>`.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lets users complete or snooze tasks with commands or inline buttons.
 - Handles normal messages with natural-language classification and asks before saving them.
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
-- Searches ideas, tasks, and reflections semantically with `/search`.
+- Searches ideas, notes, tasks, and reflections semantically with `/search`.
+- Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
@@ -23,6 +25,9 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 ```text
 /help
 /idea build a Telegram bot that...
+/note Remember that deployment reliability depends on avoiding sleeping workers
+/notes
+/note-analysis
 /add pay invoice tomorrow at 9am
 /tasks
 /done TASK-1
@@ -41,7 +46,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 /settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise classifies them as a possible task, idea, reflection, or noise, then asks for confirmation before saving.
+Normal Telegram messages are also supported. Threadwise classifies them as a possible task, idea, note, reflection, or noise, then asks for confirmation before saving.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 
@@ -81,6 +86,7 @@ Threadwise stores:
 
 - Users and per-user settings
 - Ideas
+- Notes
 - Tasks
 - Relationship reflections
 - Pending natural-language captures

@@ -3,7 +3,7 @@ import { prisma } from "../db/prisma";
 import { cosineSimilarity } from "../utils/vector";
 
 export type SearchResult = {
-  kind: "idea" | "task" | "reflection";
+  kind: "idea" | "task" | "note" | "reflection";
   publicId: string;
   title: string;
   summary: string;
@@ -12,9 +12,10 @@ export type SearchResult = {
 
 export async function semanticSearch(userId: string, query: string, ai: AiProvider): Promise<SearchResult[]> {
   const queryEmbedding = await ai.embed(query);
-  const [ideas, tasks, reflections] = await Promise.all([
+  const [ideas, tasks, notes, reflections] = await Promise.all([
     prisma.idea.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.task.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.note.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.reflection.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 100 })
   ]);
 
@@ -32,6 +33,13 @@ export async function semanticSearch(userId: string, query: string, ai: AiProvid
       title: task.title,
       summary: task.description ?? task.sourceText,
       score: cosineSimilarity(queryEmbedding, asVector(task.embedding))
+    })),
+    ...notes.map((note) => ({
+      kind: "note" as const,
+      publicId: note.publicId,
+      title: note.title,
+      summary: note.summary,
+      score: cosineSimilarity(queryEmbedding, asVector(note.embedding))
     })),
     ...reflections.map((reflection) => ({
       kind: "reflection" as const,
@@ -55,4 +63,3 @@ function asVector(value: unknown): number[] {
 
   return value.filter((item): item is number => typeof item === "number");
 }
-

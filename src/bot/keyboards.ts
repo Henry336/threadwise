@@ -11,7 +11,8 @@ export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
     .text("Save task", `capture:task:${pendingId}`)
     .text("Save idea", `capture:idea:${pendingId}`)
     .row()
+    .text("Save note", `capture:note:${pendingId}`)
     .text("Reflect", `capture:reflection:${pendingId}`)
+    .row()
     .text("Ignore", `capture:ignore:${pendingId}`);
 }
-

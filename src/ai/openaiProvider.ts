@@ -5,8 +5,11 @@ import type {
   AiProvider,
   Classification,
   IdeaScore,
+  NoteAnalysis,
+  NoteForAnalysis,
   ReflectionAdvice,
   StructuredIdea,
+  StructuredNote,
   StructuredTask
 } from "./types";
 
@@ -19,8 +22,8 @@ export class OpenAiProvider implements AiProvider {
 
   async classifyMessage(text: string): Promise<Classification> {
     const content = await this.jsonCompletion(
-      "Classify a Telegram message for a private productivity bot. Return JSON only.",
-      `Message:\n${text}\n\nReturn: { "kind": "idea" | "task" | "reflection" | "noise", "confidence": 0-1, "reason": string, "suggestedTitle"?: string, "dueDateText"?: string }`
+      "Classify a Telegram message for a private productivity and notekeeping bot. Return JSON only.",
+      `Message:\n${text}\n\nReturn: { "kind": "idea" | "task" | "reflection" | "note" | "noise", "confidence": 0-1, "reason": string, "suggestedTitle"?: string, "dueDateText"?: string }`
     );
 
     return safeJsonParse<Classification>(content, {
@@ -52,6 +55,35 @@ export class OpenAiProvider implements AiProvider {
     return safeJsonParse<StructuredTask>(content, {
       title: text,
       description: text
+    });
+  }
+
+  async structureNote(text: string): Promise<StructuredNote> {
+    const content = await this.jsonCompletion(
+      "Clean a rough personal note into a readable, recallable note without losing important details. Preserve specifics, names, numbers, dates, caveats, and source wording when useful. Return JSON only.",
+      `Raw note:\n${text}\n\nReturn: { "title": string, "body": string, "summary": string, "tags": string[] }\n\nGuidelines:\n- title should be short and searchable\n- body should be clear, complete, and human-readable\n- summary should be one sentence\n- tags should be sparse and useful`
+    );
+
+    return safeJsonParse<StructuredNote>(content, {
+      title: "Untitled Note",
+      body: text,
+      summary: text.slice(0, 180),
+      tags: []
+    });
+  }
+
+  async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
+    const content = await this.jsonCompletion(
+      "Analyze a user's notekeeping style from their saved notes. Be direct, practical, and specific. Return JSON only.",
+      `Notes:\n${JSON.stringify(notes, null, 2)}\n\nReturn: { "overview": string, "whatWorks": string[], "whatDoesNotWork": string[], "suggestions": string[], "experiments": string[] }\n\nFocus on retrieval quality, clarity, consistency, missing context, tagging habits, note granularity, and ways to make future notes more useful.`
+    );
+
+    return safeJsonParse<NoteAnalysis>(content, {
+      overview: "Not enough note data to analyze deeply yet.",
+      whatWorks: [],
+      whatDoesNotWork: [],
+      suggestions: ["Save more notes, then run this again."],
+      experiments: []
     });
   }
 
@@ -114,4 +146,3 @@ export class OpenAiProvider implements AiProvider {
     return response.choices[0]?.message.content ?? "{}";
   }
 }
-

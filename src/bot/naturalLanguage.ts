@@ -25,11 +25,12 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         ? "a task"
         : classification.kind === "idea"
           ? "an idea"
-          : "a relationship reflection";
+          : classification.kind === "note"
+            ? "a note"
+            : "a relationship reflection";
 
     await ctx.reply(`This sounds like ${label}. Save it?`, {
       reply_markup: captureConfirmationKeyboard(pending.id)
     });
   });
 }
-

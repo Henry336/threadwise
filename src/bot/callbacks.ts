@@ -4,12 +4,13 @@ import { ensureUser } from "../services/users";
 import { completeTask, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
+import { createNote, formatNoteCreated } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
-  bot.callbackQuery(/^capture:(task|idea|reflection|ignore):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^capture:(task|idea|note|reflection|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
 }
@@ -56,7 +57,12 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
     return;
   }
 
+  if (action === "note") {
+    const note = await createNote(user.id, pending.sourceText, ai);
+    await ctx.reply(formatNoteCreated(note));
+    return;
+  }
+
   const reflection = await createReflection(user.id, pending.sourceText, ai);
   await ctx.reply(formatReflection(reflection));
 }
-

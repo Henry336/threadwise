@@ -38,6 +38,6 @@ function toPrismaKind(kind: Classification["kind"]): CaptureKind {
   if (kind === "idea") return CaptureKind.IDEA;
   if (kind === "task") return CaptureKind.TASK;
   if (kind === "reflection") return CaptureKind.REFLECTION;
+  if (kind === "note") return CaptureKind.NOTE;
   return CaptureKind.NOISE;
 }
-
