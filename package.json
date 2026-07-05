@@ -1,0 +1,41 @@
+{
+  "name": "threadwise",
+  "version": "0.1.0",
+  "description": "A Telegram life inbox for ideas, tasks, reminders, reflections, semantic search, and idea scoring.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "productivity",
+    "reminders",
+    "ideas"
+  ],
+  "author": "Henry336",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "fastify": "^5.1.0",
+    "grammy": "^1.33.0",
+    "luxon": "^3.5.0",
+    "openai": "^4.76.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.2",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  }
+}

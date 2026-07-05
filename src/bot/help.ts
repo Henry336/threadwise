@@ -1,0 +1,20 @@
+export const HELP_TEXT = [
+  "Threadwise commands",
+  "",
+  "/idea <text> - save and structure an idea",
+  "/add <task> - add a task and keep reminding me until done",
+  "/tasks - list open tasks",
+  "/done <TASK-1> - complete a task",
+  "/snooze <TASK-1> 1h - snooze a task",
+  "/relationship <situation> - get balanced relationship guidance",
+  "/reflect <situation> - alias for /relationship",
+  "/search <query> - semantic search across saved items",
+  "/score <IDEA-1> - score an idea with market notes and dos/donts",
+  "/calendar <TASK-1> - get calendar export options for a dated task",
+  "/settings - show settings",
+  "/settings interval 180 - set reminder interval in minutes",
+  "/settings quiet 22:00 08:00 - set quiet hours",
+  "",
+  "You can also send a normal message. I will classify it and ask before saving."
+].join("\n");
+

@@ -1,0 +1,106 @@
+import type { Bot } from "grammy";
+import { ReminderMode, TaskStatus } from "@prisma/client";
+import { prisma } from "../db/prisma";
+import { logger } from "../logger";
+import { isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
+import { taskActionsKeyboard } from "../bot/keyboards";
+
+export async function sendDueReminders(bot: Bot): Promise<number> {
+  const now = new Date();
+  const tasks = await prisma.task.findMany({
+    where: {
+      status: TaskStatus.OPEN,
+      nextReminderAt: { lte: now },
+      OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }]
+    },
+    include: {
+      user: { include: { settings: true } }
+    },
+    take: 50,
+    orderBy: { nextReminderAt: "asc" }
+  });
+
+  let sent = 0;
+
+  for (const task of tasks) {
+    const settings = task.user.settings;
+    if (!settings) {
+      logger.warn("Skipping reminder because user settings are missing.", { taskId: task.id });
+      continue;
+    }
+
+    if (isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { nextReminderAt: nextQuietEnd(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd }) }
+      });
+      continue;
+    }
+
+    const remindersToday = await prisma.reminderDelivery.count({
+      where: {
+        userId: task.userId,
+        sentAt: { gte: startOfUserDay(now, settings.timezone) }
+      }
+    });
+
+    if (remindersToday >= settings.maxRemindersPerDay) {
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { nextReminderAt: new Date(now.getTime() + settings.reminderIntervalMinutes * 60_000) }
+      });
+      continue;
+    }
+
+    const chatId = settings.reminderChatId ?? task.user.telegramId;
+    const message =
+      settings.reminderMode === ReminderMode.DIGEST
+        ? `Threadwise reminder: ${task.publicId} is still open.\n\n${task.title}`
+        : `Still open: ${task.publicId}\n\n${task.title}\n\nI'll keep nudging you until this is done.`;
+
+    try {
+      const sentMessage = await bot.api.sendMessage(chatId, message, {
+        reply_markup: taskActionsKeyboard(task.id)
+      });
+
+      await prisma.$transaction([
+        prisma.reminderDelivery.create({
+          data: {
+            userId: task.userId,
+            taskId: task.id,
+            chatId,
+            messageId: String(sentMessage.message_id)
+          }
+        }),
+        prisma.task.update({
+          where: { id: task.id },
+          data: {
+            lastRemindedAt: now,
+            reminderCount: { increment: 1 },
+            nextReminderAt: new Date(now.getTime() + (task.reminderIntervalMinutes ?? settings.reminderIntervalMinutes) * 60_000)
+          }
+        })
+      ]);
+
+      sent += 1;
+    } catch (error) {
+      logger.error("Failed to send reminder.", { taskId: task.id, error: String(error) });
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { nextReminderAt: new Date(now.getTime() + 15 * 60_000) }
+      });
+    }
+  }
+
+  return sent;
+}
+
+export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {
+  const interval = setInterval(() => {
+    sendDueReminders(bot).catch((error) => logger.error("Reminder loop failed.", { error: String(error) }));
+  }, pollMs);
+
+  void sendDueReminders(bot).catch((error) => logger.error("Initial reminder pass failed.", { error: String(error) }));
+  return interval;
+}
+
