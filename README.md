@@ -18,12 +18,15 @@ Current deployment: https://threadwise-90du.onrender.com
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
-- Lets users view, complete, snooze, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
+- Pins important tasks, notes, ideas, and reflections with `/pin`, `/star`, and `/pins`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with natural-language classification and asks before saving them.
+- Handles normal messages with natural-language classification. Clear tasks, notes, and ideas can save automatically with an undo hint; lower-confidence captures and reflections still ask before saving.
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
 - Searches ideas, notes, tasks, and reflections semantically with `/search`.
+- Filters semantic search with `/search tasks <query>`, `/search notes <query>`, `/search ideas <query>`, and `/search reflections <query>`.
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
@@ -49,11 +52,20 @@ Current deployment: https://threadwise-90du.onrender.com
 /done 1
 /snooze TASK-1 1h
 /snooze 1 1h
+/undo
+/rename 1 Follow up with Sam
+/rename NOTE-1 Deployment notes
+/pin 1
+/star IDEA-1
+/unpin NOTE-1
+/pins
 /cancel 1
 /delete TASK-1
 /relationship here is what happened...
 /reflect here is what happened...
 /search reminder bot ideas
+/search tasks invoice
+/search notes deployment reliability
 /score IDEA-1
 /brief IDEA-1
 /calendar TASK-1
@@ -67,9 +79,13 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then asks for confirmation before saving.
+Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
+
+For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply. Relationship reflections still require confirmation because they are more sensitive and easy to misread.
 
 `TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
+
+Undoing a newly saved capture archives it out of active lists and search instead of hard-deleting the row. That keeps public IDs durable and avoids future items silently reusing an old ID.
 
 ## Reminder Behavior
 
@@ -127,6 +143,7 @@ Threadwise stores:
 - Processed Telegram update IDs for webhook de-duplication
 - Reminder delivery history
 - Audit logs
+- Pin and archive timestamps for durable undo and priority views
 - Embeddings/search vectors as JSON for personal-scale semantic search
 
 The schema is designed so future work can add full Google Calendar OAuth, external search-backed market research, a dashboard, and richer semantic search without replacing the core tables.

@@ -8,9 +8,9 @@ import { listOpenTasks, type TaskListItem } from "./tasks";
 export async function buildReview(userId: string, timezone: string): Promise<string> {
   const [tasks, notes, ideas, reflections] = await Promise.all([
     listOpenTasks(userId),
-    prisma.note.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 3 }),
-    prisma.idea.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 3 }),
-    prisma.reflection.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 2 })
+    prisma.note.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3 }),
+    prisma.idea.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3 }),
+    prisma.reflection.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 2 })
   ]);
 
   const now = DateTime.now().setZone(timezone);

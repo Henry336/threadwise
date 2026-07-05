@@ -88,6 +88,8 @@ model Idea {
   marketNotes    String?
   dos            String[]
   donts          String[]
+  pinnedAt       DateTime?
+  archivedAt     DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -95,6 +97,8 @@ model Idea {
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
+  @@index([userId, pinnedAt])
+  @@index([userId, archivedAt])
 }
 
 model Task {
@@ -115,6 +119,8 @@ model Task {
   reminderCount            Int          @default(0)
   embedding                Json?
   calendarUrl              String?
+  pinnedAt                 DateTime?
+  archivedAt               DateTime?
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
@@ -124,6 +130,8 @@ model Task {
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])
   @@index([userId, createdAt])
+  @@index([userId, pinnedAt])
+  @@index([userId, archivedAt])
 }
 
 model Note {
@@ -136,6 +144,8 @@ model Note {
   sourceText  String
   tags        String[]
   embedding   Json?
+  pinnedAt    DateTime?
+  archivedAt  DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -143,6 +153,8 @@ model Note {
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
+  @@index([userId, pinnedAt])
+  @@index([userId, archivedAt])
 }
 
 model Reflection {
@@ -156,6 +168,8 @@ model Reflection {
   keepInMind      String
   risks           String[]
   embedding       Json?
+  pinnedAt        DateTime?
+  archivedAt      DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -163,6 +177,8 @@ model Reflection {
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
+  @@index([userId, pinnedAt])
+  @@index([userId, archivedAt])
 }
 
 model PendingCapture {

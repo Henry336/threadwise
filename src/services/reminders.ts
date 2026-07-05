@@ -11,6 +11,7 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
   const tasks = await prisma.task.findMany({
     where: {
       status: TaskStatus.OPEN,
+      archivedAt: null,
       nextReminderAt: { lte: now },
       OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }]
     },
@@ -67,12 +68,12 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
     const message =
       settings.reminderMode === ReminderMode.DIGEST
         ? `${bold("Threadwise reminder")} ${code(task.publicId)}\n\n${h(task.title)}${dueLine}`
-        : `${bold("Still open")} ${code(task.publicId)}\n\n${h(task.title)}${dueLine}\n\nI'll keep nudging you until this is done.`;
+        : `${bold("Still open")} ${code(task.publicId)}\n\n${h(task.title)}${dueLine}\n\nI'll keep this on your radar until it is done.`;
 
     try {
       const sentMessage = await bot.api.sendMessage(chatId, message, {
         ...HTML_REPLY,
-        reply_markup: taskActionsKeyboard(task.id)
+        reply_markup: taskActionsKeyboard(task)
       });
 
       await prisma.$transaction([

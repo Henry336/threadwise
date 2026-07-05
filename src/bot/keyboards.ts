@@ -1,10 +1,17 @@
 import { InlineKeyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
 
-export function taskActionsKeyboard(taskId: string): InlineKeyboard {
+type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
+
+export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
+  const taskId = typeof task === "string" ? task : task.id;
+  const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
+
   return new InlineKeyboard()
     .text("Done", `task:done:${taskId}`)
-    .text("Snooze 1h", `task:snooze:${taskId}`);
+    .text("Snooze 1h", `task:snooze:${taskId}`)
+    .row()
+    .text(isPinned ? "Unstar" : "Star", `task:${isPinned ? "unpin" : "pin"}:${taskId}`);
 }
 
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): InlineKeyboard | undefined {
@@ -18,7 +25,8 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): Inline
     const number = index + 1;
     keyboard
       .text(`Done ${number}`, `task:done:${task.id}`)
-      .text(`Snooze ${number}`, `task:snooze:${task.id}`);
+      .text(`Snooze ${number}`, `task:snooze:${task.id}`)
+      .text(`${task.pinnedAt ? "Unstar" : "Star"} ${number}`, `task:${task.pinnedAt ? "unpin" : "pin"}:${task.id}`);
 
     if (index < visibleTasks.length - 1) {
       keyboard.row();

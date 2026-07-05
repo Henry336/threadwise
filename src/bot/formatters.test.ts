@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks } from "./formatters";
-import { taskListKeyboard } from "./keyboards";
+import { taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -35,6 +35,20 @@ describe("bot formatters", () => {
     expect(message).toContain("No due date");
   });
 
+  it("shows pinned tasks in their own group", () => {
+    const message = formatOpenTasks(
+      [
+        task({ publicId: "TASK-2", title: "Pinned task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }),
+        task({ publicId: "TASK-1", title: "Regular task" })
+      ],
+      "Asia/Singapore"
+    );
+
+    expect(message).toContain("Pinned");
+    expect(message).toContain("pinned");
+    expect(message.indexOf("Pinned task")).toBeLessThan(message.indexOf("Regular task"));
+  });
+
   it("escapes user task text in HTML output", () => {
     const message = formatOpenTasks([task({ title: "Read <draft> & reply", dueAt: null })], "Asia/Singapore");
 
@@ -53,7 +67,25 @@ describe("bot formatters", () => {
       text: "Snooze 1",
       callback_data: "task:snooze:task-uuid-1"
     });
+    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
+      text: "Star 1",
+      callback_data: "task:pin:task-uuid-1"
+    });
     expect(keyboard?.inline_keyboard).toHaveLength(1);
+  });
+
+  it("shows star or unstar on individual task action buttons", () => {
+    const unpinned = taskActionsKeyboard(task({ id: "task-uuid-1" }));
+    const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
+
+    expect(unpinned.inline_keyboard[1]?.[0]).toEqual({
+      text: "Star",
+      callback_data: "task:pin:task-uuid-1"
+    });
+    expect(pinned.inline_keyboard[1]?.[0]).toEqual({
+      text: "Unstar",
+      callback_data: "task:unpin:task-uuid-1"
+    });
   });
 });
 
@@ -73,6 +105,8 @@ function task(overrides: Partial<TaskListItem>): TaskListItem {
     snoozedUntil: overrides.snoozedUntil ?? null,
     lastRemindedAt: overrides.lastRemindedAt ?? null,
     reminderCount: overrides.reminderCount ?? 0,
+    pinnedAt: overrides.pinnedAt ?? null,
+    archivedAt: overrides.archivedAt ?? null,
     createdAt: overrides.createdAt ?? new Date("2026-07-05T00:00:00.000Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-07-05T00:00:00.000Z")
   };

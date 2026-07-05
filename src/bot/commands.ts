@@ -13,6 +13,7 @@ import {
   findTaskReference,
   formatTaskCreated,
   listOpenTasks,
+  renameTaskTitle,
   snoozeTask
 } from "../services/tasks";
 import {
@@ -24,12 +25,15 @@ import {
   formatNoteDetail,
   formatRecentNotes,
   listRecentNotes,
+  renameNoteTitle,
   searchNotes
 } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
-import { semanticSearch } from "../services/search";
+import { parseSearchRequest, semanticSearch } from "../services/search";
+import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
+import { undoLastAction } from "../services/undo";
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
@@ -49,6 +53,11 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("task", async (ctx) => handleTaskDetail(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
   bot.command("snooze", async (ctx) => handleSnooze(ctx));
+  bot.command("undo", async (ctx) => handleUndo(ctx));
+  bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
+  bot.command(["pin", "star"], async (ctx) => handlePin(ctx, true));
+  bot.command(["unpin", "unstar"], async (ctx) => handlePin(ctx, false));
+  bot.command("pins", async (ctx) => handlePins(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command(["relationship", "reflect"], async (ctx) => handleRelationship(ctx, ai));
   bot.command("settings", async (ctx) => handleSettings(ctx));
@@ -62,7 +71,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "idea");
   if (!text) {
-    await ctx.reply("Usage: /idea build a bot that...");
+    await ctx.reply("Send it like this: /idea build a bot that...");
     return;
   }
 
@@ -74,7 +83,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "note");
   if (!text) {
-    await ctx.reply("Usage: /note important thing I want to remember... or /note NOTE-1");
+    await ctx.reply("Send it like this: /note important thing I want to remember... or /note NOTE-1");
     return;
   }
 
@@ -83,7 +92,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
       const note = await findNote(user.id, normalizePublicId(text));
       await replyHtml(ctx, formatNoteDetail(note));
     } catch {
-      await ctx.reply("I couldn't find that note. Run /notes to see recent notes.");
+      await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
     }
     return;
   }
@@ -115,26 +124,26 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "add");
   if (!text) {
-    await ctx.reply("Usage: /add pay invoice tomorrow at 9am");
+    await ctx.reply("Send it like this: /add pay invoice tomorrow at 9am");
     return;
   }
 
   const task = await createTask(user.id, text, ai);
-  await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task.id) });
+  await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task) });
 }
 
 async function handleRemind(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "remind");
   if (!body) {
-    await ctx.reply("Usage: /remind tomorrow at 9am | submit the form");
+    await ctx.reply("Send it like this: /remind tomorrow at 9am | submit the form");
     return;
   }
 
   const parsed = splitReminderText(body);
   const settings = user.settings;
   if (!settings) {
-    await ctx.reply("Your reminder settings are missing. Try /start once, then /remind again.");
+    await ctx.reply("Your reminder settings are missing. Try /start once, then send the reminder again.");
     return;
   }
 
@@ -142,7 +151,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   if (!parsed || !scheduledAt) {
     await ctx.reply(
       [
-        "I couldn't find a reminder time.",
+        "I couldn't find a reminder time in that.",
         "",
         "Try:",
         "/remind tomorrow at 9am | submit the form",
@@ -155,12 +164,12 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   }
 
   if (scheduledAt.getTime() <= Date.now()) {
-    await ctx.reply("That reminder time is in the past. Pick a future time.");
+    await ctx.reply("That reminder time has already passed. Pick a future time and I'll catch it.");
     return;
   }
 
   const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
-  await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task.id) });
+  await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task) });
 }
 
 async function handleTasks(ctx: Context) {
@@ -174,7 +183,7 @@ async function handleTaskDetail(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "task");
   if (!id) {
-    await ctx.reply("Usage: /task 1 or /task TASK-1");
+    await ctx.reply("Send it like this: /task 1 or /task TASK-1");
     return;
   }
 
@@ -189,7 +198,8 @@ async function handleTaskDetail(ctx: Context) {
             quietHoursStart: user.settings.quietHoursStart,
             quietHoursEnd: user.settings.quietHoursEnd
           }
-        : undefined)
+        : undefined),
+      { reply_markup: taskActionsKeyboard(task) }
     );
   } catch (error) {
     await ctx.reply(taskLookupError(error));
@@ -200,13 +210,13 @@ async function handleDone(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "done");
   if (!id) {
-    await ctx.reply("Usage: /done 1 or /done TASK-1");
+    await ctx.reply("Send it like this: /done 1 or /done TASK-1");
     return;
   }
 
   try {
     const task = await completeTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${bold("Completed")} ${code(task.publicId)} ${h(task.title)}`);
+    await replyHtml(ctx, `${bold("Done")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if that was too quick.`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -217,16 +227,76 @@ async function handleSnooze(ctx: Context) {
   const body = commandBody(ctx.message?.text ?? "", "snooze");
   const [id, ...durationParts] = body.split(/\s+/).filter(Boolean);
   if (!id) {
-    await ctx.reply("Usage: /snooze 1 1h or /snooze TASK-1 1h");
+    await ctx.reply("Send it like this: /snooze 1 1h or /snooze TASK-1 1h");
     return;
   }
 
   try {
     const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`);
+    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
+}
+
+async function handleUndo(ctx: Context) {
+  const user = await ensureUser(ctx);
+  await replyHtml(ctx, await undoLastAction(user.id));
+}
+
+async function handleRename(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const command = ctx.message?.text?.startsWith("/edit") ? "edit" : "rename";
+  const body = commandBody(ctx.message?.text ?? "", command);
+  const [reference, ...titleParts] = body.split(/\s+/).filter(Boolean);
+  const title = titleParts.join(" ").trim();
+
+  if (!reference || !title) {
+    await ctx.reply(`Send it like this: /${command} 1 Follow up with Alex or /${command} NOTE-1 Deployment notes`);
+    return;
+  }
+
+  try {
+    if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-")) {
+      const task = await renameTaskTitle(user.id, normalizePublicId(reference), title);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`);
+      return;
+    }
+
+    if (reference.toUpperCase().startsWith("NOTE-")) {
+      const note = await renameNoteTitle(user.id, normalizePublicId(reference), title);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
+      return;
+    }
+
+    await ctx.reply("I can rename tasks and notes for now. Try /rename 1 New title or /rename NOTE-1 New title.");
+  } catch (error) {
+    await ctx.reply(taskOrNoteLookupError(error));
+  }
+}
+
+async function handlePin(ctx: Context, shouldPin: boolean) {
+  const user = await ensureUser(ctx);
+  const command = shouldPin
+    ? ctx.message?.text?.startsWith("/star") ? "star" : "pin"
+    : ctx.message?.text?.startsWith("/unstar") ? "unstar" : "unpin";
+  const reference = commandBody(ctx.message?.text ?? "", command);
+  if (!reference) {
+    await ctx.reply(`Send it like this: /${command} 1, /${command} NOTE-1, or /${command} IDEA-1`);
+    return;
+  }
+
+  try {
+    const item = await pinItem(user.id, normalizePublicId(reference), shouldPin);
+    await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+  } catch {
+    await ctx.reply("I couldn't find that item. Use /tasks, /notes, /pins, or the public ID like IDEA-1.");
+  }
+}
+
+async function handlePins(ctx: Context) {
+  const user = await ensureUser(ctx);
+  await replyHtml(ctx, formatPinnedItems(await listPinnedItems(user.id)));
 }
 
 async function handleCancel(ctx: Context) {
@@ -234,13 +304,13 @@ async function handleCancel(ctx: Context) {
   const command = ctx.message?.text?.startsWith("/delete") ? "delete" : "cancel";
   const id = commandBody(ctx.message?.text ?? "", command);
   if (!id) {
-    await ctx.reply(`Usage: /${command} 1 or /${command} TASK-1`);
+    await ctx.reply(`Send it like this: /${command} 1 or /${command} TASK-1`);
     return;
   }
 
   try {
     const task = await cancelTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${bold("Canceled")} ${code(task.publicId)} ${h(task.title)}`);
+    await replyHtml(ctx, `${bold("Canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -251,7 +321,7 @@ async function handleRelationship(ctx: Context, ai: AiProvider) {
   const command = ctx.message?.text?.startsWith("/reflect") ? "reflect" : "relationship";
   const text = commandBody(ctx.message?.text ?? "", command);
   if (!text) {
-    await ctx.reply("Usage: /relationship here is what happened...");
+    await ctx.reply("Send it like this: /relationship here is what happened...");
     return;
   }
 
@@ -275,19 +345,25 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "search");
   if (!query) {
-    await ctx.reply("Usage: /search reminder bot ideas");
+    await ctx.reply("Send it like this: /search reminder bot ideas or /search notes deployment");
     return;
   }
 
-  const results = await semanticSearch(user.id, query, ai);
-  await replyHtml(ctx, formatSearchResults(results));
+  const parsed = parseSearchRequest(query);
+  if (!parsed.query) {
+    await ctx.reply("Add a query after the filter, like /search notes deployment or /search tasks invoice.");
+    return;
+  }
+
+  const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds);
+  await replyHtml(ctx, formatSearchResults(results, parsed.label));
 }
 
 async function handleScore(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "score");
   if (!id) {
-    await ctx.reply("Usage: /score IDEA-1");
+    await ctx.reply("Send it like this: /score IDEA-1");
     return;
   }
 
@@ -299,7 +375,7 @@ async function handleBrief(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "brief");
   if (!id) {
-    await ctx.reply("Usage: /brief IDEA-1");
+    await ctx.reply("Send it like this: /brief IDEA-1");
     return;
   }
 
@@ -311,7 +387,7 @@ async function handleCalendar(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "calendar");
   if (!id) {
-    await ctx.reply("Usage: /calendar TASK-1");
+    await ctx.reply("Send it like this: /calendar TASK-1 or /calendar 1");
     return;
   }
 
@@ -324,7 +400,7 @@ async function handleCalendar(ctx: Context) {
   }
 
   if (!task.dueAt) {
-    await ctx.reply(`${task.publicId} does not have a due date yet.`);
+    await ctx.reply(`${task.publicId} does not have a due date yet, so there is nothing calendar-shaped to export.`);
     return;
   }
 
@@ -356,5 +432,13 @@ function taskLookupError(error: unknown): string {
     return error.message;
   }
 
-  return "I couldn't find that task. Run /tasks to see the current list.";
+  return "I couldn't find that task. /tasks will show the current list.";
+}
+
+function taskOrNoteLookupError(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("No open task numbered")) {
+    return error.message;
+  }
+
+  return "I couldn't find that task or note. Try /tasks or /notes to check the ID.";
 }

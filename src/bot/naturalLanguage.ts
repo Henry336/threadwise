@@ -2,9 +2,14 @@ import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
+import { createIdea, formatIdeaCreated } from "../services/ideas";
+import { createNote, formatNoteCreated } from "../services/notes";
+import { createTask, formatTaskCreated } from "../services/tasks";
 import { parseDueDate } from "../utils/dates";
-import { bold, h, replyHtml } from "../utils/html";
-import { captureConfirmationKeyboard } from "./keyboards";
+import { bold, code, h, italic, replyHtml } from "../utils/html";
+import { captureConfirmationKeyboard, taskActionsKeyboard } from "./keyboards";
+
+const AUTO_SAVE_CONFIDENCE = 0.88;
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
@@ -19,6 +24,28 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
     if (classification.kind === "noise" || classification.confidence < 0.45) {
       return;
+    }
+
+    if (shouldAutoSave(classification.kind, classification.confidence)) {
+      if (classification.kind === "task") {
+        const task = await createTask(user.id, text, ai);
+        await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
+          reply_markup: taskActionsKeyboard(task)
+        });
+        return;
+      }
+
+      if (classification.kind === "idea") {
+        const idea = await createIdea(user.id, text, ai);
+        await replyHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)));
+        return;
+      }
+
+      if (classification.kind === "note") {
+        const note = await createNote(user.id, text, ai);
+        await replyHtml(ctx, withAutoSaveNote(formatNoteCreated(note)));
+        return;
+      }
     }
 
     const pending = await createPendingCapture(user.id, text, classification);
@@ -40,4 +67,12 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       reply_markup: captureConfirmationKeyboard(pending.id)
     });
   });
+}
+
+function shouldAutoSave(kind: string, confidence: number): boolean {
+  return confidence >= AUTO_SAVE_CONFIDENCE && (kind === "task" || kind === "idea" || kind === "note");
+}
+
+function withAutoSaveNote(message: string): string {
+  return [message, "", `${italic("I saved that automatically because it looked clear.")} ${code("/undo")} ${italic("if I guessed wrong.")}`].join("\n");
 }

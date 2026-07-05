@@ -8,6 +8,7 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Store all durable state in PostgreSQL.
 - Treat AI as an adapter, not the center of the app.
 - Ask before saving ambiguous natural-language messages.
+- Auto-save only high-confidence task, note, and idea captures, and make them undoable.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
 ## Request Flow
@@ -18,6 +19,8 @@ Threadwise is intentionally split into small modules so future contributors can 
 4. Services read/write through Prisma.
 5. AI calls happen only through the `AiProvider` interface.
 6. Replies are formatted by bot formatter helpers.
+
+Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
 ## Reminder Flow
 
@@ -52,7 +55,8 @@ Search is personal-scale semantic search:
 
 - Generate an embedding for the query.
 - Load recent user items.
-- Compare app-side with cosine similarity.
+- Optionally restrict by item type for commands such as `/search notes deployment`.
+- Compare app-side with cosine similarity and a small lexical fallback for exact title/body matches.
 
 This is intentionally simple. If the dataset grows, move embeddings to pgvector or a vector database without changing command behavior.
 

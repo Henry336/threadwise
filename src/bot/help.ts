@@ -14,12 +14,18 @@ export const HELP_TEXT = [
   `${code("/task <1 or TASK-1>")} - show task details`,
   `${code("/review")} - compact review of tasks, notes, ideas, and reflections`,
   `${code("/search <query>")} - semantic search across saved items`,
+  `${code("/search notes <query>")} - search only notes; also works with tasks, ideas, reflections`,
+  `${code("/pins")} - show pinned tasks, notes, ideas, and reflections`,
   "",
   bold("Finish"),
   `${code("/done <1 or TASK-1>")} - complete a task`,
   `${code("/snooze <1 or TASK-1> 1h")} - snooze a task`,
   `${code("/cancel <1 or TASK-1>")} - cancel a task`,
   `${code("/delete <1 or TASK-1>")} - alias for cancel`,
+  `${code("/undo")} - reverse the last supported change`,
+  `${code("/rename <1 or NOTE-1> <title>")} - rename a task or note`,
+  `${code("/pin <1 or ID>")} - pin an item; /star works too`,
+  `${code("/unpin <1 or ID>")} - remove a pin`,
   "",
   bold("Notes"),
   `${code("/notes")} - list recent notes`,
@@ -47,5 +53,5 @@ export const HELP_TEXT = [
   `${code("/settings max 5")} - set daily reminder cap`,
   `${code("/settings digest on")} - use shorter reminder messages`,
   "",
-  "You can also send a normal message. I will classify it and ask before saving."
+  "You can also send a normal message. Clear tasks, notes, and ideas may save automatically; use /undo if I guessed wrong."
 ].join("\n");

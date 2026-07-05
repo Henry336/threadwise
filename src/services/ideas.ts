@@ -2,25 +2,30 @@ import { prisma } from "../db/prisma";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h } from "../utils/html";
 import { nextPublicId } from "./publicIds";
+import { recordCreateUndo } from "./undo";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
   const embedding = await ai.embed(`${structured.title}\n${structured.concept}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "IDEA");
 
-  return prisma.idea.create({
-    data: {
-      userId,
-      publicId,
-      title: structured.title,
-      concept: structured.concept,
-      problem: structured.problem,
-      targetUser: structured.targetUser,
-      type: structured.type,
-      tags: structured.tags,
-      sourceText,
-      embedding
-    }
+  return prisma.$transaction(async (tx) => {
+    const idea = await tx.idea.create({
+      data: {
+        userId,
+        publicId,
+        title: structured.title,
+        concept: structured.concept,
+        problem: structured.problem,
+        targetUser: structured.targetUser,
+        type: structured.type,
+        tags: structured.tags,
+        sourceText,
+        embedding
+      }
+    });
+    await recordCreateUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title });
+    return idea;
   });
 }
 
@@ -28,6 +33,7 @@ export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProv
   const idea = await prisma.idea.findFirstOrThrow({
     where: {
       userId,
+      archivedAt: null,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     }
   });
@@ -59,6 +65,7 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
   const idea = await prisma.idea.findFirstOrThrow({
     where: {
       userId,
+      archivedAt: null,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     }
   });
@@ -123,7 +130,7 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
 
 export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string; tags: string[] }): string {
   return [
-    `${bold("Saved")} ${code(idea.publicId)} ${h(idea.title)}`,
+    `${bold("Saved idea")} ${code(idea.publicId)} ${h(idea.title)}`,
     "",
     h(idea.concept),
     idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined

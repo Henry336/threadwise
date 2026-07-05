@@ -15,14 +15,14 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Usage: /settings interval 180, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, /settings digest on"
+        "Try /settings interval 180, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, or /settings digest on."
     };
   }
 
   if (setting === "interval") {
     const minutes = Number(value);
     if (!Number.isInteger(minutes) || minutes < 15) {
-      return { message: "Reminder interval must be an integer of at least 15 minutes." };
+      return { message: "Pick a whole-number reminder interval of at least 15 minutes." };
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -49,7 +49,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
   if (setting === "timezone") {
     if (!value) {
-      return { message: "Usage: /settings timezone Asia/Singapore" };
+      return { message: "Send it like this: /settings timezone Asia/Singapore" };
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { timezone: value } });
@@ -68,7 +68,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
     const [start, end] = rest;
     if (!start || !end || !isValidClock(start) || !isValidClock(end)) {
-      return { message: "Usage: /settings quiet 22:00 08:00 or /settings quiet off" };
+      return { message: "Send it like this: /settings quiet 22:00 08:00 or /settings quiet off" };
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { quietHoursStart: start, quietHoursEnd: end } });
@@ -78,7 +78,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (setting === "max") {
     const max = Number(value);
     if (!Number.isInteger(max) || max < 1) {
-      return { message: "Max reminders per day must be at least 1." };
+      return { message: "Pick at least 1 reminder per day." };
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { maxRemindersPerDay: max } });
@@ -94,7 +94,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Digest reminders ${enabled ? "enabled" : "disabled"}.` };
   }
 
-  return { message: `Unknown setting "${field}". Try /settings for examples.` };
+  return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
 }
 
 export async function formatSettings(userId: string): Promise<string> {
@@ -125,7 +125,7 @@ async function rescheduleOpenTasksForInterval(
 ): Promise<number> {
   const now = new Date();
   const tasks = await tx.task.findMany({
-    where: { userId, status: TaskStatus.OPEN },
+    where: { userId, status: TaskStatus.OPEN, archivedAt: null },
     select: {
       id: true,
       dueAt: true,

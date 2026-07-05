@@ -16,10 +16,11 @@ export function formatOpenTasks(
 
   const numbered = tasks.map((task, index) => ({ task, number: index + 1 }));
   const groups = [
-    { title: "Overdue", items: numbered.filter(({ task }) => task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
-    { title: "Today", items: numbered.filter(({ task }) => task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
-    { title: "Later", items: numbered.filter(({ task }) => task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
-    { title: "No due date", items: numbered.filter(({ task }) => !task.dueAt) }
+    { title: "Pinned", items: numbered.filter(({ task }) => task.pinnedAt) },
+    { title: "Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
+    { title: "Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
+    { title: "Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
+    { title: "No due date", items: numbered.filter(({ task }) => !task.pinnedAt && !task.dueAt) }
   ].filter((group) => group.items.length > 0);
 
   return [
@@ -30,7 +31,7 @@ export function formatOpenTasks(
       ...group.items.map(({ task, number }) => formatTaskListItem(task, number, fallbackTimezone)),
       ""
     ]),
-    `${italic("Use")} ${code("/done 1")}, ${code("/snooze 1 1h")}, ${code("/task 1")}, ${italic("or")} ${code("/cancel 1")}.`
+    `${italic("Use")} ${code("/done 1")}, ${code("/snooze 1 1h")}, ${code("/task 1")}, ${code("/pin 1")}, ${italic("or")} ${code("/cancel 1")}.`
   ].join("\n");
 }
 
@@ -48,6 +49,7 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     "",
     task.description ? h(task.description) : undefined,
     `${bold("Status")} ${h(task.status.toLowerCase())}`,
+    task.pinnedAt ? `${bold("Pinned")} yes` : undefined,
     task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : `${bold("Due")} none`,
     task.nextReminderAt ? `${bold("Next reminder")} ${h(formatDateTimeForUser(task.nextReminderAt, timezone))}` : `${bold("Next reminder")} none`,
     settings ? `${bold("Current interval")} ${settings.reminderIntervalMinutes} minutes` : undefined,
@@ -70,13 +72,13 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     .join("\n");
 }
 
-export function formatSearchResults(results: SearchResult[]): string {
+export function formatSearchResults(results: SearchResult[], label?: string): string {
   if (results.length === 0) {
-    return "No close matches yet.";
+    return label ? `No close ${label} matches yet.` : "No close matches yet.";
   }
 
   return [
-    bold("Search results"),
+    bold(label ? `Search results: ${label}` : "Search results"),
     "",
     ...results.map((result) => {
       const percent = Math.round(result.score * 100);
@@ -109,6 +111,10 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
   const lines = [`${number}. ${bold(task.title)}`, `   ${code(task.publicId)}`];
+
+  if (task.pinnedAt) {
+    lines.push(`   ${italic("pinned")}`);
+  }
 
   if (task.dueAt) {
     lines.push(`   ${italic(formatDateTimeForUser(task.dueAt, timezone))}`);
