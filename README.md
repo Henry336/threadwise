@@ -11,13 +11,14 @@ Current deployment: https://threadwise-90du.onrender.com
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
+- Reviews the current inbox with `/review`, including task pressure, recent notes, ideas, and reflections.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges respect quiet hours and reminder caps.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
-- Lets users view, complete, snooze, or cancel tasks with active list numbers, stable IDs, or inline buttons.
+- Lets users view, complete, snooze, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
 - Handles normal messages with natural-language classification and asks before saving them.
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
 - Searches ideas, notes, tasks, and reflections semantically with `/search`.
@@ -37,6 +38,7 @@ Current deployment: https://threadwise-90du.onrender.com
 /notes
 /notes deployment reliability
 /note-analysis
+/review
 /add pay invoice tomorrow at 9am
 /remind tomorrow at 9am | submit the form
 /tasks
@@ -58,6 +60,7 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings interval 180
 /settings timezone Asia/Singapore
 /settings quiet 22:00 08:00
+/settings quiet off
 /settings max 5
 /settings digest on
 ```

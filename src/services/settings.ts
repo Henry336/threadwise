@@ -7,13 +7,17 @@ export type SettingsUpdateResult = {
 
 export async function updateSetting(userId: string, args: string[]): Promise<SettingsUpdateResult> {
   const [field, ...rest] = args;
+  const setting = field?.toLowerCase();
   const value = rest.join(" ").trim();
 
-  if (!field) {
-    return { message: "Usage: /settings interval 180, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings max 5, /settings digest on" };
+  if (!setting) {
+    return {
+      message:
+        "Usage: /settings interval 180, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, /settings digest on"
+    };
   }
 
-  if (field === "interval") {
+  if (setting === "interval") {
     const minutes = Number(value);
     if (!Number.isInteger(minutes) || minutes < 15) {
       return { message: "Reminder interval must be an integer of at least 15 minutes." };
@@ -23,7 +27,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Reminder interval set to ${minutes} minutes.` };
   }
 
-  if (field === "timezone") {
+  if (setting === "timezone") {
     if (!value) {
       return { message: "Usage: /settings timezone Asia/Singapore" };
     }
@@ -32,17 +36,22 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Timezone set to ${value}.` };
   }
 
-  if (field === "quiet") {
+  if (setting === "quiet") {
+    if (value.toLowerCase() === "off") {
+      await prisma.userSettings.update({ where: { userId }, data: { quietHoursStart: null, quietHoursEnd: null } });
+      return { message: "Quiet hours turned off." };
+    }
+
     const [start, end] = rest;
-    if (!start || !end || !/^\d{1,2}:\d{2}$/.test(start) || !/^\d{1,2}:\d{2}$/.test(end)) {
-      return { message: "Usage: /settings quiet 22:00 08:00" };
+    if (!start || !end || !isValidClock(start) || !isValidClock(end)) {
+      return { message: "Usage: /settings quiet 22:00 08:00 or /settings quiet off" };
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { quietHoursStart: start, quietHoursEnd: end } });
     return { message: `Quiet hours set to ${start}-${end}.` };
   }
 
-  if (field === "max") {
+  if (setting === "max") {
     const max = Number(value);
     if (!Number.isInteger(max) || max < 1) {
       return { message: "Max reminders per day must be at least 1." };
@@ -52,7 +61,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Max reminders per day set to ${max}.` };
   }
 
-  if (field === "digest") {
+  if (setting === "digest") {
     const enabled = value.toLowerCase() === "on";
     await prisma.userSettings.update({
       where: { userId },
@@ -70,7 +79,7 @@ export async function formatSettings(userId: string): Promise<string> {
     "Threadwise settings",
     `Reminder interval: ${settings.reminderIntervalMinutes} minutes`,
     `Timezone: ${settings.timezone}`,
-    `Quiet hours: ${settings.quietHoursStart ?? "off"}-${settings.quietHoursEnd ?? "off"}`,
+    `Quiet hours: ${settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off"}`,
     `Max reminders/day: ${settings.maxRemindersPerDay}`,
     `Reminder mode: ${settings.reminderMode.toLowerCase()}`,
     "",
@@ -78,8 +87,19 @@ export async function formatSettings(userId: string): Promise<string> {
     "/settings interval 180",
     "/settings timezone Asia/Singapore",
     "/settings quiet 22:00 08:00",
+    "/settings quiet off",
     "/settings max 5",
     "/settings digest on"
   ].join("\n");
 }
 
+function isValidClock(value: string): boolean {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match?.[1] || !match[2]) {
+    return false;
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}

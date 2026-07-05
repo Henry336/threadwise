@@ -27,11 +27,12 @@ import {
   searchNotes
 } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
+import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { semanticSearch } from "../services/search";
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
-import { taskActionsKeyboard } from "./keyboards";
+import { taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
@@ -40,6 +41,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("note", async (ctx) => handleNote(ctx, ai));
   bot.command("notes", async (ctx) => handleNotes(ctx));
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
+  bot.command("review", async (ctx) => handleReview(ctx));
   bot.command("add", async (ctx) => handleAdd(ctx, ai));
   bot.command("remind", async (ctx) => handleRemind(ctx, ai));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
@@ -102,6 +104,12 @@ async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
   await ctx.reply(formatNoteAnalysis(analysis));
 }
 
+async function handleReview(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const review = await buildReview(user.id, user.settings?.timezone ?? "UTC");
+  await ctx.reply(review);
+}
+
 async function handleAdd(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "add");
@@ -157,7 +165,8 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 async function handleTasks(ctx: Context) {
   const user = await ensureUser(ctx);
   const tasks = await listOpenTasks(user.id);
-  await ctx.reply(formatOpenTasks(tasks, user.settings?.timezone));
+  const keyboard = taskListKeyboard(tasks);
+  await ctx.reply(formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
 }
 
 async function handleTaskDetail(ctx: Context) {

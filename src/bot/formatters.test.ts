@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks } from "./formatters";
+import { taskListKeyboard } from "./keyboards";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -32,6 +33,20 @@ describe("bot formatters", () => {
 
     expect(message).toContain("Overdue");
     expect(message).toContain("No due date");
+  });
+
+  it("builds inline action buttons for numbered open tasks", () => {
+    const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })]);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
+      text: "Done 1",
+      callback_data: "task:done:task-uuid-1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
+      text: "Snooze 1",
+      callback_data: "task:snooze:task-uuid-1"
+    });
+    expect(keyboard?.inline_keyboard).toHaveLength(1);
   });
 });
 
