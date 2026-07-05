@@ -29,6 +29,32 @@ export async function listRecentNotes(userId: string) {
   });
 }
 
+export async function searchNotes(userId: string, query: string) {
+  return prisma.note.findMany({
+    where: {
+      userId,
+      OR: [
+        { publicId: { equals: query.toUpperCase() } },
+        { title: { contains: query, mode: "insensitive" } },
+        { summary: { contains: query, mode: "insensitive" } },
+        { body: { contains: query, mode: "insensitive" } },
+        { sourceText: { contains: query, mode: "insensitive" } }
+      ]
+    },
+    orderBy: { createdAt: "desc" },
+    take: 15
+  });
+}
+
+export async function findNote(userId: string, publicId: string) {
+  return prisma.note.findFirstOrThrow({
+    where: {
+      userId,
+      publicId: publicId.toUpperCase()
+    }
+  });
+}
+
 export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
   const notes = await prisma.note.findMany({
     where: { userId },
@@ -71,6 +97,20 @@ export function formatRecentNotes(notes: Array<{ publicId: string; title: string
       return `${note.publicId}: ${note.title}${tags}\n${note.summary}`;
     })
   ].join("\n\n");
+}
+
+export function formatNoteDetail(note: { publicId: string; title: string; body: string; summary: string; tags: string[]; createdAt: Date }): string {
+  return [
+    `${note.publicId}: ${note.title}`,
+    "",
+    note.body,
+    "",
+    `Summary: ${note.summary}`,
+    note.tags.length ? `Tags: ${note.tags.join(", ")}` : undefined,
+    `Saved: ${note.createdAt.toLocaleString()}`
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function formatNoteAnalysis(analysis: {

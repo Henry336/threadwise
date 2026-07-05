@@ -5,13 +5,32 @@ import { HELP_TEXT } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
-import { createScheduledReminder, createTask, completeTask, findTask, formatTaskCreated, listOpenTasks, snoozeTask } from "../services/tasks";
-import { analyzeNoteStyle, createNote, formatNoteAnalysis, formatNoteCreated, formatRecentNotes, listRecentNotes } from "../services/notes";
+import {
+  cancelTask,
+  createScheduledReminder,
+  createTask,
+  completeTask,
+  findTaskReference,
+  formatTaskCreated,
+  listOpenTasks,
+  snoozeTask
+} from "../services/tasks";
+import {
+  analyzeNoteStyle,
+  createNote,
+  findNote,
+  formatNoteAnalysis,
+  formatNoteCreated,
+  formatNoteDetail,
+  formatRecentNotes,
+  listRecentNotes,
+  searchNotes
+} from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 import { formatSettings, updateSetting } from "../services/settings";
 import { semanticSearch } from "../services/search";
 import { createIcs } from "../services/calendar";
-import { formatIdeaScore, formatOpenTasks, formatSearchResults } from "./formatters";
+import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
 import { taskActionsKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
@@ -24,8 +43,10 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("add", async (ctx) => handleAdd(ctx, ai));
   bot.command("remind", async (ctx) => handleRemind(ctx, ai));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
+  bot.command("task", async (ctx) => handleTaskDetail(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
   bot.command("snooze", async (ctx) => handleSnooze(ctx));
+  bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command(["relationship", "reflect"], async (ctx) => handleRelationship(ctx, ai));
   bot.command("settings", async (ctx) => handleSettings(ctx));
   bot.command("search", async (ctx) => handleSearch(ctx, ai));
@@ -50,7 +71,17 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "note");
   if (!text) {
-    await ctx.reply("Usage: /note important thing I want to remember...");
+    await ctx.reply("Usage: /note important thing I want to remember... or /note NOTE-1");
+    return;
+  }
+
+  if (/^NOTE-\d+$/i.test(text)) {
+    try {
+      const note = await findNote(user.id, normalizePublicId(text));
+      await ctx.reply(formatNoteDetail(note));
+    } catch {
+      await ctx.reply("I couldn't find that note. Run /notes to see recent notes.");
+    }
     return;
   }
 
@@ -60,7 +91,8 @@ async function handleNote(ctx: Context, ai: AiProvider) {
 
 async function handleNotes(ctx: Context) {
   const user = await ensureUser(ctx);
-  const notes = await listRecentNotes(user.id);
+  const query = commandBody(ctx.message?.text ?? "", "notes");
+  const notes = query ? await searchNotes(user.id, query) : await listRecentNotes(user.id);
   await ctx.reply(formatRecentNotes(notes));
 }
 
@@ -128,16 +160,36 @@ async function handleTasks(ctx: Context) {
   await ctx.reply(formatOpenTasks(tasks, user.settings?.timezone));
 }
 
+async function handleTaskDetail(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const id = commandBody(ctx.message?.text ?? "", "task");
+  if (!id) {
+    await ctx.reply("Usage: /task 1 or /task TASK-1");
+    return;
+  }
+
+  try {
+    const task = await findTaskReference(user.id, normalizePublicId(id));
+    await ctx.reply(formatTaskDetail(task, user.settings?.timezone));
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
+  }
+}
+
 async function handleDone(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "done");
   if (!id) {
-    await ctx.reply("Usage: /done TASK-1");
+    await ctx.reply("Usage: /done 1 or /done TASK-1");
     return;
   }
 
-  const task = await completeTask(user.id, normalizePublicId(id));
-  await ctx.reply(`Completed ${task.publicId}: ${task.title}`);
+  try {
+    const task = await completeTask(user.id, normalizePublicId(id));
+    await ctx.reply(`Completed ${task.publicId}: ${task.title}`);
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
+  }
 }
 
 async function handleSnooze(ctx: Context) {
@@ -145,12 +197,33 @@ async function handleSnooze(ctx: Context) {
   const body = commandBody(ctx.message?.text ?? "", "snooze");
   const [id, ...durationParts] = body.split(/\s+/).filter(Boolean);
   if (!id) {
-    await ctx.reply("Usage: /snooze TASK-1 1h");
+    await ctx.reply("Usage: /snooze 1 1h or /snooze TASK-1 1h");
     return;
   }
 
-  const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-  await ctx.reply(`Snoozed ${task.publicId}: ${task.title}`);
+  try {
+    const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
+    await ctx.reply(`Snoozed ${task.publicId}: ${task.title}`);
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
+  }
+}
+
+async function handleCancel(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const command = ctx.message?.text?.startsWith("/delete") ? "delete" : "cancel";
+  const id = commandBody(ctx.message?.text ?? "", command);
+  if (!id) {
+    await ctx.reply(`Usage: /${command} 1 or /${command} TASK-1`);
+    return;
+  }
+
+  try {
+    const task = await cancelTask(user.id, normalizePublicId(id));
+    await ctx.reply(`Canceled ${task.publicId}: ${task.title}`);
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
+  }
 }
 
 async function handleRelationship(ctx: Context, ai: AiProvider) {
@@ -222,7 +295,14 @@ async function handleCalendar(ctx: Context) {
     return;
   }
 
-  const task = await findTask(user.id, normalizePublicId(id));
+  let task;
+  try {
+    task = await findTaskReference(user.id, normalizePublicId(id));
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
+    return;
+  }
+
   if (!task.dueAt) {
     await ctx.reply(`${task.publicId} does not have a due date yet.`);
     return;
@@ -244,4 +324,12 @@ async function replyInChunks(ctx: Context, text: string) {
   for (let start = 0; start < text.length; start += maxLength) {
     await ctx.reply(text.slice(start, start + maxLength));
   }
+}
+
+function taskLookupError(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("No open task numbered")) {
+    return error.message;
+  }
+
+  return "I couldn't find that task. Run /tasks to see the current list.";
 }

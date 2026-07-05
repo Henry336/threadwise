@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { ReminderMode, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
-import { isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
+import { formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
 import { taskActionsKeyboard } from "../bot/keyboards";
 
 export async function sendDueReminders(bot: Bot): Promise<number> {
@@ -29,7 +29,16 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
       continue;
     }
 
-    if (isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })) {
+    const isInitialScheduledReminder = shouldBypassReminderLimits({
+      dueAt: task.dueAt,
+      lastRemindedAt: task.lastRemindedAt,
+      reminderCount: task.reminderCount
+    });
+
+    if (
+      !isInitialScheduledReminder &&
+      isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })
+    ) {
       await prisma.task.update({
         where: { id: task.id },
         data: { nextReminderAt: nextQuietEnd(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd }) }
@@ -44,7 +53,7 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
       }
     });
 
-    if (remindersToday >= settings.maxRemindersPerDay) {
+    if (!isInitialScheduledReminder && remindersToday >= settings.maxRemindersPerDay) {
       await prisma.task.update({
         where: { id: task.id },
         data: { nextReminderAt: new Date(now.getTime() + settings.reminderIntervalMinutes * 60_000) }
@@ -53,10 +62,11 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
     }
 
     const chatId = settings.reminderChatId ?? task.user.telegramId;
+    const dueLine = task.dueAt ? `\nDue: ${formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)}` : "";
     const message =
       settings.reminderMode === ReminderMode.DIGEST
-        ? `Threadwise reminder: ${task.publicId} is still open.\n\n${task.title}`
-        : `Still open: ${task.publicId}\n\n${task.title}\n\nI'll keep nudging you until this is done.`;
+        ? `Threadwise reminder: ${task.publicId}\n\n${task.title}${dueLine}`
+        : `Still open: ${task.publicId}\n\n${task.title}${dueLine}\n\nI'll keep nudging you until this is done.`;
 
     try {
       const sentMessage = await bot.api.sendMessage(chatId, message, {
@@ -95,6 +105,10 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
   return sent;
 }
 
+export function shouldBypassReminderLimits(task: { dueAt?: Date | null; lastRemindedAt?: Date | null; reminderCount: number }): boolean {
+  return Boolean(task.dueAt && !task.lastRemindedAt && task.reminderCount === 0);
+}
+
 export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {
   const interval = setInterval(() => {
     sendDueReminders(bot).catch((error) => logger.error("Reminder loop failed.", { error: String(error) }));
@@ -103,4 +117,3 @@ export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {
   void sendDueReminders(bot).catch((error) => logger.error("Initial reminder pass failed.", { error: String(error) }));
   return interval;
 }
-

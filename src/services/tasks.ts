@@ -5,6 +5,21 @@ import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../ut
 import { createGoogleCalendarUrl } from "./calendar";
 import { nextPublicId } from "./publicIds";
 
+export type TaskListItem = {
+  id: string;
+  publicId: string;
+  title: string;
+  description?: string | null;
+  sourceText: string;
+  status: TaskStatus;
+  dueAt?: Date | null;
+  timezone?: string | null;
+  calendarUrl?: string | null;
+  reminderCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 export async function createTask(userId: string, sourceText: string, ai: AiProvider) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
@@ -80,16 +95,18 @@ export async function createScheduledReminder(userId: string, sourceText: string
   });
 }
 
-export async function listOpenTasks(userId: string) {
-  return prisma.task.findMany({
+export async function listOpenTasks(userId: string, take = 50): Promise<TaskListItem[]> {
+  const tasks = await prisma.task.findMany({
     where: { userId, status: TaskStatus.OPEN },
     orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
-    take: 20
+    take
   });
+
+  return sortTasksForDisplay(tasks);
 }
 
-export async function completeTask(userId: string, publicOrUuid: string) {
-  const task = await findTask(userId, publicOrUuid);
+export async function completeTask(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
   return prisma.task.update({
     where: { id: task.id },
     data: {
@@ -101,8 +118,8 @@ export async function completeTask(userId: string, publicOrUuid: string) {
   });
 }
 
-export async function snoozeTask(userId: string, publicOrUuid: string, durationText?: string) {
-  const task = await findTask(userId, publicOrUuid);
+export async function snoozeTask(userId: string, reference: string, durationText?: string) {
+  const task = await findTaskReference(userId, reference);
   const minutes = parseDurationMinutes(durationText ?? "", 60);
   const until = new Date(Date.now() + minutes * 60_000);
 
@@ -115,12 +132,53 @@ export async function snoozeTask(userId: string, publicOrUuid: string, durationT
   });
 }
 
+export async function cancelTask(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
+  return prisma.task.update({
+    where: { id: task.id },
+    data: {
+      status: TaskStatus.CANCELED,
+      nextReminderAt: null,
+      snoozedUntil: null
+    }
+  });
+}
+
 export async function findTask(userId: string, publicOrUuid: string) {
   return prisma.task.findFirstOrThrow({
     where: {
       userId,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     }
+  });
+}
+
+export async function findTaskReference(userId: string, reference: string): Promise<TaskListItem> {
+  const normalized = reference.trim();
+  const activeIndex = Number(normalized);
+  if (Number.isInteger(activeIndex) && activeIndex > 0) {
+    const tasks = await listOpenTasks(userId);
+    const task = tasks[activeIndex - 1];
+    if (!task) {
+      throw new Error(`No open task numbered ${activeIndex}. Run /tasks to see the current list.`);
+    }
+    return task;
+  }
+
+  return findTask(userId, normalized);
+}
+
+export function sortTasksForDisplay<T extends { dueAt?: Date | null; createdAt: Date }>(tasks: T[]): T[] {
+  return [...tasks].sort((a, b) => {
+    if (a.dueAt && b.dueAt) {
+      const dueDiff = a.dueAt.getTime() - b.dueAt.getTime();
+      if (dueDiff !== 0) return dueDiff;
+    }
+
+    if (a.dueAt && !b.dueAt) return -1;
+    if (!a.dueAt && b.dueAt) return 1;
+
+    return a.createdAt.getTime() - b.createdAt.getTime();
   });
 }
 

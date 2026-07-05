@@ -10,11 +10,14 @@ Current deployment: https://threadwise-90du.onrender.com
 
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
+- Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
+- Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges respect quiet hours and reminder caps.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
-- Lets users complete or snooze tasks with commands or inline buttons.
+- Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
+- Lets users view, complete, snooze, or cancel tasks with active list numbers, stable IDs, or inline buttons.
 - Handles normal messages with natural-language classification and asks before saving them.
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
 - Searches ideas, notes, tasks, and reflections semantically with `/search`.
@@ -30,19 +33,27 @@ Current deployment: https://threadwise-90du.onrender.com
 /help
 /idea build a Telegram bot that...
 /note Remember that deployment reliability depends on avoiding sleeping workers
+/note NOTE-1
 /notes
+/notes deployment reliability
 /note-analysis
 /add pay invoice tomorrow at 9am
 /remind tomorrow at 9am | submit the form
 /tasks
+/task 1
 /done TASK-1
+/done 1
 /snooze TASK-1 1h
+/snooze 1 1h
+/cancel 1
+/delete TASK-1
 /relationship here is what happened...
 /reflect here is what happened...
 /search reminder bot ideas
 /score IDEA-1
 /brief IDEA-1
 /calendar TASK-1
+/calendar 1
 /settings
 /settings interval 180
 /settings timezone Asia/Singapore
@@ -52,6 +63,8 @@ Current deployment: https://threadwise-90du.onrender.com
 ```
 
 Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then asks for confirmation before saving.
+
+`TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 
