@@ -38,6 +38,26 @@ export type StructuredNote = {
   tags: string[];
 };
 
+export type NoteForMerge = {
+  publicId: string;
+  title: string;
+  body: string;
+  summary: string;
+  tags: string[];
+  sourceText: string;
+  createdAt: string;
+};
+
+export type MergedNotePreview = {
+  title: string;
+  body: string;
+  summary: string;
+  tags: string[];
+  connections: string[];
+  preservedDetails: string[];
+  possibleMissingContext: string[];
+};
+
 export type NoteForAnalysis = {
   title: string;
   body: string;
@@ -73,6 +93,7 @@ export interface AiProvider {
   structureIdea(text: string): Promise<StructuredIdea>;
   structureTask(text: string): Promise<StructuredTask>;
   structureNote(text: string): Promise<StructuredNote>;
+  mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt?: number): Promise<MergedNotePreview>;
   analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis>;
   adviseOnReflection(text: string): Promise<ReflectionAdvice>;
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore>;

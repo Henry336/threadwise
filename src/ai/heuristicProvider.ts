@@ -4,8 +4,10 @@ import type {
   AiProvider,
   Classification,
   IdeaScore,
+  MergedNotePreview,
   NoteAnalysis,
   NoteForAnalysis,
+  NoteForMerge,
   ReflectionAdvice,
   StructuredIdea,
   StructuredNote,
@@ -94,6 +96,35 @@ export class HeuristicAiProvider implements AiProvider {
       body: text.trim().replace(/\s+/g, " "),
       summary: summarize(text, 160),
       tags: inferTags(text)
+    };
+  }
+
+  async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
+    const tags = [...new Set(notes.flatMap((note) => note.tags))].slice(0, 6);
+    const title =
+      attempt > 1
+        ? `Connected Notes: ${notes.map((note) => note.publicId).join(", ")}`
+        : `Merged Notes: ${notes.map((note) => note.publicId).join(", ")}`;
+    const body = [
+      notes.map((note) => `${note.title}\n${note.body}`).join("\n\n"),
+      attempt > 1 && previousPreview
+        ? `\nConnection pass: The earlier preview was refined by keeping each source note visible and checking for details that may have been flattened.`
+        : undefined
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return {
+      title,
+      body,
+      summary: summarize(notes.map((note) => note.summary).join(" "), 180),
+      tags,
+      connections:
+        notes.length > 1
+          ? ["These notes were selected together, so the merged note keeps them in one retrieval path.", "Shared tags and repeated wording are treated as likely connections."]
+          : ["Single-note merge keeps the content cleaner without changing its meaning."],
+      preservedDetails: notes.map((note) => `${note.publicId}: ${summarize(note.sourceText || note.body, 140)}`),
+      possibleMissingContext: attempt > 1 ? ["Review whether the connection pass changed emphasis from the original notes."] : []
     };
   }
 

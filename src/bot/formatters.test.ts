@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks } from "./formatters";
-import { taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -85,6 +85,40 @@ describe("bot formatters", () => {
     expect(pinned.inline_keyboard[1]?.[0]).toEqual({
       text: "Unstar",
       callback_data: "task:unpin:task-uuid-1"
+    });
+  });
+
+  it("builds note merge preview controls", () => {
+    const keyboard = noteMergePreviewKeyboard("pending-merge-1");
+
+    expect(keyboard.inline_keyboard[0]?.[0]).toEqual({
+      text: "Merge",
+      callback_data: "merge:confirm:pending-merge-1"
+    });
+    expect(keyboard.inline_keyboard[0]?.[1]).toEqual({
+      text: "Try again",
+      callback_data: "merge:retry:pending-merge-1"
+    });
+    expect(keyboard.inline_keyboard[1]?.[0]).toEqual({
+      text: "Cancel",
+      callback_data: "merge:cancel:pending-merge-1"
+    });
+  });
+
+  it("builds archived pagination controls", () => {
+    const keyboard = archivedPageKeyboard("notes", 2, 4);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
+      text: "Prev",
+      callback_data: "archived:notes:1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
+      text: "Page 2/4",
+      callback_data: "archived:notes:2"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
+      text: "Next",
+      callback_data: "archived:notes:3"
     });
   });
 });

@@ -9,6 +9,7 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Treat AI as an adapter, not the center of the app.
 - Ask before saving ambiguous natural-language messages.
 - Auto-save only high-confidence task, note, and idea captures, and make them undoable.
+- Treat destructive-looking operations, such as note merging, as preview-and-confirm flows.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
 ## Request Flow
@@ -21,6 +22,8 @@ Threadwise is intentionally split into small modules so future contributors can 
 6. Replies are formatted by bot formatter helpers.
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
+
+Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
 ## Reminder Flow
 
@@ -59,6 +62,10 @@ Search is personal-scale semantic search:
 - Compare app-side with cosine similarity and a small lexical fallback for exact title/body matches.
 
 This is intentionally simple. If the dataset grows, move embeddings to pgvector or a vector database without changing command behavior.
+
+## Archives
+
+Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archived <type>` pages through archived notes, ideas, tasks, and reflections.
 
 ## Calendar Integration
 

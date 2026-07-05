@@ -8,6 +8,7 @@ import { createTask, formatTaskCreated } from "../services/tasks";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
 import { captureConfirmationKeyboard, taskActionsKeyboard } from "./keyboards";
+import { handleNaturalCommand } from "./naturalCommands";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -16,6 +17,15 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
     const text = ctx.message.text;
     if (text.startsWith("/")) {
       await next();
+      return;
+    }
+
+    try {
+      if (await handleNaturalCommand(ctx, ai, text)) {
+        return;
+      }
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't handle that request. Try /help for examples.");
       return;
     }
 

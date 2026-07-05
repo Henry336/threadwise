@@ -32,6 +32,9 @@ export const HELP_TEXT = [
   `${code("/notes <query>")} - search saved notes`,
   `${code("/note NOTE-1")} - show a saved note`,
   `${code("/note-analysis")} - analyze your notekeeping style`,
+  `${code("/merge notes 1 2 3")} - preview a merged note, then confirm or retry`,
+  `${code("/archived notes")} - browse archived notes; also works with ideas, tasks, reflections`,
+  `${code("/restore NOTE-1")} - restore an archived item`,
   "",
   bold("Ideas"),
   `${code("/score IDEA-1")} - score an idea`,
@@ -53,5 +56,5 @@ export const HELP_TEXT = [
   `${code("/settings max 5")} - set daily reminder cap`,
   `${code("/settings digest on")} - use shorter reminder messages`,
   "",
-  "You can also send a normal message. Clear tasks, notes, and ideas may save automatically; use /undo if I guessed wrong."
+  "You can also send a normal message. Clear tasks, notes, ideas, and command-like requests such as merge notes 1 2 3 are handled directly; use /undo if I guessed wrong."
 ].join("\n");

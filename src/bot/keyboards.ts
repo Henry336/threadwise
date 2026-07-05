@@ -46,3 +46,30 @@ export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
     .row()
     .text("Ignore", `capture:ignore:${pendingId}`);
 }
+
+export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Merge", `merge:confirm:${pendingId}`)
+    .text("Try again", `merge:retry:${pendingId}`)
+    .row()
+    .text("Cancel", `merge:cancel:${pendingId}`);
+}
+
+export function archivedPageKeyboard(kind: string, page: number, totalPages: number): InlineKeyboard | undefined {
+  if (totalPages <= 1) {
+    return undefined;
+  }
+
+  const keyboard = new InlineKeyboard();
+  if (page > 1) {
+    keyboard.text("Prev", `archived:${kind}:${page - 1}`);
+  }
+
+  keyboard.text(`Page ${page}/${totalPages}`, `archived:${kind}:${page}`);
+
+  if (page < totalPages) {
+    keyboard.text("Next", `archived:${kind}:${page + 1}`);
+  }
+
+  return keyboard;
+}

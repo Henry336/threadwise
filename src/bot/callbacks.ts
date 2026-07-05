@@ -7,13 +7,17 @@ import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 import { formatPinResult, pinItem } from "../services/pins";
+import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
+import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { taskActionsKeyboard } from "./keyboards";
+import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
+  bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^archived:(notes|ideas|tasks|reflections):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^capture:(task|idea|note|reflection|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
@@ -41,6 +45,47 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Starred" : "Unstarred" });
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+}
+
+async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
+  if (!action || !pendingId) return;
+  const user = await ensureUser(ctx);
+
+  try {
+    if (action === "cancel") {
+      await cancelNoteMerge(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Canceled" });
+      await ctx.reply("Merge canceled. Your notes are unchanged.");
+      return;
+    }
+
+    if (action === "retry") {
+      const result = await retryNoteMergePreview(user.id, pendingId, ai);
+      await ctx.answerCallbackQuery({ text: "New preview" });
+      await replyHtml(ctx, formatNoteMergePreview(result), { reply_markup: noteMergePreviewKeyboard(result.pendingId) });
+      return;
+    }
+
+    const result = await confirmNoteMerge(user.id, pendingId, ai);
+    await ctx.answerCallbackQuery({ text: "Merged" });
+    await replyHtml(ctx, formatNoteMergeConfirmed(result));
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: "Could not finish merge" });
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't finish that merge. Try starting it again from /notes.");
+  }
+}
+
+async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
+  const kind = kindText ? parseArchiveKind(kindText) : undefined;
+  const page = Number(pageText);
+  if (!kind || !Number.isInteger(page)) return;
+
+  const user = await ensureUser(ctx);
+  const archived = await listArchivedItems(user.id, kind, page);
+  await ctx.answerCallbackQuery({ text: `Page ${archived.page}` });
+  await replyHtml(ctx, formatArchivedPage(archived), {
+    reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
+  });
 }
 
 async function handleCapture(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {

@@ -5,8 +5,10 @@ import type {
   AiProvider,
   Classification,
   IdeaScore,
+  MergedNotePreview,
   NoteAnalysis,
   NoteForAnalysis,
+  NoteForMerge,
   ReflectionAdvice,
   StructuredIdea,
   StructuredNote,
@@ -70,6 +72,30 @@ export class OpenAiProvider implements AiProvider {
       summary: text.slice(0, 180),
       tags: []
     });
+  }
+
+  async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
+    const content = await this.jsonCompletion(
+      "Merge rough personal notes into one clearer, more useful note. Return JSON only. Preserve facts, names, dates, caveats, and useful wording. Do not invent details.",
+      [
+        `Attempt: ${attempt}`,
+        "",
+        "Source notes:",
+        JSON.stringify(notes, null, 2),
+        previousPreview ? ["", "Previous preview to improve:", JSON.stringify(previousPreview, null, 2)].join("\n") : "",
+        "",
+        "Return: { \"title\": string, \"body\": string, \"summary\": string, \"tags\": string[], \"connections\": string[], \"preservedDetails\": string[], \"possibleMissingContext\": string[] }",
+        "",
+        "Guidelines:",
+        "- Make the merged note easier to reread later than the originals.",
+        "- Strongly connect related ideas across notes, but label uncertainty instead of pretending.",
+        "- Preserve important details even if they are messy.",
+        "- If this is a retry, improve the connections and check whether the previous preview left out important details.",
+        "- Keep tags sparse and useful."
+      ].join("\n")
+    );
+
+    return safeJsonParse<MergedNotePreview>(content, fallbackMergedNotePreview(notes));
   }
 
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
@@ -145,4 +171,19 @@ export class OpenAiProvider implements AiProvider {
 
     return response.choices[0]?.message.content ?? "{}";
   }
+}
+
+function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {
+  const title = notes.length === 1 ? notes[0]?.title ?? "Merged Note" : `Merged Notes: ${notes.map((note) => note.publicId).join(", ")}`;
+  const body = notes.map((note) => `${note.title}\n${note.body}`).join("\n\n");
+  const tags = [...new Set(notes.flatMap((note) => note.tags))].slice(0, 6);
+  return {
+    title,
+    body,
+    summary: notes.map((note) => note.summary).join(" "),
+    tags,
+    connections: ["These notes were grouped together by the user for later consolidation."],
+    preservedDetails: notes.map((note) => `${note.publicId}: ${note.summary}`),
+    possibleMissingContext: []
+  };
 }

@@ -11,6 +11,7 @@ Current deployment: https://threadwise-90du.onrender.com
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
+- Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, ideas, and reflections.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
@@ -20,7 +21,9 @@ Current deployment: https://threadwise-90du.onrender.com
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
+- Supports undo for confirmed note merges, restoring the original notes and archiving the generated merged note.
 - Pins important tasks, notes, ideas, and reflections with `/pin`, `/star`, and `/pins`.
+- Browses archived notes, ideas, tasks, and reflections with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
 - Handles normal messages with natural-language classification. Clear tasks, notes, and ideas can save automatically with an undo hint; lower-confidence captures and reflections still ask before saving.
@@ -43,6 +46,11 @@ Current deployment: https://threadwise-90du.onrender.com
 /notes
 /notes deployment reliability
 /note-analysis
+/merge notes 1 2 3
+/archived notes
+/archived ideas
+/archived tasks
+/restore NOTE-1
 /review
 /add pay invoice tomorrow at 9am
 /remind tomorrow at 9am | submit the form
@@ -79,13 +87,13 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise classifies them as a possible task, scheduled reminder, idea, note, reflection, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, reflection, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
 
 For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply. Relationship reflections still require confirmation because they are more sensitive and easy to misread.
 
 `TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
 
-Undoing a newly saved capture archives it out of active lists and search instead of hard-deleting the row. That keeps public IDs durable and avoids future items silently reusing an old ID.
+Undoing a newly saved capture archives it out of active lists and search instead of hard-deleting the row. That keeps public IDs durable and avoids future items silently reusing an old ID. Archived items keep an archive reason where available; notes merged into another note also keep the merged-into note reference.
 
 ## Reminder Behavior
 
@@ -140,10 +148,11 @@ Threadwise stores:
 - Tasks
 - Relationship reflections
 - Pending natural-language captures
+- Pending note merge previews
 - Processed Telegram update IDs for webhook de-duplication
 - Reminder delivery history
 - Audit logs
-- Pin and archive timestamps for durable undo and priority views
+- Pin and archive timestamps, archive reasons, and note merge links for durable undo and priority/archive views
 - Embeddings/search vectors as JSON for personal-scale semantic search
 
 The schema is designed so future work can add full Google Calendar OAuth, external search-backed market research, a dashboard, and richer semantic search without replacing the core tables.

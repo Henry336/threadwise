@@ -19,6 +19,7 @@ import {
 import {
   analyzeNoteStyle,
   createNote,
+  findAnyNote,
   findNote,
   formatNoteAnalysis,
   formatNoteCreated,
@@ -34,10 +35,12 @@ import { formatSettings, updateSetting } from "../services/settings";
 import { parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
+import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
+import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
@@ -46,6 +49,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("note", async (ctx) => handleNote(ctx, ai));
   bot.command("notes", async (ctx) => handleNotes(ctx));
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
+  bot.command("merge", async (ctx) => handleMerge(ctx, ai));
   bot.command("review", async (ctx) => handleReview(ctx));
   bot.command("add", async (ctx) => handleAdd(ctx, ai));
   bot.command("remind", async (ctx) => handleRemind(ctx, ai));
@@ -58,6 +62,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["pin", "star"], async (ctx) => handlePin(ctx, true));
   bot.command(["unpin", "unstar"], async (ctx) => handlePin(ctx, false));
   bot.command("pins", async (ctx) => handlePins(ctx));
+  bot.command(["archived", "archives"], async (ctx) => handleArchived(ctx));
+  bot.command("restore", async (ctx) => handleRestore(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command(["relationship", "reflect"], async (ctx) => handleRelationship(ctx, ai));
   bot.command("settings", async (ctx) => handleSettings(ctx));
@@ -92,7 +98,12 @@ async function handleNote(ctx: Context, ai: AiProvider) {
       const note = await findNote(user.id, normalizePublicId(text));
       await replyHtml(ctx, formatNoteDetail(note));
     } catch {
-      await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
+      try {
+        const archivedNote = await findAnyNote(user.id, normalizePublicId(text));
+        await replyHtml(ctx, `${formatNoteDetail(archivedNote)}\n\n${code(archivedNote.archivedAt ? "/restore " + archivedNote.publicId : "/notes")}`);
+      } catch {
+        await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
+      }
     }
     return;
   }
@@ -112,6 +123,25 @@ async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const analysis = await analyzeNoteStyle(user.id, ai);
   await replyHtml(ctx, formatNoteAnalysis(analysis));
+}
+
+async function handleMerge(ctx: Context, ai: AiProvider) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "merge");
+  const [kind, ...references] = body.split(/\s+/).filter(Boolean);
+  if (kind?.toLowerCase() !== "notes" || references.length < 2) {
+    await ctx.reply("Send it like this: /merge notes 1 2 3 or /merge notes NOTE-1 NOTE-2 NOTE-3");
+    return;
+  }
+
+  try {
+    const preview = await createNoteMergePreview(user.id, references.map(normalizePublicId), ai);
+    await replyHtml(ctx, formatNoteMergePreview(preview), {
+      reply_markup: noteMergePreviewKeyboard(preview.pendingId)
+    });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that merge. Try /notes to check the note numbers.");
+  }
 }
 
 async function handleReview(ctx: Context) {
@@ -297,6 +327,35 @@ async function handlePin(ctx: Context, shouldPin: boolean) {
 async function handlePins(ctx: Context) {
   const user = await ensureUser(ctx);
   await replyHtml(ctx, formatPinnedItems(await listPinnedItems(user.id)));
+}
+
+async function handleArchived(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", ctx.message?.text?.startsWith("/archives") ? "archives" : "archived");
+  const [kindText, pageText] = body.split(/\s+/).filter(Boolean);
+  const kind = parseArchiveKind(kindText ?? "");
+  if (!kind) {
+    await ctx.reply("Send it like this: /archived notes, /archived ideas, /archived tasks, or /archived reflections");
+    return;
+  }
+
+  const page = Number(pageText ?? "1");
+  const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
+  await replyHtml(ctx, formatArchivedPage(archived), {
+    reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
+  });
+}
+
+async function handleRestore(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const reference = commandBody(ctx.message?.text ?? "", "restore");
+  if (!reference) {
+    await ctx.reply("Send it like this: /restore NOTE-1, /restore IDEA-1, /restore TASK-1, or /restore REF-1");
+    return;
+  }
+
+  const message = await restoreArchivedItem(user.id, normalizePublicId(reference));
+  await replyHtml(ctx, message ?? "I couldn't find that archived item. Try /archived notes, /archived ideas, or /archived tasks.");
 }
 
 async function handleCancel(ctx: Context) {

@@ -105,6 +105,36 @@ export async function recordPinUndo(
   });
 }
 
+export async function recordNoteMergeUndo(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  mergedNote: UndoTarget,
+  sourceNotes: Array<{
+    id: string;
+    publicId: string;
+    title: string;
+    archivedAt?: Date | null;
+    archivedReason?: string | null;
+    mergedIntoNoteId?: string | null;
+  }>
+): Promise<void> {
+  await recordUndo(tx, userId, "merge-notes", {
+    type: "merge-notes",
+    targetKind: "note",
+    targetId: mergedNote.id,
+    publicId: mergedNote.publicId,
+    title: mergedNote.title,
+    sourceNotes: sourceNotes.map((note) => ({
+      id: note.id,
+      publicId: note.publicId,
+      title: note.title,
+      archivedAt: toIso(note.archivedAt),
+      archivedReason: note.archivedReason ?? null,
+      mergedIntoNoteId: note.mergedIntoNoteId ?? null
+    }))
+  });
+}
+
 export async function undoLastAction(userId: string): Promise<string> {
   const entry = await prisma.auditLog.findFirst({
     where: {
@@ -146,6 +176,10 @@ export async function undoLastAction(userId: string): Promise<string> {
     if (type === "pin") {
       return await undoPin(entry.id, payload);
     }
+
+    if (type === "merge-notes") {
+      return await undoNoteMerge(entry.id, payload);
+    }
   } catch {
     await markUndoConsumed(entry.id, type);
     return "I couldn't undo that cleanly, so I left your data as-is.";
@@ -164,17 +198,18 @@ async function undoCreate(entryId: string, payload: Record<string, unknown>): Pr
         where: { id: target.id, archivedAt: null },
         data: {
           archivedAt,
+          archivedReason: "undo",
           status: TaskStatus.CANCELED,
           nextReminderAt: null,
           snoozedUntil: null
         }
       });
     } else if (target.kind === "note") {
-      await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt } });
+      await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
     } else if (target.kind === "idea") {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt } });
+      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
     } else {
-      await tx.reflection.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt } });
+      await tx.reflection.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
     }
 
     await consumeUndo(tx, entryId, "create");
@@ -273,6 +308,39 @@ async function undoPin(entryId: string, payload: Record<string, unknown>): Promi
     : `${bold("Undone")} Unpinned ${code(target.publicId)}.`;
 }
 
+async function undoNoteMerge(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const target = targetFromPayload(payload);
+  const sourceNotes = sourceNotesFromPayload(payload.sourceNotes);
+  if (target.kind !== "note" || sourceNotes.length === 0) {
+    throw new Error("Invalid merge undo payload.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.note.updateMany({
+      where: { id: target.id, archivedAt: null },
+      data: {
+        archivedAt: new Date(),
+        archivedReason: "undo"
+      }
+    });
+
+    for (const source of sourceNotes) {
+      await tx.note.updateMany({
+        where: { id: source.id },
+        data: {
+          archivedAt: source.archivedAt,
+          archivedReason: source.archivedReason,
+          mergedIntoNoteId: source.mergedIntoNoteId
+        }
+      });
+    }
+
+    await consumeUndo(tx, entryId, "merge-notes");
+  });
+
+  return `${bold("Undone")} Restored ${sourceNotes.map((note) => code(note.publicId)).join(", ")} and archived ${code(target.publicId)}.`;
+}
+
 async function recordUndo(tx: Prisma.TransactionClient, userId: string, type: string, metadata: UndoLogPayload): Promise<void> {
   await tx.auditLog.create({
     data: {
@@ -336,6 +404,35 @@ function targetKindValue(value: unknown): UndoTargetKind | undefined {
   }
 
   return undefined;
+}
+
+function sourceNotesFromPayload(value: unknown): Array<{
+  id: string;
+  publicId: string;
+  archivedAt: Date | null;
+  archivedReason: string | null;
+  mergedIntoNoteId: string | null;
+}> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => asRecord(item))
+    .map((item) => ({
+      id: stringValue(item.id),
+      publicId: stringValue(item.publicId),
+      archivedAt: dateValue(item.archivedAt),
+      archivedReason: stringValue(item.archivedReason) ?? null,
+      mergedIntoNoteId: stringValue(item.mergedIntoNoteId) ?? null
+    }))
+    .filter((item): item is {
+      id: string;
+      publicId: string;
+      archivedAt: Date | null;
+      archivedReason: string | null;
+      mergedIntoNoteId: string | null;
+    } => Boolean(item.id && item.publicId));
 }
 
 function dateValue(value: unknown): Date | null {

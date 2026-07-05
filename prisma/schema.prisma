@@ -51,6 +51,7 @@ model User {
   notes           Note[]
   reflections     Reflection[]
   pendingCaptures PendingCapture[]
+  pendingNoteMerges PendingNoteMerge[]
   reminderHistory ReminderDelivery[]
   auditLogs       AuditLog[]
 }
@@ -90,6 +91,7 @@ model Idea {
   donts          String[]
   pinnedAt       DateTime?
   archivedAt     DateTime?
+  archivedReason String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -121,6 +123,7 @@ model Task {
   calendarUrl              String?
   pinnedAt                 DateTime?
   archivedAt               DateTime?
+  archivedReason           String?
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
@@ -146,15 +149,20 @@ model Note {
   embedding   Json?
   pinnedAt    DateTime?
   archivedAt  DateTime?
+  archivedReason String?
+  mergedIntoNoteId String?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mergedIntoNote Note?    @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
+  mergedSourceNotes Note[] @relation("NoteMerge")
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
+  @@index([userId, mergedIntoNoteId])
 }
 
 model Reflection {
@@ -170,6 +178,7 @@ model Reflection {
   embedding       Json?
   pinnedAt        DateTime?
   archivedAt      DateTime?
+  archivedReason  String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -189,6 +198,21 @@ model PendingCapture {
   payload     Json
   expiresAt   DateTime
   createdAt   DateTime    @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PendingNoteMerge {
+  id          String      @id @default(uuid())
+  userId      String
+  sourceNoteIds String[]
+  preview     Json
+  attemptCount Int        @default(1)
+  expiresAt   DateTime
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 

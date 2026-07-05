@@ -67,6 +67,30 @@ export async function findNote(userId: string, publicId: string) {
   });
 }
 
+export async function findAnyNote(userId: string, publicId: string) {
+  return prisma.note.findFirstOrThrow({
+    where: {
+      userId,
+      publicId: publicId.toUpperCase()
+    }
+  });
+}
+
+export async function findNoteReference(userId: string, reference: string) {
+  const normalized = reference.trim();
+  const activeIndex = Number(normalized);
+  if (Number.isInteger(activeIndex) && activeIndex > 0) {
+    const notes = await listRecentNotes(userId);
+    const note = notes[activeIndex - 1];
+    if (!note) {
+      throw new Error(`No recent note numbered ${activeIndex}. Run /notes to see the current list.`);
+    }
+    return note;
+  }
+
+  return findNote(userId, normalized);
+}
+
 export async function renameNoteTitle(userId: string, publicId: string, title: string) {
   const note = await findNote(userId, publicId);
   const nextTitle = title.trim();
@@ -120,15 +144,24 @@ export function formatRecentNotes(notes: Array<{ publicId: string; title: string
   return [
     bold("Recent notes"),
     "",
-    ...notes.map((note) => {
+    ...notes.map((note, index) => {
       const tags = note.tags.length ? ` ${italic(note.tags.join(", "))}` : "";
       const pin = note.pinnedAt ? `${bold("Pinned")} ` : "";
-      return `${pin}${code(note.publicId)} ${bold(note.title)}${tags}\n${h(note.summary)}`;
+      return `${index + 1}. ${pin}${code(note.publicId)} ${bold(note.title)}${tags}\n${h(note.summary)}`;
     })
   ].join("\n\n");
 }
 
-export function formatNoteDetail(note: { publicId: string; title: string; body: string; summary: string; tags: string[]; createdAt: Date }): string {
+export function formatNoteDetail(note: {
+  publicId: string;
+  title: string;
+  body: string;
+  summary: string;
+  tags: string[];
+  createdAt: Date;
+  archivedAt?: Date | null;
+  archivedReason?: string | null;
+}): string {
   return [
     `${code(note.publicId)} ${bold(note.title)}`,
     "",
@@ -136,6 +169,7 @@ export function formatNoteDetail(note: { publicId: string; title: string; body: 
     "",
     `${bold("Summary")} ${h(note.summary)}`,
     note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined,
+    note.archivedAt ? `${bold("Archived")} ${h(note.archivedAt.toLocaleString())}${note.archivedReason ? ` (${h(note.archivedReason)})` : ""}` : undefined,
     `${bold("Saved")} ${h(note.createdAt.toLocaleString())}`
   ]
     .filter(Boolean)
