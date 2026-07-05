@@ -1,6 +1,8 @@
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h, italic } from "../utils/html";
+import { findIdeaReference } from "./ideas";
+import { findNoteReference } from "./notes";
 import { findTaskReference } from "./tasks";
 import { recordPinUndo } from "./undo";
 
@@ -141,6 +143,47 @@ async function findPinnableItem(userId: string, reference: string): Promise<Pinn
   const normalized = reference.trim();
   if (!normalized) {
     throw new Error("Missing item reference.");
+  }
+
+  const typedNumber = normalized.match(/^(tasks?|notes?|ideas?)\s+(\d+)$/i);
+  if (typedNumber?.[1] && typedNumber[2]) {
+    const kind = typedNumber[1].toLowerCase();
+    if (kind.startsWith("task")) {
+      const task = await findTaskReference(userId, typedNumber[2]);
+      return {
+        kind: "task",
+        id: task.id,
+        publicId: task.publicId,
+        title: task.title,
+        summary: task.description ?? task.sourceText,
+        pinnedAt: task.pinnedAt,
+        createdAt: task.createdAt
+      };
+    }
+
+    if (kind.startsWith("note")) {
+      const note = await findNoteReference(userId, typedNumber[2]);
+      return {
+        kind: "note",
+        id: note.id,
+        publicId: note.publicId,
+        title: note.title,
+        summary: note.summary,
+        pinnedAt: note.pinnedAt,
+        createdAt: note.createdAt
+      };
+    }
+
+    const idea = await findIdeaReference(userId, typedNumber[2]);
+    return {
+      kind: "idea",
+      id: idea.id,
+      publicId: idea.publicId,
+      title: idea.title,
+      summary: idea.concept,
+      pinnedAt: idea.pinnedAt,
+      createdAt: idea.createdAt
+    };
   }
 
   if (/^\d+$/.test(normalized)) {

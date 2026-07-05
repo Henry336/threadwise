@@ -3,8 +3,19 @@ import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { HELP_TEXT } from "./help";
-import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
+import {
+  createIdea,
+  createImplementationBrief,
+  findIdeaReference,
+  formatIdeaCreated,
+  formatIdeaDetail,
+  formatRecentIdeas,
+  listRecentIdeas,
+  renameIdeaTitle,
+  scoreIdea
+} from "../services/ideas";
 import { createNote, findAnyNote, findNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { findNoteReference } from "../services/notes";
 import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, snoozeTask } from "../services/tasks";
 import { createReflection, formatReflection } from "../services/reflections";
 import { buildReview } from "../services/review";
@@ -16,7 +27,7 @@ import { createIcs } from "../services/calendar";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { parseDueDate, splitReminderText } from "../utils/dates";
@@ -49,7 +60,16 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (lower === "notes" || lower === "show notes" || lower === "list notes") {
-    await replyHtml(ctx, formatRecentNotes(await listRecentNotes(user.id)));
+    const notes = await listRecentNotes(user.id);
+    const keyboard = itemListKeyboard("note", notes);
+    await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+    return true;
+  }
+
+  if (lower === "ideas" || lower === "show ideas" || lower === "list ideas") {
+    const ideas = await listRecentIdeas(user.id);
+    const keyboard = itemListKeyboard("idea", ideas);
+    await replyHtml(ctx, formatRecentIdeas(ideas), keyboard ? { reply_markup: keyboard } : undefined);
     return true;
   }
 
@@ -113,16 +133,41 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const viewNoteMatch = trimmed.match(/^note\s+(NOTE-\d+)$/i);
   if (viewNoteMatch?.[1]) {
     try {
-      await replyHtml(ctx, formatNoteDetail(await findNote(user.id, normalizePublicId(viewNoteMatch[1]))));
+      const note = await findNote(user.id, normalizePublicId(viewNoteMatch[1]));
+      await replyHtml(ctx, formatNoteDetail(note), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))));
     }
     return true;
   }
 
+  const viewIdeaMatch = trimmed.match(/^(?:idea|show idea)\s+(\S+)$/i);
+  if (viewIdeaMatch?.[1] && /^(\d+|IDEA-\d+)$/i.test(viewIdeaMatch[1])) {
+    try {
+      const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
+      await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+    } catch {
+      await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
+    }
+    return true;
+  }
+
   const noteSearchMatch = trimmed.match(/^notes\s+(.+)$/i);
   if (noteSearchMatch?.[1]) {
-    await replyHtml(ctx, formatRecentNotes(await searchNotes(user.id, noteSearchMatch[1])));
+    const notes = await searchNotes(user.id, noteSearchMatch[1]);
+    const keyboard = itemListKeyboard("note", notes);
+    await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+    return true;
+  }
+
+  const ideaListMatch = trimmed.match(/^ideas\s+(\d+|IDEA-\d+)$/i);
+  if (ideaListMatch?.[1]) {
+    try {
+      const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
+      await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+    } catch {
+      await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
+    }
     return true;
   }
 
@@ -165,7 +210,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const pinMatch = trimmed.match(/^(pin|star|unpin|unstar)\s+(\S+)$/i);
+  const pinMatch = trimmed.match(/^(pin|star|unpin|unstar)\s+(.+)$/i);
   if (pinMatch?.[1] && pinMatch[2]) {
     const shouldPin = pinMatch[1].toLowerCase() === "pin" || pinMatch[1].toLowerCase() === "star";
     const item = await pinItem(user.id, normalizePublicId(pinMatch[2]), shouldPin);
@@ -173,15 +218,27 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const renameMatch = trimmed.match(/^(?:rename|edit)\s+(\S+)\s+(.+)$/i);
-  if (renameMatch?.[1] && renameMatch[2]) {
-    if (renameMatch[1].toUpperCase().startsWith("NOTE-")) {
-      const note = await renameNoteTitle(user.id, normalizePublicId(renameMatch[1]), renameMatch[2]);
+  const renameMatch = trimmed.match(/^(?:rename|edit)\s+(.+)$/i);
+  const renameParsed = renameMatch?.[1] ? parseReferenceAndTitle(renameMatch[1]) : undefined;
+  if (renameParsed) {
+    if (renameParsed.reference.toUpperCase().startsWith("NOTE-") || renameParsed.reference.toLowerCase().startsWith("note ")) {
+      const noteReference = renameParsed.reference.toLowerCase().startsWith("note ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+      const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
+      const note = await renameNoteTitle(user.id, noteTarget.publicId, renameParsed.title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
       return true;
     }
 
-    const task = await renameTaskTitle(user.id, normalizePublicId(renameMatch[1]), renameMatch[2]);
+    if (renameParsed.reference.toUpperCase().startsWith("IDEA-") || renameParsed.reference.toLowerCase().startsWith("idea ")) {
+      const ideaReference = renameParsed.reference.toLowerCase().startsWith("idea ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+      const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
+      const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, renameParsed.title);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`);
+      return true;
+    }
+
+    const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+    const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), renameParsed.title);
     await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`);
     return true;
   }
@@ -239,7 +296,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const ideaMatch = trimmed.match(/^idea\s+(.+)$/i);
   if (ideaMatch?.[1]) {
-    await replyHtml(ctx, formatIdeaCreated(await createIdea(user.id, ideaMatch[1], ai)));
+    const idea = await createIdea(user.id, ideaMatch[1], ai);
+    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
     return true;
   }
 
@@ -252,7 +310,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const noteMatch = trimmed.match(/^(?:note|save note)\s+(.+)$/i);
   if (noteMatch?.[1]) {
-    await replyHtml(ctx, formatNoteCreated(await createNote(user.id, noteMatch[1], ai)));
+    const note = await createNote(user.id, noteMatch[1], ai);
+    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemActionsKeyboard("note", note) });
     return true;
   }
 
@@ -263,6 +322,27 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   return false;
+}
+
+function parseReferenceAndTitle(body: string): { reference: string; title: string } | undefined {
+  const parts = body.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  const first = parts[0]?.toLowerCase();
+  const second = parts[1];
+  if ((first === "task" || first === "note" || first === "idea") && second && /^(\d+|TASK-\d+|NOTE-\d+|IDEA-\d+)$/i.test(second)) {
+    return {
+      reference: `${first} ${second}`,
+      title: parts.slice(2).join(" ").trim()
+    };
+  }
+
+  return {
+    reference: parts[0] ?? "",
+    title: parts.slice(1).join(" ").trim()
+  };
 }
 
 async function replyInChunks(ctx: Context, text: string) {

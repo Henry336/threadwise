@@ -9,13 +9,16 @@ import { createReflection, formatReflection } from "../services/reflections";
 import { formatPinResult, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
+import { beginPendingItemEdit, formatEditStarted, type EditableItemKind } from "../services/itemEdits";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^archived:(notes|ideas|tasks|reflections):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^capture:(task|idea|note|reflection|ignore):(.+)$/, async (ctx) => {
@@ -47,6 +50,22 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
 }
 
+async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
+  if (!isEditableItemKind(kind) || !itemId) return;
+  const user = await ensureUser(ctx);
+  const item = await pinItem(user.id, itemId, shouldPin);
+  await ctx.answerCallbackQuery({ text: shouldPin ? "Starred" : "Unstarred" });
+  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+}
+
+async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined) {
+  if (!isEditableItemKind(kind) || !itemId) return;
+  const user = await ensureUser(ctx);
+  const item = await beginPendingItemEdit(user.id, kind, itemId);
+  await ctx.answerCallbackQuery({ text: "Ready to edit" });
+  await replyHtml(ctx, formatEditStarted(item));
+}
+
 async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
   if (!action || !pendingId) return;
   const user = await ensureUser(ctx);
@@ -73,6 +92,10 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
     await ctx.answerCallbackQuery({ text: "Could not finish merge" });
     await ctx.reply(error instanceof Error ? error.message : "I couldn't finish that merge. Try starting it again from /notes.");
   }
+}
+
+function isEditableItemKind(kind: string | undefined): kind is EditableItemKind {
+  return kind === "task" || kind === "note" || kind === "idea";
 }
 
 async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
@@ -112,13 +135,17 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "idea") {
     const idea = await createIdea(user.id, pending.sourceText, ai);
-    await replyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`);
+    await replyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`, {
+      reply_markup: itemActionsKeyboard("idea", idea)
+    });
     return;
   }
 
   if (action === "note") {
     const note = await createNote(user.id, pending.sourceText, ai);
-    await replyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`);
+    await replyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`, {
+      reply_markup: itemActionsKeyboard("note", note)
+    });
     return;
   }
 

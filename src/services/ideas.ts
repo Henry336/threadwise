@@ -1,8 +1,9 @@
 import { prisma } from "../db/prisma";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h } from "../utils/html";
+import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
-import { recordCreateUndo } from "./undo";
+import { recordCreateUndo, recordRenameUndo } from "./undo";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
@@ -29,14 +30,59 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
-export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProvider): Promise<{ publicId: string; score: IdeaScore }> {
-  const idea = await prisma.idea.findFirstOrThrow({
+export async function listRecentIdeas(userId: string, take = 15) {
+  const ideas = await prisma.idea.findMany({
+    where: { userId, archivedAt: null },
+    orderBy: { createdAt: "desc" },
+    take
+  });
+
+  return sortPinnedFirst(ideas);
+}
+
+export async function findIdea(userId: string, publicOrUuid: string) {
+  return prisma.idea.findFirstOrThrow({
     where: {
       userId,
       archivedAt: null,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     }
   });
+}
+
+export async function findIdeaReference(userId: string, reference: string) {
+  const normalized = reference.trim();
+  const activeIndex = Number(normalized);
+  if (Number.isInteger(activeIndex) && activeIndex > 0) {
+    const ideas = await listRecentIdeas(userId);
+    const idea = ideas[activeIndex - 1];
+    if (!idea) {
+      throw new Error(`No recent idea numbered ${activeIndex}. Run /ideas to see the current list.`);
+    }
+    return idea;
+  }
+
+  return findIdea(userId, normalized);
+}
+
+export async function renameIdeaTitle(userId: string, publicOrUuid: string, title: string) {
+  const idea = await findIdea(userId, publicOrUuid);
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    throw new Error("Idea title cannot be empty.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await recordRenameUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: nextTitle }, idea.title);
+    return tx.idea.update({
+      where: { id: idea.id },
+      data: { title: nextTitle }
+    });
+  });
+}
+
+export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProvider): Promise<{ publicId: string; score: IdeaScore }> {
+  const idea = await findIdea(userId, publicOrUuid);
 
   const score = await ai.scoreIdea({
     title: idea.title,
@@ -62,13 +108,7 @@ export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProv
 }
 
 export async function createImplementationBrief(userId: string, publicOrUuid: string): Promise<{ publicId: string; prompt: string }> {
-  const idea = await prisma.idea.findFirstOrThrow({
-    where: {
-      userId,
-      archivedAt: null,
-      OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
-    }
-  });
+  const idea = await findIdea(userId, publicOrUuid);
 
   const scores = asRecord(idea.scores);
   const scoreLines = scores
@@ -139,10 +179,65 @@ export function formatIdeaCreated(idea: { publicId: string; title: string; conce
     .join("\n");
 }
 
+export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; tags: string[]; pinnedAt?: Date | null }>): string {
+  if (ideas.length === 0) {
+    return "No saved ideas yet. Send /idea when something starts to sparkle.";
+  }
+
+  return [
+    bold("Recent ideas"),
+    "",
+    ...ideas.map((idea, index) => {
+      const tags = idea.tags.length ? `\n${bold("Tags")} ${h(idea.tags.join(", "))}` : "";
+      const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";
+      return `${index + 1}. ${pin}${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 220))}${tags}`;
+    })
+  ].join("\n\n");
+}
+
+export function formatIdeaDetail(idea: {
+  publicId: string;
+  title: string;
+  concept: string;
+  problem?: string | null;
+  targetUser?: string | null;
+  type?: string | null;
+  tags: string[];
+  pinnedAt?: Date | null;
+  createdAt: Date;
+}): string {
+  return [
+    `${code(idea.publicId)} ${bold(idea.title)}`,
+    "",
+    h(idea.concept),
+    idea.problem ? `${bold("Problem")} ${h(idea.problem)}` : undefined,
+    idea.targetUser ? `${bold("Target user")} ${h(idea.targetUser)}` : undefined,
+    idea.type ? `${bold("Type")} ${h(idea.type)}` : undefined,
+    idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined,
+    idea.pinnedAt ? `${bold("Pinned")} yes` : undefined,
+    `${bold("Saved")} ${h(idea.createdAt.toLocaleString())}`
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
 
   return value as Record<string, unknown>;
+}
+
+function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    if (a.pinnedAt && b.pinnedAt) {
+      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
+    }
+
+    if (a.pinnedAt && !b.pinnedAt) return -1;
+    if (!a.pinnedAt && b.pinnedAt) return 1;
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
 }

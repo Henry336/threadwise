@@ -4,7 +4,17 @@ import type { AiProvider } from "../ai/types";
 import { HELP_TEXT } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
-import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
+import {
+  createIdea,
+  createImplementationBrief,
+  findIdeaReference,
+  formatIdeaCreated,
+  formatIdeaDetail,
+  formatRecentIdeas,
+  listRecentIdeas,
+  renameIdeaTitle,
+  scoreIdea
+} from "../services/ideas";
 import {
   cancelTask,
   createScheduledReminder,
@@ -21,6 +31,7 @@ import {
   createNote,
   findAnyNote,
   findNote,
+  findNoteReference,
   formatNoteAnalysis,
   formatNoteCreated,
   formatNoteDetail,
@@ -40,12 +51,13 @@ import { createNoteMergePreview, formatNoteMergePreview } from "../services/note
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["start", "help"], async (ctx) => replyHtml(ctx, HELP_TEXT));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
+  bot.command("ideas", async (ctx) => handleIdeas(ctx));
   bot.command("note", async (ctx) => handleNote(ctx, ai));
   bot.command("notes", async (ctx) => handleNotes(ctx));
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
@@ -82,7 +94,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
   }
 
   const idea = await createIdea(user.id, text, ai);
-  await replyHtml(ctx, formatIdeaCreated(idea));
+  await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
 }
 
 async function handleNote(ctx: Context, ai: AiProvider) {
@@ -96,7 +108,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^NOTE-\d+$/i.test(text)) {
     try {
       const note = await findNote(user.id, normalizePublicId(text));
-      await replyHtml(ctx, formatNoteDetail(note));
+      await replyHtml(ctx, formatNoteDetail(note), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       try {
         const archivedNote = await findAnyNote(user.id, normalizePublicId(text));
@@ -109,14 +121,33 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   }
 
   const note = await createNote(user.id, text, ai);
-  await replyHtml(ctx, formatNoteCreated(note));
+  await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemActionsKeyboard("note", note) });
 }
 
 async function handleNotes(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "notes");
   const notes = query ? await searchNotes(user.id, query) : await listRecentNotes(user.id);
-  await replyHtml(ctx, formatRecentNotes(notes));
+  const keyboard = itemListKeyboard("note", notes);
+  await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+}
+
+async function handleIdeas(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "ideas");
+  const ideas = await listRecentIdeas(user.id);
+  if (!body) {
+    const keyboard = itemListKeyboard("idea", ideas);
+    await replyHtml(ctx, formatRecentIdeas(ideas), keyboard ? { reply_markup: keyboard } : undefined);
+    return;
+  }
+
+  try {
+    const idea = await findIdeaReference(user.id, normalizePublicId(body));
+    await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+  } catch {
+    await ctx.reply("I couldn't find that idea. /ideas will show the recent ones.");
+  }
 }
 
 async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
@@ -278,28 +309,40 @@ async function handleRename(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/edit") ? "edit" : "rename";
   const body = commandBody(ctx.message?.text ?? "", command);
-  const [reference, ...titleParts] = body.split(/\s+/).filter(Boolean);
-  const title = titleParts.join(" ").trim();
+  const parsed = parseReferenceAndTitle(body);
+  const reference = parsed?.reference;
+  const title = parsed?.title ?? "";
 
   if (!reference || !title) {
-    await ctx.reply(`Send it like this: /${command} 1 Follow up with Alex or /${command} NOTE-1 Deployment notes`);
+    await ctx.reply(`Send it like this: /${command} 1 Follow up with Alex, /${command} note 2 Deployment notes, or /${command} IDEA-1 Better title`);
     return;
   }
 
   try {
-    if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-")) {
-      const task = await renameTaskTitle(user.id, normalizePublicId(reference), title);
+    if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-") || reference.toLowerCase().startsWith("task ")) {
+      const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
+      const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`);
       return;
     }
 
-    if (reference.toUpperCase().startsWith("NOTE-")) {
-      const note = await renameNoteTitle(user.id, normalizePublicId(reference), title);
+    if (reference.toUpperCase().startsWith("NOTE-") || reference.toLowerCase().startsWith("note ")) {
+      const noteReference = reference.toLowerCase().startsWith("note ") ? reference.slice(5) : reference;
+      const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
+      const note = await renameNoteTitle(user.id, noteTarget.publicId, title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
       return;
     }
 
-    await ctx.reply("I can rename tasks and notes for now. Try /rename 1 New title or /rename NOTE-1 New title.");
+    if (reference.toUpperCase().startsWith("IDEA-") || reference.toLowerCase().startsWith("idea ")) {
+      const ideaReference = reference.toLowerCase().startsWith("idea ") ? reference.slice(5) : reference;
+      const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
+      const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, title);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`);
+      return;
+    }
+
+    await ctx.reply("I can rename tasks, notes, and ideas. Try /rename 1 New title, /rename note 2 New title, or /rename IDEA-1 New title.");
   } catch (error) {
     await ctx.reply(taskOrNoteLookupError(error));
   }
@@ -500,4 +543,25 @@ function taskOrNoteLookupError(error: unknown): string {
   }
 
   return "I couldn't find that task or note. Try /tasks or /notes to check the ID.";
+}
+
+function parseReferenceAndTitle(body: string): { reference: string; title: string } | undefined {
+  const parts = body.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  const first = parts[0]?.toLowerCase();
+  const second = parts[1];
+  if ((first === "task" || first === "note" || first === "idea") && second && /^(\d+|TASK-\d+|NOTE-\d+|IDEA-\d+)$/i.test(second)) {
+    return {
+      reference: `${first} ${second}`,
+      title: parts.slice(2).join(" ").trim()
+    };
+  }
+
+  return {
+    reference: parts[0] ?? "",
+    title: parts.slice(1).join(" ").trim()
+  };
 }

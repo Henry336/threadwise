@@ -23,6 +23,8 @@ Threadwise is intentionally split into small modules so future contributors can 
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
+Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, and edit. Note and idea buttons can star and edit. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied as the new title with undo support.
+
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
 ## Reminder Flow

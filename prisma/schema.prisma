@@ -37,43 +37,44 @@ enum CaptureKind {
 }
 
 model User {
-  id              String               @id @default(uuid())
-  telegramId      String               @unique
-  username        String?
-  firstName       String?
-  lastName        String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  id         String   @id @default(uuid())
+  telegramId String   @unique
+  username   String?
+  firstName  String?
+  lastName   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  settings        UserSettings?
-  ideas           Idea[]
-  tasks           Task[]
-  notes           Note[]
-  reflections     Reflection[]
-  pendingCaptures PendingCapture[]
+  settings          UserSettings?
+  ideas             Idea[]
+  tasks             Task[]
+  notes             Note[]
+  reflections       Reflection[]
+  pendingCaptures   PendingCapture[]
   pendingNoteMerges PendingNoteMerge[]
-  reminderHistory ReminderDelivery[]
-  auditLogs       AuditLog[]
+  pendingItemEdits  PendingItemEdit[]
+  reminderHistory   ReminderDelivery[]
+  auditLogs         AuditLog[]
 }
 
 model UserSettings {
-  id                       String       @id @default(uuid())
-  userId                   String       @unique
-  reminderIntervalMinutes  Int          @default(180)
-  timezone                 String       @default("Asia/Singapore")
-  quietHoursStart          String?      @default("22:00")
-  quietHoursEnd            String?      @default("08:00")
-  maxRemindersPerDay       Int          @default(5)
-  reminderMode             ReminderMode @default(INDIVIDUAL)
-  reminderChatId           String?
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  id                      String       @id @default(uuid())
+  userId                  String       @unique
+  reminderIntervalMinutes Int          @default(180)
+  timezone                String       @default("Asia/Singapore")
+  quietHoursStart         String?      @default("22:00")
+  quietHoursEnd           String?      @default("08:00")
+  maxRemindersPerDay      Int          @default(5)
+  reminderMode            ReminderMode @default(INDIVIDUAL)
+  reminderChatId          String?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
 
-  user                     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Idea {
-  id             String      @id @default(uuid())
+  id             String     @id @default(uuid())
   userId         String
   publicId       String
   title          String
@@ -81,7 +82,7 @@ model Idea {
   problem        String?
   targetUser     String?
   type           String?
-  status         IdeaStatus  @default(RAW)
+  status         IdeaStatus @default(RAW)
   tags           String[]
   sourceText     String
   embedding      Json?
@@ -92,10 +93,10 @@ model Idea {
   pinnedAt       DateTime?
   archivedAt     DateTime?
   archivedReason String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
@@ -104,31 +105,31 @@ model Idea {
 }
 
 model Task {
-  id                       String       @id @default(uuid())
-  userId                   String
-  publicId                 String
-  title                    String
-  description              String?
-  status                   TaskStatus   @default(OPEN)
-  sourceText               String
-  dueAt                    DateTime?
-  timezone                 String?
-  reminderIntervalMinutes  Int?
-  nextReminderAt           DateTime?
-  snoozedUntil             DateTime?
-  completedAt              DateTime?
-  lastRemindedAt           DateTime?
-  reminderCount            Int          @default(0)
-  embedding                Json?
-  calendarUrl              String?
-  pinnedAt                 DateTime?
-  archivedAt               DateTime?
-  archivedReason           String?
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  id                      String     @id @default(uuid())
+  userId                  String
+  publicId                String
+  title                   String
+  description             String?
+  status                  TaskStatus @default(OPEN)
+  sourceText              String
+  dueAt                   DateTime?
+  timezone                String?
+  reminderIntervalMinutes Int?
+  nextReminderAt          DateTime?
+  snoozedUntil            DateTime?
+  completedAt             DateTime?
+  lastRemindedAt          DateTime?
+  reminderCount           Int        @default(0)
+  embedding               Json?
+  calendarUrl             String?
+  pinnedAt                DateTime?
+  archivedAt              DateTime?
+  archivedReason          String?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
 
-  user                     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reminderHistory          ReminderDelivery[]
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminderHistory ReminderDelivery[]
 
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])
@@ -138,24 +139,24 @@ model Task {
 }
 
 model Note {
-  id          String      @id @default(uuid())
-  userId      String
-  publicId    String
-  title       String
-  body        String
-  summary     String
-  sourceText  String
-  tags        String[]
-  embedding   Json?
-  pinnedAt    DateTime?
-  archivedAt  DateTime?
-  archivedReason String?
+  id               String    @id @default(uuid())
+  userId           String
+  publicId         String
+  title            String
+  body             String
+  summary          String
+  sourceText       String
+  tags             String[]
+  embedding        Json?
+  pinnedAt         DateTime?
+  archivedAt       DateTime?
+  archivedReason   String?
   mergedIntoNoteId String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mergedIntoNote Note?    @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mergedIntoNote    Note?  @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
   mergedSourceNotes Note[] @relation("NoteMerge")
 
   @@unique([userId, publicId])
@@ -166,7 +167,7 @@ model Note {
 }
 
 model Reflection {
-  id              String      @id @default(uuid())
+  id              String    @id @default(uuid())
   userId          String
   publicId        String
   sourceText      String
@@ -179,10 +180,10 @@ model Reflection {
   pinnedAt        DateTime?
   archivedAt      DateTime?
   archivedReason  String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
@@ -191,65 +192,80 @@ model Reflection {
 }
 
 model PendingCapture {
-  id          String      @id @default(uuid())
-  userId      String
-  kind        CaptureKind
-  sourceText  String
-  payload     Json
-  expiresAt   DateTime
-  createdAt   DateTime    @default(now())
+  id         String      @id @default(uuid())
+  userId     String
+  kind       CaptureKind
+  sourceText String
+  payload    Json
+  expiresAt  DateTime
+  createdAt  DateTime    @default(now())
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
 
 model PendingNoteMerge {
-  id          String      @id @default(uuid())
-  userId      String
+  id            String   @id @default(uuid())
+  userId        String
   sourceNoteIds String[]
-  preview     Json
-  attemptCount Int        @default(1)
-  expiresAt   DateTime
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  preview       Json
+  attemptCount  Int      @default(1)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PendingItemEdit {
+  id            String   @id @default(uuid())
+  userId        String
+  itemKind      String
+  itemId        String
+  itemPublicId  String
+  previousTitle String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
 
 model ReminderDelivery {
-  id          String      @id @default(uuid())
-  userId      String
-  taskId      String
-  sentAt      DateTime    @default(now())
-  chatId      String
-  messageId   String?
+  id        String   @id @default(uuid())
+  userId    String
+  taskId    String
+  sentAt    DateTime @default(now())
+  chatId    String
+  messageId String?
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task        Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([userId, sentAt])
   @@index([taskId, sentAt])
 }
 
 model AuditLog {
-  id          String      @id @default(uuid())
-  userId      String?
-  action      String
-  metadata    Json?
-  createdAt   DateTime    @default(now())
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
 
-  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([action, createdAt])
 }
 
 model ProcessedTelegramUpdate {
-  id          String      @id @default(uuid())
-  updateId    Int         @unique
-  createdAt   DateTime    @default(now())
+  id        String   @id @default(uuid())
+  updateId  Int      @unique
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
 }

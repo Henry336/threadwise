@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks } from "./formatters";
-import { archivedPageKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -69,7 +69,11 @@ describe("bot formatters", () => {
     });
     expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
       text: "Star 1",
-      callback_data: "task:pin:task-uuid-1"
+      callback_data: "item:task:pin:task-uuid-1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[3]).toEqual({
+      text: "Edit 1",
+      callback_data: "item:task:edit:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard).toHaveLength(1);
   });
@@ -80,11 +84,46 @@ describe("bot formatters", () => {
 
     expect(unpinned.inline_keyboard[1]?.[0]).toEqual({
       text: "Star",
-      callback_data: "task:pin:task-uuid-1"
+      callback_data: "item:task:pin:task-uuid-1"
+    });
+    expect(unpinned.inline_keyboard[1]?.[1]).toEqual({
+      text: "Edit",
+      callback_data: "item:task:edit:task-uuid-1"
     });
     expect(pinned.inline_keyboard[1]?.[0]).toEqual({
       text: "Unstar",
-      callback_data: "task:unpin:task-uuid-1"
+      callback_data: "item:task:unpin:task-uuid-1"
+    });
+  });
+
+  it("shows star and edit controls for individual notes and ideas", () => {
+    const noteKeyboard = itemActionsKeyboard("note", { id: "note-uuid-1" });
+    const ideaKeyboard = itemActionsKeyboard("idea", { id: "idea-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") });
+
+    expect(noteKeyboard.inline_keyboard[0]?.[0]).toEqual({
+      text: "Star",
+      callback_data: "item:note:pin:note-uuid-1"
+    });
+    expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
+      text: "Edit",
+      callback_data: "item:note:edit:note-uuid-1"
+    });
+    expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
+      text: "Unstar",
+      callback_data: "item:idea:unpin:idea-uuid-1"
+    });
+  });
+
+  it("shows star and edit controls for note and idea lists", () => {
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }]);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
+      text: "Star 1",
+      callback_data: "item:note:pin:note-uuid-1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
+      text: "Edit 1",
+      callback_data: "item:note:edit:note-uuid-1"
     });
   });
 

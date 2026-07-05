@@ -11,6 +11,7 @@ Current deployment: https://threadwise-90du.onrender.com
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
+- Lists and opens saved ideas with `/ideas` and `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, ideas, and reflections.
 - Captures tasks with `/add <task>`.
@@ -20,9 +21,11 @@ Current deployment: https://threadwise-90du.onrender.com
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
 - Supports undo for confirmed note merges, restoring the original notes and archiving the generated merged note.
 - Pins important tasks, notes, ideas, and reflections with `/pin`, `/star`, and `/pins`.
+- Starts a short edit flow from item edit buttons; the next normal message becomes the new title.
 - Browses archived notes, ideas, tasks, and reflections with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
@@ -46,6 +49,8 @@ Current deployment: https://threadwise-90du.onrender.com
 /notes
 /notes deployment reliability
 /note-analysis
+/ideas
+/ideas 1
 /merge notes 1 2 3
 /archived notes
 /archived ideas
@@ -63,7 +68,9 @@ Current deployment: https://threadwise-90du.onrender.com
 /undo
 /rename 1 Follow up with Sam
 /rename NOTE-1 Deployment notes
+/rename idea 1 Better idea title
 /pin 1
+/pin note 2
 /star IDEA-1
 /unpin NOTE-1
 /pins
