@@ -18,7 +18,10 @@ export const HELP_TEXT = [
   "/calendar <TASK-1> - get calendar export options for a dated task",
   "/settings - show settings",
   "/settings interval 180 - set reminder interval in minutes",
+  "/settings timezone Asia/Singapore - set display timezone",
   "/settings quiet 22:00 08:00 - set quiet hours",
+  "/settings max 5 - set daily reminder cap",
+  "/settings digest on - use shorter reminder messages",
   "",
   "You can also send a normal message. I will classify it and ask before saving."
 ].join("\n");

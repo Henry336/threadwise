@@ -4,6 +4,8 @@ Threadwise is a private Telegram life inbox for capturing ideas, notes, tasks, r
 
 It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL persistence, Prisma schema management, Telegram webhooks for Render, and clear service boundaries for future contributors.
 
+Current deployment: https://threadwise-90du.onrender.com
+
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
@@ -161,7 +163,7 @@ BOT_ALLOWED_TELEGRAM_IDS
 `WEBHOOK_URL` should be the public Render service URL, for example:
 
 ```text
-https://threadwise.onrender.com
+https://threadwise-90du.onrender.com
 ```
 
 Render should run:
