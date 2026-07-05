@@ -1,4 +1,5 @@
 import { ReminderMode } from "@prisma/client";
+import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 
 export type SettingsUpdateResult = {
@@ -76,20 +77,20 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 export async function formatSettings(userId: string): Promise<string> {
   const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
   return [
-    "Threadwise settings",
-    `Reminder interval: ${settings.reminderIntervalMinutes} minutes`,
-    `Timezone: ${settings.timezone}`,
-    `Quiet hours: ${settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off"}`,
-    `Max reminders/day: ${settings.maxRemindersPerDay}`,
-    `Reminder mode: ${settings.reminderMode.toLowerCase()}`,
+    bold("Threadwise settings"),
+    `${bold("Reminder interval")} ${settings.reminderIntervalMinutes} minutes`,
+    `${bold("Timezone")} ${h(settings.timezone)}`,
+    `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
+    `${bold("Max reminders/day")} ${settings.maxRemindersPerDay}`,
+    `${bold("Reminder mode")} ${h(settings.reminderMode.toLowerCase())}`,
     "",
-    "Examples:",
-    "/settings interval 180",
-    "/settings timezone Asia/Singapore",
-    "/settings quiet 22:00 08:00",
-    "/settings quiet off",
-    "/settings max 5",
-    "/settings digest on"
+    bold("Examples"),
+    code("/settings interval 180"),
+    code("/settings timezone Asia/Singapore"),
+    code("/settings quiet 22:00 08:00"),
+    code("/settings quiet off"),
+    code("/settings max 5"),
+    code("/settings digest on")
   ].join("\n");
 }
 

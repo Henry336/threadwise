@@ -3,6 +3,7 @@ import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
 import { parseDueDate } from "../utils/dates";
+import { bold, h, replyHtml } from "../utils/html";
 import { captureConfirmationKeyboard } from "./keyboards";
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
@@ -35,7 +36,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
               ? "a note"
               : "a relationship reflection";
 
-    await ctx.reply(`This sounds like ${label}. Save it?`, {
+    await replyHtml(ctx, `This sounds like ${bold(label)}.\n${h("Save it?")}`, {
       reply_markup: captureConfirmationKeyboard(pending.id)
     });
   });

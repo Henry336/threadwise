@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser } from "../utils/dates";
 import { truncate } from "../utils/text";
@@ -22,10 +23,10 @@ export async function buildReview(userId: string, timezone: string): Promise<str
   const noDate = tasks.filter((task) => !task.dueAt);
 
   return [
-    "Threadwise review",
+    bold("Threadwise review"),
     "",
-    "Tasks",
-    `Open: ${tasks.length} (${overdue.length} overdue, ${today.length} today, ${noDate.length} no date)`,
+    bold("Tasks"),
+    `${bold("Open")} ${tasks.length} ${italic(`${overdue.length} overdue, ${today.length} today, ${noDate.length} no date`)}`,
     tasks.length ? formatTaskFocus(tasks, timezone) : "No open tasks.",
     "",
     formatRecentNotes(notes),
@@ -33,7 +34,7 @@ export async function buildReview(userId: string, timezone: string): Promise<str
     formatRecentIdeas(ideas),
     reflections.length ? ["", formatRecentReflections(reflections)].join("\n") : undefined,
     "",
-    "Suggested next step",
+    bold("Suggested next step"),
     nextStep(tasks)
   ]
     .filter(Boolean)
@@ -45,29 +46,29 @@ function formatTaskFocus(tasks: TaskListItem[], timezone: string): string {
     .slice(0, 5)
     .map((task, index) => {
       const due = task.dueAt ? ` due ${formatDateTimeForUser(task.dueAt, task.timezone ?? timezone)}` : "";
-      return `${index + 1}. ${task.title} (${task.publicId})${due}`;
+      return `${index + 1}. ${bold(task.title)} ${code(task.publicId)}${due ? `\n   ${italic(due.trim())}` : ""}`;
     })
     .join("\n");
 }
 
 function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string }>): string {
   if (notes.length === 0) {
-    return ["Recent notes", "None yet."].join("\n");
+    return [bold("Recent notes"), "None yet."].join("\n");
   }
 
-  return ["Recent notes", ...notes.map((note) => `${note.publicId}: ${note.title} - ${truncate(note.summary, 120)}`)].join("\n");
+  return [bold("Recent notes"), ...notes.map((note) => `${code(note.publicId)} ${bold(note.title)}\n${h(truncate(note.summary, 120))}`)].join("\n");
 }
 
 function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string }>): string {
   if (ideas.length === 0) {
-    return ["Recent ideas", "None yet."].join("\n");
+    return [bold("Recent ideas"), "None yet."].join("\n");
   }
 
-  return ["Recent ideas", ...ideas.map((idea) => `${idea.publicId}: ${idea.title} - ${truncate(idea.concept, 120)}`)].join("\n");
+  return [bold("Recent ideas"), ...ideas.map((idea) => `${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 120))}`)].join("\n");
 }
 
 function formatRecentReflections(reflections: Array<{ publicId: string; immediateAction: string }>): string {
-  return ["Recent reflections", ...reflections.map((reflection) => `${reflection.publicId}: ${truncate(reflection.immediateAction, 120)}`)].join("\n");
+  return [bold("Recent reflections"), ...reflections.map((reflection) => `${code(reflection.publicId)} ${h(truncate(reflection.immediateAction, 120))}`)].join("\n");
 }
 
 function nextStep(tasks: TaskListItem[]): string {
@@ -75,5 +76,5 @@ function nextStep(tasks: TaskListItem[]): string {
     return "Capture one thing worth remembering, or add the next concrete task.";
   }
 
-  return `Handle task 1 now, or use /snooze 1 1h if it needs a later nudge.`;
+  return `Handle ${code("task 1")} now, or use ${code("/snooze 1 1h")} if it needs a later nudge.`;
 }

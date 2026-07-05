@@ -2,6 +2,7 @@ import { TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../utils/dates";
+import { bold, code, h } from "../utils/html";
 import { createGoogleCalendarUrl } from "./calendar";
 import { nextPublicId } from "./publicIds";
 
@@ -188,10 +189,10 @@ export function formatTaskCreated(
 ): string {
   const timezone = task.timezone ?? fallbackTimezone;
   return [
-    `Added ${task.publicId}: ${task.title}`,
-    task.dueAt ? `Due: ${formatDateTimeForUser(task.dueAt, timezone)}` : undefined,
+    `${bold("Added")} ${code(task.publicId)} ${h(task.title)}`,
+    task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : undefined,
     "I will keep reminding you until this is done.",
-    task.calendarUrl ? `Calendar: ${task.calendarUrl}` : undefined
+    task.calendarUrl ? `${bold("Calendar")} ${h(task.calendarUrl)}` : undefined
   ]
     .filter(Boolean)
     .join("\n");

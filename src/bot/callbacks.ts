@@ -6,6 +6,7 @@ import { consumePendingCapture, ignorePendingCapture } from "../services/pending
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
+import { bold, code, h, replyHtml } from "../utils/html";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -20,7 +21,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await completeTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Marked done" });
-  await ctx.reply(`Completed ${task.publicId}: ${task.title}`);
+  await replyHtml(ctx, `${bold("Completed")} ${code(task.publicId)} ${h(task.title)}`);
 }
 
 async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
@@ -28,7 +29,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  await ctx.reply(`Snoozed ${task.publicId}: ${task.title}`);
+  await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`);
 }
 
 async function handleCapture(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
@@ -47,22 +48,22 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "task") {
     const task = await createTask(user.id, pending.sourceText, ai);
-    await ctx.reply(formatTaskCreated(task, user.settings?.timezone));
+    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone));
     return;
   }
 
   if (action === "idea") {
     const idea = await createIdea(user.id, pending.sourceText, ai);
-    await ctx.reply(formatIdeaCreated(idea));
+    await replyHtml(ctx, formatIdeaCreated(idea));
     return;
   }
 
   if (action === "note") {
     const note = await createNote(user.id, pending.sourceText, ai);
-    await ctx.reply(formatNoteCreated(note));
+    await replyHtml(ctx, formatNoteCreated(note));
     return;
   }
 
   const reflection = await createReflection(user.id, pending.sourceText, ai);
-  await ctx.reply(formatReflection(reflection));
+  await replyHtml(ctx, formatReflection(reflection));
 }

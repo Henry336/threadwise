@@ -1,4 +1,5 @@
 import type { AiProvider } from "../ai/types";
+import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 
@@ -30,16 +31,15 @@ export function formatReflection(reflection: {
   risks: string[];
 }): string {
   return [
-    `Saved ${reflection.publicId}`,
+    `${bold("Saved")} ${code(reflection.publicId)}`,
     "",
-    `Balanced view: ${reflection.balancedView}`,
+    `${bold("Balanced view")} ${h(reflection.balancedView)}`,
     "",
-    `Next step: ${reflection.immediateAction}`,
+    `${bold("Next step")} ${h(reflection.immediateAction)}`,
     "",
-    `Keep in mind: ${reflection.keepInMind}`,
-    reflection.risks.length ? `Risks: ${reflection.risks.join("; ")}` : undefined
+    `${bold("Keep in mind")} ${h(reflection.keepInMind)}`,
+    reflection.risks.length ? `${bold("Risks")} ${h(reflection.risks.join("; "))}` : undefined
   ]
     .filter(Boolean)
     .join("\n");
 }
-

@@ -205,3 +205,11 @@ model AuditLog {
 
   @@index([action, createdAt])
 }
+
+model ProcessedTelegramUpdate {
+  id          String      @id @default(uuid())
+  updateId    Int         @unique
+  createdAt   DateTime    @default(now())
+
+  @@index([createdAt])
+}

@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma";
 import type { AiProvider, IdeaScore } from "../ai/types";
+import { bold, code, h } from "../utils/html";
 import { nextPublicId } from "./publicIds";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
@@ -122,10 +123,10 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
 
 export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string; tags: string[] }): string {
   return [
-    `Saved ${idea.publicId}: ${idea.title}`,
+    `${bold("Saved")} ${code(idea.publicId)} ${h(idea.title)}`,
     "",
-    idea.concept,
-    idea.tags.length ? `Tags: ${idea.tags.join(", ")}` : undefined
+    h(idea.concept),
+    idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined
   ]
     .filter(Boolean)
     .join("\n");

@@ -17,9 +17,9 @@ describe("bot formatters", () => {
       "Asia/Singapore"
     );
 
-    expect(message).toContain("1. Drink water");
-    expect(message).toContain("ID: TASK-999");
-    expect(message).toContain("Use /done 1");
+    expect(message).toContain("1. <b>Drink water</b>");
+    expect(message).toContain("<code>TASK-999</code>");
+    expect(message).toContain("<code>/done 1</code>");
   });
 
   it("groups active tasks by due state", () => {
@@ -33,6 +33,13 @@ describe("bot formatters", () => {
 
     expect(message).toContain("Overdue");
     expect(message).toContain("No due date");
+  });
+
+  it("escapes user task text in HTML output", () => {
+    const message = formatOpenTasks([task({ title: "Read <draft> & reply", dueAt: null })], "Asia/Singapore");
+
+    expect(message).toContain("Read &lt;draft&gt; &amp; reply");
+    expect(message).not.toContain("Read <draft> & reply");
   });
 
   it("builds inline action buttons for numbered open tasks", () => {

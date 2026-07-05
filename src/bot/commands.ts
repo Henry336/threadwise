@@ -32,11 +32,12 @@ import { formatSettings, updateSetting } from "../services/settings";
 import { semanticSearch } from "../services/search";
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
+import { bold, code, h, replyHtml } from "../utils/html";
 import { taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
-  bot.command(["start", "help"], async (ctx) => ctx.reply(HELP_TEXT));
+  bot.command(["start", "help"], async (ctx) => replyHtml(ctx, HELP_TEXT));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
   bot.command("note", async (ctx) => handleNote(ctx, ai));
   bot.command("notes", async (ctx) => handleNotes(ctx));
@@ -66,7 +67,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
   }
 
   const idea = await createIdea(user.id, text, ai);
-  await ctx.reply(formatIdeaCreated(idea));
+  await replyHtml(ctx, formatIdeaCreated(idea));
 }
 
 async function handleNote(ctx: Context, ai: AiProvider) {
@@ -80,7 +81,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^NOTE-\d+$/i.test(text)) {
     try {
       const note = await findNote(user.id, normalizePublicId(text));
-      await ctx.reply(formatNoteDetail(note));
+      await replyHtml(ctx, formatNoteDetail(note));
     } catch {
       await ctx.reply("I couldn't find that note. Run /notes to see recent notes.");
     }
@@ -88,26 +89,26 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   }
 
   const note = await createNote(user.id, text, ai);
-  await ctx.reply(formatNoteCreated(note));
+  await replyHtml(ctx, formatNoteCreated(note));
 }
 
 async function handleNotes(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "notes");
   const notes = query ? await searchNotes(user.id, query) : await listRecentNotes(user.id);
-  await ctx.reply(formatRecentNotes(notes));
+  await replyHtml(ctx, formatRecentNotes(notes));
 }
 
 async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const analysis = await analyzeNoteStyle(user.id, ai);
-  await ctx.reply(formatNoteAnalysis(analysis));
+  await replyHtml(ctx, formatNoteAnalysis(analysis));
 }
 
 async function handleReview(ctx: Context) {
   const user = await ensureUser(ctx);
   const review = await buildReview(user.id, user.settings?.timezone ?? "UTC");
-  await ctx.reply(review);
+  await replyHtml(ctx, review);
 }
 
 async function handleAdd(ctx: Context, ai: AiProvider) {
@@ -119,7 +120,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   const task = await createTask(user.id, text, ai);
-  await ctx.reply(formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task.id) });
+  await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task.id) });
 }
 
 async function handleRemind(ctx: Context, ai: AiProvider) {
@@ -159,14 +160,14 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   }
 
   const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
-  await ctx.reply(formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task.id) });
+  await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task.id) });
 }
 
 async function handleTasks(ctx: Context) {
   const user = await ensureUser(ctx);
   const tasks = await listOpenTasks(user.id);
   const keyboard = taskListKeyboard(tasks);
-  await ctx.reply(formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
+  await replyHtml(ctx, formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
 }
 
 async function handleTaskDetail(ctx: Context) {
@@ -179,7 +180,7 @@ async function handleTaskDetail(ctx: Context) {
 
   try {
     const task = await findTaskReference(user.id, normalizePublicId(id));
-    await ctx.reply(formatTaskDetail(task, user.settings?.timezone));
+    await replyHtml(ctx, formatTaskDetail(task, user.settings?.timezone));
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -195,7 +196,7 @@ async function handleDone(ctx: Context) {
 
   try {
     const task = await completeTask(user.id, normalizePublicId(id));
-    await ctx.reply(`Completed ${task.publicId}: ${task.title}`);
+    await replyHtml(ctx, `${bold("Completed")} ${code(task.publicId)} ${h(task.title)}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -212,7 +213,7 @@ async function handleSnooze(ctx: Context) {
 
   try {
     const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-    await ctx.reply(`Snoozed ${task.publicId}: ${task.title}`);
+    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -229,7 +230,7 @@ async function handleCancel(ctx: Context) {
 
   try {
     const task = await cancelTask(user.id, normalizePublicId(id));
-    await ctx.reply(`Canceled ${task.publicId}: ${task.title}`);
+    await replyHtml(ctx, `${bold("Canceled")} ${code(task.publicId)} ${h(task.title)}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -245,14 +246,14 @@ async function handleRelationship(ctx: Context, ai: AiProvider) {
   }
 
   const reflection = await createReflection(user.id, text, ai);
-  await ctx.reply(formatReflection(reflection));
+  await replyHtml(ctx, formatReflection(reflection));
 }
 
 async function handleSettings(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "settings");
   if (!body) {
-    await ctx.reply(await formatSettings(user.id));
+    await replyHtml(ctx, await formatSettings(user.id));
     return;
   }
 
@@ -269,7 +270,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
   }
 
   const results = await semanticSearch(user.id, query, ai);
-  await ctx.reply(formatSearchResults(results));
+  await replyHtml(ctx, formatSearchResults(results));
 }
 
 async function handleScore(ctx: Context, ai: AiProvider) {
@@ -281,7 +282,7 @@ async function handleScore(ctx: Context, ai: AiProvider) {
   }
 
   const result = await scoreIdea(user.id, normalizePublicId(id), ai);
-  await ctx.reply(formatIdeaScore(result.publicId, result.score));
+  await replyHtml(ctx, formatIdeaScore(result.publicId, result.score));
 }
 
 async function handleBrief(ctx: Context) {
@@ -324,7 +325,12 @@ async function handleCalendar(ctx: Context) {
     timezone: task.timezone ?? user.settings?.timezone ?? "UTC"
   });
 
-  await ctx.reply([`Calendar options for ${task.publicId}`, task.calendarUrl ? `Google Calendar: ${task.calendarUrl}` : undefined].filter(Boolean).join("\n"));
+  await replyHtml(
+    ctx,
+    [`${bold("Calendar options")} ${code(task.publicId)}`, task.calendarUrl ? `${bold("Google Calendar")} ${h(task.calendarUrl)}` : undefined]
+      .filter(Boolean)
+      .join("\n")
+  );
   await ctx.replyWithDocument(new InputFile(Buffer.from(ics), `${task.publicId}.ics`));
 }
 

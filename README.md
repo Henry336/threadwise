@@ -19,6 +19,8 @@ Current deployment: https://threadwise-90du.onrender.com
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
+- Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
 - Handles normal messages with natural-language classification and asks before saving them.
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
 - Searches ideas, notes, tasks, and reflections semantically with `/search`.
@@ -111,6 +113,7 @@ Threadwise stores:
 - Tasks
 - Relationship reflections
 - Pending natural-language captures
+- Processed Telegram update IDs for webhook de-duplication
 - Reminder delivery history
 - Audit logs
 - Embeddings/search vectors as JSON for personal-scale semantic search

@@ -4,6 +4,7 @@ import type { SearchResult } from "../services/search";
 import type { TaskListItem } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
 import { truncate } from "../utils/text";
+import { bold, code, h, italic } from "../utils/html";
 
 export function formatOpenTasks(
   tasks: TaskListItem[],
@@ -22,29 +23,29 @@ export function formatOpenTasks(
   ].filter((group) => group.items.length > 0);
 
   return [
-    "Open tasks",
+    bold("Open tasks"),
     "",
     ...groups.flatMap((group) => [
-      group.title,
+      bold(group.title),
       ...group.items.map(({ task, number }) => formatTaskListItem(task, number, fallbackTimezone)),
       ""
     ]),
-    "Use /done 1, /snooze 1 1h, /task 1, or /cancel 1."
+    `${italic("Use")} ${code("/done 1")}, ${code("/snooze 1 1h")}, ${code("/task 1")}, ${italic("or")} ${code("/cancel 1")}.`
   ].join("\n");
 }
 
 export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC"): string {
   const timezone = task.timezone ?? fallbackTimezone;
   return [
-    `${task.publicId}: ${task.title}`,
+    `${code(task.publicId)} ${bold(task.title)}`,
     "",
-    task.description ? task.description : undefined,
-    `Status: ${task.status.toLowerCase()}`,
-    task.dueAt ? `Due: ${formatDateTimeForUser(task.dueAt, timezone)}` : "Due: none",
-    `Reminders sent: ${task.reminderCount}`,
-    task.calendarUrl ? `Calendar: ${task.calendarUrl}` : undefined,
+    task.description ? h(task.description) : undefined,
+    `${bold("Status")} ${h(task.status.toLowerCase())}`,
+    task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : `${bold("Due")} none`,
+    `${bold("Reminders sent")} ${task.reminderCount}`,
+    task.calendarUrl ? `${bold("Calendar")} ${h(task.calendarUrl)}` : undefined,
     "",
-    `Captured: ${truncate(task.sourceText, 500)}`
+    `${bold("Captured")} ${h(truncate(task.sourceText, 500))}`
   ]
     .filter(Boolean)
     .join("\n");
@@ -56,42 +57,42 @@ export function formatSearchResults(results: SearchResult[]): string {
   }
 
   return [
-    "Search results",
+    bold("Search results"),
     "",
     ...results.map((result) => {
       const percent = Math.round(result.score * 100);
-      return `${result.publicId} [${result.kind}, ${percent}%]: ${result.title}\n${truncate(result.summary, 160)}`;
+      return `${code(result.publicId)} ${bold(result.title)}\n${italic(`${result.kind}, ${percent}% match`)}\n${h(truncate(result.summary, 160))}`;
     })
   ].join("\n\n");
 }
 
 export function formatIdeaScore(publicId: string, score: IdeaScore): string {
   return [
-    `${publicId} score`,
+    `${code(publicId)} ${bold("score")}`,
     "",
-    `Buildability: ${score.buildability}/10`,
-    `Usefulness: ${score.usefulness}/10`,
-    `Novelty: ${score.novelty}/10`,
-    `Portfolio value: ${score.portfolioValue}/10`,
-    `Monetization: ${score.monetization}/10`,
-    `Difficulty: ${score.difficulty}/10`,
-    `Risk: ${score.risk}/10`,
+    `${bold("Buildability")} ${score.buildability}/10`,
+    `${bold("Usefulness")} ${score.usefulness}/10`,
+    `${bold("Novelty")} ${score.novelty}/10`,
+    `${bold("Portfolio value")} ${score.portfolioValue}/10`,
+    `${bold("Monetization")} ${score.monetization}/10`,
+    `${bold("Difficulty")} ${score.difficulty}/10`,
+    `${bold("Risk")} ${score.risk}/10`,
     "",
-    score.summary,
+    h(score.summary),
     "",
-    `Market notes: ${score.marketNotes}`,
+    `${bold("Market notes")} ${h(score.marketNotes)}`,
     "",
-    `Do: ${score.dos.join("; ") || "None listed."}`,
-    `Don't: ${score.donts.join("; ") || "None listed."}`
+    `${bold("Do")} ${h(score.dos.join("; ") || "None listed.")}`,
+    `${bold("Don't")} ${h(score.donts.join("; ") || "None listed.")}`
   ].join("\n");
 }
 
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  const lines = [`${number}. ${task.title}`, `   ID: ${task.publicId}`];
+  const lines = [`${number}. ${bold(task.title)}`, `   ${code(task.publicId)}`];
 
   if (task.dueAt) {
-    lines.push(`   Due: ${formatDateTimeForUser(task.dueAt, timezone)}`);
+    lines.push(`   ${italic(formatDateTimeForUser(task.dueAt, timezone))}`);
   }
 
   if (task.reminderCount > 0) {

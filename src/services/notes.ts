@@ -1,4 +1,5 @@
 import type { AiProvider } from "../ai/types";
+import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 
@@ -75,10 +76,10 @@ export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
 
 export function formatNoteCreated(note: { publicId: string; title: string; summary: string; tags: string[] }): string {
   return [
-    `Saved ${note.publicId}: ${note.title}`,
+    `${bold("Saved")} ${code(note.publicId)} ${h(note.title)}`,
     "",
-    note.summary,
-    note.tags.length ? `Tags: ${note.tags.join(", ")}` : undefined
+    h(note.summary),
+    note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined
   ]
     .filter(Boolean)
     .join("\n");
@@ -90,24 +91,24 @@ export function formatRecentNotes(notes: Array<{ publicId: string; title: string
   }
 
   return [
-    "Recent notes",
+    bold("Recent notes"),
     "",
     ...notes.map((note) => {
-      const tags = note.tags.length ? ` [${note.tags.join(", ")}]` : "";
-      return `${note.publicId}: ${note.title}${tags}\n${note.summary}`;
+      const tags = note.tags.length ? ` ${italic(note.tags.join(", "))}` : "";
+      return `${code(note.publicId)} ${bold(note.title)}${tags}\n${h(note.summary)}`;
     })
   ].join("\n\n");
 }
 
 export function formatNoteDetail(note: { publicId: string; title: string; body: string; summary: string; tags: string[]; createdAt: Date }): string {
   return [
-    `${note.publicId}: ${note.title}`,
+    `${code(note.publicId)} ${bold(note.title)}`,
     "",
-    note.body,
+    h(note.body),
     "",
-    `Summary: ${note.summary}`,
-    note.tags.length ? `Tags: ${note.tags.join(", ")}` : undefined,
-    `Saved: ${note.createdAt.toLocaleString()}`
+    `${bold("Summary")} ${h(note.summary)}`,
+    note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined,
+    `${bold("Saved")} ${h(note.createdAt.toLocaleString())}`
   ]
     .filter(Boolean)
     .join("\n");
@@ -121,9 +122,9 @@ export function formatNoteAnalysis(analysis: {
   experiments: string[];
 }): string {
   return [
-    "Notekeeping analysis",
+    bold("Notekeeping analysis"),
     "",
-    analysis.overview,
+    h(analysis.overview),
     "",
     formatList("What works", analysis.whatWorks),
     formatList("What does not work", analysis.whatDoesNotWork),
@@ -139,5 +140,5 @@ function formatList(title: string, items: string[]): string | undefined {
     return undefined;
   }
 
-  return [title, ...items.map((item) => `- ${item}`)].join("\n");
+  return [bold(title), ...items.map((item) => `- ${h(item)}`)].join("\n");
 }

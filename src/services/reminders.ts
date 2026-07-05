@@ -3,6 +3,7 @@ import { ReminderMode, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
+import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { taskActionsKeyboard } from "../bot/keyboards";
 
 export async function sendDueReminders(bot: Bot): Promise<number> {
@@ -62,14 +63,15 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
     }
 
     const chatId = settings.reminderChatId ?? task.user.telegramId;
-    const dueLine = task.dueAt ? `\nDue: ${formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)}` : "";
+    const dueLine = task.dueAt ? `\n${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone))}` : "";
     const message =
       settings.reminderMode === ReminderMode.DIGEST
-        ? `Threadwise reminder: ${task.publicId}\n\n${task.title}${dueLine}`
-        : `Still open: ${task.publicId}\n\n${task.title}${dueLine}\n\nI'll keep nudging you until this is done.`;
+        ? `${bold("Threadwise reminder")} ${code(task.publicId)}\n\n${h(task.title)}${dueLine}`
+        : `${bold("Still open")} ${code(task.publicId)}\n\n${h(task.title)}${dueLine}\n\nI'll keep nudging you until this is done.`;
 
     try {
       const sentMessage = await bot.api.sendMessage(chatId, message, {
+        ...HTML_REPLY,
         reply_markup: taskActionsKeyboard(task.id)
       });
 

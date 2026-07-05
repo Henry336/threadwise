@@ -2,6 +2,7 @@ import { Bot } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { allowedTelegramIds } from "../config/env";
 import { logger } from "../logger";
+import { claimTelegramUpdate } from "../services/telegramUpdates";
 import { registerCallbacks } from "./callbacks";
 import { registerCommands } from "./commands";
 import { registerNaturalLanguage } from "./naturalLanguage";
@@ -24,6 +25,16 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
 
     logger.warn("Blocked unauthorized Telegram user.", { telegramId });
     await ctx.reply("This Threadwise bot is private.");
+  });
+
+  bot.use(async (ctx, next) => {
+    const shouldProcess = await claimTelegramUpdate(ctx.update.update_id);
+    if (!shouldProcess) {
+      logger.warn("Skipping duplicate Telegram update.", { updateId: ctx.update.update_id });
+      return;
+    }
+
+    await next();
   });
 
   registerCommands(bot, ai);
