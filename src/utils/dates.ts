@@ -31,6 +31,16 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
     return withOptionalTime(base, todayMatch[1], todayMatch[2], todayMatch[3]).toJSDate();
   }
 
+  const weekday = parseWeekday(text, base);
+  if (weekday) {
+    return weekday.toJSDate();
+  }
+
+  const monthDay = parseMonthDay(text, base);
+  if (monthDay) {
+    return monthDay.toJSDate();
+  }
+
   const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}):(\d{2}))?\b/);
   if (isoMatch?.[1]) {
     const parsed = DateTime.fromISO(isoMatch[1], { zone: timezone });
@@ -39,6 +49,32 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
       const minute = isoMatch[3] ? Number(isoMatch[3]) : 0;
       return parsed.set({ hour, minute, second: 0, millisecond: 0 }).toJSDate();
     }
+  }
+
+  const clockOnly = parseClockOnly(text, base);
+  if (clockOnly) {
+    const scheduled = withOptionalTime(base, clockOnly.hour, clockOnly.minute, clockOnly.meridiem);
+    return (scheduled <= base ? scheduled.plus({ days: 1 }) : scheduled).toJSDate();
+  }
+
+  return undefined;
+}
+
+export function splitReminderText(input: string): { whenText: string; taskText: string } | undefined {
+  const pipeParts = input.split("|").map((part) => part.trim()).filter(Boolean);
+  if (pipeParts.length >= 2) {
+    return {
+      whenText: pipeParts[0] ?? "",
+      taskText: pipeParts.slice(1).join(" | ")
+    };
+  }
+
+  const aboutMatch = input.match(/^(.+?)\s+(?:to|about)\s+(.+)$/i);
+  if (aboutMatch?.[1] && aboutMatch[2]) {
+    return {
+      whenText: aboutMatch[1].trim(),
+      taskText: aboutMatch[2].trim()
+    };
   }
 
   return undefined;
@@ -63,6 +99,105 @@ function withOptionalTime(base: DateTime, hourText?: string, minuteText?: string
     second: 0,
     millisecond: 0
   });
+}
+
+function parseWeekday(text: string, base: DateTime): DateTime | undefined {
+  const weekdays = new Map([
+    ["monday", 1],
+    ["tuesday", 2],
+    ["wednesday", 3],
+    ["thursday", 4],
+    ["friday", 5],
+    ["saturday", 6],
+    ["sunday", 7]
+  ]);
+  const match = text.match(/\b(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  if (!match?.[2]) {
+    return undefined;
+  }
+
+  const targetWeekday = weekdays.get(match[2]);
+  if (!targetWeekday) {
+    return undefined;
+  }
+
+  let daysToAdd = targetWeekday - base.weekday;
+  if (daysToAdd < 0 || daysToAdd === 0 || match[1]) {
+    daysToAdd += 7;
+  }
+
+  return withOptionalTime(base.plus({ days: daysToAdd }), match[3], match[4], match[5]);
+}
+
+function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
+  const months = new Map([
+    ["jan", 1],
+    ["january", 1],
+    ["feb", 2],
+    ["february", 2],
+    ["mar", 3],
+    ["march", 3],
+    ["apr", 4],
+    ["april", 4],
+    ["may", 5],
+    ["jun", 6],
+    ["june", 6],
+    ["jul", 7],
+    ["july", 7],
+    ["aug", 8],
+    ["august", 8],
+    ["sep", 9],
+    ["sept", 9],
+    ["september", 9],
+    ["oct", 10],
+    ["october", 10],
+    ["nov", 11],
+    ["november", 11],
+    ["dec", 12],
+    ["december", 12]
+  ]);
+  const match = text.match(/\b(?:(?:on)\s+)?(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  if (!match?.[1] || !match[2]) {
+    return undefined;
+  }
+
+  const month = months.get(match[2]);
+  if (!month) {
+    return undefined;
+  }
+
+  let scheduled = withOptionalTime(
+    base.set({ month, day: Number(match[1]), second: 0, millisecond: 0 }),
+    match[3],
+    match[4],
+    match[5]
+  );
+  if (!scheduled.isValid) {
+    return undefined;
+  }
+  if (scheduled <= base) {
+    scheduled = scheduled.plus({ years: 1 });
+  }
+
+  return scheduled;
+}
+
+function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: string; meridiem?: string } | undefined {
+  const match = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  const hour = Number(match[1]);
+  if (hour < 0 || hour > 23) {
+    return undefined;
+  }
+
+  return {
+    hour: match[1],
+    minute: match[2],
+    meridiem: match[3]
+  };
 }
 
 export function parseDurationMinutes(input: string, fallbackMinutes: number): number {
@@ -137,4 +272,3 @@ function parseClock(value: string, base: DateTime): DateTime | undefined {
     millisecond: 0
   });
 }
-

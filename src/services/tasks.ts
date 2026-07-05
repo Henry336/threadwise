@@ -43,6 +43,40 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider) {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
+  const settings = user.settings;
+  if (!settings) {
+    throw new Error("User settings are missing.");
+  }
+
+  const structured = await ai.structureTask(sourceText);
+  const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
+  const publicId = await nextPublicId(userId, "TASK");
+  const calendarUrl = createGoogleCalendarUrl({
+    title: structured.title,
+    details: structured.description ?? sourceText,
+    dueAt: scheduledAt,
+    timezone: settings.timezone
+  });
+
+  return prisma.task.create({
+    data: {
+      userId,
+      publicId,
+      title: structured.title,
+      description: structured.description,
+      sourceText,
+      dueAt: scheduledAt,
+      timezone: settings.timezone,
+      reminderIntervalMinutes: settings.reminderIntervalMinutes,
+      nextReminderAt: scheduledAt,
+      embedding,
+      calendarUrl
+    }
+  });
+}
+
 export async function listOpenTasks(userId: string) {
   return prisma.task.findMany({
     where: { userId, status: TaskStatus.OPEN },
@@ -97,4 +131,3 @@ export function formatTaskCreated(task: { publicId: string; title: string; dueAt
     .filter(Boolean)
     .join("\n");
 }
-

@@ -9,6 +9,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
 - Captures tasks with `/add <task>`.
+- Schedules reminders for specific times with `/remind <when> | <task>`.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Lets users complete or snooze tasks with commands or inline buttons.
 - Handles normal messages with natural-language classification and asks before saving them.
@@ -29,6 +30,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 /notes
 /note-analysis
 /add pay invoice tomorrow at 9am
+/remind tomorrow at 9am | submit the form
 /tasks
 /done TASK-1
 /snooze TASK-1 1h
@@ -150,6 +152,7 @@ Set these Render environment variables:
 TELEGRAM_BOT_TOKEN
 OPENAI_API_KEY
 WEBHOOK_URL
+BOT_ALLOWED_TELEGRAM_IDS
 ```
 
 `DATABASE_URL` is wired from the Render database in `render.yaml`.
@@ -167,6 +170,18 @@ npm run db:migrate && npm start
 ```
 
 Use an always-on Render plan if you want reminders to be reliable. If the service sleeps, the database keeps tasks safe, but reminders will only be sent after the process wakes back up.
+
+## Privacy And Access
+
+Threadwise stores data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, settings, and reflections. They do not see another user's saved data through normal bot commands.
+
+If the deployment should be private to only one person or a small team, set:
+
+```text
+BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
+```
+
+Leave it blank to allow any Telegram user who can find the bot to use their own isolated Threadwise account.
 
 ## Validation
 

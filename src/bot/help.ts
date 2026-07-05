@@ -6,6 +6,7 @@ export const HELP_TEXT = [
   "/notes - list recent notes",
   "/note-analysis - analyze your notekeeping style",
   "/add <task> - add a task and keep reminding me until done",
+  "/remind <when> | <task> - remind at a specific time",
   "/tasks - list open tasks",
   "/done <TASK-1> - complete a task",
   "/snooze <TASK-1> 1h - snooze a task",

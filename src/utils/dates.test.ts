@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinQuietHours, parseDueDate, parseDurationMinutes } from "./dates";
+import { isWithinQuietHours, parseDueDate, parseDurationMinutes, splitReminderText } from "./dates";
 
 describe("date utilities", () => {
   it("parses relative durations", () => {
@@ -14,6 +14,25 @@ describe("date utilities", () => {
     expect(due?.toISOString()).toBe("2026-07-06T01:00:00.000Z");
   });
 
+  it("parses clock-only reminders as the next future occurrence", () => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    const due = parseDueDate("at 6pm", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-05T10:00:00.000Z");
+  });
+
+  it("parses weekday reminders", () => {
+    const now = new Date("2026-07-06T01:00:00.000Z");
+    const due = parseDueDate("next monday at 10am", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-13T02:00:00.000Z");
+  });
+
+  it("splits explicit reminder commands", () => {
+    expect(splitReminderText("tomorrow at 9am | submit the form")).toEqual({
+      whenText: "tomorrow at 9am",
+      taskText: "submit the form"
+    });
+  });
+
   it("handles quiet hours across midnight", () => {
     expect(
       isWithinQuietHours(new Date("2026-07-05T15:00:00.000Z"), {
@@ -24,4 +43,3 @@ describe("date utilities", () => {
     ).toBe(true);
   });
 });
-

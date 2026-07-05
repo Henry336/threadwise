@@ -5,7 +5,7 @@ import { HELP_TEXT } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
-import { createTask, completeTask, findTask, formatTaskCreated, listOpenTasks, snoozeTask } from "../services/tasks";
+import { createScheduledReminder, createTask, completeTask, findTask, formatTaskCreated, listOpenTasks, snoozeTask } from "../services/tasks";
 import { analyzeNoteStyle, createNote, formatNoteAnalysis, formatNoteCreated, formatRecentNotes, listRecentNotes } from "../services/notes";
 import { createReflection, formatReflection } from "../services/reflections";
 import { formatSettings, updateSetting } from "../services/settings";
@@ -13,6 +13,7 @@ import { semanticSearch } from "../services/search";
 import { createIcs } from "../services/calendar";
 import { formatIdeaScore, formatOpenTasks, formatSearchResults } from "./formatters";
 import { taskActionsKeyboard } from "./keyboards";
+import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["start", "help"], async (ctx) => ctx.reply(HELP_TEXT));
@@ -21,6 +22,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("notes", async (ctx) => handleNotes(ctx));
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
   bot.command("add", async (ctx) => handleAdd(ctx, ai));
+  bot.command("remind", async (ctx) => handleRemind(ctx, ai));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
   bot.command("snooze", async (ctx) => handleSnooze(ctx));
@@ -77,6 +79,46 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   const task = await createTask(user.id, text, ai);
+  await ctx.reply(formatTaskCreated(task), { reply_markup: taskActionsKeyboard(task.id) });
+}
+
+async function handleRemind(ctx: Context, ai: AiProvider) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "remind");
+  if (!body) {
+    await ctx.reply("Usage: /remind tomorrow at 9am | submit the form");
+    return;
+  }
+
+  const parsed = splitReminderText(body);
+  const settings = user.settings;
+  if (!settings) {
+    await ctx.reply("Your reminder settings are missing. Try /start once, then /remind again.");
+    return;
+  }
+
+  const scheduledAt = parseDueDate(parsed?.whenText ?? body, settings.timezone);
+  if (!parsed || !scheduledAt) {
+    await ctx.reply(
+      [
+        "I couldn't find a reminder time.",
+        "",
+        "Try:",
+        "/remind tomorrow at 9am | submit the form",
+        "/remind next monday at 10 | review notes",
+        "/remind 2026-07-08 14:30 | call the clinic",
+        "/remind in 2 hours | check deployment"
+      ].join("\n")
+    );
+    return;
+  }
+
+  if (scheduledAt.getTime() <= Date.now()) {
+    await ctx.reply("That reminder time is in the past. Pick a future time.");
+    return;
+  }
+
+  const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
   await ctx.reply(formatTaskCreated(task), { reply_markup: taskActionsKeyboard(task.id) });
 }
 

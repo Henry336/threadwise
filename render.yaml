@@ -25,8 +25,9 @@ services:
         value: Asia/Singapore
       - key: DEFAULT_REMINDER_INTERVAL_MINUTES
         value: "180"
+      - key: BOT_ALLOWED_TELEGRAM_IDS
+        sync: false
 
 databases:
   - name: threadwise-db
     plan: starter
-

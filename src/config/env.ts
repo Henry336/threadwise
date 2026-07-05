@@ -14,8 +14,20 @@ const envSchema = z.object({
   DEFAULT_TIMEZONE: z.string().default("Asia/Singapore"),
   DEFAULT_REMINDER_INTERVAL_MINUTES: z.coerce.number().int().positive().default(180),
   DEFAULT_QUIET_HOURS_START: z.string().default("22:00"),
-  DEFAULT_QUIET_HOURS_END: z.string().default("08:00")
+  DEFAULT_QUIET_HOURS_END: z.string().default("08:00"),
+  BOT_ALLOWED_TELEGRAM_IDS: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);
 
+export function allowedTelegramIds(): Set<string> | undefined {
+  if (!env.BOT_ALLOWED_TELEGRAM_IDS) {
+    return undefined;
+  }
+
+  return new Set(
+    env.BOT_ALLOWED_TELEGRAM_IDS.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+  );
+}
