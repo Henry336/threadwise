@@ -10,6 +10,7 @@ export const HELP_TEXT = [
   "/reflect <situation> - alias for /relationship",
   "/search <query> - semantic search across saved items",
   "/score <IDEA-1> - score an idea with market notes and dos/donts",
+  "/brief <IDEA-1> - create a Codex/Claude Code implementation prompt",
   "/calendar <TASK-1> - get calendar export options for a dated task",
   "/settings - show settings",
   "/settings interval 180 - set reminder interval in minutes",
@@ -17,4 +18,3 @@ export const HELP_TEXT = [
   "",
   "You can also send a normal message. I will classify it and ask before saving."
 ].join("\n");
-

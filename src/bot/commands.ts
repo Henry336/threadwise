@@ -4,7 +4,7 @@ import type { AiProvider } from "../ai/types";
 import { HELP_TEXT } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
-import { createIdea, formatIdeaCreated, scoreIdea } from "../services/ideas";
+import { createIdea, createImplementationBrief, formatIdeaCreated, scoreIdea } from "../services/ideas";
 import { createTask, completeTask, findTask, formatTaskCreated, listOpenTasks, snoozeTask } from "../services/tasks";
 import { createReflection, formatReflection } from "../services/reflections";
 import { formatSettings, updateSetting } from "../services/settings";
@@ -24,6 +24,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("settings", async (ctx) => handleSettings(ctx));
   bot.command("search", async (ctx) => handleSearch(ctx, ai));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
+  bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => handleCalendar(ctx));
 }
 
@@ -131,6 +132,18 @@ async function handleScore(ctx: Context, ai: AiProvider) {
   await ctx.reply(formatIdeaScore(result.publicId, result.score));
 }
 
+async function handleBrief(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const id = commandBody(ctx.message?.text ?? "", "brief");
+  if (!id) {
+    await ctx.reply("Usage: /brief IDEA-1");
+    return;
+  }
+
+  const result = await createImplementationBrief(user.id, normalizePublicId(id));
+  await replyInChunks(ctx, [`Implementation prompt for ${result.publicId}:`, "", result.prompt].join("\n"));
+}
+
 async function handleCalendar(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "calendar");
@@ -156,3 +169,9 @@ async function handleCalendar(ctx: Context) {
   await ctx.replyWithDocument(new InputFile(Buffer.from(ics), `${task.publicId}.ics`));
 }
 
+async function replyInChunks(ctx: Context, text: string) {
+  const maxLength = 3800;
+  for (let start = 0; start < text.length; start += maxLength) {
+    await ctx.reply(text.slice(start, start + maxLength));
+  }
+}

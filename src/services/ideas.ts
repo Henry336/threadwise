@@ -54,6 +54,72 @@ export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProv
   return { publicId: idea.publicId, score };
 }
 
+export async function createImplementationBrief(userId: string, publicOrUuid: string): Promise<{ publicId: string; prompt: string }> {
+  const idea = await prisma.idea.findFirstOrThrow({
+    where: {
+      userId,
+      OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
+    }
+  });
+
+  const scores = asRecord(idea.scores);
+  const scoreLines = scores
+    ? [
+        `- Buildability: ${scores.buildability ?? "unknown"}/10`,
+        `- Usefulness: ${scores.usefulness ?? "unknown"}/10`,
+        `- Novelty: ${scores.novelty ?? "unknown"}/10`,
+        `- Portfolio value: ${scores.portfolioValue ?? "unknown"}/10`,
+        `- Monetization: ${scores.monetization ?? "unknown"}/10`,
+        `- Difficulty: ${scores.difficulty ?? "unknown"}/10`,
+        `- Risk: ${scores.risk ?? "unknown"}/10`
+      ].join("\n")
+    : "- Not scored yet. If helpful, ask me to infer sensible priorities from the idea text.";
+
+  const prompt = [
+    `You are a senior software engineer implementing ${idea.publicId}: ${idea.title}.`,
+    "",
+    "Goal:",
+    idea.concept,
+    "",
+    "Original idea text:",
+    idea.sourceText,
+    "",
+    "Known context:",
+    `- Problem: ${idea.problem ?? "Not specified; infer from the idea and ask only if blocking."}`,
+    `- Target user: ${idea.targetUser ?? "Not specified; infer a practical first user."}`,
+    `- Type: ${idea.type ?? "Not specified"}`,
+    `- Tags: ${idea.tags.length ? idea.tags.join(", ") : "none"}`,
+    "",
+    "Idea score context:",
+    scoreLines,
+    idea.marketNotes ? ["", "Market / competition notes:", idea.marketNotes].join("\n") : undefined,
+    idea.dos.length ? ["", "Do:", ...idea.dos.map((item) => `- ${item}`)].join("\n") : undefined,
+    idea.donts.length ? ["", "Do not:", ...idea.donts.map((item) => `- ${item}`)].join("\n") : undefined,
+    "",
+    "Implementation request:",
+    "- Inspect the existing repository before editing.",
+    "- Propose a concise plan, then implement the feature end to end.",
+    "- Keep the code readable for future collaborators.",
+    "- Follow existing architecture, naming, formatting, and test patterns.",
+    "- Add or update tests for the important behavior.",
+    "- Update docs or README if user-facing behavior changes.",
+    "- Avoid unrelated refactors.",
+    "- Do not commit secrets, local .env files, generated credentials, or private tokens.",
+    "- Run the relevant validation commands and report the results.",
+    "",
+    "Expected final response:",
+    "- Summarize what changed.",
+    "- List validation performed.",
+    "- Call out any manual setup or unresolved risk.",
+    "",
+    "If the repo/location is missing, ask me for the target repository before implementing."
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { publicId: idea.publicId, prompt };
+}
+
 export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string; tags: string[] }): string {
   return [
     `Saved ${idea.publicId}: ${idea.title}`,
@@ -65,3 +131,10 @@ export function formatIdeaCreated(idea: { publicId: string; title: string; conce
     .join("\n");
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
+}

@@ -14,6 +14,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 - Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
 - Searches ideas, tasks, and reflections semantically with `/search`.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
+- Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
 - Supports configurable reminder interval, quiet hours, timezone, reminder cap, and digest mode.
 
@@ -30,6 +31,7 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 /reflect here is what happened...
 /search reminder bot ideas
 /score IDEA-1
+/brief IDEA-1
 /calendar TASK-1
 /settings
 /settings interval 180
@@ -40,6 +42,8 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 ```
 
 Normal Telegram messages are also supported. Threadwise classifies them as a possible task, idea, reflection, or noise, then asks for confirmation before saving.
+
+`/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 
 ## Tech Stack
 
@@ -186,4 +190,3 @@ Current validation status at initial implementation:
 - Richer idea selection-to-implementation workflow.
 - Relationship pattern tracking over time.
 - Per-user privacy controls and export/delete flows.
-
