@@ -5,6 +5,7 @@ import { bold, code, h } from "../utils/html";
 import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
+import { formatDateTimeForUser } from "../utils/dates";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
@@ -223,7 +224,7 @@ export function formatIdeaDetail(idea: {
   tags: string[];
   pinnedAt?: Date | null;
   createdAt: Date;
-}): string {
+}, timezone = "UTC"): string {
   return [
     `${code(idea.publicId)} ${bold(idea.title)}`,
     "",
@@ -233,7 +234,7 @@ export function formatIdeaDetail(idea: {
     idea.type ? `${bold("Type")} ${h(idea.type)}` : undefined,
     idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined,
     idea.pinnedAt ? `${bold("Pinned")} yes` : undefined,
-    `${bold("Saved")} ${h(idea.createdAt.toLocaleString())}`
+    `${bold("Saved")} ${h(formatDateTimeForUser(idea.createdAt, timezone))}`
   ]
     .filter(Boolean)
     .join("\n");

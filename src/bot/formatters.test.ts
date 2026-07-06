@@ -4,6 +4,9 @@ import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatHelpPage, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
+import { formatNoteDetail } from "../services/notes";
+import { formatIdeaDetail } from "../services/ideas";
+import { formatArchivedPage } from "../services/archives";
 
 describe("bot formatters", () => {
   it("uses active list numbers while keeping durable task IDs visible", () => {
@@ -150,6 +153,56 @@ describe("bot formatters", () => {
       text: "Archive 1",
       callback_data: "item:note:archive:note-uuid-1"
     });
+  });
+
+  it("formats note saved dates in the user's timezone", () => {
+    const message = formatNoteDetail({
+      publicId: "NOTE-9",
+      title: "OMG",
+      body: "OMG",
+      summary: "OMG",
+      tags: [],
+      createdAt: new Date("2026-07-06T18:44:35.000Z")
+    }, "Asia/Singapore");
+
+    expect(message).toContain("<b>Saved</b>");
+    expect(message).toContain("2:44");
+    expect(message).not.toContain("6:44");
+  });
+
+  it("formats idea saved dates in the user's timezone", () => {
+    const message = formatIdeaDetail({
+      publicId: "IDEA-1",
+      title: "Inbox helper",
+      concept: "Capture useful thoughts quickly.",
+      tags: [],
+      createdAt: new Date("2026-07-06T18:44:35.000Z")
+    }, "Asia/Singapore");
+
+    expect(message).toContain("<b>Saved</b>");
+    expect(message).toContain("2:44");
+    expect(message).not.toContain("6:44");
+  });
+
+  it("formats archived item dates in the user's timezone", () => {
+    const message = formatArchivedPage({
+      kind: "notes",
+      page: 1,
+      pageSize: 10,
+      totalItems: 1,
+      totalPages: 1,
+      items: [{
+        id: "note-uuid-1",
+        publicId: "NOTE-9",
+        title: "OMG",
+        summary: "OMG",
+        archivedAt: new Date("2026-07-06T18:44:35.000Z")
+      }]
+    }, "Asia/Singapore");
+
+    expect(message).toContain("<b>Archived</b>");
+    expect(message).toContain("2:44");
+    expect(message).not.toContain("6:44");
   });
 
   it("builds search pagination controls", () => {

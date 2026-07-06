@@ -5,6 +5,7 @@ import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
+import { formatDateTimeForUser } from "../utils/dates";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -217,7 +218,7 @@ export function formatNoteDetail(note: {
   createdAt: Date;
   archivedAt?: Date | null;
   archivedReason?: string | null;
-}): string {
+}, timezone = "UTC"): string {
   return [
     `${code(note.publicId)} ${bold(note.title)}`,
     "",
@@ -225,8 +226,8 @@ export function formatNoteDetail(note: {
     "",
     `${bold("Summary")} ${h(note.summary)}`,
     note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined,
-    note.archivedAt ? `${bold("Archived")} ${h(note.archivedAt.toLocaleString())}${note.archivedReason ? ` (${h(note.archivedReason)})` : ""}` : undefined,
-    `${bold("Saved")} ${h(note.createdAt.toLocaleString())}`
+    note.archivedAt ? `${bold("Archived")} ${h(formatDateTimeForUser(note.archivedAt, timezone))}${note.archivedReason ? ` (${h(note.archivedReason)})` : ""}` : undefined,
+    `${bold("Saved")} ${h(formatDateTimeForUser(note.createdAt, timezone))}`
   ]
     .filter(Boolean)
     .join("\n");

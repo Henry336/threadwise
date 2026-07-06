@@ -19,6 +19,7 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Fixed saved/archived/detail timestamps using the server timezone instead of the user's configured Threadwise timezone.
 - Fixed `after 5 mins` reminder phrasing so it is treated like `in 5 mins`.
 - Fixed `/note 1` so numeric note references open note details instead of saving a note titled `1`.
 - Fixed reminder target cleanup for phrases like `remind me about the meeting after 5 mins` and `set a reminder for school at 9 am`.

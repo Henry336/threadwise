@@ -31,7 +31,7 @@ import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDe
 import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
-import { parseDueDate, splitReminderText } from "../utils/dates";
+import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { parseListRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
@@ -132,7 +132,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (!kind) return false;
     const page = Number(archivedMatch[2] ?? "1");
     const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
-    await replyHtml(ctx, formatArchivedPage(archived), {
+    await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
       reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
     });
     return true;
@@ -186,10 +186,10 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
-      await replyHtml(ctx, formatNoteDetail(note), { reply_markup: itemActionsKeyboard("note", note) });
+      await replyHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       try {
-        await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))));
+        await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1])), user.settings?.timezone));
       } catch {
         await ctx.reply("I couldn't find that note. Show notes will list the recent ones.");
       }
@@ -201,7 +201,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewIdeaMatch?.[1] && /^(\d+|IDEA-\d+)$/i.test(viewIdeaMatch[1])) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
-      await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+      await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -220,7 +220,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (ideaListMatch?.[1]) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
-      await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+      await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -262,7 +262,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const rescheduleMatch = trimmed.match(/^(?:reschedule|move)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
-    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
+    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
     return true;
   }
 

@@ -58,7 +58,7 @@ import { formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
-import { parseDueDate, splitReminderText } from "../utils/dates";
+import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -125,11 +125,11 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^(\d+|NOTE-\d+)$/i.test(text)) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
-      await replyHtml(ctx, formatNoteDetail(note), { reply_markup: itemActionsKeyboard("note", note) });
+      await replyHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       try {
         const archivedNote = await findAnyNote(user.id, normalizePublicId(text));
-        await replyHtml(ctx, `${formatNoteDetail(archivedNote)}\n\n${code(archivedNote.archivedAt ? "/restore " + archivedNote.publicId : "/notes")}`);
+        await replyHtml(ctx, `${formatNoteDetail(archivedNote, user.settings?.timezone)}\n\n${code(archivedNote.archivedAt ? "/restore " + archivedNote.publicId : "/notes")}`);
       } catch {
         await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
       }
@@ -165,7 +165,7 @@ async function handleIdeas(ctx: Context) {
 
   try {
     const idea = await findIdeaReference(user.id, normalizePublicId(body));
-    await replyHtml(ctx, formatIdeaDetail(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+    await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
   } catch {
     await ctx.reply("I couldn't find that idea. /ideas will show the recent ones.");
   }
@@ -341,7 +341,7 @@ async function handleReschedule(ctx: Context) {
 
   try {
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
-    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
+    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
   }
@@ -450,7 +450,7 @@ async function handleArchived(ctx: Context) {
 
   const page = Number(pageText ?? "1");
   const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
-  await replyHtml(ctx, formatArchivedPage(archived), {
+  await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }

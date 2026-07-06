@@ -201,7 +201,7 @@ async function handleArchivedPage(ctx: Context, kindText: string | undefined, pa
   const user = await ensureUser(ctx);
   const archived = await listArchivedItems(user.id, kind, page);
   await ctx.answerCallbackQuery({ text: `Page ${archived.page}` });
-  await replyHtml(ctx, formatArchivedPage(archived), {
+  await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }

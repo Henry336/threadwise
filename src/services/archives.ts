@@ -2,6 +2,7 @@ import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
+import { formatDateTimeForUser } from "../utils/dates";
 
 export type ArchiveKind = "notes" | "ideas" | "tasks";
 
@@ -129,7 +130,7 @@ export async function restoreArchivedItem(userId: string, reference: string) {
   return undefined;
 }
 
-export function formatArchivedPage(page: ArchivedPage): string {
+export function formatArchivedPage(page: ArchivedPage, timezone = "UTC"): string {
   if (page.totalItems === 0) {
     return `No archived ${page.kind} yet.`;
   }
@@ -138,19 +139,19 @@ export function formatArchivedPage(page: ArchivedPage): string {
     bold(`Archived ${page.kind}`),
     `${italic(`Page ${page.page} of ${page.totalPages}`)} ${code(`${page.totalItems} total`)}`,
     "",
-    ...page.items.map((item) => formatArchivedItem(item)),
+    ...page.items.map((item) => formatArchivedItem(item, timezone)),
     "",
     `${italic("Use")} ${code(`/restore ${page.items[0]?.publicId ?? "NOTE-1"}`)} ${italic("to bring one back.")}`
   ].join("\n\n");
 }
 
-function formatArchivedItem(item: ArchivedItem): string {
+function formatArchivedItem(item: ArchivedItem, timezone: string): string {
   const reason = item.archivedReason ? ` ${italic(item.archivedReason)}` : "";
   const mergedInto = item.mergedIntoPublicId ? `\n${bold("Merged into")} ${code(item.mergedIntoPublicId)}` : "";
   return [
     `${code(item.publicId)} ${bold(item.title)}${reason}`,
     h(truncate(item.summary, 180)),
-    `${bold("Archived")} ${h(item.archivedAt.toLocaleString())}${mergedInto}`
+    `${bold("Archived")} ${h(formatDateTimeForUser(item.archivedAt, timezone))}${mergedInto}`
   ].join("\n");
 }
 
