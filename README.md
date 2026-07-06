@@ -6,6 +6,8 @@ It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL p
 
 Current deployment: https://threadwise-90du.onrender.com
 
+Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
+
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
