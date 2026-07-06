@@ -4,7 +4,7 @@ import { prisma } from "../db/prisma";
 import { cosineSimilarity } from "../utils/vector";
 
 export type SearchResult = {
-  kind: "idea" | "task" | "note" | "reflection";
+  kind: "idea" | "task" | "note";
   publicId: string;
   title: string;
   summary: string;
@@ -28,10 +28,7 @@ const SEARCH_FILTERS: Record<string, SearchKind[]> = {
   tasks: ["task"],
   note: ["note"],
   notes: ["note"],
-  reflection: ["reflection"],
-  reflections: ["reflection"],
-  reflect: ["reflection"],
-  all: ["idea", "task", "note", "reflection"]
+  all: ["idea", "task", "note"]
 };
 
 const SEARCH_TTL_MS = 30 * 60_000;
@@ -73,7 +70,7 @@ export async function semanticSearch(
 ): Promise<SearchResult[]> {
   const queryEmbedding = await ai.embed(query);
   const shouldSearch = (kind: SearchKind) => !kinds || kinds.includes(kind);
-  const [ideas, tasks, notes, reflections] = await Promise.all([
+  const [ideas, tasks, notes] = await Promise.all([
     shouldSearch("idea") ? prisma.idea.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 100 }) : [],
     shouldSearch("task")
       ? prisma.task.findMany({
@@ -86,10 +83,7 @@ export async function semanticSearch(
           take: 100
         })
       : [],
-    shouldSearch("note") ? prisma.note.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 100 }) : [],
-    shouldSearch("reflection")
-      ? prisma.reflection.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 100 })
-      : []
+    shouldSearch("note") ? prisma.note.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 100 }) : []
   ]);
 
   const results: SearchResult[] = [
@@ -113,19 +107,6 @@ export async function semanticSearch(
       title: note.title,
       summary: note.summary,
       score: scoreResult(query, queryEmbedding, asVector(note.embedding), [note.publicId, note.title, note.summary, note.body, note.sourceText])
-    })),
-    ...reflections.map((reflection) => ({
-      kind: "reflection" as const,
-      publicId: reflection.publicId,
-      title: reflection.situation.slice(0, 80),
-      summary: reflection.immediateAction,
-      score: scoreResult(query, queryEmbedding, asVector(reflection.embedding), [
-        reflection.publicId,
-        reflection.situation,
-        reflection.balancedView,
-        reflection.immediateAction,
-        reflection.sourceText
-      ])
     }))
   ];
 

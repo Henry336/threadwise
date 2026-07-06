@@ -3,6 +3,7 @@ import { createAiProvider } from "./ai";
 import { createThreadwiseBot } from "./bot";
 import { prisma } from "./db/prisma";
 import { logger } from "./logger";
+import { startGmailScanLoop } from "./services/gmail";
 import { startReminderLoop } from "./services/reminders";
 import { startServer } from "./server";
 
@@ -10,11 +11,13 @@ async function main() {
   const ai = createAiProvider();
   const bot = createThreadwiseBot(env.TELEGRAM_BOT_TOKEN, ai);
   const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
+  const gmailLoop = startGmailScanLoop(bot, ai, env.GMAIL_SCAN_POLL_MS);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
     logger.info("Shutting down Threadwise.", { signal });
     clearInterval(reminderLoop);
+    if (gmailLoop) clearInterval(gmailLoop);
     await server?.close();
     await bot.stop();
     await prisma.$disconnect();

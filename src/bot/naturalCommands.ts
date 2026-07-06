@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { HELP_TEXT } from "./help";
+import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
 import {
   createIdea,
   createImplementationBrief,
@@ -24,10 +24,11 @@ import { createPendingSearch, parseSearchRequest, semanticSearch } from "../serv
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
 import { createIcs } from "../services/calendar";
+import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { parseDueDate, splitReminderText } from "../utils/dates";
@@ -37,8 +38,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const lower = trimmed.toLowerCase();
   const user = await ensureUser(ctx);
 
-  if (lower === "help" || lower === "start") {
-    await replyHtml(ctx, HELP_TEXT);
+  if (lower === "help") {
+    await replyHtml(ctx, formatHelpPage(1), { reply_markup: helpPageKeyboard(1, helpTotalPages(HELP_PAGE_SIZE)) });
+    return true;
+  }
+
+  if (lower === "start") {
+    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
     return true;
   }
 
@@ -80,6 +86,34 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (lower === "settings" || lower === "show settings") {
     await replyHtml(ctx, await formatSettings(user.id));
+    return true;
+  }
+
+  if (lower === "gmail" || lower === "gmail status") {
+    await replyHtml(ctx, await formatGmailStatus(user.id));
+    return true;
+  }
+
+  if (lower === "gmail connect" || lower === "connect gmail") {
+    if (!gmailConfigured()) {
+      await ctx.reply("Gmail is not configured on the server yet. Add Google OAuth env vars first.");
+      return true;
+    }
+
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createGmailConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [`${bold("Connect Gmail")}`, "Open this Google OAuth link, approve Gmail read-only access, then return here.", "", h(url)].join("\n"));
+    return true;
+  }
+
+  if (lower === "gmail scan" || lower === "scan gmail" || lower === "scan unread gmail") {
+    const result = await scanGmailNow(user.id, ai);
+    await replyHtml(ctx, result.message);
+    return true;
+  }
+
+  if (lower === "gmail disconnect" || lower === "disconnect gmail") {
+    await replyHtml(ctx, await disconnectGmail(user.id));
     return true;
   }
 

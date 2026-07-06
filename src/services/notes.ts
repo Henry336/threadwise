@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
-import { bold, code, h, italic } from "../utils/html";
+import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
@@ -146,18 +146,17 @@ export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
   );
 }
 
-export function formatNoteCreated(note: { publicId: string; title: string; summary: string; tags: string[] }): string {
+export function formatNoteCreated(note: { publicId: string; title: string; summary: string }): string {
   return [
     `${bold("Saved note")} ${code(note.publicId)} ${h(note.title)}`,
     "",
-    h(note.summary),
-    note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined
+    h(note.summary)
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; tags: string[]; pinnedAt?: Date | null }>): string {
+export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>): string {
   if (notes.length === 0) {
     return "No saved notes yet. Send /note when something is worth keeping.";
   }
@@ -166,9 +165,8 @@ export function formatRecentNotes(notes: Array<{ publicId: string; title: string
     bold("Recent notes"),
     "",
     ...notes.map((note, index) => {
-      const tags = note.tags.length ? ` ${italic(note.tags.join(", "))}` : "";
       const pin = note.pinnedAt ? `${bold("Pinned")} ` : "";
-      return `${index + 1}. ${pin}${code(note.publicId)} ${bold(note.title)}${tags}\n${h(note.summary)}`;
+      return `${index + 1}. ${pin}${code(note.publicId)} ${bold(note.title)}\n${h(note.summary)}`;
     })
   ].join("\n\n");
 }

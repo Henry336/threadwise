@@ -1,7 +1,8 @@
-import { Prisma, ReminderMode, TaskStatus } from "@prisma/client";
+import { Prisma, TaskStatus } from "@prisma/client";
 import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextReminderAfterSettingChange } from "./reminders";
+import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
 
 export type SettingsUpdateResult = {
   message: string;
@@ -15,7 +16,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try /settings interval 180, /settings due-nudge 3, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, or /settings digest on."
+        "Try /settings interval 180, /settings due-nudge 3, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, or /settings max 5."
     };
   }
 
@@ -39,7 +40,10 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         }
       });
 
-      const updatedTasks = await rescheduleOpenTasksForInterval(tx, userId, minutes, existing.dueNudgeMinutes);
+      const updatedTasks = await rescheduleOpenTasksForSettings(tx, userId, {
+        intervalMinutes: minutes,
+        dueNudgeMinutes: existing.dueNudgeMinutes
+      });
       return { updatedTasks, raisedMax, maxRemindersPerDay };
     });
 
@@ -49,18 +53,33 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
   if (setting === "timezone") {
     if (!value) {
-      return { message: "Send it like this: /settings timezone Asia/Singapore" };
+      return { message: `Send it like this: /settings timezone Asia/Singapore\nExamples: ${formatTimezoneExamples()}` };
     }
 
-    await prisma.userSettings.update({ where: { userId }, data: { timezone: value } });
-    return { message: `Timezone set to ${value}.` };
+    const parsed = parseTimezone(value);
+    if (!parsed.ok) {
+      const suggestion = parsed.suggestion ? ` Did you mean ${parsed.suggestion}?` : "";
+      return { message: `I don't recognize that timezone.${suggestion}\nUse an IANA timezone like ${formatTimezoneExamples()}.` };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const settings = await tx.userSettings.update({ where: { userId }, data: { timezone: parsed.timezone } });
+      return rescheduleOpenTasksForSettings(tx, userId, {
+        intervalMinutes: settings.reminderIntervalMinutes,
+        dueNudgeMinutes: settings.dueNudgeMinutes,
+        timezone: settings.timezone
+      });
+    });
+
+    const aliasNote = parsed.wasAlias ? ` (${value} -> ${parsed.timezone})` : "";
+    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders.` };
   }
 
   if (setting === "quiet") {
     if (value.toLowerCase() === "off") {
       const updatedTasks = await prisma.$transaction(async (tx) => {
         const settings = await tx.userSettings.update({ where: { userId }, data: { quietHoursStart: null, quietHoursEnd: null } });
-        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
+        return rescheduleOpenTasksForSettings(tx, userId, settings);
       });
 
       return { message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
@@ -71,8 +90,11 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return { message: "Send it like this: /settings quiet 22:00 08:00 or /settings quiet off" };
     }
 
-    await prisma.userSettings.update({ where: { userId }, data: { quietHoursStart: start, quietHoursEnd: end } });
-    return { message: `Quiet hours set to ${start}-${end}.` };
+    const updatedTasks = await prisma.$transaction(async (tx) => {
+      const settings = await tx.userSettings.update({ where: { userId }, data: { quietHoursStart: start, quietHoursEnd: end } });
+      return rescheduleOpenTasksForSettings(tx, userId, settings);
+    });
+    return { message: `Quiet hours set to ${start}-${end}. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
   }
 
   if (setting === "max") {
@@ -89,7 +111,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     if (value.toLowerCase() === "off") {
       const updatedTasks = await prisma.$transaction(async (tx) => {
         const settings = await tx.userSettings.update({ where: { userId }, data: { dueNudgeMinutes: 0 } });
-        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
+        return rescheduleOpenTasksForSettings(tx, userId, settings);
       });
 
       return { message: `Due nudges turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
@@ -102,19 +124,14 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
     const updatedTasks = await prisma.$transaction(async (tx) => {
       const settings = await tx.userSettings.update({ where: { userId }, data: { dueNudgeMinutes: minutes } });
-      return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
+      return rescheduleOpenTasksForSettings(tx, userId, settings);
     });
 
     return { message: `Due nudge set to ${minutes} minutes. Dated tasks start nudging ${minutes} minutes before they are due and repeat until done.` };
   }
 
-  if (setting === "digest") {
-    const enabled = value.toLowerCase() === "on";
-    await prisma.userSettings.update({
-      where: { userId },
-      data: { reminderMode: enabled ? ReminderMode.DIGEST : ReminderMode.INDIVIDUAL }
-    });
-    return { message: `Digest reminders ${enabled ? "enabled" : "disabled"}.` };
+  if (setting === "digest" || setting === "compact") {
+    return { message: "That reminder display setting is not exposed right now. Use /settings interval, /settings due-nudge, /settings quiet, or /settings timezone." };
   }
 
   return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
@@ -129,27 +146,36 @@ export async function formatSettings(userId: string): Promise<string> {
     `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
     `${bold("Max reminders/day")} ${settings.maxRemindersPerDay}`,
     `${bold("Due nudge")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes` : "off"}`,
-    `${bold("Reminder mode")} ${h(settings.reminderMode.toLowerCase())}`,
     reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
     "",
     bold("Examples"),
     code("/settings interval 180"),
     code("/settings timezone Asia/Singapore"),
+    code("/settings timezone Asia/Yangon"),
+    code("/settings timezone America/New_York"),
     code("/settings quiet 22:00 08:00"),
     code("/settings quiet off"),
     code("/settings max 5"),
-    code("/settings due-nudge 3"),
-    code("/settings digest on")
+    code("/settings due-nudge 3")
   ].join("\n");
 }
 
-async function rescheduleOpenTasksForInterval(
+async function rescheduleOpenTasksForSettings(
   tx: Prisma.TransactionClient,
   userId: string,
-  intervalMinutes: number,
-  dueNudgeMinutes: number
+  settings: {
+    reminderIntervalMinutes?: number;
+    intervalMinutes?: number;
+    dueNudgeMinutes: number;
+    timezone?: string;
+  }
 ): Promise<number> {
   const now = new Date();
+  const intervalMinutes = settings.intervalMinutes ?? settings.reminderIntervalMinutes;
+  if (!intervalMinutes) {
+    throw new Error("Missing reminder interval.");
+  }
+
   const tasks = await tx.task.findMany({
     where: { userId, status: TaskStatus.OPEN, archivedAt: null },
     select: {
@@ -166,7 +192,8 @@ async function rescheduleOpenTasksForInterval(
       where: { id: task.id },
       data: {
         reminderIntervalMinutes: intervalMinutes,
-        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes, dueNudgeMinutes)
+        timezone: settings.timezone,
+        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes, settings.dueNudgeMinutes)
       }
     });
   }

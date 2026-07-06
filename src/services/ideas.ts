@@ -188,18 +188,17 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
   return { publicId: idea.publicId, prompt };
 }
 
-export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string; tags: string[] }): string {
+export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string }): string {
   return [
     `${bold("Saved idea")} ${code(idea.publicId)} ${h(idea.title)}`,
     "",
-    h(idea.concept),
-    idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined
+    h(idea.concept)
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; tags: string[]; pinnedAt?: Date | null }>): string {
+export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>): string {
   if (ideas.length === 0) {
     return "No saved ideas yet. Send /idea when something starts to sparkle.";
   }
@@ -208,9 +207,8 @@ export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string
     bold("Recent ideas"),
     "",
     ...ideas.map((idea, index) => {
-      const tags = idea.tags.length ? `\n${bold("Tags")} ${h(idea.tags.join(", "))}` : "";
       const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";
-      return `${index + 1}. ${pin}${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 220))}${tags}`;
+      return `${index + 1}. ${pin}${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 220))}`;
     })
   ].join("\n\n");
 }

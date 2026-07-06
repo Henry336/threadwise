@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { HELP_TEXT } from "./help";
+import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import {
@@ -52,13 +52,18 @@ import { undoLastAction } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { createIcs } from "../services/calendar";
+import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
-  bot.command(["start", "help"], async (ctx) => replyHtml(ctx, HELP_TEXT));
+  bot.command("start", async (ctx) => {
+    const user = await ensureUser(ctx);
+    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
+  });
+  bot.command("help", async (ctx) => replyHtml(ctx, formatHelpPage(1), { reply_markup: helpPageKeyboard(1, helpTotalPages(HELP_PAGE_SIZE)) }));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
   bot.command("ideas", async (ctx) => handleIdeas(ctx));
   bot.command("note", async (ctx) => handleNote(ctx, ai));
@@ -86,6 +91,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("score", async (ctx) => handleScore(ctx, ai));
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => handleCalendar(ctx));
+  bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
 }
 
 async function handleIdea(ctx: Context, ai: AiProvider) {
@@ -433,7 +439,7 @@ async function handleRestore(ctx: Context) {
   const user = await ensureUser(ctx);
   const reference = commandBody(ctx.message?.text ?? "", "restore");
   if (!reference) {
-    await ctx.reply("Send it like this: /restore NOTE-1, /restore IDEA-1, /restore TASK-1, or /restore REF-1");
+    await ctx.reply("Send it like this: /restore NOTE-1, /restore IDEA-1, or /restore TASK-1");
     return;
   }
 
@@ -555,6 +561,41 @@ async function handleCalendar(ctx: Context) {
       .join("\n")
   );
   await ctx.replyWithDocument(new InputFile(Buffer.from(ics), `${task.publicId}.ics`));
+}
+
+async function handleGmail(ctx: Context, ai: AiProvider) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "gmail").toLowerCase();
+
+  if (!body || body === "status") {
+    await replyHtml(ctx, await formatGmailStatus(user.id));
+    return;
+  }
+
+  if (body === "connect") {
+    if (!gmailConfigured()) {
+      await ctx.reply("Gmail is not configured on the server yet. Add Google OAuth env vars first.");
+      return;
+    }
+
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createGmailConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [`${bold("Connect Gmail")}`, "Open this Google OAuth link, approve Gmail read-only access, then return here.", "", h(url)].join("\n"));
+    return;
+  }
+
+  if (body === "scan") {
+    const result = await scanGmailNow(user.id, ai);
+    await replyHtml(ctx, result.message);
+    return;
+  }
+
+  if (body === "disconnect") {
+    await replyHtml(ctx, await disconnectGmail(user.id));
+    return;
+  }
+
+  await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
 }
 
 async function replyInChunks(ctx: Context, text: string) {

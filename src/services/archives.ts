@@ -3,7 +3,7 @@ import { prisma } from "../db/prisma";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 
-export type ArchiveKind = "notes" | "ideas" | "tasks" | "reflections";
+export type ArchiveKind = "notes" | "ideas" | "tasks";
 
 export type ArchivedItem = {
   id: string;
@@ -31,7 +31,6 @@ export function parseArchiveKind(value: string): ArchiveKind | undefined {
   if (normalized === "note" || normalized === "notes") return "notes";
   if (normalized === "idea" || normalized === "ideas") return "ideas";
   if (normalized === "task" || normalized === "tasks") return "tasks";
-  if (normalized === "reflection" || normalized === "reflections" || normalized === "reflect") return "reflections";
   return undefined;
 }
 
@@ -98,23 +97,7 @@ export async function listArchivedItems(userId: string, kind: ArchiveKind, page 
     })));
   }
 
-  const totalItems = await prisma.reflection.count({ where: { userId, archivedAt: { not: null } } });
-  const safePage = clampedPage(page, pageSize, totalItems);
-  const reflections = await prisma.reflection.findMany({
-    where: { userId, archivedAt: { not: null } },
-    orderBy: { archivedAt: "desc" },
-    skip: (safePage - 1) * pageSize,
-    take: pageSize
-  });
-
-  return pageResult(kind, safePage, pageSize, totalItems, reflections.map((reflection) => ({
-    id: reflection.id,
-    publicId: reflection.publicId,
-    title: reflection.situation,
-    summary: reflection.immediateAction,
-    archivedAt: reflection.archivedAt ?? reflection.updatedAt,
-    archivedReason: reflection.archivedReason
-  })));
+  return pageResult(kind, 1, pageSize, 0, []);
 }
 
 export async function restoreArchivedItem(userId: string, reference: string) {
@@ -141,14 +124,6 @@ export async function restoreArchivedItem(userId: string, reference: string) {
       data: { archivedAt: null, archivedReason: null, status: TaskStatus.OPEN }
     });
     return task.count > 0 ? `Restored ${code(normalized)} to open tasks.` : undefined;
-  }
-
-  if (normalized.startsWith("REF-")) {
-    const reflection = await prisma.reflection.updateMany({
-      where: { userId, publicId: normalized, archivedAt: { not: null } },
-      data: { archivedAt: null, archivedReason: null }
-    });
-    return reflection.count > 0 ? `Restored ${code(normalized)} to active reflections.` : undefined;
   }
 
   return undefined;

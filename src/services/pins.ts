@@ -6,7 +6,7 @@ import { findNoteReference } from "./notes";
 import { findTaskReference } from "./tasks";
 import { recordPinUndo } from "./undo";
 
-type PinnableKind = "task" | "note" | "idea" | "reflection";
+type PinnableKind = "task" | "note" | "idea";
 
 type PinnableItem = {
   kind: PinnableKind;
@@ -35,10 +35,8 @@ export async function pinItem(userId: string, reference: string, shouldPin: bool
       await tx.task.update({ where: { id: target.id }, data: { pinnedAt } });
     } else if (target.kind === "note") {
       await tx.note.update({ where: { id: target.id }, data: { pinnedAt } });
-    } else if (target.kind === "idea") {
-      await tx.idea.update({ where: { id: target.id }, data: { pinnedAt } });
     } else {
-      await tx.reflection.update({ where: { id: target.id }, data: { pinnedAt } });
+      await tx.idea.update({ where: { id: target.id }, data: { pinnedAt } });
     }
   });
 
@@ -46,7 +44,7 @@ export async function pinItem(userId: string, reference: string, shouldPin: bool
 }
 
 export async function listPinnedItems(userId: string): Promise<PinnableItem[]> {
-  const [tasks, notes, ideas, reflections] = await Promise.all([
+  const [tasks, notes, ideas] = await Promise.all([
     prisma.task.findMany({
       where: { userId, status: TaskStatus.OPEN, archivedAt: null, pinnedAt: { not: null } },
       orderBy: { pinnedAt: "desc" },
@@ -58,11 +56,6 @@ export async function listPinnedItems(userId: string): Promise<PinnableItem[]> {
       take: 25
     }),
     prisma.idea.findMany({
-      where: { userId, archivedAt: null, pinnedAt: { not: null } },
-      orderBy: { pinnedAt: "desc" },
-      take: 25
-    }),
-    prisma.reflection.findMany({
       where: { userId, archivedAt: null, pinnedAt: { not: null } },
       orderBy: { pinnedAt: "desc" },
       take: 25
@@ -96,15 +89,6 @@ export async function listPinnedItems(userId: string): Promise<PinnableItem[]> {
       summary: idea.concept,
       pinnedAt: idea.pinnedAt,
       createdAt: idea.createdAt
-    })),
-    ...reflections.map((reflection) => ({
-      kind: "reflection" as const,
-      id: reflection.id,
-      publicId: reflection.publicId,
-      title: reflection.situation,
-      summary: reflection.immediateAction,
-      pinnedAt: reflection.pinnedAt,
-      createdAt: reflection.createdAt
     }))
   ].sort((a, b) => {
     if (a.pinnedAt && b.pinnedAt) {
@@ -213,6 +197,32 @@ async function findPinnableItem(userId: string, reference: string): Promise<Pinn
     };
   }
 
+  const noteById = await prisma.note.findFirst({ where: { userId, id: normalized, archivedAt: null } });
+  if (noteById) {
+    return {
+      kind: "note",
+      id: noteById.id,
+      publicId: noteById.publicId,
+      title: noteById.title,
+      summary: noteById.summary,
+      pinnedAt: noteById.pinnedAt,
+      createdAt: noteById.createdAt
+    };
+  }
+
+  const ideaById = await prisma.idea.findFirst({ where: { userId, id: normalized, archivedAt: null } });
+  if (ideaById) {
+    return {
+      kind: "idea",
+      id: ideaById.id,
+      publicId: ideaById.publicId,
+      title: ideaById.title,
+      summary: ideaById.concept,
+      pinnedAt: ideaById.pinnedAt,
+      createdAt: ideaById.createdAt
+    };
+  }
+
   if (upper.startsWith("TASK-")) {
     const task = await prisma.task.findFirstOrThrow({ where: { userId, publicId: upper, archivedAt: null } });
     return {
@@ -249,19 +259,6 @@ async function findPinnableItem(userId: string, reference: string): Promise<Pinn
       summary: idea.concept,
       pinnedAt: idea.pinnedAt,
       createdAt: idea.createdAt
-    };
-  }
-
-  if (upper.startsWith("REF-")) {
-    const reflection = await prisma.reflection.findFirstOrThrow({ where: { userId, publicId: upper, archivedAt: null } });
-    return {
-      kind: "reflection",
-      id: reflection.id,
-      publicId: reflection.publicId,
-      title: reflection.situation,
-      summary: reflection.immediateAction,
-      pinnedAt: reflection.pinnedAt,
-      createdAt: reflection.createdAt
     };
   }
 

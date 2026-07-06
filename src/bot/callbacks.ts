@@ -11,8 +11,9 @@ import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNote
 import { beginPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
 import { formatSearchResultsPage } from "./formatters";
+import { formatHelpPage, HELP_PAGE_SIZE, helpTotalPages } from "./help";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -24,8 +25,21 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^help:(\d+)$/, async (ctx) => handleHelpPage(ctx, ctx.match[1]));
   bot.callbackQuery(/^capture:(task|idea|note|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
+  });
+}
+
+async function handleHelpPage(ctx: Context, pageText: string | undefined) {
+  const page = Number(pageText);
+  if (!Number.isInteger(page)) return;
+
+  const totalPages = helpTotalPages(HELP_PAGE_SIZE);
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  await ctx.answerCallbackQuery({ text: `Page ${safePage}` });
+  await replyHtml(ctx, formatHelpPage(safePage), {
+    reply_markup: helpPageKeyboard(safePage, totalPages)
   });
 }
 

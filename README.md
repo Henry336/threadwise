@@ -40,11 +40,13 @@ Current deployment: https://threadwise-90du.onrender.com
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
-- Supports configurable reminder interval, quiet hours, timezone, reminder cap, and digest mode.
+- Connects Gmail with read-only OAuth, scans unread mail, sends summaries, and creates follow-up tasks for important messages.
+- Supports configurable reminder interval, quiet hours, timezone, and reminder cap.
 
 ## Commands
 
 ```text
+/start
 /help
 /idea build a Telegram bot that...
 /note Remember that deployment reliability depends on avoiding sleeping workers
@@ -91,17 +93,24 @@ Current deployment: https://threadwise-90du.onrender.com
 /brief IDEA-1
 /calendar TASK-1
 /calendar 1
+/gmail
+/gmail connect
+/gmail scan
+/gmail disconnect
 /settings
 /settings interval 180
 /settings timezone Asia/Singapore
+/settings timezone Asia/Yangon
+/settings timezone America/New_York
 /settings quiet 22:00 08:00
 /settings quiet off
 /settings max 5
 /settings due-nudge 3
-/settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
+`/start` gives new users a short onboarding path with timezone setup and examples for `/help`, `/add`, `/remind`, `/idea`, `/note`, and `/settings`.
+
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am" or "add renew passport next Friday".
 
 For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply.
 
@@ -115,12 +124,32 @@ Reminders are database-driven. Each open task has a `nextReminderAt`, and the re
 
 - The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
 - Repeat nudges use the current `/settings interval` value. Changing the interval also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
+- `/settings timezone <IANA zone>` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily caps reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
+- Timezones are validated against real IANA names such as `Asia/Singapore`, `Asia/Yangon`, `America/New_York`, `Europe/London`, and `Australia/Sydney`. Common aliases such as `Myanmar` and `Asia/Myanmar` map to `Asia/Yangon`.
 - Short intervals automatically raise an obviously-too-low daily cap so `/settings interval 15` can actually keep nudging for more than a few reminders. You can still override the cap with `/settings max <n>`.
 - `/settings quiet off` disables quiet hours and rechecks open tasks so reminders deferred by quiet hours can become eligible again.
 - `/settings max <n>` limits total reminders per user per day. If you manually lower the cap with a short interval, `/settings` will show how much reminder coverage that allows.
 - `/task 1` shows reminder debug details, including the next reminder time, current interval, daily cap, and quiet hours.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
+
+## Gmail Integration
+
+Gmail is optional and disabled until Google OAuth environment variables are configured.
+
+```text
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://your-render-app.onrender.com/gmail/oauth/callback
+GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
+```
+
+- `/gmail connect` creates a Google OAuth link with read-only Gmail access.
+- `/gmail scan` scans unread mail immediately.
+- Connected users are scanned once per local day after `GMAIL_DAILY_SCAN_HOUR`.
+- Threadwise sends a Telegram digest of unread messages and creates open follow-up tasks for messages classified as important.
+- Gmail messages are not marked read. Threadwise stores encrypted OAuth tokens plus message IDs, sender, subject, snippet, summary, importance reason, and any created task link so the same email does not create duplicate reminders.
+- The integration accepts only `https://www.googleapis.com/auth/gmail.readonly`; it cannot send, delete, archive, or mark emails read.
 
 ## Tech Stack
 

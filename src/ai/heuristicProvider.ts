@@ -5,6 +5,8 @@ import type {
   AiProviderHealthCheck,
   AiProviderStatus,
   Classification,
+  EmailDigestSummary,
+  EmailForSummary,
   IdeaScore,
   MergedNotePreview,
   NoteAnalysis,
@@ -20,6 +22,27 @@ const TASK_WORDS = ["todo", "task", "remind", "finish", "submit", "pay", "call",
 const REFLECTION_WORDS = ["relationship", "argued", "fight", "conflict", "partner", "girlfriend", "boyfriend", "friend", "hurt"];
 const IDEA_WORDS = ["idea", "app", "bot", "tool", "build", "product", "startup", "website", "platform"];
 const NOTE_WORDS = ["note", "remember", "learned", "insight", "quote", "summary", "keep", "save this", "important"];
+const IMPORTANT_EMAIL_WORDS = [
+  "urgent",
+  "important",
+  "deadline",
+  "due",
+  "invoice",
+  "payment",
+  "receipt",
+  "bank",
+  "security",
+  "verify",
+  "password",
+  "action required",
+  "reply",
+  "follow up",
+  "meeting",
+  "interview",
+  "contract",
+  "document",
+  "approval"
+];
 
 export class HeuristicAiProvider implements AiProvider {
   getStatus(): AiProviderStatus {
@@ -190,6 +213,28 @@ export class HeuristicAiProvider implements AiProvider {
         "Competition should be validated with live research before public positioning. Expect adjacent tools in task management, note capture, and AI assistants.",
       dos: ["Start with one narrow user workflow", "Make the data model durable", "Document deployment clearly"],
       donts: ["Overfit the product to vague AI magic", "Skip reminder reliability", "Store sensitive text without clear privacy expectations"]
+    };
+  }
+
+  async summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary> {
+    const items = emails.map((email) => {
+      const text = `${email.from} ${email.subject} ${email.snippet} ${email.body}`.toLowerCase();
+      const important = IMPORTANT_EMAIL_WORDS.some((word) => hasTerm(text, word));
+      return {
+        messageId: email.messageId,
+        subject: email.subject || "(no subject)",
+        from: email.from || "Unknown sender",
+        summary: summarize(email.snippet || email.body, 180),
+        important,
+        importanceReason: important ? "Contains action, deadline, account, payment, meeting, or reply language." : undefined,
+        suggestedAction: important ? `Review: ${email.subject || "unread email"}` : undefined
+      };
+    });
+
+    const importantCount = items.filter((item) => item.important).length;
+    return {
+      overview: `${emails.length} unread email${emails.length === 1 ? "" : "s"} scanned; ${importantCount} looked important.`,
+      items
     };
   }
 

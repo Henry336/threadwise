@@ -54,6 +54,9 @@ model User {
   pendingNoteMerges PendingNoteMerge[]
   pendingItemEdits  PendingItemEdit[]
   pendingSearches   PendingSearch[]
+  pendingGmailOAuth PendingGmailOAuth[]
+  gmailConnection   GmailConnection?
+  gmailSummaries    GmailMessageSummary[]
   reminderHistory   ReminderDelivery[]
   auditLogs         AuditLog[]
 }
@@ -253,6 +256,61 @@ model PendingSearch {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model PendingGmailOAuth {
+  id        String   @id @default(uuid())
+  userId    String
+  state     String   @unique
+  chatId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model GmailConnection {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  gmailEmail           String?
+  accessToken          String?
+  refreshToken         String
+  accessTokenExpiresAt DateTime?
+  scanEnabled          Boolean   @default(true)
+  scanHourLocal        Int       @default(8)
+  summaryChatId        String?
+  lastScanAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([scanEnabled, lastScanAt])
+}
+
+model GmailMessageSummary {
+  id               String   @id @default(uuid())
+  userId           String
+  gmailMessageId   String
+  gmailThreadId    String?
+  from             String
+  subject          String
+  snippet          String
+  summary          String
+  important        Boolean  @default(false)
+  importanceReason String?
+  suggestedAction  String?
+  receivedAt       DateTime?
+  reminderTaskId   String?
+  scannedAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gmailMessageId])
+  @@index([userId, scannedAt])
+  @@index([userId, important])
 }
 
 model ReminderDelivery {

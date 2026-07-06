@@ -6,11 +6,10 @@ import { truncate } from "../utils/text";
 import { listOpenTasks, type TaskListItem } from "./tasks";
 
 export async function buildReview(userId: string, timezone: string): Promise<string> {
-  const [tasks, notes, ideas, reflections] = await Promise.all([
+  const [tasks, notes, ideas] = await Promise.all([
     listOpenTasks(userId),
     prisma.note.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3 }),
-    prisma.idea.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3 }),
-    prisma.reflection.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 2 })
+    prisma.idea.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3 })
   ]);
 
   const now = DateTime.now().setZone(timezone);
@@ -32,7 +31,6 @@ export async function buildReview(userId: string, timezone: string): Promise<str
     formatRecentNotes(notes),
     "",
     formatRecentIdeas(ideas),
-    reflections.length ? ["", formatRecentReflections(reflections)].join("\n") : undefined,
     "",
     bold("Suggested next step"),
     nextStep(tasks)
@@ -65,10 +63,6 @@ function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; conce
   }
 
   return [bold("Recent ideas"), ...ideas.map((idea) => `${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 120))}`)].join("\n");
-}
-
-function formatRecentReflections(reflections: Array<{ publicId: string; immediateAction: string }>): string {
-  return [bold("Recent reflections"), ...reflections.map((reflection) => `${code(reflection.publicId)} ${h(truncate(reflection.immediateAction, 120))}`)].join("\n");
 }
 
 function nextStep(tasks: TaskListItem[]): string {

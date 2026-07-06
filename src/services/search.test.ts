@@ -22,6 +22,12 @@ describe("search request parsing", () => {
     });
   });
 
+  it("does not expose legacy reflection filters", () => {
+    expect(parseSearchRequest("reflections conflict notes")).toEqual({
+      query: "reflections conflict notes"
+    });
+  });
+
   it("extracts done task searches explicitly", () => {
     expect(parseSearchRequest("done curriculum paper")).toEqual({
       query: "curriculum paper",

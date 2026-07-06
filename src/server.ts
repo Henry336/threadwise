@@ -3,6 +3,7 @@ import type { Bot } from "grammy";
 import { webhookCallback } from "grammy";
 import type { AiProvider } from "./ai/types";
 import { logger } from "./logger";
+import { handleGmailOAuthCallback } from "./services/gmail";
 
 export async function startServer(bot: Bot, ai: AiProvider, options: { port: number; webhookPath: string; adminStatusToken?: string }) {
   const server = Fastify({ logger: false });
@@ -45,10 +46,24 @@ export async function startServer(bot: Bot, ai: AiProvider, options: { port: num
 
   server.post(options.webhookPath, webhookCallback(bot, "fastify"));
 
+  server.get("/gmail/oauth/callback", async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string };
+    const message = await handleGmailOAuthCallback(bot, query);
+    return reply.type("text/html").send(`<html><body><p>${escapeHtml(message)}</p></body></html>`);
+  });
+
   await server.listen({ port: options.port, host: "0.0.0.0" });
   logger.info("HTTP server started.", { port: options.port, webhookPath: options.webhookPath });
 
   return server;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function authToken(value?: string): string | undefined {

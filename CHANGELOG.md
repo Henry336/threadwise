@@ -8,16 +8,25 @@
 - Added `/reschedule` and natural-language task rescheduling.
 - Added configurable due nudges with `/settings due-nudge <minutes>`.
 - Added field editing for task details, note bodies, and idea concepts.
+- Added timezone validation, aliases, and onboarding examples for non-Singapore users.
+- Added optional Gmail read-only OAuth integration with unread scans, summaries, and follow-up tasks for important messages.
+- Added paginated `/help` with Prev/Next buttons.
 
 ### Changed
 - Dated reminders now start at `dueAt - dueNudgeMinutes` and repeat on that cadence until the task is done, snoozed, canceled, or rescheduled.
 - Default search now shows open tasks only; completed tasks require an explicit done search.
+- Hidden inferred tags from freshly saved note/idea cards and recent note/idea lists.
+- `/start` now shows first-run onboarding with timezone setup, command examples, and natural-language usage.
+- Timezone changes now recheck open tasks and update their display timezone without moving existing due instants.
+- Removed the misleading digest setting from public settings help.
 
 ### Removed
 - Removed the relationship/reflect command surface from help, commands, natural-language handling, and capture buttons.
+- Removed legacy reflections from active search, review, archive, restore, and pin views.
 
 ### Fixed
 - Fixed completed tasks appearing in normal search results.
+- Fixed inline star/unstar buttons for notes and ideas.
 
 ## 2026-07-07
 

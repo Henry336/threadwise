@@ -128,3 +128,22 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
 
   return keyboard;
 }
+
+export function helpPageKeyboard(page: number, totalPages: number): InlineKeyboard | undefined {
+  if (totalPages <= 1) {
+    return undefined;
+  }
+
+  const keyboard = new InlineKeyboard();
+  if (page > 1) {
+    keyboard.text("Prev", `help:${page - 1}`);
+  }
+
+  keyboard.text(`Page ${page}/${totalPages}`, `help:${page}`);
+
+  if (page < totalPages) {
+    keyboard.text("Next", `help:${page + 1}`);
+  }
+
+  return keyboard;
+}
