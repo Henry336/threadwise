@@ -31,6 +31,7 @@ import {
 } from "../services/tasks";
 import {
   analyzeNoteStyle,
+  archiveNote,
   createNote,
   findAnyNote,
   findNoteReference,
@@ -85,6 +86,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["unpin", "unstar"], async (ctx) => handlePin(ctx, false));
   bot.command("pins", async (ctx) => handlePins(ctx));
   bot.command(["archived", "archives"], async (ctx) => handleArchived(ctx));
+  bot.command(["archive", "remove"], async (ctx) => handleArchive(ctx));
   bot.command("restore", async (ctx) => handleRestore(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command("settings", async (ctx) => handleSettings(ctx));
@@ -451,6 +453,27 @@ async function handleArchived(ctx: Context) {
   await replyHtml(ctx, formatArchivedPage(archived), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
+}
+
+async function handleArchive(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const command = ctx.message?.text?.startsWith("/remove") ? "remove" : "archive";
+  const body = commandBody(ctx.message?.text ?? "", command);
+  const noteMatch = body.match(/^(?:note\s+)?(.+)$/i);
+  const reference = noteMatch?.[1]?.trim();
+  if (!reference) {
+    await ctx.reply(`Send it like this: /${command} note 1 or /${command} NOTE-1`);
+    return;
+  }
+
+  try {
+    const note = await archiveNote(user.id, normalizePublicId(reference));
+    await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
+      reply_markup: undoKeyboard("Undo archive")
+    });
+  } catch {
+    await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
+  }
 }
 
 async function handleRestore(ctx: Context) {

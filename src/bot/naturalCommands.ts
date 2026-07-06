@@ -15,7 +15,7 @@ import {
   scoreIdea,
   updateIdeaConcept
 } from "../services/ideas";
-import { createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
 import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
@@ -278,6 +278,15 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     const shouldPin = ["pin", "star", "important"].includes(pinMatch[1].toLowerCase());
     const item = await pinItem(user.id, normalizePublicId(pinMatch[2]), shouldPin);
     await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
+    return true;
+  }
+
+  const archiveNoteMatch = trimmed.match(/^(?:archive|remove|delete)\s+note\s+(\S+)$/i);
+  if (archiveNoteMatch?.[1]) {
+    const note = await archiveNote(user.id, normalizePublicId(archiveNoteMatch[1]));
+    await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
+      reply_markup: undoKeyboard("Undo archive")
+    });
     return true;
   }
 

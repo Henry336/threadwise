@@ -24,10 +24,12 @@ Current deployment: https://threadwise-90du.onrender.com
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
 - Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
+- Archives notes from note list/detail buttons, `/archive note 1`, or natural text such as `delete note 1`.
 - Shows inline undo and cancel buttons for save, completion, cancellation, snooze, pin, and edit flows where supported.
 - Supports editing task details, note bodies, and idea concepts with undo.
 - Supports rescheduling dated tasks with `/reschedule`.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
+- Supports undo for note archiving so accidental removals can be restored immediately.
 - Supports undo for confirmed note merges, restoring the original notes and archiving the generated merged note.
 - Marks important tasks and pins notes or ideas with `/pin`, `/star`, and `/pins`.
 - Starts a short edit flow from item edit buttons; the next normal message becomes the new title.
@@ -63,6 +65,8 @@ Current deployment: https://threadwise-90du.onrender.com
 /ideas
 /ideas 1
 /merge notes 1 2 3
+/archive note 1
+/remove NOTE-1
 /archived notes
 /archived ideas
 /archived tasks
@@ -120,7 +124,7 @@ Current deployment: https://threadwise-90du.onrender.com
 
 `/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use louder Telegram formatting so they stand out from normal task reminders.
 

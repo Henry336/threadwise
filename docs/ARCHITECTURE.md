@@ -24,9 +24,9 @@ Threadwise is intentionally split into small modules so future contributors can 
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests such as `show me the notes`, `show task 1`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
+Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests such as `show me the notes`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
 
-Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note and idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
+Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
@@ -102,7 +102,7 @@ This is intentionally simple. If the dataset grows, move embeddings to pgvector 
 
 ## Archives
 
-Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archived <type>` pages through archived notes, ideas, and tasks.
+Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archive note 1` and note archive buttons set `archivedReason = removed` and record an undo entry; `/archived <type>` pages through archived notes, ideas, and tasks.
 
 ## Calendar Integration
 

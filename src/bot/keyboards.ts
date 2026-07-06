@@ -67,11 +67,17 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
   const action = item.pinnedAt ? "unpin" : "pin";
   const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
   const bodyLabel = kind === "task" ? "details" : bodyField;
-  return new InlineKeyboard()
+  const keyboard = new InlineKeyboard()
     .text(item.pinnedAt ? "Unstar" : "Star", `item:${kind}:${action}:${item.id}`)
     .text("Edit title", `item:${kind}:edit:title:${item.id}`)
     .row()
     .text(`Edit ${bodyLabel}`, `item:${kind}:edit:${bodyField}:${item.id}`);
+
+  if (kind === "note") {
+    keyboard.row().text("Archive note", `item:note:archive:${item.id}`);
+  }
+
+  return keyboard;
 }
 
 export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 10): InlineKeyboard | undefined {
@@ -86,6 +92,10 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
     keyboard
       .text(`${item.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
       .text(`Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
+
+    if (kind === "note") {
+      keyboard.text(`Archive ${number}`, `item:note:archive:${item.id}`);
+    }
 
     if (index < visibleItems.length - 1) {
       keyboard.row();

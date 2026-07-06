@@ -151,6 +151,25 @@ export async function recordPinUndo(
   });
 }
 
+export async function recordArchiveUndo(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  target: UndoTarget & {
+    archivedAt?: Date | null;
+    archivedReason?: string | null;
+  }
+): Promise<void> {
+  await recordUndo(tx, userId, "archive", {
+    type: "archive",
+    targetKind: target.kind,
+    targetId: target.id,
+    publicId: target.publicId,
+    title: target.title,
+    archivedAt: toIso(target.archivedAt),
+    archivedReason: target.archivedReason ?? null
+  });
+}
+
 export async function recordNoteMergeUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -229,6 +248,10 @@ export async function undoLastAction(userId: string): Promise<string> {
 
     if (type === "pin") {
       return await undoPin(entry.id, payload);
+    }
+
+    if (type === "archive") {
+      return await undoArchive(entry.id, payload);
     }
 
     if (type === "merge-notes") {
@@ -408,6 +431,35 @@ async function undoPin(entryId: string, payload: Record<string, unknown>): Promi
     : `${bold("Undone")} Unpinned ${code(target.publicId)}.`;
 }
 
+async function undoArchive(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const target = targetFromPayload(payload);
+  const archivedAt = dateValue(payload.archivedAt);
+  const archivedReason = nullableStringValue(payload.archivedReason);
+
+  await prisma.$transaction(async (tx) => {
+    if (target.kind === "note") {
+      await tx.note.updateMany({
+        where: { id: target.id },
+        data: { archivedAt, archivedReason }
+      });
+    } else if (target.kind === "idea") {
+      await tx.idea.updateMany({
+        where: { id: target.id },
+        data: { archivedAt, archivedReason }
+      });
+    } else {
+      await tx.task.updateMany({
+        where: { id: target.id },
+        data: { archivedAt, archivedReason }
+      });
+    }
+
+    await consumeUndo(tx, entryId, "archive");
+  });
+
+  return `${bold("Undone")} Restored ${code(target.publicId)} to active ${activeLabel(target.kind)}.`;
+}
+
 async function undoNoteMerge(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   const sourceNotes = sourceNotesFromPayload(payload.sourceNotes);
@@ -512,6 +564,12 @@ function targetKindValue(value: unknown): UndoTargetKind | undefined {
   }
 
   return undefined;
+}
+
+function activeLabel(kind: UndoTargetKind): string {
+  if (kind === "note") return "notes";
+  if (kind === "idea") return "ideas";
+  return "tasks";
 }
 
 function sourceNotesFromPayload(value: unknown): Array<{

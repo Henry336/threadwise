@@ -4,7 +4,7 @@ import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../
 import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
-import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
+import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -128,6 +128,40 @@ export async function updateNoteBody(userId: string, publicId: string, body: str
         embedding: Prisma.JsonNull
       }
     });
+  });
+}
+
+export async function archiveNote(userId: string, reference: string) {
+  const note = await findNoteByRowId(userId, reference) ?? await findNoteReference(userId, reference);
+  const archivedAt = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    await recordArchiveUndo(tx, userId, {
+      kind: "note",
+      id: note.id,
+      publicId: note.publicId,
+      title: note.title,
+      archivedAt: note.archivedAt,
+      archivedReason: note.archivedReason
+    });
+
+    return tx.note.update({
+      where: { id: note.id },
+      data: {
+        archivedAt,
+        archivedReason: "removed"
+      }
+    });
+  });
+}
+
+async function findNoteByRowId(userId: string, id: string) {
+  return prisma.note.findFirst({
+    where: {
+      userId,
+      id,
+      archivedAt: null
+    }
   });
 }
 

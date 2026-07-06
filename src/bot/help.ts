@@ -22,6 +22,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
   { command: "/important", description: "Mark a task important.", example: "/important 1" },
+  { command: "/archive", description: "Archive a note you no longer want in active notes.", example: "/archive note 1" },
   { command: "/score", description: "Score an idea for usefulness, buildability, risk, and more.", example: "/score IDEA-1" },
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
   { command: "/note", description: "Save a cleaned searchable note, or open a note by number.", example: "/note 1" },

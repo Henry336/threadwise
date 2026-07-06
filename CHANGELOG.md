@@ -6,6 +6,7 @@
 - Added natural-language list/detail/settings handling for parent-friendly phrases like `show me the notes`, `show me the tasks`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, and `quiet hours off`.
 - Added best-effort timezone defaults from Telegram language codes for new users where Telegram exposes a clear language signal.
 - Added inline undo and cancel buttons to more task, capture, and edit flows.
+- Added note archiving from note list/detail buttons, `/archive note 1`, `/remove NOTE-1`, and natural phrases like `delete note 1`, with undo support.
 - Added deterministic-first capture helpers for clear reminders, tasks, notes, and ideas so common Telegram messages do not need OpenAI.
 - Added weighted deterministic intent scoring with structured classification reasons in logs.
 - Added bounded in-memory AI synthesis caching keyed by content hash.

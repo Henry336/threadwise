@@ -124,10 +124,15 @@ describe("bot formatters", () => {
       text: "Edit body",
       callback_data: "item:note:edit:body:note-uuid-1"
     });
+    expect(noteKeyboard.inline_keyboard[2]?.[0]).toEqual({
+      text: "Archive note",
+      callback_data: "item:note:archive:note-uuid-1"
+    });
     expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
       text: "Unstar",
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
+    expect(ideaKeyboard.inline_keyboard[2]).toBeUndefined();
   });
 
   it("shows star and edit controls for note and idea lists", () => {
@@ -140,6 +145,10 @@ describe("bot formatters", () => {
     expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
       text: "Edit 1",
       callback_data: "item:note:edit:title:note-uuid-1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
+      text: "Archive 1",
+      callback_data: "item:note:archive:note-uuid-1"
     });
   });
 
@@ -203,6 +212,7 @@ describe("bot formatters", () => {
   });
 
   it("includes important and version commands in help metadata", () => {
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
   });

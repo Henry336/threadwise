@@ -4,7 +4,7 @@ import { ensureUser } from "../services/users";
 import { cancelTask, completeTask, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
-import { createNote, formatNoteCreated } from "../services/notes";
+import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
 import { formatPinResult, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
@@ -22,6 +22,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
+  bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
@@ -107,6 +108,16 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   const item = await beginPendingItemEdit(user.id, kind, itemId, isEditableItemField(field) ? field : "title");
   await ctx.answerCallbackQuery({ text: "Ready to edit" });
   await replyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
+}
+
+async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
+  if (!noteId) return;
+  const user = await ensureUser(ctx);
+  const note = await archiveNote(user.id, noteId);
+  await ctx.answerCallbackQuery({ text: "Archived note" });
+  await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
+    reply_markup: undoKeyboard("Undo archive")
+  });
 }
 
 async function handleUndoLast(ctx: Context) {
