@@ -24,6 +24,19 @@ describe("timezone parsing", () => {
     });
   });
 
+  it("normalizes common Malaysia aliases to the IANA timezone", () => {
+    expect(parseTimezone("Malaysia")).toEqual({
+      ok: true,
+      timezone: "Asia/Kuala_Lumpur",
+      wasAlias: true
+    });
+    expect(parseTimezone("KL")).toEqual({
+      ok: true,
+      timezone: "Asia/Kuala_Lumpur",
+      wasAlias: true
+    });
+  });
+
   it("rejects unknown timezone names", () => {
     expect(parseTimezone("Potato/Nowhere")).toEqual({
       ok: false,

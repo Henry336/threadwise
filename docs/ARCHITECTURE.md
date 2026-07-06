@@ -7,6 +7,7 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Keep task and reminder behavior deterministic.
 - Store all durable state in PostgreSQL.
 - Treat AI as an adapter, not the center of the app.
+- Parse command-like natural language locally before attempting AI classification.
 - Ask before saving ambiguous natural-language messages.
 - Auto-save only high-confidence task, note, and idea captures, and make them undoable.
 - Treat destructive-looking operations, such as note merging, as preview-and-confirm flows.
@@ -23,7 +24,9 @@ Threadwise is intentionally split into small modules so future contributors can 
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, and edit. Note and idea buttons can star and edit. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
+Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests such as `show me the notes`, `show task 1`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
+
+Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note and idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
@@ -39,7 +42,9 @@ This avoids in-memory timers. If Render restarts, the database remains the sourc
 
 Scheduled reminders use a separate due-nudge cadence. If `dueNudgeMinutes` is 5, a dated task starts nudging 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Due-nudge deliveries bypass quiet hours and daily caps because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and caps.
 
-Changing `/settings interval` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short intervals, Threadwise also raises an obviously-too-low daily cap so the new cadence can actually repeat. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
+Changing `/settings interval` or natural text such as `set reminder interval to 3 hours` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short intervals, Threadwise also raises an obviously-too-low daily cap so the new cadence can actually repeat. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
+
+Telegram does not provide an exact device timezone to bots during `/start`. New-user settings can only make a best-effort guess from Telegram language code, then users can correct the value with IANA names or common aliases such as `Myanmar`, `Yangon`, `Malaysia`, and `Singapore`.
 
 ## AI Adapter
 
@@ -52,7 +57,7 @@ The `AiProvider` interface supports:
 - Embeddings
 - Provider status and a small live health check for the private admin endpoint
 
-`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, simple note structuring, Gmail triage, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
+`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, Gmail triage, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
 
 The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are wrapped by a bounded in-memory cache keyed by content hash; lookups are O(1), duplicate concurrent calls share a promise, and the oldest entries are evicted when the cache exceeds its cap.
 
@@ -62,11 +67,12 @@ The private `GET /admin/ai/status` endpoint is enabled only when `ADMIN_STATUS_T
 
 ## Performance Model
 
-Most Telegram updates now stay on the deterministic path. For a message of length `L`, intent scoring, date parsing, title cleanup, and local embedding are `O(L)` with small fixed rule tables. Task and note creation add a constant number of indexed database reads/writes. In practice, deterministic request latency should be dominated by PostgreSQL plus Telegram reply time rather than local parsing.
+Most Telegram updates now stay on the deterministic path. For a message of length `L`, natural-command matching, intent scoring, date parsing, title cleanup, and local embedding are `O(L)` with small fixed rule tables. Task and note creation add a constant number of indexed database reads/writes. In practice, deterministic request latency should be dominated by PostgreSQL plus Telegram reply time rather than local parsing.
 
 Approximate per-request work:
 
 - Natural reminder/task capture: `O(L) + DB create + Telegram reply`
+- Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
 - Simple note capture: `O(L) + DB create + Telegram reply`
 - Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
 - Gmail scan: `O(M * K)` deterministic triage, where `M` is unread messages fetched and `K` is a small fixed important-word list. AI summary calls happen only for messages that pass the deterministic importance gate.

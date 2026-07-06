@@ -6,6 +6,9 @@ const TIMEZONE_ALIASES: Record<string, string> = {
   "burma": "Asia/Yangon",
   "yangon": "Asia/Yangon",
   "rangoon": "Asia/Yangon",
+  "malaysia": "Asia/Kuala_Lumpur",
+  "kuala lumpur": "Asia/Kuala_Lumpur",
+  "kl": "Asia/Kuala_Lumpur",
   "singapore": "Asia/Singapore",
   "sg": "Asia/Singapore",
   "new york": "America/New_York",
@@ -19,6 +22,7 @@ const TIMEZONE_ALIASES: Record<string, string> = {
 export const TIMEZONE_EXAMPLES = [
   "Asia/Singapore",
   "Asia/Yangon",
+  "Asia/Kuala_Lumpur",
   "America/New_York",
   "Europe/London",
   "Australia/Sydney"

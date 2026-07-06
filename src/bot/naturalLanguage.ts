@@ -10,7 +10,7 @@ import { createTask, formatTaskCreated } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
-import { captureConfirmationKeyboard, itemActionsKeyboard, taskActionsKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { handleNaturalCommand } from "./naturalCommands";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
@@ -36,7 +36,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       const editResult = await applyPendingItemEdit(user.id, text);
       if (editResult) {
-        await replyHtml(ctx, editResult);
+        await replyHtml(ctx, editResult, { reply_markup: undoKeyboard("Undo edit") });
         return;
       }
 
@@ -61,7 +61,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         if (classification.kind === "task") {
           const task = await createTask(user.id, text, ai);
           await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
-            reply_markup: taskActionsKeyboard(task)
+            reply_markup: taskCreatedKeyboard(task)
           });
           return;
         }
@@ -69,7 +69,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         if (classification.kind === "idea") {
           const idea = await createIdea(user.id, text, ai);
           await replyHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
-            reply_markup: itemActionsKeyboard("idea", idea)
+            reply_markup: itemCreatedKeyboard("idea", idea)
           });
           return;
         }
@@ -77,7 +77,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         if (classification.kind === "note") {
           const note = await createNote(user.id, text, ai);
           await replyHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
-            reply_markup: itemActionsKeyboard("note", note)
+            reply_markup: itemCreatedKeyboard("note", note)
           });
           return;
         }

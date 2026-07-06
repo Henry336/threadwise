@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Added natural-language list/detail/settings handling for parent-friendly phrases like `show me the notes`, `show me the tasks`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, and `quiet hours off`.
+- Added best-effort timezone defaults from Telegram language codes for new users where Telegram exposes a clear language signal.
+- Added inline undo and cancel buttons to more task, capture, and edit flows.
 - Added deterministic-first capture helpers for clear reminders, tasks, notes, and ideas so common Telegram messages do not need OpenAI.
 - Added weighted deterministic intent scoring with structured classification reasons in logs.
 - Added bounded in-memory AI synthesis caching keyed by content hash.
@@ -15,6 +18,10 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Fixed `after 5 mins` reminder phrasing so it is treated like `in 5 mins`.
+- Fixed `/note 1` so numeric note references open note details instead of saving a note titled `1`.
+- Fixed reminder target cleanup for phrases like `remind me about the meeting after 5 mins` and `set a reminder for school at 9 am`.
+- Renamed task action buttons from `Done` to `Complete task`/`Complete N` to reduce confusion with finishing the save flow.
 - Fixed natural minute abbreviations such as `in 60 mins` not being treated as scheduled reminders.
 - Fixed additional reminder phrasings such as `remind me about`, `please remind me to`, and `set a reminder for`.
 - Fixed AI-backed captures going silent when OpenAI classification, structuring, or embedding calls fail; Threadwise now falls back to deterministic local heuristics.

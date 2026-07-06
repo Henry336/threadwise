@@ -10,19 +10,21 @@ Current deployment: https://threadwise-90du.onrender.com
 
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
-- Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
+- Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; searches notes with `/notes <query>`.
 - Lists and opens saved ideas with `/ideas` and `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current interval setting and respect quiet hours and reminder caps.
-- Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
+- Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and "remind me to check the washer after 5 mins".
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends dated-task due nudges before the due time and repeats them on the due-nudge cadence until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
 - Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
+- Shows inline undo and cancel buttons for save, completion, cancellation, snooze, pin, and edit flows where supported.
 - Supports editing task details, note bodies, and idea concepts with undo.
 - Supports rescheduling dated tasks with `/reschedule`.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
@@ -43,7 +45,8 @@ Current deployment: https://threadwise-90du.onrender.com
 - Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
 - Shows release, AI, Gmail, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
-- Supports configurable reminder interval, quiet hours, timezone, and reminder cap.
+- Supports configurable reminder interval, quiet hours, timezone, and reminder cap through slash commands or natural language.
+- Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 
 ## Commands
 
@@ -52,6 +55,7 @@ Current deployment: https://threadwise-90du.onrender.com
 /help
 /idea build a Telegram bot that...
 /note Remember that deployment reliability depends on avoiding sleeping workers
+/note 1
 /note NOTE-1
 /notes
 /notes deployment reliability
@@ -105,6 +109,8 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings interval 180
 /settings timezone Asia/Singapore
 /settings timezone Asia/Yangon
+/settings timezone Myanmar
+/settings timezone Malaysia
 /settings timezone America/New_York
 /settings quiet 22:00 08:00
 /settings quiet off
@@ -114,7 +120,7 @@ Current deployment: https://threadwise-90du.onrender.com
 
 `/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use louder Telegram formatting so they stand out from normal task reminders.
 
@@ -130,8 +136,9 @@ Reminders are database-driven. Each open task has a `nextReminderAt`, and the re
 
 - The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
 - Repeat nudges use the current `/settings interval` value. Changing the interval also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
-- `/settings timezone <IANA zone>` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily caps reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
-- Timezones are validated against real IANA names such as `Asia/Singapore`, `Asia/Yangon`, `America/New_York`, `Europe/London`, and `Australia/Sydney`. Common aliases such as `Myanmar` and `Asia/Myanmar` map to `Asia/Yangon`.
+- `/settings timezone <zone>` or natural text such as `change timezone to Myanmar` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily caps reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
+- Telegram does not expose a user's exact device timezone to bots on `/start`. Threadwise makes a best-effort default from Telegram language code when it is clear, then lets users correct it naturally.
+- Timezones are validated against real IANA names such as `Asia/Singapore`, `Asia/Yangon`, `Asia/Kuala_Lumpur`, `America/New_York`, `Europe/London`, and `Australia/Sydney`. Common aliases such as `Myanmar`, `Yangon`, `Malaysia`, `Kuala Lumpur`, and `Asia/Myanmar` map to the right IANA timezone.
 - Short intervals automatically raise an obviously-too-low daily cap so `/settings interval 15` can actually keep nudging for more than a few reminders. You can still override the cap with `/settings max <n>`.
 - `/settings quiet off` disables quiet hours and rechecks open tasks so reminders deferred by quiet hours can become eligible again.
 - `/settings max <n>` limits total reminders per user per day. If you manually lower the cap with a short interval, `/settings` will show how much reminder coverage that allows.
@@ -186,7 +193,7 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 ```text
 src/
   ai/                 AI provider interface, OpenAI implementation, local heuristic fallback
-  bot/                Telegram commands, callbacks, keyboards, formatting
+  bot/                Telegram commands, callbacks, natural command parsing, keyboards, formatting
   config/             Environment parsing
   db/                 Prisma client
   services/           Domain logic for users, tasks, ideas, reminders, search, settings
@@ -197,7 +204,7 @@ prisma/
   schema.prisma       PostgreSQL data model
 ```
 
-The important design choice is that commands and reminders are deterministic. Common classification, task extraction, reminder parsing, simple note structuring, Gmail triage, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, idea scoring, and richer Gmail wording when a message already looks important. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
+The important design choice is that commands and reminders are deterministic. Common command-like text, settings changes, list/detail requests, classification, task extraction, reminder parsing, simple note structuring, Gmail triage, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, idea scoring, and richer Gmail wording when a message already looks important. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
 
 ## Data Model
 

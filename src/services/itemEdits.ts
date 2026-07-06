@@ -103,7 +103,7 @@ export function formatEditStarted(item: EditableItem): string {
   return [
     `${bold("Editing")} ${code(item.publicId)} ${h(label)}`,
     `Send the new ${label} as your next message.`,
-    `${code("cancel edit")} if you changed your mind.`
+    "Tap Cancel edit if you changed your mind."
   ].join("\n");
 }
 

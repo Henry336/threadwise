@@ -16,7 +16,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try /settings interval 180, /settings due-nudge 3, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, or /settings max 5."
+        "Try: change timezone to Myanmar, set reminder interval to 3 hours, set due nudge to 3 mins, set quiet hours to 22:00-08:00, quiet hours off, or max reminders 5."
     };
   }
 
@@ -53,13 +53,13 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
   if (setting === "timezone") {
     if (!value) {
-      return { message: `Send it like this: /settings timezone Asia/Singapore\nExamples: ${formatTimezoneExamples()}` };
+      return { message: `Send it like this: change timezone to Singapore, change timezone to Myanmar, or /settings timezone Asia/Singapore\nExamples: ${formatTimezoneExamples()}` };
     }
 
     const parsed = parseTimezone(value);
     if (!parsed.ok) {
       const suggestion = parsed.suggestion ? ` Did you mean ${parsed.suggestion}?` : "";
-      return { message: `I don't recognize that timezone.${suggestion}\nUse an IANA timezone like ${formatTimezoneExamples()}.` };
+      return { message: `I don't recognize that timezone.${suggestion}\nTry a country/city name like Myanmar, Yangon, Singapore, or Malaysia. IANA names like ${formatTimezoneExamples()} also work.` };
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -149,6 +149,12 @@ export async function formatSettings(userId: string): Promise<string> {
     reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
     "",
     bold("Examples"),
+    code("change timezone to Myanmar"),
+    code("set reminder interval to 3 hours"),
+    code("set due nudge to 3 mins"),
+    code("set quiet hours to 22:00-08:00"),
+    code("quiet hours off"),
+    code("max reminders 5"),
     code("/settings interval 180"),
     code("/settings timezone Asia/Singapore"),
     code("/settings timezone Asia/Yangon"),

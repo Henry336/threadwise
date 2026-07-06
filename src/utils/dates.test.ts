@@ -14,6 +14,12 @@ describe("date utilities", () => {
     expect(due?.toISOString()).toBe("2026-07-05T05:00:00.000Z");
   });
 
+  it("parses after-based relative reminders", () => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    const due = parseDueDate("remind me to check the washer after 5 mins", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-05T04:05:00.000Z");
+  });
+
   it.each([
     "remind me about the meeting in 2 hours",
     "remind me about the meeting in 2 hrs",
@@ -82,6 +88,17 @@ describe("date utilities", () => {
     expect(splitReminderText("me to go out in 15 mins")).toEqual({
       whenText: "go out in 15 mins",
       taskText: "go out in 15 mins"
+    });
+  });
+
+  it("splits remind-me about and set-reminder target language", () => {
+    expect(splitReminderText("me about the meeting after 5 mins")).toEqual({
+      whenText: "the meeting after 5 mins",
+      taskText: "the meeting after 5 mins"
+    });
+    expect(splitReminderText("for school at 9 am")).toEqual({
+      whenText: "school at 9 am",
+      taskText: "school at 9 am"
     });
   });
 

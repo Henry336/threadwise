@@ -9,6 +9,7 @@ export async function ensureUser(ctx: Context) {
   }
 
   const telegramId = String(from.id);
+  const defaultTimezone = defaultTimezoneForTelegramLanguage(from.language_code) ?? env.DEFAULT_TIMEZONE;
   const user = await prisma.user.upsert({
     where: { telegramId },
     update: {
@@ -23,7 +24,7 @@ export async function ensureUser(ctx: Context) {
       lastName: from.last_name,
       settings: {
         create: {
-          timezone: env.DEFAULT_TIMEZONE,
+          timezone: defaultTimezone,
           reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
           quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
           quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
@@ -38,7 +39,7 @@ export async function ensureUser(ctx: Context) {
     await prisma.userSettings.create({
       data: {
         userId: user.id,
-        timezone: env.DEFAULT_TIMEZONE,
+        timezone: defaultTimezone,
         reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
         quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
         quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
@@ -53,5 +54,18 @@ export async function ensureUser(ctx: Context) {
   }
 
   return user;
+}
+
+export function defaultTimezoneForTelegramLanguage(languageCode?: string): string | undefined {
+  const code = languageCode?.toLowerCase().split("-")[0];
+  if (code === "my") {
+    return "Asia/Yangon";
+  }
+
+  if (code === "ms") {
+    return "Asia/Kuala_Lumpur";
+  }
+
+  return undefined;
 }
 

@@ -15,7 +15,7 @@ import {
   scoreIdea,
   updateIdeaConcept
 } from "../services/ideas";
-import { createNote, findAnyNote, findNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
 import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
@@ -28,10 +28,11 @@ import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigu
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { parseDueDate, splitReminderText } from "../utils/dates";
+import { parseListRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -58,21 +59,22 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (lower === "tasks" || lower === "show tasks" || lower === "list tasks") {
+  const listKind = parseListRequest(lower);
+  if (listKind === "tasks") {
     const tasks = await listOpenTasks(user.id);
     const keyboard = taskListKeyboard(tasks);
     await replyHtml(ctx, formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
     return true;
   }
 
-  if (lower === "notes" || lower === "show notes" || lower === "list notes") {
+  if (listKind === "notes") {
     const notes = await listRecentNotes(user.id);
     const keyboard = itemListKeyboard("note", notes);
     await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
     return true;
   }
 
-  if (lower === "ideas" || lower === "show ideas" || lower === "list ideas") {
+  if (listKind === "ideas") {
     const ideas = await listRecentIdeas(user.id);
     const keyboard = itemListKeyboard("idea", ideas);
     await replyHtml(ctx, formatRecentIdeas(ideas), keyboard ? { reply_markup: keyboard } : undefined);
@@ -86,6 +88,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (lower === "settings" || lower === "show settings") {
     await replyHtml(ctx, await formatSettings(user.id));
+    return true;
+  }
+
+  const settingChange = parseNaturalSettingChange(trimmed);
+  if (settingChange) {
+    const result = await updateSetting(user.id, settingChange);
+    await ctx.reply(result.message);
     return true;
   }
 
@@ -173,13 +182,17 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const viewNoteMatch = trimmed.match(/^note\s+(NOTE-\d+)$/i);
+  const viewNoteMatch = trimmed.match(/^(?:(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?)?note\s+(\d+|NOTE-\d+)$/i);
   if (viewNoteMatch?.[1]) {
     try {
-      const note = await findNote(user.id, normalizePublicId(viewNoteMatch[1]));
+      const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
       await replyHtml(ctx, formatNoteDetail(note), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
-      await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))));
+      try {
+        await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))));
+      } catch {
+        await ctx.reply("I couldn't find that note. Show notes will list the recent ones.");
+      }
     }
     return true;
   }
@@ -235,28 +248,28 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const doneMatch = trimmed.match(/^(?:done|complete)\s+(\S+)$/i);
   if (doneMatch?.[1]) {
     const task = await completeTask(user.id, normalizePublicId(doneMatch[1]));
-    await replyHtml(ctx, `${bold("Done")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if that was too quick.`);
+    await replyHtml(ctx, `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
     return true;
   }
 
   const snoozeMatch = trimmed.match(/^snooze\s+(\S+)(?:\s+(.+))?$/i);
   if (snoozeMatch?.[1]) {
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
-    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`);
+    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("Undo snooze") });
     return true;
   }
 
   const rescheduleMatch = trimmed.match(/^(?:reschedule|move)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
-    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`);
+    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
     return true;
   }
 
   const cancelMatch = trimmed.match(/^(?:cancel|delete)\s+(\S+)$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
-    await replyHtml(ctx, `${bold("Canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`);
+    await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`, { reply_markup: undoKeyboard("Undo cancel") });
     return true;
   }
 
@@ -264,7 +277,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (pinMatch?.[1] && pinMatch[2]) {
     const shouldPin = ["pin", "star", "important"].includes(pinMatch[1].toLowerCase());
     const item = await pinItem(user.id, normalizePublicId(pinMatch[2]), shouldPin);
-    await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+    await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
     return true;
   }
 
@@ -274,7 +287,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (renameParsed.field === "description") {
       const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
       const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), renameParsed.title);
-      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`);
+      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
       return true;
     }
 
@@ -283,11 +296,11 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
       if (renameParsed.field === "body") {
         const note = await updateNoteBody(user.id, noteTarget.publicId, renameParsed.title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`);
+        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
         return true;
       }
       const note = await renameNoteTitle(user.id, noteTarget.publicId, renameParsed.title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
       return true;
     }
 
@@ -296,17 +309,17 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
       if (renameParsed.field === "concept") {
         const idea = await updateIdeaConcept(user.id, ideaTarget.publicId, renameParsed.title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`);
+        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
         return true;
       }
       const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, renameParsed.title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`);
+      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
       return true;
     }
 
     const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
     const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), renameParsed.title);
-    await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`);
+    await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
     return true;
   }
 
@@ -342,43 +355,43 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const settingsMatch = trimmed.match(/^(?:settings|set)\s+(.+)$/i);
+  const settingsMatch = trimmed.match(/^settings\s+(.+)$/i);
   if (settingsMatch?.[1]) {
     const result = await updateSetting(user.id, settingsMatch[1].split(/\s+/));
     await ctx.reply(result.message);
     return true;
   }
 
-  const remindMatch = trimmed.match(/^remind\s+(.+)$/i);
-  if (remindMatch?.[1]) {
-    const parsed = splitReminderText(remindMatch[1]);
-    const scheduledAt = parseDueDate(parsed?.whenText ?? remindMatch[1], user.settings?.timezone ?? "UTC");
+  const reminderBody = parseNaturalReminderBody(trimmed);
+  if (reminderBody) {
+    const parsed = splitReminderText(reminderBody);
+    const scheduledAt = parseDueDate(parsed?.whenText ?? reminderBody, user.settings?.timezone ?? "UTC");
     if (!parsed || !scheduledAt || scheduledAt.getTime() <= Date.now()) {
       return false;
     }
     const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task) });
+    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
 
   const ideaMatch = trimmed.match(/^idea\s+(.+)$/i);
   if (ideaMatch?.[1]) {
     const idea = await createIdea(user.id, ideaMatch[1], ai);
-    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
     return true;
   }
 
   const addMatch = trimmed.match(/^(?:add|todo|task)\s+(.+)$/i);
   if (addMatch?.[1]) {
     const task = await createTask(user.id, addMatch[1], ai);
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task) });
+    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
 
   const noteMatch = trimmed.match(/^(?:note|save note)\s+(.+)$/i);
   if (noteMatch?.[1]) {
     const note = await createNote(user.id, noteMatch[1], ai);
-    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemActionsKeyboard("note", note) });
+    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
     return true;
   }
 

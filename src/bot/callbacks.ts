@@ -1,23 +1,25 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { completeTask, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { formatPinResult, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
-import { beginPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
+import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
+import { undoLastAction } from "../services/undo";
 import { formatSearchResultsPage } from "./formatters";
 import { formatHelpPage, HELP_PAGE_SIZE, helpTotalPages } from "./help";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedPageKeyboard, editCancelKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
@@ -26,6 +28,8 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^help:(\d+)$/, async (ctx) => handleHelpPage(ctx, ctx.match[1]));
+  bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
+  bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
   bot.callbackQuery(/^capture:(task|idea|note|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
@@ -47,8 +51,10 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const user = await ensureUser(ctx);
   const task = await completeTask(user.id, taskId);
-  await ctx.answerCallbackQuery({ text: "Marked done" });
-  await replyHtml(ctx, `${bold("Completed")} ${code(task.publicId)} ${h(task.title)}`);
+  await ctx.answerCallbackQuery({ text: "Completed" });
+  await replyHtml(ctx, `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}`, {
+    reply_markup: undoKeyboard("Undo complete")
+  });
 }
 
 async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
@@ -56,7 +62,19 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`);
+  await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`, {
+    reply_markup: undoKeyboard("Undo snooze")
+  });
+}
+
+async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
+  if (!taskId) return;
+  const user = await ensureUser(ctx);
+  const task = await cancelTask(user.id, taskId);
+  await ctx.answerCallbackQuery({ text: "Canceled task" });
+  await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}`, {
+    reply_markup: undoKeyboard("Undo cancel")
+  });
 }
 
 async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin: boolean) {
@@ -64,7 +82,9 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
+    reply_markup: undoKeyboard("Undo")
+  } : undefined);
 }
 
 async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
@@ -76,7 +96,9 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
+  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
+    reply_markup: undoKeyboard("Undo")
+  } : undefined);
 }
 
 async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
@@ -84,7 +106,20 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   const user = await ensureUser(ctx);
   const item = await beginPendingItemEdit(user.id, kind, itemId, isEditableItemField(field) ? field : "title");
   await ctx.answerCallbackQuery({ text: "Ready to edit" });
-  await replyHtml(ctx, formatEditStarted(item));
+  await replyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
+}
+
+async function handleUndoLast(ctx: Context) {
+  const user = await ensureUser(ctx);
+  await ctx.answerCallbackQuery({ text: "Undoing" });
+  await replyHtml(ctx, await undoLastAction(user.id));
+}
+
+async function handleEditCancel(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const canceled = await cancelPendingItemEdit(user.id);
+  await ctx.answerCallbackQuery({ text: canceled ? "Edit canceled" : "No edit pending" });
+  await ctx.reply(canceled ? "Edit canceled. Nothing changed." : "There is no edit waiting right now.");
 }
 
 async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
@@ -177,7 +212,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   if (action === "task") {
     const task = await createTask(user.id, pending.sourceText, ai);
     await replyHtml(ctx, `${formatTaskCreated(task, user.settings?.timezone)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: taskActionsKeyboard(task)
+      reply_markup: taskCreatedKeyboard(task)
     });
     return;
   }
@@ -185,7 +220,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   if (action === "idea") {
     const idea = await createIdea(user.id, pending.sourceText, ai);
     await replyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: itemActionsKeyboard("idea", idea)
+      reply_markup: itemCreatedKeyboard("idea", idea)
     });
     return;
   }
@@ -193,7 +228,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   if (action === "note") {
     const note = await createNote(user.id, pending.sourceText, ai);
     await replyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: itemActionsKeyboard("note", note)
+      reply_markup: itemCreatedKeyboard("note", note)
     });
     return;
   }

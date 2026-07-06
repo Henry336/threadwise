@@ -68,7 +68,7 @@ describe("bot formatters", () => {
     const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "Done 1",
+      text: "Complete 1",
       callback_data: "task:done:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
@@ -211,9 +211,10 @@ describe("bot formatters", () => {
     const message = formatStartText("Asia/Yangon");
 
     expect(message).toContain("<b>First checklist</b>");
-    expect(message).toContain("[ ] <code>/settings timezone Asia/Singapore</code> - set timezone");
-    expect(message).toContain("[ ] <code>/add pay invoice tomorrow at 9am</code> - add your first task");
-    expect(message).toContain("[ ] <code>/note Deployment reliability depends on avoiding sleeping workers</code> - save your first note");
+    expect(message).toContain("[ ] <code>change timezone to Singapore</code> - set timezone if this looks wrong");
+    expect(message).toContain("[ ] <code>add pay invoice tomorrow at 9am</code> - add your first task");
+    expect(message).toContain("[ ] <code>note Deployment reliability depends on avoiding sleeping workers</code> - save your first note");
+    expect(message).toContain("Telegram does not share an exact device timezone with bots");
   });
 });
 

@@ -30,10 +30,11 @@ describe("deterministic AI helpers", () => {
   });
 
   it.each([
-    ["remind me about the meeting in 2 hours", "The meeting"],
-    ["remind me about the meeting in 2 hrs", "The meeting"],
-    ["remind me about the meeting in 2 hr", "The meeting"],
-    ["remind me about the meeting in 2 hour", "The meeting"],
+    ["remind me about the meeting in 2 hours", "Meeting"],
+    ["remind me about the meeting after 2 hours", "Meeting"],
+    ["remind me about the meeting in 2 hrs", "Meeting"],
+    ["remind me about the meeting in 2 hr", "Meeting"],
+    ["remind me about the meeting in 2 hour", "Meeting"],
     ["remind me to leave my house in 20 mins", "Leave my house"],
     ["remind me to leave my house in 20 min", "Leave my house"],
     ["remind me to leave my house in 20 minute", "Leave my house"],
@@ -45,6 +46,14 @@ describe("deterministic AI helpers", () => {
     expect(classification?.kind).toBe("task");
     expect(classification?.confidence).toBeGreaterThanOrEqual(0.9);
     expect(structureTaskDeterministically(input).title).toBe(title);
+  });
+
+  it("handles parent-style shorthand without losing reminder intent", () => {
+    const input = "remind me to do sth after 5 mins";
+    const classification = classifyMessageDeterministically(input, "Asia/Singapore");
+    expect(classification?.kind).toBe("task");
+    expect(classification?.confidence).toBeGreaterThanOrEqual(0.9);
+    expect(structureTaskDeterministically(input).title).toBe("Do something");
   });
 
   it.each([

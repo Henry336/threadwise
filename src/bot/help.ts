@@ -24,7 +24,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/important", description: "Mark a task important.", example: "/important 1" },
   { command: "/score", description: "Score an idea for usefulness, buildability, risk, and more.", example: "/score IDEA-1" },
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
-  { command: "/note", description: "Save a cleaned searchable note, or open a note by ID.", example: "/note NOTE-1" },
+  { command: "/note", description: "Save a cleaned searchable note, or open a note by number.", example: "/note 1" },
   { command: "/notes", description: "List or search saved notes.", example: "/notes deployment reliability" },
   { command: "/note-analysis", description: "Analyze your saved notekeeping style.", example: "/note-analysis" },
   { command: "/merge", description: "Preview a merged note from related notes.", example: "/merge notes 1 2 3" },
@@ -37,7 +37,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Get calendar export options for a dated task.", example: "/calendar 1" },
   { command: "/gmail", description: "Connect Gmail, scan unread emails, and create reminders for important mail.", example: "/gmail connect" },
-  { command: "/settings", description: "View or edit timezone, quiet hours, reminder interval, and caps.", example: "/settings timezone Asia/Yangon" },
+  { command: "/settings", description: "View or edit timezone, quiet hours, reminder interval, and caps.", example: "/settings timezone Myanmar" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" }
 ];
@@ -49,15 +49,16 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     "",
     bold("First checklist"),
     `${bold("Current")} ${code(timezone)}`,
-    `[ ] ${code("/settings timezone Asia/Singapore")} - set timezone`,
-    `[ ] ${code("/add pay invoice tomorrow at 9am")} - add your first task`,
-    `[ ] ${code("/note Deployment reliability depends on avoiding sleeping workers")} - save your first note`,
+    `[ ] ${code("change timezone to Singapore")} - set timezone if this looks wrong`,
+    `[ ] ${code("add pay invoice tomorrow at 9am")} - add your first task`,
+    `[ ] ${code("note Deployment reliability depends on avoiding sleeping workers")} - save your first note`,
     "",
     bold("Timezone examples"),
-    `${code("/settings timezone Asia/Singapore")} - Singapore`,
-    `${code("/settings timezone Asia/Yangon")} - Myanmar`,
+    `${code("change timezone to Singapore")} - Singapore`,
+    `${code("change timezone to Myanmar")} - Myanmar`,
+    `${code("change timezone to Malaysia")} - Malaysia`,
     `${code("/settings timezone America/New_York")} - New York`,
-    "Use the nearest IANA city timezone. Common aliases like Myanmar or Asia/Myanmar are accepted when Threadwise can map them safely.",
+    "Telegram does not share an exact device timezone with bots, so Threadwise makes a best guess from language and accepts common country/city names.",
     "",
     bold("Try these"),
     `${code("/help")} - show the full command guide`,
@@ -67,7 +68,7 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     `${code("/version")} - show version and reminder diagnostics`,
     "",
     bold("Natural language works too"),
-    "You can talk normally: remind me to check the logs tomorrow at 9am, add renew passport next Friday, search notes deployment, or merge notes 1 2 3.",
+    "You can talk normally: show me the tasks, show me the notes, remind me to check the logs after 5 mins, change timezone to Yangon, search notes deployment, or merge notes 1 2 3.",
     "",
     `${code("/help")} has the complete command list.`
   ].join("\n");
@@ -91,7 +92,7 @@ export function formatHelpPage(page: number, pageSize = HELP_PAGE_SIZE): string 
     "",
     ...visibleCommands.map(formatHelpCommand),
     "",
-    "Talk naturally too: remind me to check the logs tomorrow at 9am."
+    "Talk naturally too: show me the tasks, change timezone to Myanmar, or remind me to check the logs after 5 mins."
   ].join("\n");
 }
 
