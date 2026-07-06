@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dueNudgeStartAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
+import { ReminderMode } from "@prisma/client";
+import { dueNudgeStartAt, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -74,5 +75,35 @@ describe("reminder policy", () => {
         5
       ).toISOString()
     ).toBe("2026-07-05T00:05:00.000Z");
+  });
+
+  it("makes important task reminders hard to miss", () => {
+    const message = formatReminderMessage(
+      {
+        publicId: "TASK-1",
+        title: "Reply to bank",
+        pinnedAt: new Date("2026-07-05T00:01:00.000Z"),
+        dueAt: new Date("2026-07-05T01:00:00.000Z"),
+        timezone: "Asia/Singapore"
+      },
+      {
+        timezone: "Asia/Singapore",
+        reminderMode: ReminderMode.INDIVIDUAL
+      }
+    );
+
+    expect(message).toContain("<b>❗ IMPORTANT TASK ❗</b>");
+    expect(message).toContain("<b>Do this now, or snooze it intentionally.</b>");
+    expect(message).toContain("❗ ❗ ❗");
+  });
+
+  it("starts with empty reminder diagnostics before the first loop run", () => {
+    expect(getReminderDiagnostics()).toMatchObject({
+      dueTasksFound: 0,
+      remindersSent: 0,
+      deferredForQuietHours: 0,
+      cappedByDailyLimit: 0,
+      failedDeliveries: 0
+    });
   });
 });

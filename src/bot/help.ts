@@ -21,6 +21,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/cancel", description: "Cancel an open task.", example: "/cancel 1" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
+  { command: "/important", description: "Mark a task important.", example: "/important 1" },
   { command: "/score", description: "Score an idea for usefulness, buildability, risk, and more.", example: "/score IDEA-1" },
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
   { command: "/note", description: "Save a cleaned searchable note, or open a note by ID.", example: "/note NOTE-1" },
@@ -29,15 +30,16 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/merge", description: "Preview a merged note from related notes.", example: "/merge notes 1 2 3" },
   { command: "/search", description: "Semantic search across ideas, notes, and open tasks.", example: "/search notes deployment" },
   { command: "/review", description: "Show a compact review of tasks, notes, and ideas.", example: "/review" },
-  { command: "/pin", description: "Pin or star an important task, note, or idea.", example: "/pin note 2" },
-  { command: "/unpin", description: "Remove a pin/star.", example: "/unpin NOTE-1" },
-  { command: "/pins", description: "Show pinned tasks, notes, and ideas.", example: "/pins" },
+  { command: "/pin", description: "Mark a task important, or pin/star a note or idea.", example: "/pin 1" },
+  { command: "/unpin", description: "Remove an important marker, pin, or star.", example: "/unpin 1" },
+  { command: "/pins", description: "Show important tasks plus pinned notes and ideas.", example: "/pins" },
   { command: "/archived", description: "Browse archived notes, ideas, or tasks.", example: "/archived notes" },
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Get calendar export options for a dated task.", example: "/calendar 1" },
   { command: "/gmail", description: "Connect Gmail, scan unread emails, and create reminders for important mail.", example: "/gmail connect" },
   { command: "/settings", description: "View or edit timezone, quiet hours, reminder interval, and caps.", example: "/settings timezone Asia/Yangon" },
-  { command: "/undo", description: "Reverse the last supported change.", example: "/undo" }
+  { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
+  { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" }
 ];
 
 export function formatStartText(timezone = "Asia/Singapore"): string {
@@ -45,8 +47,13 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     bold("Welcome to Threadwise"),
     "A private Telegram inbox for tasks, reminders, notes, ideas, search, reviews, and implementation briefs.",
     "",
-    bold("First, check your timezone"),
+    bold("First checklist"),
     `${bold("Current")} ${code(timezone)}`,
+    `[ ] ${code("/settings timezone Asia/Singapore")} - set timezone`,
+    `[ ] ${code("/add pay invoice tomorrow at 9am")} - add your first task`,
+    `[ ] ${code("/note Deployment reliability depends on avoiding sleeping workers")} - save your first note`,
+    "",
+    bold("Timezone examples"),
     `${code("/settings timezone Asia/Singapore")} - Singapore`,
     `${code("/settings timezone Asia/Yangon")} - Myanmar`,
     `${code("/settings timezone America/New_York")} - New York`,
@@ -54,11 +61,10 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     "",
     bold("Try these"),
     `${code("/help")} - show the full command guide`,
-    `${code("/add pay invoice tomorrow at 9am")} - add a task`,
     `${code("/remind tomorrow at 9am | submit the form")} - schedule a reminder`,
     `${code("/idea build a Telegram bot for life admin")} - save and structure an idea`,
-    `${code("/note Deployment reliability depends on avoiding sleeping workers")} - save a searchable note`,
     `${code("/settings")} - view timezone, quiet hours, and reminder settings`,
+    `${code("/version")} - show version and reminder diagnostics`,
     "",
     bold("Natural language works too"),
     "You can talk normally: remind me to check the logs tomorrow at 9am, add renew passport next Friday, search notes deployment, or merge notes 1 2 3.",
@@ -77,7 +83,7 @@ export function formatHelpPage(page: number, pageSize = HELP_PAGE_SIZE): string 
   const totalPages = helpTotalPages(pageSize);
   const currentPage = Math.min(Math.max(1, page), totalPages);
   const start = (currentPage - 1) * pageSize;
-  const visibleCommands = HELP_COMMANDS.slice(start, start + pageSize);
+  const visibleCommands = sortedHelpCommands().slice(start, start + pageSize);
 
   return [
     bold("Threadwise commands"),
@@ -91,6 +97,10 @@ export function formatHelpPage(page: number, pageSize = HELP_PAGE_SIZE): string 
 
 export function helpTotalPages(pageSize = HELP_PAGE_SIZE): number {
   return Math.max(1, Math.ceil(HELP_COMMANDS.length / pageSize));
+}
+
+function sortedHelpCommands(): HelpCommand[] {
+  return [...HELP_COMMANDS].sort((a, b) => a.command.localeCompare(b.command));
 }
 
 function formatHelpCommand(item: HelpCommand): string {

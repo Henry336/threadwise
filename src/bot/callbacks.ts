@@ -63,7 +63,7 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   if (!taskId) return;
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, taskId, shouldPin);
-  await ctx.answerCallbackQuery({ text: shouldPin ? "Starred" : "Unstarred" });
+  await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
 }
 
@@ -71,7 +71,11 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
   if (!isEditableItemKind(kind) || !itemId) return;
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, itemId, shouldPin);
-  await ctx.answerCallbackQuery({ text: shouldPin ? "Starred" : "Unstarred" });
+  await ctx.answerCallbackQuery({
+    text: kind === "task"
+      ? shouldPin ? "Marked important" : "No longer important"
+      : shouldPin ? "Starred" : "Unstarred"
+  });
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
 }
 

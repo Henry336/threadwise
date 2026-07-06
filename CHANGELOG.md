@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- Added protected admin reminder run and status endpoints for cron or uptime fallback checks.
+- Added `/important` as a friendlier task alias for `/pin`.
+- Added `/version` with app version, deploy/start time, AI/Gmail status, and reminder delivery diagnostics.
+- Added a tiny `/start` onboarding checklist for timezone, first task, and first note setup.
+- Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
+
+## v0.9.0 - 2026-07-06
+
+### Added
 - Added paginated search results with Prev/Next buttons.
 - Added `/search done <query>` and natural-language done-task search.
 - Added `/reschedule` and natural-language task rescheduling.
@@ -11,6 +20,7 @@
 - Added timezone validation, aliases, and onboarding examples for non-Singapore users.
 - Added optional Gmail read-only OAuth integration with unread scans, summaries, and follow-up tasks for important messages.
 - Added paginated `/help` with Prev/Next buttons.
+- Started tracking app release versions in package metadata and this changelog.
 
 ### Changed
 - Dated reminders now start at `dueAt - dueNudgeMinutes` and repeat on that cadence until the task is done, snoozed, canceled, or rescheduled.
@@ -19,6 +29,8 @@
 - `/start` now shows first-run onboarding with timezone setup, command examples, and natural-language usage.
 - Timezone changes now recheck open tasks and update their display timezone without moving existing due instants.
 - Removed the misleading digest setting from public settings help.
+- Starred tasks now display as important and receive louder reminder messages with ❗ indicators.
+- Paginated `/help` now lists commands alphabetically.
 
 ### Removed
 - Removed the relationship/reflect command surface from help, commands, natural-language handling, and capture buttons.

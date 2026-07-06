@@ -1,7 +1,7 @@
 {
   "name": "threadwise",
-  "version": "0.1.0",
-  "description": "A Telegram life inbox for ideas, tasks, reminders, reflections, semantic search, and idea scoring.",
+  "version": "0.9.0",
+  "description": "A Telegram life inbox for ideas, notes, tasks, reminders, semantic search, Gmail summaries, and idea scoring.",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",

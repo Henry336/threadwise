@@ -101,9 +101,21 @@ export async function listPinnedItems(userId: string): Promise<PinnableItem[]> {
 
 export function formatPinResult(item: PinnableItem & { changed: boolean }, shouldPin: boolean): string {
   if (!item.changed) {
+    if (item.kind === "task") {
+      return shouldPin
+        ? `${code(item.publicId)} is already marked important.`
+        : `${code(item.publicId)} is not marked important right now.`;
+    }
+
     return shouldPin
       ? `${code(item.publicId)} is already pinned.`
       : `${code(item.publicId)} is not pinned right now.`;
+  }
+
+  if (item.kind === "task") {
+    return shouldPin
+      ? `${bold("Marked important")} ${code(item.publicId)} ${h(item.title)}`
+      : `${bold("No longer important")} ${code(item.publicId)} ${h(item.title)}`;
   }
 
   return shouldPin
@@ -119,7 +131,7 @@ export function formatPinnedItems(items: PinnableItem[]): string {
   return [
     bold("Pinned items"),
     "",
-    ...items.map((item) => `${code(item.publicId)} ${bold(item.title)}\n${italic(item.kind)} - ${h(item.summary.slice(0, 180))}`)
+    ...items.map((item) => `${code(item.publicId)} ${bold(item.title)}\n${italic(item.kind === "task" ? "IMPORTANT task" : item.kind)} - ${h(item.summary.slice(0, 180))}`)
   ].join("\n\n");
 }
 

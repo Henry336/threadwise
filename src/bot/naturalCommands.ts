@@ -260,9 +260,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const pinMatch = trimmed.match(/^(pin|star|unpin|unstar)\s+(.+)$/i);
+  const pinMatch = trimmed.match(/^(pin|star|important|unpin|unstar)\s+(.+)$/i);
   if (pinMatch?.[1] && pinMatch[2]) {
-    const shouldPin = pinMatch[1].toLowerCase() === "pin" || pinMatch[1].toLowerCase() === "star";
+    const shouldPin = ["pin", "star", "important"].includes(pinMatch[1].toLowerCase());
     const item = await pinItem(user.id, normalizePublicId(pinMatch[2]), shouldPin);
     await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
     return true;

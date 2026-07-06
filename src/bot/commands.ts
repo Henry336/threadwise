@@ -53,6 +53,8 @@ import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchive
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { createIcs } from "../services/calendar";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
+import { getReminderDiagnostics } from "../services/reminders";
+import { formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
@@ -80,7 +82,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["reschedule", "move"], async (ctx) => handleReschedule(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
-  bot.command(["pin", "star"], async (ctx) => handlePin(ctx, true));
+  bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
   bot.command(["unpin", "unstar"], async (ctx) => handlePin(ctx, false));
   bot.command("pins", async (ctx) => handlePins(ctx));
   bot.command(["archived", "archives"], async (ctx) => handleArchived(ctx));
@@ -92,6 +94,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => handleCalendar(ctx));
   bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
+  bot.command("version", async (ctx) => handleVersion(ctx, ai));
 }
 
 async function handleIdea(ctx: Context, ai: AiProvider) {
@@ -397,7 +400,7 @@ async function handleRename(ctx: Context) {
 async function handlePin(ctx: Context, shouldPin: boolean) {
   const user = await ensureUser(ctx);
   const command = shouldPin
-    ? ctx.message?.text?.startsWith("/star") ? "star" : "pin"
+    ? ctx.message?.text?.startsWith("/star") ? "star" : ctx.message?.text?.startsWith("/important") ? "important" : "pin"
     : ctx.message?.text?.startsWith("/unstar") ? "unstar" : "unpin";
   const reference = commandBody(ctx.message?.text ?? "", command);
   if (!reference) {
@@ -596,6 +599,14 @@ async function handleGmail(ctx: Context, ai: AiProvider) {
   }
 
   await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
+}
+
+async function handleVersion(ctx: Context, ai: AiProvider) {
+  await replyHtml(ctx, formatVersionStatus({
+    ai: ai.getStatus(),
+    gmailConfigured: gmailConfigured(),
+    reminders: getReminderDiagnostics()
+  }));
 }
 
 async function replyInChunks(ctx: Context, text: string) {

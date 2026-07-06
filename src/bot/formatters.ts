@@ -16,7 +16,7 @@ export function formatOpenTasks(
 
   const numbered = tasks.map((task, index) => ({ task, number: index + 1 }));
   const groups = [
-    { title: "Pinned", items: numbered.filter(({ task }) => task.pinnedAt) },
+    { title: "❗ IMPORTANT ❗", items: numbered.filter(({ task }) => task.pinnedAt) },
     { title: "Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
     { title: "Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
     { title: "Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
@@ -47,9 +47,10 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
   return [
     `${code(task.publicId)} ${bold(task.title)}`,
     "",
+    task.pinnedAt ? bold("❗ IMPORTANT TASK ❗") : undefined,
     task.description ? h(task.description) : undefined,
     `${bold("Status")} ${h(task.status.toLowerCase())}`,
-    task.pinnedAt ? `${bold("Pinned")} yes` : undefined,
+    task.pinnedAt ? `${bold("Important")} yes` : undefined,
     task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : `${bold("Due")} none`,
     task.nextReminderAt ? `${bold("Next reminder")} ${h(formatDateTimeForUser(task.nextReminderAt, timezone))}` : `${bold("Next reminder")} none`,
     settings ? `${bold("Current interval")} ${settings.reminderIntervalMinutes} minutes` : undefined,
@@ -131,10 +132,11 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
 
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  const lines = [`${number}. ${bold(task.title)}`, `   ${code(task.publicId)}`];
+  const title = task.pinnedAt ? `❗ IMPORTANT ❗ ${task.title}` : task.title;
+  const lines = [`${number}. ${bold(title)}`, `   ${code(task.publicId)}`];
 
   if (task.pinnedAt) {
-    lines.push(`   ${italic("pinned")}`);
+    lines.push(`   ${bold("IMPORTANT")} ${italic("starred task")}`);
   }
 
   if (task.dueAt) {

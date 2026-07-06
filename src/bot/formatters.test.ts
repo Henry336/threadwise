@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
-import { formatOpenTasks } from "./formatters";
+import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { formatHelpPage, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -35,18 +36,25 @@ describe("bot formatters", () => {
     expect(message).toContain("No due date");
   });
 
-  it("shows pinned tasks in their own group", () => {
+  it("shows starred tasks as important in their own group", () => {
     const message = formatOpenTasks(
       [
-        task({ publicId: "TASK-2", title: "Pinned task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }),
+        task({ publicId: "TASK-2", title: "Important task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }),
         task({ publicId: "TASK-1", title: "Regular task" })
       ],
       "Asia/Singapore"
     );
 
-    expect(message).toContain("Pinned");
-    expect(message).toContain("pinned");
-    expect(message.indexOf("Pinned task")).toBeLessThan(message.indexOf("Regular task"));
+    expect(message).toContain("❗ IMPORTANT ❗");
+    expect(message).toContain("<b>IMPORTANT</b>");
+    expect(message.indexOf("Important task")).toBeLessThan(message.indexOf("Regular task"));
+  });
+
+  it("marks starred task details as important", () => {
+    const message = formatTaskDetail(task({ title: "Reply to bank", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
+
+    expect(message).toContain("<b>❗ IMPORTANT TASK ❗</b>");
+    expect(message).toContain("<b>Important</b> yes");
   });
 
   it("escapes user task text in HTML output", () => {
@@ -184,6 +192,28 @@ describe("bot formatters", () => {
       text: "Next",
       callback_data: "archived:notes:3"
     });
+  });
+
+  it("shows help commands alphabetically", () => {
+    const message = formatHelpPage(1);
+
+    expect(message.indexOf("<code>/add</code>")).toBeLessThan(message.indexOf("<code>/archived</code>"));
+    expect(message.indexOf("<code>/archived</code>")).toBeLessThan(message.indexOf("<code>/brief</code>"));
+    expect(message).not.toContain("<code>/start</code> - Show first-run onboarding");
+  });
+
+  it("includes important and version commands in help metadata", () => {
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
+  });
+
+  it("shows a tiny onboarding checklist after start", () => {
+    const message = formatStartText("Asia/Yangon");
+
+    expect(message).toContain("<b>First checklist</b>");
+    expect(message).toContain("[ ] <code>/settings timezone Asia/Singapore</code> - set timezone");
+    expect(message).toContain("[ ] <code>/add pay invoice tomorrow at 9am</code> - add your first task");
+    expect(message).toContain("[ ] <code>/note Deployment reliability depends on avoiding sleeping workers</code> - save your first note");
   });
 });
 

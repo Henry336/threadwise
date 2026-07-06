@@ -27,7 +27,7 @@ Current deployment: https://threadwise-90du.onrender.com
 - Supports rescheduling dated tasks with `/reschedule`.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
 - Supports undo for confirmed note merges, restoring the original notes and archiving the generated merged note.
-- Pins important tasks, notes, and ideas with `/pin`, `/star`, and `/pins`.
+- Marks important tasks and pins notes or ideas with `/pin`, `/star`, and `/pins`.
 - Starts a short edit flow from item edit buttons; the next normal message becomes the new title.
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
@@ -41,6 +41,8 @@ Current deployment: https://threadwise-90du.onrender.com
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
 - Connects Gmail with read-only OAuth, scans unread mail, sends summaries, and creates follow-up tasks for important messages.
+- Shows release, AI, Gmail, and reminder delivery status with `/version`.
+- Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder interval, quiet hours, timezone, and reminder cap.
 
 ## Commands
@@ -79,6 +81,7 @@ Current deployment: https://threadwise-90du.onrender.com
 /edit task 1 details More useful task details
 /edit idea 1 concept Sharper idea concept
 /pin 1
+/important 1
 /pin note 2
 /star IDEA-1
 /unpin NOTE-1
@@ -97,6 +100,7 @@ Current deployment: https://threadwise-90du.onrender.com
 /gmail connect
 /gmail scan
 /gmail disconnect
+/version
 /settings
 /settings interval 180
 /settings timezone Asia/Singapore
@@ -108,9 +112,11 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings due-nudge 3
 ```
 
-`/start` gives new users a short onboarding path with timezone setup and examples for `/help`, `/add`, `/remind`, `/idea`, `/note`, and `/settings`.
+`/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
 
 Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am" or "add renew passport next Friday".
+
+For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use louder Telegram formatting so they stand out from normal task reminders.
 
 For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply.
 
@@ -130,6 +136,17 @@ Reminders are database-driven. Each open task has a `nextReminderAt`, and the re
 - `/settings quiet off` disables quiet hours and rechecks open tasks so reminders deferred by quiet hours can become eligible again.
 - `/settings max <n>` limits total reminders per user per day. If you manually lower the cap with a short interval, `/settings` will show how much reminder coverage that allows.
 - `/task 1` shows reminder debug details, including the next reminder time, current interval, daily cap, and quiet hours.
+- `/version` shows the last reminder loop run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
+
+If the process sleeps or an uptime monitor needs a direct fallback, set `ADMIN_STATUS_TOKEN` and call either:
+
+```text
+GET /admin/reminders/run
+POST /admin/reminders/run
+GET /admin/reminders/status
+```
+
+Send the token as `Authorization: Bearer <ADMIN_STATUS_TOKEN>` or `x-threadwise-admin-token`. The run endpoint performs one due-reminder pass and returns delivery diagnostics.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 
@@ -160,7 +177,7 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 - Prisma for schema and migrations
 - Zod for environment validation
 - OpenAI-compatible adapter for classification, embeddings, and idea scoring
-- Private AI status endpoint for checking whether OpenAI is configured and which chat model is active
+- Private admin endpoints for checking AI status and triggering reminder fallback runs
 - Vitest for unit tests
 - Render for deployment
 
@@ -288,13 +305,16 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 
 Leave it blank to allow any Telegram user who can find the bot to use their own isolated Threadwise account.
 
-## Private AI Status
+## Private Admin Endpoints
 
 Set `ADMIN_STATUS_TOKEN` to enable:
 
 ```text
 GET /admin/ai/status
 GET /admin/ai/status?check=1
+GET /admin/reminders/status
+GET /admin/reminders/run
+POST /admin/reminders/run
 ```
 
 Send the token as:
@@ -314,6 +334,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Set that generated value in Render, then pass the same value when calling the endpoint.
 
 `/admin/ai/status` reports whether Threadwise is using the OpenAI provider or heuristic fallback, the configured chat model chain, the active chat model, embedding model, last successful chat call, and the last recorded rate-limit event. `?check=1` performs a tiny live OpenAI chat check, so use it intentionally.
+
+`/admin/reminders/status` returns the latest in-memory reminder diagnostics. `/admin/reminders/run` performs one immediate due-reminder pass and returns due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 `OPENAI_MODEL_FALLBACKS` is a comma-separated list tried after the current chat model hits a rate limit or is unavailable. Example:
 
