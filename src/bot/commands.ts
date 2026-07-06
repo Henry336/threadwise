@@ -105,8 +105,12 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const idea = await createIdea(user.id, text, ai);
-  await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+  try {
+    const idea = await createIdea(user.id, text, ai);
+    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemActionsKeyboard("idea", idea) });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that idea. Try again in a moment.");
+  }
 }
 
 async function handleNote(ctx: Context, ai: AiProvider) {
@@ -132,8 +136,12 @@ async function handleNote(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const note = await createNote(user.id, text, ai);
-  await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemActionsKeyboard("note", note) });
+  try {
+    const note = await createNote(user.id, text, ai);
+    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemActionsKeyboard("note", note) });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that note. Try again in a moment.");
+  }
 }
 
 async function handleNotes(ctx: Context) {
@@ -201,8 +209,12 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const task = await createTask(user.id, text, ai);
-  await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task) });
+  try {
+    const task = await createTask(user.id, text, ai);
+    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskActionsKeyboard(task) });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't add that task. Try again in a moment.");
+  }
 }
 
 async function handleRemind(ctx: Context, ai: AiProvider) {
@@ -241,8 +253,12 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
-  await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task) });
+  try {
+    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
+    await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskActionsKeyboard(task) });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");
+  }
 }
 
 async function handleTasks(ctx: Context) {

@@ -9,6 +9,12 @@
 - Added a tiny `/start` onboarding checklist for timezone, first task, and first note setup.
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
+### Fixed
+- Fixed AI-backed captures going silent when OpenAI classification, structuring, or embedding calls fail; Threadwise now falls back to deterministic local heuristics.
+- Fixed natural reminder text like `remind me to go out in 15 mins` and compact `/remind do this at 4 pm` parsing.
+- Fixed OpenAI fallback rotation so rate-limited chat models cool down instead of being retried first on every request.
+- Fixed duplicate Telegram update claims so expected duplicates no longer emit Prisma unique-constraint errors.
+
 ## v0.9.0 - 2026-07-06
 
 ### Added

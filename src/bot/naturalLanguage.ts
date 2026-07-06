@@ -21,79 +21,78 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       return;
     }
 
-    const user = await ensureUser(ctx);
+    try {
+      const user = await ensureUser(ctx);
 
-    if (/^(cancel|stop)\s+edit$/i.test(text.trim())) {
-      const canceled = await cancelPendingItemEdit(user.id);
-      if (canceled) {
-        await ctx.reply("Edit canceled. Nothing changed.");
+      if (/^(cancel|stop)\s+edit$/i.test(text.trim())) {
+        const canceled = await cancelPendingItemEdit(user.id);
+        if (canceled) {
+          await ctx.reply("Edit canceled. Nothing changed.");
+          return;
+        }
+      }
+
+      const editResult = await applyPendingItemEdit(user.id, text);
+      if (editResult) {
+        await replyHtml(ctx, editResult);
         return;
       }
-    }
 
-    const editResult = await applyPendingItemEdit(user.id, text);
-    if (editResult) {
-      await replyHtml(ctx, editResult);
-      return;
-    }
-
-    try {
       if (await handleNaturalCommand(ctx, ai, text)) {
         return;
       }
+
+      const classification = await ai.classifyMessage(text);
+
+      if (classification.kind === "noise" || classification.kind === "reflection" || classification.confidence < 0.45) {
+        return;
+      }
+
+      if (shouldAutoSave(classification.kind, classification.confidence)) {
+        if (classification.kind === "task") {
+          const task = await createTask(user.id, text, ai);
+          await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
+            reply_markup: taskActionsKeyboard(task)
+          });
+          return;
+        }
+
+        if (classification.kind === "idea") {
+          const idea = await createIdea(user.id, text, ai);
+          await replyHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
+            reply_markup: itemActionsKeyboard("idea", idea)
+          });
+          return;
+        }
+
+        if (classification.kind === "note") {
+          const note = await createNote(user.id, text, ai);
+          await replyHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
+            reply_markup: itemActionsKeyboard("note", note)
+          });
+          return;
+        }
+      }
+
+      const pending = await createPendingCapture(user.id, text, classification);
+      const hasReminderTime =
+        classification.kind === "task" &&
+        Boolean(parseDueDate(classification.dueDateText ?? text, user.settings?.timezone ?? "UTC"));
+      const label =
+        hasReminderTime
+          ? "a scheduled reminder"
+          : classification.kind === "task"
+            ? "a task"
+            : classification.kind === "idea"
+              ? "an idea"
+              : "a note";
+
+      await replyHtml(ctx, `This sounds like ${bold(label)}.\n${h("Save it?")}`, {
+        reply_markup: captureConfirmationKeyboard(pending.id)
+      });
     } catch (error) {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't handle that request. Try /help for examples.");
-      return;
     }
-
-    const classification = await ai.classifyMessage(text);
-
-    if (classification.kind === "noise" || classification.kind === "reflection" || classification.confidence < 0.45) {
-      return;
-    }
-
-    if (shouldAutoSave(classification.kind, classification.confidence)) {
-      if (classification.kind === "task") {
-        const task = await createTask(user.id, text, ai);
-        await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
-          reply_markup: taskActionsKeyboard(task)
-        });
-        return;
-      }
-
-      if (classification.kind === "idea") {
-        const idea = await createIdea(user.id, text, ai);
-        await replyHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
-          reply_markup: itemActionsKeyboard("idea", idea)
-        });
-        return;
-      }
-
-      if (classification.kind === "note") {
-        const note = await createNote(user.id, text, ai);
-        await replyHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
-          reply_markup: itemActionsKeyboard("note", note)
-        });
-        return;
-      }
-    }
-
-    const pending = await createPendingCapture(user.id, text, classification);
-    const hasReminderTime =
-      classification.kind === "task" &&
-      Boolean(parseDueDate(classification.dueDateText ?? text, user.settings?.timezone ?? "UTC"));
-    const label =
-      hasReminderTime
-        ? "a scheduled reminder"
-        : classification.kind === "task"
-          ? "a task"
-          : classification.kind === "idea"
-            ? "an idea"
-            : "a note";
-
-    await replyHtml(ctx, `This sounds like ${bold(label)}.\n${h("Save it?")}`, {
-      reply_markup: captureConfirmationKeyboard(pending.id)
-    });
   });
 }
 

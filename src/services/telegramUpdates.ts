@@ -1,17 +1,14 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 
 const RETENTION_DAYS = 7;
 
 export async function claimTelegramUpdate(updateId: number): Promise<boolean> {
-  try {
-    await prisma.processedTelegramUpdate.create({ data: { updateId } });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return false;
-    }
-
-    throw error;
+  const result = await prisma.processedTelegramUpdate.createMany({
+    data: [{ updateId }],
+    skipDuplicates: true
+  });
+  if (result.count === 0) {
+    return false;
   }
 
   if (updateId % 100 === 0) {

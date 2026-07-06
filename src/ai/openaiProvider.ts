@@ -20,16 +20,22 @@ import type {
   StructuredTask
 } from "./types";
 
+const CHAT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+
+type OpenAiClient = Pick<OpenAI, "chat" | "embeddings">;
+
 export class OpenAiProvider implements AiProvider {
-  private readonly client: OpenAI;
+  private readonly client: OpenAiClient;
   private readonly chatModels: string[];
   private activeChatModel: string;
   private lastSuccessfulChatAt?: string;
   private lastRateLimit?: { model: string; at: string };
   private lastError?: { model?: string; at: string; message: string };
+  private readonly rateLimitedUntil = new Map<string, number>();
+  private readonly unavailableModels = new Set<string>();
 
-  constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey });
+  constructor(apiKey: string, client: OpenAiClient = new OpenAI({ apiKey })) {
+    this.client = client;
     this.chatModels = uniqueModels([env.OPENAI_MODEL, ...parseModelList(env.OPENAI_MODEL_FALLBACKS)]);
     this.activeChatModel = this.chatModels[0] ?? env.OPENAI_MODEL;
   }
@@ -238,7 +244,12 @@ export class OpenAiProvider implements AiProvider {
 
   private async chatCompletionWithFallback(system: string, user: string) {
     let lastError: unknown;
-    for (const model of this.orderedModelsForAttempt()) {
+    const models = this.orderedModelsForAttempt();
+    if (models.length === 0) {
+      throw new Error("All OpenAI chat models are cooling down after rate limits or are unavailable.");
+    }
+
+    for (const model of models) {
       try {
         const response = await this.client.chat.completions.create({
           model,
@@ -260,12 +271,22 @@ export class OpenAiProvider implements AiProvider {
 
         if (isRateLimitError(error)) {
           this.lastRateLimit = { model, at: new Date().toISOString() };
-          logger.warn("OpenAI chat model hit a rate limit; trying fallback model if configured.", { model });
+          this.rateLimitedUntil.set(model, Date.now() + CHAT_RATE_LIMIT_COOLDOWN_MS);
+          this.moveActiveModelToNextAvailable();
+          logger.warn("OpenAI chat model hit a rate limit; trying fallback model if configured.", {
+            model,
+            nextModel: this.orderedModelsForAttempt()[0]
+          });
           continue;
         }
 
         if (isModelAvailabilityError(error)) {
-          logger.warn("OpenAI chat model was unavailable; trying fallback model if configured.", { model });
+          this.unavailableModels.add(model);
+          this.moveActiveModelToNextAvailable();
+          logger.warn("OpenAI chat model was unavailable; trying fallback model if configured.", {
+            model,
+            nextModel: this.orderedModelsForAttempt()[0]
+          });
           continue;
         }
 
@@ -278,7 +299,15 @@ export class OpenAiProvider implements AiProvider {
 
   private orderedModelsForAttempt(): string[] {
     const models = uniqueModels([this.activeChatModel, ...this.chatModels]);
-    return models.length ? models : [env.OPENAI_MODEL];
+    const now = Date.now();
+    return models.filter((model) => !this.unavailableModels.has(model) && (this.rateLimitedUntil.get(model) ?? 0) <= now);
+  }
+
+  private moveActiveModelToNextAvailable(): void {
+    const next = this.orderedModelsForAttempt()[0];
+    if (next) {
+      this.activeChatModel = next;
+    }
   }
 }
 

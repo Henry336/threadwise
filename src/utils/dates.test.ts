@@ -44,6 +44,20 @@ describe("date utilities", () => {
     });
   });
 
+  it("splits remind-me natural language with inline timing", () => {
+    expect(splitReminderText("me to go out in 15 mins")).toEqual({
+      whenText: "go out in 15 mins",
+      taskText: "go out in 15 mins"
+    });
+  });
+
+  it("accepts compact reminder text with the task before the time", () => {
+    expect(splitReminderText("do this at 4 pm")).toEqual({
+      whenText: "do this at 4 pm",
+      taskText: "do this at 4 pm"
+    });
+  });
+
   it("handles quiet hours across midnight", () => {
     expect(
       isWithinQuietHours(new Date("2026-07-05T15:00:00.000Z"), {
