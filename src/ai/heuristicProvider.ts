@@ -12,14 +12,12 @@ import type {
   NoteAnalysis,
   NoteForAnalysis,
   NoteForMerge,
-  ReflectionAdvice,
   StructuredIdea,
   StructuredNote,
   StructuredTask
 } from "./types";
 
 const TASK_WORDS = ["todo", "task", "remind", "finish", "submit", "pay", "call", "email", "buy", "send"];
-const REFLECTION_WORDS = ["relationship", "argued", "fight", "conflict", "partner", "girlfriend", "boyfriend", "friend", "hurt"];
 const IDEA_WORDS = ["idea", "app", "bot", "tool", "build", "product", "startup", "website", "platform"];
 const NOTE_WORDS = ["note", "remember", "learned", "insight", "quote", "summary", "keep", "save this", "important"];
 const IMPORTANT_EMAIL_WORDS = [
@@ -51,7 +49,7 @@ export class HeuristicAiProvider implements AiProvider {
       apiKeyConfigured: false,
       chatModels: [],
       activeChatModel: undefined,
-      embeddingModel: undefined
+      embeddingModel: "local-deterministic"
     };
   }
 
@@ -66,26 +64,16 @@ export class HeuristicAiProvider implements AiProvider {
   async classifyMessage(text: string): Promise<Classification> {
     const lower = text.toLowerCase();
     const taskScore = scoreWords(lower, TASK_WORDS);
-    const reflectionScore = scoreWords(lower, REFLECTION_WORDS);
     const ideaScore = scoreWords(lower, IDEA_WORDS);
     const noteScore = scoreWords(lower, NOTE_WORDS);
 
-    if (taskScore > 0 && taskScore >= ideaScore && taskScore >= reflectionScore) {
+    if (taskScore > 0 && taskScore >= ideaScore) {
       return {
         kind: "task",
         confidence: Math.min(0.85, 0.55 + taskScore * 0.1),
         reason: "Contains action-oriented task language.",
         suggestedTitle: summarize(text),
         dueDateText: parseDueDate(text, "Asia/Singapore") ? text : undefined
-      };
-    }
-
-    if (reflectionScore > 0 && reflectionScore >= ideaScore) {
-      return {
-        kind: "reflection",
-        confidence: Math.min(0.82, 0.55 + reflectionScore * 0.1),
-        reason: "Looks like a relationship or conflict reflection.",
-        suggestedTitle: summarize(text)
       };
     }
 
@@ -110,7 +98,7 @@ export class HeuristicAiProvider implements AiProvider {
     return {
       kind: "noise",
       confidence: 0.7,
-      reason: "No strong idea, task, or reflection signal found."
+      reason: "No strong idea, task, or note signal found."
     };
   }
 
@@ -181,19 +169,6 @@ export class HeuristicAiProvider implements AiProvider {
       whatDoesNotWork: ["Some notes may need clearer titles", "Mixed topics can become harder to retrieve without tags"],
       suggestions: ["Use one note per durable idea or fact", "Start notes with the topic first", "Add a short why-this-matters sentence"],
       experiments: ["Review recent notes weekly", "Try tags for people, projects, and concepts", "Convert action-like notes into tasks"]
-    };
-  }
-
-  async adviseOnReflection(text: string): Promise<ReflectionAdvice> {
-    return {
-      situation: text,
-      balancedView:
-        "There may be valid feelings on more than one side. Slow the conversation down and separate facts, interpretations, and needs.",
-      immediateAction:
-        "Name your own feeling plainly, ask one clarifying question, and avoid trying to win the moment.",
-      keepInMind:
-        "Prioritize repair, boundaries, and long-term trust over being perfectly understood immediately.",
-      risks: ["Mind reading", "Escalating while emotional", "Treating one incident as the whole relationship"]
     };
   }
 

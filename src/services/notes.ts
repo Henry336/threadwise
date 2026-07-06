@@ -1,12 +1,15 @@
 import { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
+import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../ai/deterministic";
 import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
-  const structured = await ai.structureNote(sourceText);
+  const structured = shouldUseAiForNoteStructure(sourceText)
+    ? await ai.structureNote(sourceText)
+    : structureNoteDeterministically(sourceText);
   const embedding = await ai.embed(`${structured.title}\n${structured.summary}\n${structured.body}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "NOTE");
 

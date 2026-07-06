@@ -11,7 +11,6 @@ import type {
   NoteAnalysis,
   NoteForAnalysis,
   NoteForMerge,
-  ReflectionAdvice,
   StructuredIdea,
   StructuredNote,
   StructuredTask
@@ -54,10 +53,6 @@ export class ResilientAiProvider implements AiProvider {
 
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
     return this.withFallback("analyzeNotes", () => this.primary.analyzeNotes(notes), () => this.fallback.analyzeNotes(notes));
-  }
-
-  async adviseOnReflection(text: string): Promise<ReflectionAdvice> {
-    return this.withFallback("adviseOnReflection", () => this.primary.adviseOnReflection(text), () => this.fallback.adviseOnReflection(text));
   }
 
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {

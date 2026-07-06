@@ -1,5 +1,6 @@
 import { Prisma, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
+import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
@@ -36,7 +37,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
     throw new Error("User settings are missing.");
   }
 
-  const structured = await ai.structureTask(sourceText);
+  const structured = structureTaskDeterministically(sourceText);
   const dueAt = structured.dueDateText
     ? parseDueDate(structured.dueDateText, settings.timezone) ?? parseDueDate(sourceText, settings.timezone)
     : parseDueDate(sourceText, settings.timezone);
@@ -82,7 +83,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
     throw new Error("User settings are missing.");
   }
 
-  const structured = await ai.structureTask(sourceText);
+  const structured = structureTaskDeterministically(sourceText);
   const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const calendarUrl = createGoogleCalendarUrl({

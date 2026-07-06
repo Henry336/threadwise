@@ -1,5 +1,6 @@
 import { env } from "../config/env";
 import { logger } from "../logger";
+import { CachedAiProvider } from "./cachedProvider";
 import { HeuristicAiProvider } from "./heuristicProvider";
 import { OpenAiProvider } from "./openaiProvider";
 import { ResilientAiProvider } from "./resilientProvider";
@@ -11,5 +12,5 @@ export function createAiProvider(): AiProvider {
     return new HeuristicAiProvider();
   }
 
-  return new ResilientAiProvider(new OpenAiProvider(env.OPENAI_API_KEY), new HeuristicAiProvider());
+  return new CachedAiProvider(new ResilientAiProvider(new OpenAiProvider(env.OPENAI_API_KEY), new HeuristicAiProvider()));
 }

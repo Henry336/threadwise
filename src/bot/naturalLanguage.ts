@@ -1,5 +1,7 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
+import { classifyMessageDeterministically } from "../ai/deterministic";
+import { logger } from "../logger";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
@@ -42,9 +44,16 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         return;
       }
 
-      const classification = await ai.classifyMessage(text);
+      const deterministicClassification = classifyMessageDeterministically(text, user.settings?.timezone ?? "UTC");
+      const classification = deterministicClassification ?? await ai.classifyMessage(text);
+      logger.info("Classified natural-language message.", {
+        source: deterministicClassification ? "deterministic" : "ai",
+        kind: classification.kind,
+        confidence: classification.confidence,
+        reason: classification.reason
+      });
 
-      if (classification.kind === "noise" || classification.kind === "reflection" || classification.confidence < 0.45) {
+      if (classification.kind === "noise" || classification.confidence < 0.45) {
         return;
       }
 

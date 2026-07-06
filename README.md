@@ -9,7 +9,7 @@ Current deployment: https://threadwise-90du.onrender.com
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
-- Captures notes with `/note <text>` and rewrites them into a clearer, more recallable format.
+- Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
 - Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
 - Lists and opens saved ideas with `/ideas` and `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
@@ -32,15 +32,15 @@ Current deployment: https://threadwise-90du.onrender.com
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with natural-language classification. Clear tasks, notes, and ideas can save automatically with an undo hint; lower-confidence captures still ask before saving.
-- Searches ideas, notes, and tasks semantically with `/search`.
+- Handles normal messages with deterministic first-pass classification for obvious tasks, reminders, notes, and ideas. Clear captures can save automatically with an undo hint; ambiguous captures still use AI or ask before saving.
+- Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
 - Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
 - Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
-- Connects Gmail with read-only OAuth, scans unread mail, sends summaries, and creates follow-up tasks for important messages.
+- Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
 - Shows release, AI, Gmail, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder interval, quiet hours, timezone, and reminder cap.
@@ -114,7 +114,7 @@ Current deployment: https://threadwise-90du.onrender.com
 
 `/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am" or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use louder Telegram formatting so they stand out from normal task reminders.
 
@@ -176,7 +176,7 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 - PostgreSQL for durable storage
 - Prisma for schema and migrations
 - Zod for environment validation
-- OpenAI-compatible adapter for classification, embeddings, and idea scoring
+- OpenAI-compatible adapter for synthesis tasks, plus local deterministic classification and embeddings
 - Private admin endpoints for checking AI status and triggering reminder fallback runs
 - Vitest for unit tests
 - Render for deployment
@@ -197,7 +197,7 @@ prisma/
   schema.prisma       PostgreSQL data model
 ```
 
-The important design choice is that commands and reminders are deterministic. AI is used for classification, structuring, embeddings, scoring, and suggestions, but the core task/reminder system is database-driven.
+The important design choice is that commands and reminders are deterministic. Common classification, task extraction, reminder parsing, simple note structuring, Gmail triage, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, idea scoring, and richer Gmail wording when a message already looks important. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
 
 ## Data Model
 
@@ -239,7 +239,7 @@ DATABASE_URL=
 OPENAI_API_KEY=
 ```
 
-`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses a deterministic heuristic fallback for classification, embeddings, and scoring.
+`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses deterministic local behavior plus heuristic fallbacks for synthesis features such as scoring and note analysis.
 
 4. Generate Prisma client:
 

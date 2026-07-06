@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { env } from "../config/env";
 import { logger } from "../logger";
+import { deterministicEmbedding } from "../utils/vector";
 import { safeJsonParse, clampScore } from "./json";
 import type {
   AiProvider,
@@ -14,7 +15,6 @@ import type {
   NoteAnalysis,
   NoteForAnalysis,
   NoteForMerge,
-  ReflectionAdvice,
   StructuredIdea,
   StructuredNote,
   StructuredTask
@@ -46,7 +46,7 @@ export class OpenAiProvider implements AiProvider {
       apiKeyConfigured: true,
       chatModels: this.chatModels,
       activeChatModel: this.activeChatModel,
-      embeddingModel: env.OPENAI_EMBEDDING_MODEL,
+      embeddingModel: "local-deterministic",
       lastSuccessfulChatAt: this.lastSuccessfulChatAt,
       lastRateLimit: this.lastRateLimit,
       lastError: this.lastError
@@ -79,7 +79,7 @@ export class OpenAiProvider implements AiProvider {
   async classifyMessage(text: string): Promise<Classification> {
     const content = await this.jsonCompletion(
       "Classify a Telegram message for a private productivity and notekeeping bot. Return JSON only.",
-      `Message:\n${text}\n\nReturn: { "kind": "idea" | "task" | "reflection" | "note" | "noise", "confidence": 0-1, "reason": string, "suggestedTitle"?: string, "dueDateText"?: string }`
+      `Message:\n${text}\n\nReturn: { "kind": "idea" | "task" | "note" | "noise", "confidence": 0-1, "reason": string, "suggestedTitle"?: string, "dueDateText"?: string }`
     );
 
     return safeJsonParse<Classification>(content, {
@@ -167,21 +167,6 @@ export class OpenAiProvider implements AiProvider {
     });
   }
 
-  async adviseOnReflection(text: string): Promise<ReflectionAdvice> {
-    const content = await this.jsonCompletion(
-      "Give balanced, non-clinical relationship reflection guidance. Avoid therapy, diagnosis, legal advice, or unsafe certainty. Return JSON only.",
-      `Situation:\n${text}\n\nReturn: { "situation": string, "balancedView": string, "immediateAction": string, "keepInMind": string, "risks": string[] }`
-    );
-
-    return safeJsonParse<ReflectionAdvice>(content, {
-      situation: text,
-      balancedView: "There may be more than one valid perspective.",
-      immediateAction: "Pause, clarify, and choose a repair-oriented next step.",
-      keepInMind: "Prioritize long-term trust and safety.",
-      risks: []
-    });
-  }
-
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     const content = await this.jsonCompletion(
       "Score a product idea for a solo builder portfolio. Use heuristic market knowledge only; do not claim live research. Return JSON only.",
@@ -228,12 +213,7 @@ export class OpenAiProvider implements AiProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const response = await this.client.embeddings.create({
-      model: env.OPENAI_EMBEDDING_MODEL,
-      input: text
-    });
-
-    return response.data[0]?.embedding ?? [];
+    return deterministicEmbedding(text);
   }
 
   private async jsonCompletion(system: string, user: string): Promise<string> {

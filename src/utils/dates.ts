@@ -10,7 +10,7 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   const text = input.toLowerCase();
   const base = DateTime.fromJSDate(now).setZone(timezone);
 
-  const inMatch = text.match(/\bin\s+(\d+)\s*(minute|minutes|min|hour|hours|hr|hrs|day|days)\b/);
+  const inMatch = text.match(/\bin\s+(\d+)\s*(minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/);
   if (inMatch?.[1] && inMatch[2]) {
     const amount = Number(inMatch[1]);
     const unit = inMatch[2].startsWith("min")
@@ -106,7 +106,7 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
 }
 
 function hasReminderTimeText(input: string): boolean {
-  return /\b(?:in\s+\d+\s*(?:minute|minutes|min|hour|hours|hr|hrs|day|days)|(?:today|tomorrow|next\s+\w+)(?:\s+at\s+\d{1,2})?|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{4}-\d{2}-\d{2})\b/i.test(input);
+  return /\b(?:in\s+\d+\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|(?:today|tomorrow|next\s+\w+)(?:\s+at\s+\d{1,2})?|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{4}-\d{2}-\d{2})\b/i.test(input);
 }
 
 function withOptionalTime(base: DateTime, hourText?: string, minuteText?: string, meridiem?: string): DateTime {

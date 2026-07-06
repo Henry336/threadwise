@@ -8,6 +8,40 @@ describe("date utilities", () => {
     expect(parseDurationMinutes("45m", 30)).toBe(45);
   });
 
+  it("parses natural minute abbreviations used in reminders", () => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    const due = parseDueDate("remind me to check the launderette in 60 mins", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-05T05:00:00.000Z");
+  });
+
+  it.each([
+    "remind me about the meeting in 2 hours",
+    "remind me about the meeting in 2 hrs",
+    "remind me about the meeting in 2 hr",
+    "remind me about the meeting in 2 hour"
+  ])("parses hour variants: %s", (text) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe("2026-07-05T06:00:00.000Z");
+  });
+
+  it.each([
+    "remind me to leave my house in 20 mins",
+    "remind me to leave my house in 20 min",
+    "remind me to leave my house in 20 minute",
+    "remind me to leave my house in 20 minutes"
+  ])("parses minute variants: %s", (text) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe("2026-07-05T04:20:00.000Z");
+  });
+
+  it.each([
+    "please remind me to prepare a gift at 3:20 pm",
+    "set a reminder for school at 9 am"
+  ])("parses clock-based reminder text: %s", (text) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)).toBeInstanceOf(Date);
+  });
+
   it("parses tomorrow with a time", () => {
     const now = new Date("2026-07-05T04:00:00.000Z");
     const due = parseDueDate("submit report tomorrow at 9am", "Asia/Singapore", now);

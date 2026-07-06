@@ -15,6 +15,26 @@ const GMAIL_SCOPES = [
   "openid",
   "email"
 ];
+const IMPORTANT_EMAIL_WORDS = [
+  "action required",
+  "approval",
+  "bank",
+  "contract",
+  "deadline",
+  "document",
+  "due",
+  "follow up",
+  "important",
+  "interview",
+  "invoice",
+  "meeting",
+  "password",
+  "payment",
+  "reply",
+  "security",
+  "urgent",
+  "verify"
+];
 
 type GmailTokens = {
   access_token?: string;
@@ -212,7 +232,7 @@ export async function scanGmailNow(userId: string, ai: AiProvider, bot?: Bot): P
     };
   }
 
-  const digest = await ai.summarizeEmails(newMessages);
+  const digest = await summarizeEmailsWithDeterministicGate(newMessages, ai);
   const savedItems: EmailSummaryItem[] = [];
   for (const item of digest.items) {
     const source = newMessages.find((message) => message.messageId === item.messageId);
@@ -342,6 +362,76 @@ function formatEmailItem(item: EmailSummaryItem): string {
     h(item.summary),
     item.important && item.importanceReason ? `${bold("Why")} ${h(item.importanceReason)}` : undefined
   ].filter(Boolean).join("\n");
+}
+
+export async function summarizeEmailsWithDeterministicGate(emails: EmailForSummary[], ai: AiProvider) {
+  const localDigest = summarizeEmailsDeterministically(emails);
+  const importantCandidates = emails.filter(hasImportantEmailSignal);
+  if (importantCandidates.length === 0) {
+    return localDigest;
+  }
+
+  const aiDigest = await ai.summarizeEmails(importantCandidates);
+  const aiItems = new Map(aiDigest.items.map((item) => [item.messageId, item]));
+  const items = localDigest.items.map((item) => {
+    const aiItem = aiItems.get(item.messageId);
+    if (!aiItem) {
+      return item;
+    }
+
+    return {
+      ...aiItem,
+      important: aiItem.important || item.important,
+      importanceReason: aiItem.importanceReason ?? item.importanceReason,
+      suggestedAction: aiItem.suggestedAction ?? item.suggestedAction
+    };
+  });
+  const importantCount = items.filter((item) => item.important).length;
+
+  return {
+    overview: `${emails.length} unread email${emails.length === 1 ? "" : "s"} scanned; ${importantCount} looked important.`,
+    items
+  };
+}
+
+export function summarizeEmailsDeterministically(emails: EmailForSummary[]) {
+  const items = emails.map((email) => {
+    const important = hasImportantEmailSignal(email);
+    return {
+      messageId: email.messageId,
+      subject: email.subject || "(no subject)",
+      from: email.from || "Unknown sender",
+      summary: summarizeEmailText(email.snippet || email.body, 180),
+      important,
+      importanceReason: important ? "Contains action, deadline, account, payment, meeting, or reply language." : undefined,
+      suggestedAction: important ? `Review: ${email.subject || "unread email"}` : undefined
+    };
+  });
+  const importantCount = items.filter((item) => item.important).length;
+
+  return {
+    overview: `${emails.length} unread email${emails.length === 1 ? "" : "s"} scanned; ${importantCount} looked important.`,
+    items
+  };
+}
+
+function hasImportantEmailSignal(email: EmailForSummary): boolean {
+  const text = `${email.from} ${email.subject} ${email.snippet} ${email.body}`.toLowerCase();
+  return IMPORTANT_EMAIL_WORDS.some((word) => hasTerm(text, word));
+}
+
+function summarizeEmailText(text: string, maxLength: number): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= maxLength) {
+    return trimmed || "(no preview available)";
+  }
+
+  return `${trimmed.slice(0, maxLength - 3).trim()}...`;
+}
+
+function hasTerm(text: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
 }
 
 async function fetchUnreadEmails(accessToken: string, maxResults: number): Promise<EmailForSummary[]> {

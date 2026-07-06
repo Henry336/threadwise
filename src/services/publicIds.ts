@@ -1,6 +1,6 @@
 import { prisma } from "../db/prisma";
 
-type PublicKind = "IDEA" | "TASK" | "REF" | "NOTE";
+type PublicKind = "IDEA" | "TASK" | "NOTE";
 
 export async function nextPublicId(userId: string, kind: PublicKind): Promise<string> {
   if (kind === "IDEA") {
@@ -17,7 +17,5 @@ export async function nextPublicId(userId: string, kind: PublicKind): Promise<st
     const count = await prisma.note.count({ where: { userId } });
     return `NOTE-${count + 1}`;
   }
-
-  const count = await prisma.reflection.count({ where: { userId } });
-  return `REF-${count + 1}`;
+  throw new Error(`Unsupported public ID kind: ${kind}`);
 }

@@ -1,4 +1,4 @@
-export type CaptureKind = "idea" | "task" | "reflection" | "note" | "noise";
+export type CaptureKind = "idea" | "task" | "note" | "noise";
 
 export type Classification = {
   kind: CaptureKind;
@@ -21,14 +21,6 @@ export type StructuredTask = {
   title: string;
   description?: string;
   dueDateText?: string;
-};
-
-export type ReflectionAdvice = {
-  situation: string;
-  balancedView: string;
-  immediateAction: string;
-  keepInMind: string;
-  risks: string[];
 };
 
 export type StructuredNote = {
@@ -148,7 +140,6 @@ export interface AiProvider {
   structureNote(text: string): Promise<StructuredNote>;
   mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt?: number): Promise<MergedNotePreview>;
   analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis>;
-  adviseOnReflection(text: string): Promise<ReflectionAdvice>;
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore>;
   summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary>;
   embed(text: string): Promise<number[]>;

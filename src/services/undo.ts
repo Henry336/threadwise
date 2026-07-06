@@ -4,7 +4,7 @@ import { bold, code, h } from "../utils/html";
 
 const UNDO_PREFIX = "undoable:";
 
-type UndoTargetKind = "task" | "note" | "idea" | "reflection";
+type UndoTargetKind = "task" | "note" | "idea";
 
 type UndoTarget = {
   kind: UndoTargetKind;
@@ -260,10 +260,8 @@ async function undoCreate(entryId: string, payload: Record<string, unknown>): Pr
       });
     } else if (target.kind === "note") {
       await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
-    } else if (target.kind === "idea") {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
     } else {
-      await tx.reflection.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
+      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
     }
 
     await consumeUndo(tx, entryId, "create");
@@ -327,10 +325,8 @@ async function undoRename(entryId: string, payload: Record<string, unknown>): Pr
       await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
     } else if (target.kind === "note") {
       await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
-    } else if (target.kind === "idea") {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
     } else {
-      throw new Error("Reflection titles are not editable.");
+      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
     }
 
     await consumeUndo(tx, entryId, "rename");
@@ -400,10 +396,8 @@ async function undoPin(entryId: string, payload: Record<string, unknown>): Promi
       await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
     } else if (target.kind === "note") {
       await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
-    } else if (target.kind === "idea") {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
     } else {
-      await tx.reflection.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
+      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
     }
 
     await consumeUndo(tx, entryId, "pin");
@@ -513,7 +507,7 @@ function taskStatusValue(value: unknown): TaskStatus | undefined {
 }
 
 function targetKindValue(value: unknown): UndoTargetKind | undefined {
-  if (value === "task" || value === "note" || value === "idea" || value === "reflection") {
+  if (value === "task" || value === "note" || value === "idea") {
     return value;
   }
 

@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Added deterministic-first capture helpers for clear reminders, tasks, notes, and ideas so common Telegram messages do not need OpenAI.
+- Added weighted deterministic intent scoring with structured classification reasons in logs.
+- Added bounded in-memory AI synthesis caching keyed by content hash.
+- Added architecture documentation for deterministic-path time complexity, concurrent request behavior, and likely scaling bottlenecks.
+- Added Gmail deterministic importance gating so ordinary unread mail does not spend AI quota.
 - Added protected admin reminder run and status endpoints for cron or uptime fallback checks.
 - Added `/important` as a friendlier task alias for `/pin`.
 - Added `/version` with app version, deploy/start time, AI/Gmail status, and reminder delivery diagnostics.
@@ -10,10 +15,15 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Fixed natural minute abbreviations such as `in 60 mins` not being treated as scheduled reminders.
+- Fixed additional reminder phrasings such as `remind me about`, `please remind me to`, and `set a reminder for`.
 - Fixed AI-backed captures going silent when OpenAI classification, structuring, or embedding calls fail; Threadwise now falls back to deterministic local heuristics.
 - Fixed natural reminder text like `remind me to go out in 15 mins` and compact `/remind do this at 4 pm` parsing.
 - Fixed OpenAI fallback rotation so rate-limited chat models cool down instead of being retried first on every request.
 - Fixed duplicate Telegram update claims so expected duplicates no longer emit Prisma unique-constraint errors.
+
+### Removed
+- Removed the discontinued reflection feature from active AI classification, provider contracts, public ID generation, and service code.
 
 ## v0.9.0 - 2026-07-06
 
