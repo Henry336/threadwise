@@ -14,7 +14,9 @@ export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("Snooze 1h", `task:snooze:${taskId}`)
     .row()
     .text(isPinned ? "Unstar" : "Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
-    .text("Edit", `item:task:edit:${taskId}`);
+    .text("Edit title", `item:task:edit:title:${taskId}`)
+    .row()
+    .text("Edit details", `item:task:edit:description:${taskId}`);
 }
 
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): InlineKeyboard | undefined {
@@ -30,7 +32,7 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): Inline
       .text(`Done ${number}`, `task:done:${task.id}`)
       .text(`Snooze ${number}`, `task:snooze:${task.id}`)
       .text(`${task.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:task:${task.pinnedAt ? "unpin" : "pin"}:${task.id}`)
-      .text(`Edit ${number}`, `item:task:edit:${task.id}`);
+      .text(`Edit ${number}`, `item:task:edit:title:${task.id}`);
 
     if (index < visibleTasks.length - 1) {
       keyboard.row();
@@ -42,9 +44,13 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): Inline
 
 export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): InlineKeyboard {
   const action = item.pinnedAt ? "unpin" : "pin";
+  const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
+  const bodyLabel = kind === "task" ? "details" : bodyField;
   return new InlineKeyboard()
     .text(item.pinnedAt ? "Unstar" : "Star", `item:${kind}:${action}:${item.id}`)
-    .text("Edit", `item:${kind}:edit:${item.id}`);
+    .text("Edit title", `item:${kind}:edit:title:${item.id}`)
+    .row()
+    .text(`Edit ${bodyLabel}`, `item:${kind}:edit:${bodyField}:${item.id}`);
 }
 
 export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 10): InlineKeyboard | undefined {
@@ -58,7 +64,7 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
     const number = index + 1;
     keyboard
       .text(`${item.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
-      .text(`Edit ${number}`, `item:${kind}:edit:${item.id}`);
+      .text(`Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
 
     if (index < visibleItems.length - 1) {
       keyboard.row();
@@ -74,8 +80,6 @@ export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
     .text("Save idea", `capture:idea:${pendingId}`)
     .row()
     .text("Save note", `capture:note:${pendingId}`)
-    .text("Reflect", `capture:reflection:${pendingId}`)
-    .row()
     .text("Ignore", `capture:ignore:${pendingId}`);
 }
 
@@ -85,6 +89,25 @@ export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
     .text("Try again", `merge:retry:${pendingId}`)
     .row()
     .text("Cancel", `merge:cancel:${pendingId}`);
+}
+
+export function searchPageKeyboard(pendingId: string, page: number, totalPages: number): InlineKeyboard | undefined {
+  if (totalPages <= 1) {
+    return undefined;
+  }
+
+  const keyboard = new InlineKeyboard();
+  if (page > 1) {
+    keyboard.text("Prev", `search:${pendingId}:${page - 1}`);
+  }
+
+  keyboard.text(`Page ${page}/${totalPages}`, `search:${pendingId}:${page}`);
+
+  if (page < totalPages) {
+    keyboard.text("Next", `search:${pendingId}:${page + 1}`);
+  }
+
+  return keyboard;
 }
 
 export function archivedPageKeyboard(kind: string, page: number, totalPages: number): InlineKeyboard | undefined {

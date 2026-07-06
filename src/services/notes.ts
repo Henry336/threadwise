@@ -1,8 +1,9 @@
+import { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
-import { recordCreateUndo, recordRenameUndo } from "./undo";
+import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureNote(sourceText);
@@ -103,6 +104,26 @@ export async function renameNoteTitle(userId: string, publicId: string, title: s
     return tx.note.update({
       where: { id: note.id },
       data: { title: nextTitle }
+    });
+  });
+}
+
+export async function updateNoteBody(userId: string, publicId: string, body: string) {
+  const note = await findNote(userId, publicId);
+  const nextBody = body.trim();
+  if (!nextBody) {
+    throw new Error("Note body cannot be empty.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await recordFieldEditUndo(tx, userId, { kind: "note", id: note.id, publicId: note.publicId, title: note.title }, "body", note.body);
+    return tx.note.update({
+      where: { id: note.id },
+      data: {
+        body: nextBody,
+        summary: summarizeManualText(nextBody),
+        embedding: Prisma.JsonNull
+      }
     });
   });
 }
@@ -216,4 +237,8 @@ function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(
 
     return b.createdAt.getTime() - a.createdAt.getTime();
   });
+}
+
+function summarizeManualText(value: string): string {
+  return value.length <= 180 ? value : `${value.slice(0, 177).trim()}...`;
 }

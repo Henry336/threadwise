@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import type { TaskListItem } from "../services/tasks";
 
 describe("bot formatters", () => {
@@ -73,7 +73,7 @@ describe("bot formatters", () => {
     });
     expect(keyboard?.inline_keyboard[0]?.[3]).toEqual({
       text: "Edit 1",
-      callback_data: "item:task:edit:task-uuid-1"
+      callback_data: "item:task:edit:title:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard).toHaveLength(1);
   });
@@ -87,8 +87,12 @@ describe("bot formatters", () => {
       callback_data: "item:task:pin:task-uuid-1"
     });
     expect(unpinned.inline_keyboard[1]?.[1]).toEqual({
-      text: "Edit",
-      callback_data: "item:task:edit:task-uuid-1"
+      text: "Edit title",
+      callback_data: "item:task:edit:title:task-uuid-1"
+    });
+    expect(unpinned.inline_keyboard[2]?.[0]).toEqual({
+      text: "Edit details",
+      callback_data: "item:task:edit:description:task-uuid-1"
     });
     expect(pinned.inline_keyboard[1]?.[0]).toEqual({
       text: "Unstar",
@@ -105,8 +109,12 @@ describe("bot formatters", () => {
       callback_data: "item:note:pin:note-uuid-1"
     });
     expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "Edit",
-      callback_data: "item:note:edit:note-uuid-1"
+      text: "Edit title",
+      callback_data: "item:note:edit:title:note-uuid-1"
+    });
+    expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
+      text: "Edit body",
+      callback_data: "item:note:edit:body:note-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
       text: "Unstar",
@@ -123,7 +131,24 @@ describe("bot formatters", () => {
     });
     expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
       text: "Edit 1",
-      callback_data: "item:note:edit:note-uuid-1"
+      callback_data: "item:note:edit:title:note-uuid-1"
+    });
+  });
+
+  it("builds search pagination controls", () => {
+    const keyboard = searchPageKeyboard("pending-search-1", 2, 3);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
+      text: "Prev",
+      callback_data: "search:pending-search-1:1"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
+      text: "Page 2/3",
+      callback_data: "search:pending-search-1:2"
+    });
+    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
+      text: "Next",
+      callback_data: "search:pending-search-1:3"
     });
   });
 

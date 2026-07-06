@@ -12,22 +12,22 @@ import {
   formatRecentIdeas,
   listRecentIdeas,
   renameIdeaTitle,
-  scoreIdea
+  scoreIdea,
+  updateIdeaConcept
 } from "../services/ideas";
 import { createNote, findAnyNote, findNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
-import { findNoteReference } from "../services/notes";
-import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, snoozeTask } from "../services/tasks";
-import { createReflection, formatReflection } from "../services/reflections";
+import { findNoteReference, updateNoteBody } from "../services/notes";
+import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
-import { parseSearchRequest, semanticSearch } from "../services/search";
+import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
 import { createIcs } from "../services/calendar";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
-import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { parseDueDate, splitReminderText } from "../utils/dates";
@@ -83,7 +83,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const archivedMatch = lower.match(/^(?:show |view |list )?archived\s+(notes?|ideas?|tasks?|reflections?)(?:\s+(\d+))?$/);
+  const archivedMatch = lower.match(/^(?:show |view |list )?archived\s+(notes?|ideas?|tasks?)(?:\s+(\d+))?$/);
   if (archivedMatch?.[1]) {
     const kind = parseArchiveKind(archivedMatch[1]);
     if (!kind) return false;
@@ -120,7 +120,16 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       await ctx.reply("Add a query after the filter, like search notes deployment or search tasks invoice.");
       return true;
     }
-    await replyHtml(ctx, formatSearchResults(await semanticSearch(user.id, parsed.query, ai, parsed.kinds), parsed.label));
+    const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+      includeDone: parsed.includeDone,
+      doneOnly: parsed.doneOnly
+    });
+    const pending = await createPendingSearch(user.id, parsed);
+    const pageSize = 10;
+    const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+    await replyHtml(ctx, formatSearchResultsPage(results, 1, pageSize, parsed.label), {
+      reply_markup: searchPageKeyboard(pending.id, 1, totalPages)
+    });
     return true;
   }
 
@@ -203,6 +212,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
+  const rescheduleMatch = trimmed.match(/^(?:reschedule|move)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
+    const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
+    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`);
+    return true;
+  }
+
   const cancelMatch = trimmed.match(/^(?:cancel|delete)\s+(\S+)$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
@@ -221,9 +237,21 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const renameMatch = trimmed.match(/^(?:rename|edit)\s+(.+)$/i);
   const renameParsed = renameMatch?.[1] ? parseReferenceAndTitle(renameMatch[1]) : undefined;
   if (renameParsed) {
+    if (renameParsed.field === "description") {
+      const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+      const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), renameParsed.title);
+      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`);
+      return true;
+    }
+
     if (renameParsed.reference.toUpperCase().startsWith("NOTE-") || renameParsed.reference.toLowerCase().startsWith("note ")) {
       const noteReference = renameParsed.reference.toLowerCase().startsWith("note ") ? renameParsed.reference.slice(5) : renameParsed.reference;
       const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
+      if (renameParsed.field === "body") {
+        const note = await updateNoteBody(user.id, noteTarget.publicId, renameParsed.title);
+        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`);
+        return true;
+      }
       const note = await renameNoteTitle(user.id, noteTarget.publicId, renameParsed.title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
       return true;
@@ -232,6 +260,11 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (renameParsed.reference.toUpperCase().startsWith("IDEA-") || renameParsed.reference.toLowerCase().startsWith("idea ")) {
       const ideaReference = renameParsed.reference.toLowerCase().startsWith("idea ") ? renameParsed.reference.slice(5) : renameParsed.reference;
       const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
+      if (renameParsed.field === "concept") {
+        const idea = await updateIdeaConcept(user.id, ideaTarget.publicId, renameParsed.title);
+        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`);
+        return true;
+      }
       const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, renameParsed.title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`);
       return true;
@@ -315,16 +348,10 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const reflectionMatch = trimmed.match(/^(?:relationship|reflect)\s+(.+)$/i);
-  if (reflectionMatch?.[1]) {
-    await replyHtml(ctx, formatReflection(await createReflection(user.id, reflectionMatch[1], ai)));
-    return true;
-  }
-
   return false;
 }
 
-function parseReferenceAndTitle(body: string): { reference: string; title: string } | undefined {
+function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {
   const parts = body.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
     return undefined;
@@ -333,16 +360,29 @@ function parseReferenceAndTitle(body: string): { reference: string; title: strin
   const first = parts[0]?.toLowerCase();
   const second = parts[1];
   if ((first === "task" || first === "note" || first === "idea") && second && /^(\d+|TASK-\d+|NOTE-\d+|IDEA-\d+)$/i.test(second)) {
+    const field = editableField(parts[2]);
     return {
       reference: `${first} ${second}`,
-      title: parts.slice(2).join(" ").trim()
+      field,
+      title: parts.slice(field ? 3 : 2).join(" ").trim()
     };
   }
 
+  const field = editableField(parts[1]);
   return {
     reference: parts[0] ?? "",
-    title: parts.slice(1).join(" ").trim()
+    field,
+    title: parts.slice(field ? 2 : 1).join(" ").trim()
   };
+}
+
+function editableField(value?: string): "title" | "description" | "body" | "concept" | undefined {
+  const lower = value?.toLowerCase();
+  if (lower === "title") return "title";
+  if (lower === "details" || lower === "detail" || lower === "description") return "description";
+  if (lower === "body") return "body";
+  if (lower === "concept") return "concept";
+  return undefined;
 }
 
 async function replyInChunks(ctx: Context, text: string) {

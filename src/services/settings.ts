@@ -15,7 +15,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try /settings interval 180, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, or /settings digest on."
+        "Try /settings interval 180, /settings due-nudge 3, /settings timezone Asia/Singapore, /settings quiet 22:00 08:00, /settings quiet off, /settings max 5, or /settings digest on."
     };
   }
 
@@ -39,7 +39,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         }
       });
 
-      const updatedTasks = await rescheduleOpenTasksForInterval(tx, userId, minutes);
+      const updatedTasks = await rescheduleOpenTasksForInterval(tx, userId, minutes, existing.dueNudgeMinutes);
       return { updatedTasks, raisedMax, maxRemindersPerDay };
     });
 
@@ -60,7 +60,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     if (value.toLowerCase() === "off") {
       const updatedTasks = await prisma.$transaction(async (tx) => {
         const settings = await tx.userSettings.update({ where: { userId }, data: { quietHoursStart: null, quietHoursEnd: null } });
-        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes);
+        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
       });
 
       return { message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
@@ -85,6 +85,29 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Max reminders per day set to ${max}.` };
   }
 
+  if (setting === "due-nudge" || setting === "duenudge" || setting === "nudge") {
+    if (value.toLowerCase() === "off") {
+      const updatedTasks = await prisma.$transaction(async (tx) => {
+        const settings = await tx.userSettings.update({ where: { userId }, data: { dueNudgeMinutes: 0 } });
+        return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
+      });
+
+      return { message: `Due nudges turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
+    }
+
+    const minutes = Number(value);
+    if (!Number.isInteger(minutes) || minutes < 1) {
+      return { message: "Pick a whole-number due nudge of at least 1 minute, or use /settings due-nudge off." };
+    }
+
+    const updatedTasks = await prisma.$transaction(async (tx) => {
+      const settings = await tx.userSettings.update({ where: { userId }, data: { dueNudgeMinutes: minutes } });
+      return rescheduleOpenTasksForInterval(tx, userId, settings.reminderIntervalMinutes, settings.dueNudgeMinutes);
+    });
+
+    return { message: `Due nudge set to ${minutes} minutes. Dated tasks start nudging ${minutes} minutes before they are due and repeat until done.` };
+  }
+
   if (setting === "digest") {
     const enabled = value.toLowerCase() === "on";
     await prisma.userSettings.update({
@@ -105,6 +128,7 @@ export async function formatSettings(userId: string): Promise<string> {
     `${bold("Timezone")} ${h(settings.timezone)}`,
     `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
     `${bold("Max reminders/day")} ${settings.maxRemindersPerDay}`,
+    `${bold("Due nudge")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes` : "off"}`,
     `${bold("Reminder mode")} ${h(settings.reminderMode.toLowerCase())}`,
     reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
     "",
@@ -114,6 +138,7 @@ export async function formatSettings(userId: string): Promise<string> {
     code("/settings quiet 22:00 08:00"),
     code("/settings quiet off"),
     code("/settings max 5"),
+    code("/settings due-nudge 3"),
     code("/settings digest on")
   ].join("\n");
 }
@@ -121,7 +146,8 @@ export async function formatSettings(userId: string): Promise<string> {
 async function rescheduleOpenTasksForInterval(
   tx: Prisma.TransactionClient,
   userId: string,
-  intervalMinutes: number
+  intervalMinutes: number,
+  dueNudgeMinutes: number
 ): Promise<number> {
   const now = new Date();
   const tasks = await tx.task.findMany({
@@ -140,7 +166,7 @@ async function rescheduleOpenTasksForInterval(
       where: { id: task.id },
       data: {
         reminderIntervalMinutes: intervalMinutes,
-        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes)
+        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes, dueNudgeMinutes)
       }
     });
   }

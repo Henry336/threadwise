@@ -5,23 +5,26 @@ import { completeTask, formatTaskCreated, snoozeTask, createTask } from "../serv
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
-import { createReflection, formatReflection } from "../services/reflections";
 import { formatPinResult, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
-import { beginPendingItemEdit, formatEditStarted, type EditableItemKind } from "../services/itemEdits";
+import { beginPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
+import { findPendingSearch, semanticSearch } from "../services/search";
+import { formatSearchResultsPage } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
-  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^archived:(notes|ideas|tasks|reflections):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^capture:(task|idea|note|reflection|ignore):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^capture:(task|idea|note|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
 }
@@ -58,12 +61,36 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`);
 }
 
-async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined) {
+async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
   if (!isEditableItemKind(kind) || !itemId) return;
   const user = await ensureUser(ctx);
-  const item = await beginPendingItemEdit(user.id, kind, itemId);
+  const item = await beginPendingItemEdit(user.id, kind, itemId, isEditableItemField(field) ? field : "title");
   await ctx.answerCallbackQuery({ text: "Ready to edit" });
   await replyHtml(ctx, formatEditStarted(item));
+}
+
+async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
+  if (!pendingId || !pageText) return;
+  const page = Number(pageText);
+  if (!Number.isInteger(page) || page < 1) return;
+
+  const user = await ensureUser(ctx);
+  try {
+    const parsed = await findPendingSearch(user.id, pendingId);
+    const pageSize = 10;
+    const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+      includeDone: parsed.includeDone,
+      doneOnly: parsed.doneOnly
+    });
+    const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+    await ctx.answerCallbackQuery({ text: `Page ${Math.min(page, totalPages)}` });
+    await replyHtml(ctx, formatSearchResultsPage(results, page, pageSize, parsed.label), {
+      reply_markup: searchPageKeyboard(pendingId, Math.min(page, totalPages), totalPages)
+    });
+  } catch {
+    await ctx.answerCallbackQuery({ text: "Search expired" });
+    await ctx.reply("That search expired. Run /search again when you need it.");
+  }
 }
 
 async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
@@ -96,6 +123,10 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
 
 function isEditableItemKind(kind: string | undefined): kind is EditableItemKind {
   return kind === "task" || kind === "note" || kind === "idea";
+}
+
+function isEditableItemField(field: string | undefined): field is EditableItemField {
+  return field === "title" || field === "description" || field === "body" || field === "concept";
 }
 
 async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
@@ -149,6 +180,5 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
     return;
   }
 
-  const reflection = await createReflection(user.id, pending.sourceText, ai);
-  await replyHtml(ctx, `${formatReflection(reflection)}\n\n${code("/undo")} if this was the wrong bucket.`);
+  await ctx.reply("That capture type is no longer available.");
 }

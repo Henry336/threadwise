@@ -13,7 +13,8 @@ import {
   formatRecentIdeas,
   listRecentIdeas,
   renameIdeaTitle,
-  scoreIdea
+  scoreIdea,
+  updateIdeaConcept
 } from "../services/ideas";
 import {
   cancelTask,
@@ -24,7 +25,9 @@ import {
   formatTaskCreated,
   listOpenTasks,
   renameTaskTitle,
-  snoozeTask
+  rescheduleTask,
+  snoozeTask,
+  updateTaskDescription
 } from "../services/tasks";
 import {
   analyzeNoteStyle,
@@ -38,20 +41,20 @@ import {
   formatRecentNotes,
   listRecentNotes,
   renameNoteTitle,
-  searchNotes
+  searchNotes,
+  updateNoteBody
 } from "../services/notes";
-import { createReflection, formatReflection } from "../services/reflections";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
-import { parseSearchRequest, semanticSearch } from "../services/search";
+import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { createIcs } from "../services/calendar";
-import { formatIdeaScore, formatOpenTasks, formatSearchResults, formatTaskDetail } from "./formatters";
+import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
@@ -69,6 +72,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("task", async (ctx) => handleTaskDetail(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
   bot.command("snooze", async (ctx) => handleSnooze(ctx));
+  bot.command(["reschedule", "move"], async (ctx) => handleReschedule(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star"], async (ctx) => handlePin(ctx, true));
@@ -77,7 +81,6 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["archived", "archives"], async (ctx) => handleArchived(ctx));
   bot.command("restore", async (ctx) => handleRestore(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
-  bot.command(["relationship", "reflect"], async (ctx) => handleRelationship(ctx, ai));
   bot.command("settings", async (ctx) => handleSettings(ctx));
   bot.command("search", async (ctx) => handleSearch(ctx, ai));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
@@ -300,6 +303,24 @@ async function handleSnooze(ctx: Context) {
   }
 }
 
+async function handleReschedule(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const command = ctx.message?.text?.startsWith("/move") ? "move" : "reschedule";
+  const body = commandBody(ctx.message?.text ?? "", command);
+  const parsed = parseRescheduleBody(body);
+  if (!parsed) {
+    await ctx.reply(`Send it like this: /${command} 1 tomorrow at 10am, /${command} TASK-1 in 2 hours, or /${command} 1 no date`);
+    return;
+  }
+
+  try {
+    const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
+    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(task.dueAt.toLocaleString())}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`);
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
+  }
+}
+
 async function handleUndo(ctx: Context) {
   const user = await ensureUser(ctx);
   await replyHtml(ctx, await undoLastAction(user.id));
@@ -319,6 +340,13 @@ async function handleRename(ctx: Context) {
   }
 
   try {
+    if (parsed?.field === "description") {
+      const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
+      const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), title);
+      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`);
+      return;
+    }
+
     if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-") || reference.toLowerCase().startsWith("task ")) {
       const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
       const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), title);
@@ -329,6 +357,12 @@ async function handleRename(ctx: Context) {
     if (reference.toUpperCase().startsWith("NOTE-") || reference.toLowerCase().startsWith("note ")) {
       const noteReference = reference.toLowerCase().startsWith("note ") ? reference.slice(5) : reference;
       const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
+      if (parsed?.field === "body") {
+        const note = await updateNoteBody(user.id, noteTarget.publicId, title);
+        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`);
+        return;
+      }
+
       const note = await renameNoteTitle(user.id, noteTarget.publicId, title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`);
       return;
@@ -337,6 +371,12 @@ async function handleRename(ctx: Context) {
     if (reference.toUpperCase().startsWith("IDEA-") || reference.toLowerCase().startsWith("idea ")) {
       const ideaReference = reference.toLowerCase().startsWith("idea ") ? reference.slice(5) : reference;
       const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
+      if (parsed?.field === "concept") {
+        const idea = await updateIdeaConcept(user.id, ideaTarget.publicId, title);
+        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`);
+        return;
+      }
+
       const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, title);
       await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`);
       return;
@@ -378,7 +418,7 @@ async function handleArchived(ctx: Context) {
   const [kindText, pageText] = body.split(/\s+/).filter(Boolean);
   const kind = parseArchiveKind(kindText ?? "");
   if (!kind) {
-    await ctx.reply("Send it like this: /archived notes, /archived ideas, /archived tasks, or /archived reflections");
+    await ctx.reply("Send it like this: /archived notes, /archived ideas, or /archived tasks");
     return;
   }
 
@@ -418,19 +458,6 @@ async function handleCancel(ctx: Context) {
   }
 }
 
-async function handleRelationship(ctx: Context, ai: AiProvider) {
-  const user = await ensureUser(ctx);
-  const command = ctx.message?.text?.startsWith("/reflect") ? "reflect" : "relationship";
-  const text = commandBody(ctx.message?.text ?? "", command);
-  if (!text) {
-    await ctx.reply("Send it like this: /relationship here is what happened...");
-    return;
-  }
-
-  const reflection = await createReflection(user.id, text, ai);
-  await replyHtml(ctx, formatReflection(reflection));
-}
-
 async function handleSettings(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "settings");
@@ -457,8 +484,16 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds);
-  await replyHtml(ctx, formatSearchResults(results, parsed.label));
+  const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+    includeDone: parsed.includeDone,
+    doneOnly: parsed.doneOnly
+  });
+  const pending = await createPendingSearch(user.id, parsed);
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+  await replyHtml(ctx, formatSearchResultsPage(results, 1, pageSize, parsed.label), {
+    reply_markup: searchPageKeyboard(pending.id, 1, totalPages)
+  });
 }
 
 async function handleScore(ctx: Context, ai: AiProvider) {
@@ -545,7 +580,7 @@ function taskOrNoteLookupError(error: unknown): string {
   return "I couldn't find that task or note. Try /tasks or /notes to check the ID.";
 }
 
-function parseReferenceAndTitle(body: string): { reference: string; title: string } | undefined {
+function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {
   const parts = body.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
     return undefined;
@@ -554,14 +589,40 @@ function parseReferenceAndTitle(body: string): { reference: string; title: strin
   const first = parts[0]?.toLowerCase();
   const second = parts[1];
   if ((first === "task" || first === "note" || first === "idea") && second && /^(\d+|TASK-\d+|NOTE-\d+|IDEA-\d+)$/i.test(second)) {
+    const field = editableField(parts[2]);
     return {
       reference: `${first} ${second}`,
-      title: parts.slice(2).join(" ").trim()
+      field,
+      title: parts.slice(field ? 3 : 2).join(" ").trim()
     };
   }
 
+  const field = editableField(parts[1]);
   return {
     reference: parts[0] ?? "",
-    title: parts.slice(1).join(" ").trim()
+    field,
+    title: parts.slice(field ? 2 : 1).join(" ").trim()
+  };
+}
+
+function editableField(value?: string): "title" | "description" | "body" | "concept" | undefined {
+  const lower = value?.toLowerCase();
+  if (lower === "title") return "title";
+  if (lower === "details" || lower === "detail" || lower === "description") return "description";
+  if (lower === "body") return "body";
+  if (lower === "concept") return "concept";
+  return undefined;
+}
+
+function parseRescheduleBody(body: string): { reference: string; whenText: string } | undefined {
+  const trimmed = body.trim();
+  const match = trimmed.match(/^(\S+)\s+(?:to\s+)?(.+)$/i);
+  if (!match?.[1] || !match[2]) {
+    return undefined;
+  }
+
+  return {
+    reference: match[1],
+    whenText: match[2].trim()
   };
 }

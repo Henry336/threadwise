@@ -53,6 +53,7 @@ model User {
   pendingCaptures   PendingCapture[]
   pendingNoteMerges PendingNoteMerge[]
   pendingItemEdits  PendingItemEdit[]
+  pendingSearches   PendingSearch[]
   reminderHistory   ReminderDelivery[]
   auditLogs         AuditLog[]
 }
@@ -65,6 +66,7 @@ model UserSettings {
   quietHoursStart         String?      @default("22:00")
   quietHoursEnd           String?      @default("08:00")
   maxRemindersPerDay      Int          @default(5)
+  dueNudgeMinutes         Int          @default(3)
   reminderMode            ReminderMode @default(INDIVIDUAL)
   reminderChatId          String?
   createdAt               DateTime     @default(now())
@@ -226,9 +228,27 @@ model PendingItemEdit {
   itemKind      String
   itemId        String
   itemPublicId  String
+  editField     String   @default("title")
   previousTitle String
+  previousValue String?
   expiresAt     DateTime
   createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PendingSearch {
+  id          String   @id @default(uuid())
+  userId      String
+  query       String
+  kinds       String[]
+  label       String?
+  includeDone Boolean  @default(false)
+  doneOnly    Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

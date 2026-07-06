@@ -87,6 +87,27 @@ export function formatSearchResults(results: SearchResult[], label?: string): st
   ].join("\n\n");
 }
 
+export function formatSearchResultsPage(results: SearchResult[], page: number, pageSize: number, label?: string): string {
+  if (results.length === 0) {
+    return label ? `No close ${label} matches yet.` : "No close matches yet.";
+  }
+
+  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const visible = results.slice(start, start + pageSize);
+
+  return [
+    bold(label ? `Search results: ${label}` : "Search results"),
+    totalPages > 1 ? italic(`Page ${currentPage}/${totalPages}`) : undefined,
+    "",
+    ...visible.map((result) => {
+      const percent = Math.round(result.score * 100);
+      return `${code(result.publicId)} ${bold(result.title)}\n${italic(`${result.kind}, ${percent}% match`)}\n${h(truncate(result.summary, 160))}`;
+    })
+  ].filter(Boolean).join("\n\n");
+}
+
 export function formatIdeaScore(publicId: string, score: IdeaScore): string {
   return [
     `${code(publicId)} ${bold("score")}`,

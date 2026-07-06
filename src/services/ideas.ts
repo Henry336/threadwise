@@ -1,9 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h } from "../utils/html";
 import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
-import { recordCreateUndo, recordRenameUndo } from "./undo";
+import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
@@ -77,6 +78,25 @@ export async function renameIdeaTitle(userId: string, publicOrUuid: string, titl
     return tx.idea.update({
       where: { id: idea.id },
       data: { title: nextTitle }
+    });
+  });
+}
+
+export async function updateIdeaConcept(userId: string, publicOrUuid: string, concept: string) {
+  const idea = await findIdea(userId, publicOrUuid);
+  const nextConcept = concept.trim();
+  if (!nextConcept) {
+    throw new Error("Idea concept cannot be empty.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await recordFieldEditUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title }, "concept", idea.concept);
+    return tx.idea.update({
+      where: { id: idea.id },
+      data: {
+        concept: nextConcept,
+        embedding: Prisma.JsonNull
+      }
     });
   });
 }

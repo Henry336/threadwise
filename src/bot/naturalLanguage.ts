@@ -48,7 +48,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
     const classification = await ai.classifyMessage(text);
 
-    if (classification.kind === "noise" || classification.confidence < 0.45) {
+    if (classification.kind === "noise" || classification.kind === "reflection" || classification.confidence < 0.45) {
       return;
     }
 
@@ -89,9 +89,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           ? "a task"
           : classification.kind === "idea"
             ? "an idea"
-            : classification.kind === "note"
-              ? "a note"
-              : "a relationship reflection";
+            : "a note";
 
     await replyHtml(ctx, `This sounds like ${bold(label)}.\n${h("Save it?")}`, {
       reply_markup: captureConfirmationKeyboard(pending.id)

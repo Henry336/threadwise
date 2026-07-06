@@ -1,6 +1,6 @@
 # Threadwise
 
-Threadwise is a private Telegram life inbox for capturing ideas, notes, tasks, relationship reflections, searchable personal knowledge, and product implementation briefs.
+Threadwise is a private Telegram life inbox for capturing ideas, notes, tasks, searchable personal knowledge, and product implementation briefs.
 
 It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL persistence, Prisma schema management, Telegram webhooks for Render, and clear service boundaries for future contributors.
 
@@ -13,26 +13,29 @@ Current deployment: https://threadwise-90du.onrender.com
 - Retrieves saved notes with `/note NOTE-1` or searches notes with `/notes <query>`.
 - Lists and opens saved ideas with `/ideas` and `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
-- Reviews the current inbox with `/review`, including task pressure, recent notes, ideas, and reflections.
+- Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current interval setting and respect quiet hours and reminder caps.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and asks before saving.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
+- Sends dated-task due nudges before the due time and repeats them on the due-nudge cadence until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
 - Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
+- Supports editing task details, note bodies, and idea concepts with undo.
+- Supports rescheduling dated tasks with `/reschedule`.
 - Supports `/undo` for recent reversible changes, including saved captures, task completion/cancel/snooze, renames, and pins.
 - Supports undo for confirmed note merges, restoring the original notes and archiving the generated merged note.
-- Pins important tasks, notes, ideas, and reflections with `/pin`, `/star`, and `/pins`.
+- Pins important tasks, notes, and ideas with `/pin`, `/star`, and `/pins`.
 - Starts a short edit flow from item edit buttons; the next normal message becomes the new title.
-- Browses archived notes, ideas, tasks, and reflections with paged `/archived <type>` views and restores items with `/restore`.
+- Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with natural-language classification. Clear tasks, notes, and ideas can save automatically with an undo hint; lower-confidence captures and reflections still ask before saving.
-- Stores relationship reflections with balanced, non-clinical guidance through `/relationship` or `/reflect`.
-- Searches ideas, notes, tasks, and reflections semantically with `/search`.
-- Filters semantic search with `/search tasks <query>`, `/search notes <query>`, `/search ideas <query>`, and `/search reflections <query>`.
+- Handles normal messages with natural-language classification. Clear tasks, notes, and ideas can save automatically with an undo hint; lower-confidence captures still ask before saving.
+- Searches ideas, notes, and tasks semantically with `/search`.
+- Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
+- Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
@@ -65,10 +68,14 @@ Current deployment: https://threadwise-90du.onrender.com
 /done 1
 /snooze TASK-1 1h
 /snooze 1 1h
+/reschedule 1 tomorrow at 10am
 /undo
 /rename 1 Follow up with Sam
 /rename NOTE-1 Deployment notes
 /rename idea 1 Better idea title
+/edit note 2 body Cleaner note body
+/edit task 1 details More useful task details
+/edit idea 1 concept Sharper idea concept
 /pin 1
 /pin note 2
 /star IDEA-1
@@ -76,9 +83,8 @@ Current deployment: https://threadwise-90du.onrender.com
 /pins
 /cancel 1
 /delete TASK-1
-/relationship here is what happened...
-/reflect here is what happened...
 /search reminder bot ideas
+/search done curriculum paper
 /search tasks invoice
 /search notes deployment reliability
 /score IDEA-1
@@ -91,12 +97,13 @@ Current deployment: https://threadwise-90du.onrender.com
 /settings quiet 22:00 08:00
 /settings quiet off
 /settings max 5
+/settings due-nudge 3
 /settings digest on
 ```
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, reflection, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
 
-For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply. Relationship reflections still require confirmation because they are more sensitive and easy to misread.
+For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply.
 
 `TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
 
@@ -123,7 +130,7 @@ Reminders are database-driven. Each open task has a `nextReminderAt`, and the re
 - PostgreSQL for durable storage
 - Prisma for schema and migrations
 - Zod for environment validation
-- OpenAI-compatible adapter for classification, embeddings, idea scoring, and reflection advice
+- OpenAI-compatible adapter for classification, embeddings, and idea scoring
 - Private AI status endpoint for checking whether OpenAI is configured and which chat model is active
 - Vitest for unit tests
 - Render for deployment
@@ -154,7 +161,6 @@ Threadwise stores:
 - Ideas
 - Notes
 - Tasks
-- Relationship reflections
 - Pending natural-language captures
 - Pending note merge previews
 - Processed Telegram update IDs for webhook de-duplication
@@ -187,7 +193,7 @@ DATABASE_URL=
 OPENAI_API_KEY=
 ```
 
-`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses a deterministic heuristic fallback for classification, embeddings, scoring, and reflection advice.
+`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses a deterministic heuristic fallback for classification, embeddings, and scoring.
 
 4. Generate Prisma client:
 
@@ -243,7 +249,7 @@ Use an always-on Render plan if you want reminders to be reliable. If the servic
 
 ## Privacy And Access
 
-Threadwise stores data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, settings, and reflections. They do not see another user's saved data through normal bot commands.
+Threadwise stores data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, and settings. They do not see another user's saved data through normal bot commands.
 
 If the deployment should be private to only one person or a small team, set:
 
@@ -315,5 +321,4 @@ Current validation status at initial implementation:
 - Weekly digest.
 - Recurring task templates.
 - Richer idea selection-to-implementation workflow.
-- Relationship pattern tracking over time.
 - Per-user privacy controls and export/delete flows.

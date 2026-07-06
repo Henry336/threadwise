@@ -23,7 +23,7 @@ Threadwise is intentionally split into small modules so future contributors can 
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, and edit. Note and idea buttons can star and edit. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied as the new title with undo support.
+Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, and edit. Note and idea buttons can star and edit. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
@@ -37,7 +37,7 @@ Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
-Scheduled reminders have one important exception: the first due reminder for a dated task bypasses quiet hours and daily caps so an explicit "remind me at 1:29 AM" request fires at the requested time. Repeat nudges after that respect quiet hours and reminder caps.
+Scheduled reminders use a separate due-nudge cadence. If `dueNudgeMinutes` is 5, a dated task starts nudging 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Due-nudge deliveries bypass quiet hours and daily caps because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and caps.
 
 Changing `/settings interval` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short intervals, Threadwise also raises an obviously-too-low daily cap so the new cadence can actually repeat. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
 
@@ -48,7 +48,6 @@ The `AiProvider` interface supports:
 - Message classification
 - Idea structuring
 - Task extraction
-- Relationship reflection guidance
 - Idea scoring
 - Embeddings
 - Provider status and a small live health check for the private admin endpoint
@@ -66,13 +65,16 @@ Search is personal-scale semantic search:
 - Generate an embedding for the query.
 - Load recent user items.
 - Optionally restrict by item type for commands such as `/search notes deployment`.
+- Normal task search includes open tasks only.
+- `/search done <query>` searches completed tasks explicitly.
 - Compare app-side with cosine similarity and a small lexical fallback for exact title/body matches.
+- Store short-lived `PendingSearch` records for paginated Telegram callbacks instead of putting long queries in callback data.
 
 This is intentionally simple. If the dataset grows, move embeddings to pgvector or a vector database without changing command behavior.
 
 ## Archives
 
-Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archived <type>` pages through archived notes, ideas, tasks, and reflections.
+Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archived <type>` pages through archived notes, ideas, and tasks.
 
 ## Calendar Integration
 

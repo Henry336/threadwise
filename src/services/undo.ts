@@ -90,6 +90,52 @@ export async function recordRenameUndo(
   });
 }
 
+export async function recordFieldEditUndo(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  target: UndoTarget,
+  field: "description" | "body" | "concept",
+  previousValue: string | null
+): Promise<void> {
+  await recordUndo(tx, userId, "field-edit", {
+    type: "field-edit",
+    targetKind: target.kind,
+    targetId: target.id,
+    publicId: target.publicId,
+    title: target.title,
+    field,
+    previousValue
+  });
+}
+
+export async function recordRescheduleUndo(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  task: {
+    id: string;
+    publicId: string;
+    title: string;
+    dueAt?: Date | null;
+    timezone?: string | null;
+    calendarUrl?: string | null;
+    nextReminderAt?: Date | null;
+    snoozedUntil?: Date | null;
+  }
+): Promise<void> {
+  await recordUndo(tx, userId, "reschedule-task", {
+    type: "reschedule-task",
+    targetKind: "task",
+    targetId: task.id,
+    publicId: task.publicId,
+    title: task.title,
+    dueAt: toIso(task.dueAt),
+    timezone: task.timezone ?? null,
+    calendarUrl: task.calendarUrl ?? null,
+    nextReminderAt: toIso(task.nextReminderAt),
+    snoozedUntil: toIso(task.snoozedUntil)
+  });
+}
+
 export async function recordPinUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -171,6 +217,14 @@ export async function undoLastAction(userId: string): Promise<string> {
 
     if (type === "rename") {
       return await undoRename(entry.id, payload);
+    }
+
+    if (type === "field-edit") {
+      return await undoFieldEdit(entry.id, payload);
+    }
+
+    if (type === "reschedule-task") {
+      return await undoReschedule(entry.id, payload);
     }
 
     if (type === "pin") {
@@ -285,6 +339,58 @@ async function undoRename(entryId: string, payload: Record<string, unknown>): Pr
   return `${bold("Undone")} Renamed ${code(target.publicId)} back to ${h(previousTitle)}.`;
 }
 
+async function undoFieldEdit(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const target = targetFromPayload(payload);
+  const field = stringValue(payload.field);
+  const previousValue = nullableStringValue(payload.previousValue);
+
+  await prisma.$transaction(async (tx) => {
+    if (target.kind === "task" && field === "description") {
+      await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { description: previousValue, embedding: Prisma.JsonNull } });
+    } else if (target.kind === "note" && field === "body") {
+      await tx.note.updateMany({
+        where: { id: target.id, archivedAt: null },
+        data: {
+          body: previousValue ?? "",
+          summary: summarizeManualText(previousValue ?? ""),
+          embedding: Prisma.JsonNull
+        }
+      });
+    } else if (target.kind === "idea" && field === "concept") {
+      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { concept: previousValue ?? "", embedding: Prisma.JsonNull } });
+    } else {
+      throw new Error("Invalid field edit undo payload.");
+    }
+
+    await consumeUndo(tx, entryId, "field-edit");
+  });
+
+  return `${bold("Undone")} Restored the previous ${h(field ?? "field")} for ${code(target.publicId)}.`;
+}
+
+async function undoReschedule(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const target = targetFromPayload(payload);
+  if (target.kind !== "task") {
+    throw new Error("Invalid reschedule undo payload.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.task.updateMany({
+      where: { id: target.id, archivedAt: null },
+      data: {
+        dueAt: dateValue(payload.dueAt),
+        timezone: nullableStringValue(payload.timezone),
+        calendarUrl: nullableStringValue(payload.calendarUrl),
+        nextReminderAt: dateValue(payload.nextReminderAt),
+        snoozedUntil: dateValue(payload.snoozedUntil)
+      }
+    });
+    await consumeUndo(tx, entryId, "reschedule-task");
+  });
+
+  return `${bold("Undone")} Restored the previous schedule for ${code(target.publicId)}.`;
+}
+
 async function undoPin(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   const previousPinnedAt = dateValue(payload.previousPinnedAt);
@@ -388,6 +494,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function nullableStringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function summarizeManualText(value: string): string {
+  return value.length <= 180 ? value : `${value.slice(0, 177).trim()}...`;
 }
 
 function taskStatusValue(value: unknown): TaskStatus | undefined {

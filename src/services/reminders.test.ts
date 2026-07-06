@@ -1,38 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { nextReminderAfterSettingChange, shouldBypassReminderLimits } from "./reminders";
+import { dueNudgeStartAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
-  it("bypasses quiet hours and reminder caps for the first scheduled due reminder", () => {
+  it("starts scheduled due nudges before the due time", () => {
     expect(
-      shouldBypassReminderLimits({
+      dueNudgeStartAt(new Date("2026-07-05T17:29:00.000Z"), 5).toISOString()
+    ).toBe("2026-07-05T17:24:00.000Z");
+  });
+
+  it("uses due nudge policy once the nudge window starts", () => {
+    expect(
+      shouldUseDueNudgePolicy({
         dueAt: new Date("2026-07-05T17:29:00.000Z"),
-        lastRemindedAt: null,
-        reminderCount: 0
+        dueNudgeMinutes: 5,
+        now: new Date("2026-07-05T17:24:00.000Z")
       })
     ).toBe(true);
   });
 
-  it("does not bypass quiet hours for repeated nudges", () => {
+  it("does not use due nudge policy for interval-only tasks", () => {
     expect(
-      shouldBypassReminderLimits({
-        dueAt: new Date("2026-07-05T17:29:00.000Z"),
-        lastRemindedAt: new Date("2026-07-05T17:29:10.000Z"),
-        reminderCount: 1
-      })
-    ).toBe(false);
-  });
-
-  it("does not bypass quiet hours for interval-only tasks", () => {
-    expect(
-      shouldBypassReminderLimits({
+      shouldUseDueNudgePolicy({
         dueAt: null,
-        lastRemindedAt: null,
-        reminderCount: 0
+        dueNudgeMinutes: 5,
+        now: new Date("2026-07-05T17:24:00.000Z")
       })
     ).toBe(false);
   });
 
-  it("keeps a future first scheduled reminder at its explicit due time when interval changes", () => {
+  it("keeps a future scheduled reminder at the due-nudge start when interval changes", () => {
     const now = new Date("2026-07-05T00:00:00.000Z");
     const dueAt = new Date("2026-07-05T02:00:00.000Z");
 
@@ -45,12 +41,24 @@ describe("reminder policy", () => {
           reminderCount: 0
         },
         now,
-        15
+        15,
+        5
       ).toISOString()
-    ).toBe(dueAt.toISOString());
+    ).toBe("2026-07-05T01:55:00.000Z");
   });
 
-  it("pulls repeated reminders onto the new shorter interval", () => {
+  it("keeps dated tasks nudging on the due-nudge cadence after delivery", () => {
+    expect(
+      nextReminderAtAfterDelivery({
+        now: new Date("2026-07-05T17:24:00.000Z"),
+        dueAt: new Date("2026-07-05T17:29:00.000Z"),
+        dueNudgeMinutes: 5,
+        intervalMinutes: 180
+      }).toISOString()
+    ).toBe("2026-07-05T17:29:00.000Z");
+  });
+
+  it("pulls overdue dated reminders onto the due-nudge cadence", () => {
     const now = new Date("2026-07-05T00:00:00.000Z");
 
     expect(
@@ -62,8 +70,9 @@ describe("reminder policy", () => {
           reminderCount: 1
         },
         now,
-        15
+        15,
+        5
       ).toISOString()
-    ).toBe("2026-07-05T00:15:00.000Z");
+    ).toBe("2026-07-05T00:05:00.000Z");
   });
 });

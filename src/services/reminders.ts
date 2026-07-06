@@ -31,14 +31,15 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
       continue;
     }
 
-    const isInitialScheduledReminder = shouldBypassReminderLimits({
+    const isDueNudgeReminder = shouldUseDueNudgePolicy({
       dueAt: task.dueAt,
-      lastRemindedAt: task.lastRemindedAt,
-      reminderCount: task.reminderCount
+      nextReminderAt: task.nextReminderAt,
+      dueNudgeMinutes: settings.dueNudgeMinutes,
+      now
     });
 
     if (
-      !isInitialScheduledReminder &&
+      !isDueNudgeReminder &&
       isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })
     ) {
       await prisma.task.update({
@@ -55,7 +56,7 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
       }
     });
 
-    if (!isInitialScheduledReminder && remindersToday >= settings.maxRemindersPerDay) {
+    if (!isDueNudgeReminder && remindersToday >= settings.maxRemindersPerDay) {
       await prisma.task.update({
         where: { id: task.id },
         data: { nextReminderAt: new Date(now.getTime() + settings.reminderIntervalMinutes * 60_000) }
@@ -91,7 +92,12 @@ export async function sendDueReminders(bot: Bot): Promise<number> {
             lastRemindedAt: now,
             reminderCount: { increment: 1 },
             reminderIntervalMinutes: settings.reminderIntervalMinutes,
-            nextReminderAt: nextIntervalReminderAt(now, settings.reminderIntervalMinutes)
+            nextReminderAt: nextReminderAtAfterDelivery({
+              now,
+              dueAt: task.dueAt,
+              dueNudgeMinutes: settings.dueNudgeMinutes,
+              intervalMinutes: settings.reminderIntervalMinutes
+            })
           }
         })
       ]);
@@ -113,8 +119,48 @@ export function shouldBypassReminderLimits(task: { dueAt?: Date | null; lastRemi
   return Boolean(task.dueAt && !task.lastRemindedAt && task.reminderCount === 0);
 }
 
+export function shouldUseDueNudgePolicy(task: {
+  dueAt?: Date | null;
+  nextReminderAt?: Date | null;
+  dueNudgeMinutes: number;
+  now: Date;
+}): boolean {
+  if (!task.dueAt || task.dueNudgeMinutes <= 0) {
+    return false;
+  }
+
+  const nudgeStart = dueNudgeStartAt(task.dueAt, task.dueNudgeMinutes);
+  return task.now >= nudgeStart;
+}
+
 export function nextIntervalReminderAt(now: Date, intervalMinutes: number): Date {
   return new Date(now.getTime() + intervalMinutes * 60_000);
+}
+
+export function dueNudgeStartAt(dueAt: Date, dueNudgeMinutes: number): Date {
+  return new Date(dueAt.getTime() - Math.max(0, dueNudgeMinutes) * 60_000);
+}
+
+export function nextDueReminderAt(dueAt: Date, dueNudgeMinutes: number, now: Date): Date {
+  if (dueNudgeMinutes <= 0) {
+    return dueAt;
+  }
+
+  const startAt = dueNudgeStartAt(dueAt, dueNudgeMinutes);
+  return startAt.getTime() <= now.getTime() ? now : startAt;
+}
+
+export function nextReminderAtAfterDelivery(input: {
+  now: Date;
+  dueAt?: Date | null;
+  dueNudgeMinutes: number;
+  intervalMinutes: number;
+}): Date {
+  if (input.dueAt && input.dueNudgeMinutes > 0 && input.now >= dueNudgeStartAt(input.dueAt, input.dueNudgeMinutes)) {
+    return nextIntervalReminderAt(input.now, input.dueNudgeMinutes);
+  }
+
+  return nextIntervalReminderAt(input.now, input.intervalMinutes);
 }
 
 export function nextReminderAfterSettingChange(task: {
@@ -122,11 +168,25 @@ export function nextReminderAfterSettingChange(task: {
   nextReminderAt?: Date | null;
   lastRemindedAt?: Date | null;
   reminderCount: number;
-}, now: Date, intervalMinutes: number): Date {
+}, now: Date, intervalMinutes: number, dueNudgeMinutes = 0): Date {
   const nextInterval = nextIntervalReminderAt(now, intervalMinutes);
 
   if (shouldBypassReminderLimits(task) && task.dueAt && task.dueAt.getTime() > now.getTime()) {
-    return task.dueAt;
+    return nextDueReminderAt(task.dueAt, dueNudgeMinutes, now);
+  }
+
+  if (task.dueAt && dueNudgeMinutes > 0 && task.dueAt.getTime() > now.getTime()) {
+    const dueNudge = nextDueReminderAt(task.dueAt, dueNudgeMinutes, now);
+    if (!task.nextReminderAt || task.nextReminderAt.getTime() > dueNudge.getTime()) {
+      return dueNudge;
+    }
+  }
+
+  if (task.dueAt && dueNudgeMinutes > 0 && now >= dueNudgeStartAt(task.dueAt, dueNudgeMinutes)) {
+    const nextDueNudge = nextIntervalReminderAt(now, dueNudgeMinutes);
+    if (!task.nextReminderAt || task.nextReminderAt.getTime() > nextDueNudge.getTime()) {
+      return nextDueNudge;
+    }
   }
 
   if (!task.nextReminderAt || task.nextReminderAt.getTime() > nextInterval.getTime()) {

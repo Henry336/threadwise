@@ -21,4 +21,14 @@ describe("search request parsing", () => {
       label: "task"
     });
   });
+
+  it("extracts done task searches explicitly", () => {
+    expect(parseSearchRequest("done curriculum paper")).toEqual({
+      query: "curriculum paper",
+      kinds: ["task"],
+      label: "done tasks",
+      includeDone: true,
+      doneOnly: true
+    });
+  });
 });
