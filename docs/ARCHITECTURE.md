@@ -16,17 +16,22 @@ Threadwise is intentionally split into small modules so future contributors can 
 ## Request Flow
 
 1. Telegram sends an update.
-2. `src/bot` routes it to a command, callback, or natural-language handler.
-3. The handler calls a domain service.
-4. Services read/write through Prisma.
-5. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
-6. Replies are formatted by bot/service formatter helpers.
+2. `src/bot` checks access rules, group addressing rules, and duplicate update claims.
+3. `src/bot` routes it to a command, callback, or natural-language handler.
+4. The handler calls a domain service.
+5. Services read/write through Prisma.
+6. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
+7. Replies are formatted by bot/service formatter helpers.
 
 Telegram copy follows a small convention: show the saved content first, then a compact metadata block with stable IDs and dates, then any assistant guidance. Shared formatting helpers live in `src/utils/messageFormat.ts`; task list/detail/search formatters live in `src/bot/formatters.ts`; note and idea card formatting lives with their services. New contributors should change copy in those formatter functions instead of spreading ad hoc message strings through handlers.
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
 Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `help me with notes`, `show me the notes`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `remind me again every 3 hours`, `warn me 10 mins before due tasks`, `allow up to 200 reminders per day`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
+
+Group routing lives in `src/bot/groupRouting.ts`. Slash commands are treated as explicit bot requests. Plain natural-language messages in group chats are ignored unless they mention the bot or reply to one of its messages; the mention is stripped before normal parsing so `@ThreadwiseBot remind me to...` follows the same deterministic path as a private message. This keeps group conversations quiet and prevents accidental captures from unrelated chat.
+
+`ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
 
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
@@ -82,6 +87,8 @@ Approximate per-request work:
 
 Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` identical synthesis requests arrive at the same time, the cache stores the in-flight promise so they share one OpenAI call; if they are all different synthesis requests, OpenAI becomes the bottleneck.
 
+Group routing adds only constant-time checks per Telegram update: a few id lookups for the allowlist, a chat-type check, and at most one short bot-mention regex over the incoming message. Once routed, group commands have the same order of growth as private commands because the group chat is just another scoped owner id.
+
 Current bottlenecks to watch as usage grows:
 
 - Public IDs are generated with per-user counts. This is fine for personal scale, but a per-user counter table would be better for very high write volume.
@@ -94,7 +101,11 @@ Message formatting helpers are constant-time apart from escaping and truncating 
 
 Handlers should never look up tasks, notes, ideas, calendar links, pins, or archives by public ID alone. Every lookup must include the current `userId`, either directly in Prisma or through helpers such as `findTaskReference`, `findNoteReference`, and `findIdeaReference`. This keeps another Telegram user from retrieving or mutating someone else's saved items by guessing IDs like `TASK-1`.
 
+In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Do not mix the human sender id into group lookups unless the feature is specifically about per-member permissions or assignment.
+
 Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
+
+When `BOT_ALLOWED_TELEGRAM_IDS` is configured, access can be granted by sender id or group chat id. A group chat id may be written as the raw Telegram chat id or as `chat:<id>`. Blocked private users receive a private-bot notice; blocked group messages are ignored silently to avoid leaking bot presence into unrelated group conversations.
 
 Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Gmail OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
 

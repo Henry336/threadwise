@@ -3,32 +3,26 @@ import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 
 export async function ensureUser(ctx: Context) {
-  const from = ctx.from;
-  if (!from) {
-    throw new Error("Telegram update does not include a user.");
-  }
-
-  const telegramId = String(from.id);
-  const defaultTimezone = defaultTimezoneForTelegramLanguage(from.language_code) ?? env.DEFAULT_TIMEZONE;
+  const identity = threadwiseUserIdentity(ctx);
   const user = await prisma.user.upsert({
-    where: { telegramId },
+    where: { telegramId: identity.telegramId },
     update: {
-      username: from.username,
-      firstName: from.first_name,
-      lastName: from.last_name
+      username: identity.username,
+      firstName: identity.firstName,
+      lastName: identity.lastName
     },
     create: {
-      telegramId,
-      username: from.username,
-      firstName: from.first_name,
-      lastName: from.last_name,
+      telegramId: identity.telegramId,
+      username: identity.username,
+      firstName: identity.firstName,
+      lastName: identity.lastName,
       settings: {
         create: {
-          timezone: defaultTimezone,
+          timezone: identity.defaultTimezone,
           reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
           quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
           quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
-          reminderChatId: ctx.chat ? String(ctx.chat.id) : telegramId
+          reminderChatId: identity.reminderChatId
         }
       }
     },
@@ -39,11 +33,11 @@ export async function ensureUser(ctx: Context) {
     await prisma.userSettings.create({
       data: {
         userId: user.id,
-        timezone: defaultTimezone,
+        timezone: identity.defaultTimezone,
         reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
         quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
         quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
-        reminderChatId: ctx.chat ? String(ctx.chat.id) : telegramId
+        reminderChatId: identity.reminderChatId
       }
     });
 
@@ -53,7 +47,61 @@ export async function ensureUser(ctx: Context) {
     });
   }
 
+  if (identity.isGroup && user.settings.reminderChatId !== identity.reminderChatId) {
+    await prisma.userSettings.update({
+      where: { userId: user.id },
+      data: { reminderChatId: identity.reminderChatId }
+    });
+
+    return prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { settings: true }
+    });
+  }
+
   return user;
+}
+
+type ThreadwiseUserIdentity = {
+  telegramId: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  defaultTimezone: string;
+  reminderChatId: string;
+  isGroup: boolean;
+};
+
+export function threadwiseUserIdentity(ctx: Context): ThreadwiseUserIdentity {
+  if (ctx.chat?.type === "group" || ctx.chat?.type === "supergroup") {
+    const chatId = String(ctx.chat.id);
+    return {
+      telegramId: `chat:${chatId}`,
+      username: "username" in ctx.chat ? ctx.chat.username : undefined,
+      firstName: "title" in ctx.chat ? ctx.chat.title : "Group chat",
+      lastName: undefined,
+      defaultTimezone: env.DEFAULT_TIMEZONE,
+      reminderChatId: chatId,
+      isGroup: true
+    };
+  }
+
+  const from = ctx.from;
+  if (!from) {
+    throw new Error("Telegram update does not include a user.");
+  }
+
+  const telegramId = String(from.id);
+  const defaultTimezone = defaultTimezoneForTelegramLanguage(from.language_code) ?? env.DEFAULT_TIMEZONE;
+  return {
+    telegramId,
+    username: from.username,
+    firstName: from.first_name,
+    lastName: from.last_name,
+    defaultTimezone,
+    reminderChatId: ctx.chat ? String(ctx.chat.id) : telegramId,
+    isGroup: false
+  };
 }
 
 export function defaultTimezoneForTelegramLanguage(languageCode?: string): string | undefined {

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added first-pass group chat support: group data is scoped to the chat, slash commands work in groups, natural-language messages require a bot mention or reply, and reminders are delivered back into the group.
 - Added a natural-language `/help` capability guide and moved the compact slash-command list to `/commands`.
 - Added deterministic help-question routing for phrases like `how do I set reminders?`, `help me with notes`, and `how do I view the command list?`.
 - Added friendlier natural settings phrases such as `remind me again every 3 hours`, `warn me 10 mins before due tasks`, and `allow up to 200 reminders per day`.

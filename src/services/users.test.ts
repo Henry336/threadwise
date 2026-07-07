@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Context } from "grammy";
 
 vi.mock("../config/env", () => ({
   env: {
@@ -13,7 +14,7 @@ vi.mock("../db/prisma", () => ({
   prisma: {}
 }));
 
-import { defaultTimezoneForTelegramLanguage } from "./users";
+import { defaultTimezoneForTelegramLanguage, threadwiseUserIdentity } from "./users";
 
 describe("user defaults", () => {
   it("infers common timezone defaults from Telegram language codes when possible", () => {
@@ -21,5 +22,31 @@ describe("user defaults", () => {
     expect(defaultTimezoneForTelegramLanguage("my-MM")).toBe("Asia/Yangon");
     expect(defaultTimezoneForTelegramLanguage("ms")).toBe("Asia/Kuala_Lumpur");
     expect(defaultTimezoneForTelegramLanguage("en")).toBeUndefined();
+  });
+
+  it("uses a group chat as the Threadwise data owner in groups", () => {
+    const identity = threadwiseUserIdentity({
+      chat: {
+        id: -100123,
+        type: "supergroup",
+        title: "Family reminders",
+        username: "family_reminders"
+      },
+      from: {
+        id: 456,
+        is_bot: false,
+        first_name: "Parent",
+        language_code: "my"
+      }
+    } as Context);
+
+    expect(identity).toMatchObject({
+      telegramId: "chat:-100123",
+      username: "family_reminders",
+      firstName: "Family reminders",
+      defaultTimezone: "Asia/Singapore",
+      reminderChatId: "-100123",
+      isGroup: true
+    });
   });
 });

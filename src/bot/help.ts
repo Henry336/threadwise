@@ -62,7 +62,8 @@ const HELP_SECTIONS: HelpSection[] = [
       "remind me to call mom tomorrow at 9",
       "save note passport expires in May",
       "show me my tasks",
-      "change timezone to Myanmar"
+      "change timezone to Myanmar",
+      "@ThreadwiseBot remind @Alex to bring snacks at 5pm"
     ],
     commands: ["/remind tomorrow at 9am | call mom", "/note passport expires in May", "/tasks", "/settings timezone Myanmar"]
   },
@@ -155,6 +156,7 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
   return [
     bold("Welcome to Threadwise"),
     "Just tell me what you want to remember, do, find, change, or schedule.",
+    "In groups, mention me or reply to me so I know the message is for Threadwise.",
     "",
     bold("Try typing"),
     code("remind me to call mom tomorrow at 9"),

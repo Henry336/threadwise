@@ -5,6 +5,7 @@ import { logger } from "../logger";
 import { claimTelegramUpdate } from "../services/telegramUpdates";
 import { registerCallbacks } from "./callbacks";
 import { registerCommands } from "./commands";
+import { isGroupChat, isTelegramContextAllowed } from "./groupRouting";
 import { registerNaturalLanguage } from "./naturalLanguage";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
@@ -17,13 +18,18 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
       return;
     }
 
-    const telegramId = ctx.from?.id ? String(ctx.from.id) : undefined;
-    if (telegramId && allowlist.has(telegramId)) {
+    if (isTelegramContextAllowed(ctx, allowlist)) {
       await next();
       return;
     }
 
-    logger.warn("Blocked unauthorized Telegram user.", { telegramId });
+    const telegramId = ctx.from?.id ? String(ctx.from.id) : undefined;
+    const chatId = ctx.chat?.id ? String(ctx.chat.id) : undefined;
+    logger.warn("Blocked unauthorized Telegram context.", { telegramId, chatId });
+    if (isGroupChat(ctx)) {
+      return;
+    }
+
     await ctx.reply("This Threadwise bot is private.");
   });
 

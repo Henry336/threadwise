@@ -10,6 +10,7 @@ import { createTask, formatTaskCreated } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
+import { prepareNaturalLanguageText } from "./groupRouting";
 import { captureConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { handleNaturalCommand } from "./naturalCommands";
 
@@ -17,13 +18,18 @@ const AUTO_SAVE_CONFIDENCE = 0.88;
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
-    const text = ctx.message.text;
-    if (text.startsWith("/")) {
+    const rawText = ctx.message.text;
+    if (rawText.startsWith("/")) {
       await next();
       return;
     }
 
     try {
+      const text = prepareNaturalLanguageText(ctx, rawText);
+      if (!text) {
+        return;
+      }
+
       const user = await ensureUser(ctx);
 
       if (/^(cancel|stop)\s+edit$/i.test(text.trim())) {

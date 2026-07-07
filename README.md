@@ -51,6 +51,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
+- Supports group chats with shared chat-scoped tasks, notes, ideas, settings, and reminders. In groups, slash commands work directly, while natural-language messages must mention the bot or reply to one of its messages.
 
 ## Commands
 
@@ -130,6 +131,8 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 `/start` introduces Threadwise as a natural-language bot first. `/help` shows a full capability guide with natural examples and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
 Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "how do I use this bot?", "how do I set reminders?", "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "remind me again every 3 hours", "warn me 10 mins before due tasks", "allow up to 200 reminders per day", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+
+In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @Henry to bring snacks at 5pm`. The saved task belongs to the group chat, and the reminder is sent back to that group. Keeping the assignee mention in the task text is the simplest assignment path for now because Telegram will notify that username when the reminder message appears.
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
@@ -313,7 +316,9 @@ Use an always-on Render plan if you want reminders to be reliable. If the servic
 
 ## Privacy And Access
 
-Threadwise stores data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, and settings. They do not see another user's saved data through normal bot commands.
+Threadwise stores private-chat data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, and settings. They do not see another user's saved data through normal bot commands.
+
+In group chats, Threadwise stores data by chat id instead. Everyone who can use the bot in that group sees the same group tasks, notes, ideas, settings, and reminders. The database represents that shared owner as a synthetic user id such as `chat:-1001234567890`, so the existing service layer can keep enforcing scoped lookups without duplicating every table.
 
 If the deployment should be private to only one person or a small team, set:
 
@@ -321,7 +326,9 @@ If the deployment should be private to only one person or a small team, set:
 BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 ```
 
-Leave it blank to allow any Telegram user who can find the bot to use their own isolated Threadwise account.
+You can also allow a whole group by adding its chat id, either as `-1001234567890` or `chat:-1001234567890`. If a group is allowlisted, any member of that group can use the shared group scope. If only individual Telegram ids are allowlisted, group messages from non-allowlisted people are ignored silently so the bot does not clutter the chat.
+
+Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
 
 ## Private Admin Endpoints
 
