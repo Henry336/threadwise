@@ -18,10 +18,10 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
-- Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current interval setting and respect quiet hours and reminder caps.
+- Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and "remind me to check the washer after 5 mins".
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
-- Sends dated-task due nudges before the due time and repeats them on the due-nudge cadence until completion.
+- Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
@@ -49,7 +49,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
 - Shows release, AI, Gmail, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
-- Supports configurable reminder interval, quiet hours, timezone, and reminder cap through slash commands or natural language.
+- Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 
 ## Commands
@@ -57,6 +57,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 ```text
 /start
 /help
+/commands
 /idea build a Telegram bot that...
 /note Remember that deployment reliability depends on avoiding sleeping workers
 /note 1
@@ -122,13 +123,13 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /settings timezone America/New_York
 /settings quiet 22:00 08:00
 /settings quiet off
-/settings max 5
+/settings max 200
 /settings due-nudge 3
 ```
 
-`/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
+`/start` introduces Threadwise as a natural-language bot first. `/help` shows a full capability guide with natural examples and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "how do I use this bot?", "how do I set reminders?", "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "remind me again every 3 hours", "warn me 10 mins before due tasks", "allow up to 200 reminders per day", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
@@ -143,14 +144,14 @@ Undoing a newly saved capture archives it out of active lists and search instead
 Reminders are database-driven. Each open task has a `nextReminderAt`, and the reminder loop polls due tasks instead of relying on in-memory timers.
 
 - The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
-- Repeat nudges use the current `/settings interval` value. Changing the interval also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
-- `/settings timezone <zone>` or natural text such as `change timezone to Myanmar` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily caps reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
+- Repeat nudges use the current "remind me again every..." value. Changing it also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
+- `/settings timezone <zone>` or natural text such as `change timezone to Myanmar` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily safety limits reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
 - Telegram does not expose a user's exact device timezone to bots on `/start`. Threadwise makes a best-effort default from Telegram language code when it is clear, then lets users correct it naturally.
 - Timezones are validated against real IANA names such as `Asia/Singapore`, `Asia/Yangon`, `Asia/Kuala_Lumpur`, `America/New_York`, `Europe/London`, and `Australia/Sydney`. Common aliases such as `Myanmar`, `Yangon`, `Malaysia`, `Kuala Lumpur`, and `Asia/Myanmar` map to the right IANA timezone.
-- Short intervals automatically raise an obviously-too-low daily cap so `/settings interval 15` can actually keep nudging for more than a few reminders. You can still override the cap with `/settings max <n>`.
+- Short repeat timings automatically raise an obviously-too-low daily safety limit so `/settings interval 15` can actually keep nudging for more than a few reminders. You can still override the limit with `/settings max <n>`.
 - `/settings quiet off` disables quiet hours and rechecks open tasks so reminders deferred by quiet hours can become eligible again.
-- `/settings max <n>` limits total reminders per user per day. If you manually lower the cap with a short interval, `/settings` will show how much reminder coverage that allows.
-- `/task 1` shows reminder debug details, including the next reminder time, current interval, daily cap, and quiet hours.
+- `/settings max <n>` sets a daily reminder safety limit. The default is 200 so normal reminder-bot usage is not artificially capped, while accidental loops still have a guardrail.
+- `/task 1` shows reminder details, including the next reminder time, repeat timing, daily safety limit, and quiet hours.
 - `/version` shows the last reminder loop run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 If the process sleeps or an uptime monitor needs a direct fallback, set `ADMIN_STATUS_TOKEN` and call either:

@@ -68,7 +68,7 @@ model UserSettings {
   timezone                String       @default("Asia/Singapore")
   quietHoursStart         String?      @default("22:00")
   quietHoursEnd           String?      @default("08:00")
-  maxRemindersPerDay      Int          @default(5)
+  maxRemindersPerDay      Int          @default(200)
   dueNudgeMinutes         Int          @default(3)
   reminderMode            ReminderMode @default(INDIVIDUAL)
   reminderChatId          String?

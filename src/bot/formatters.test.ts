@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
-import { formatHelpPage, formatStartText, HELP_COMMANDS } from "./help";
+import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskCreated } from "../services/tasks";
 import { formatNoteDetail } from "../services/notes";
@@ -273,12 +273,39 @@ describe("bot formatters", () => {
     });
   });
 
-  it("shows help commands alphabetically", () => {
+  it("shows natural-language capability help without pagination", () => {
     const message = formatHelpPage(1);
+
+    expect(message).toContain("<b>Threadwise help</b>");
+    expect(message).toContain("<b>Reminders And Tasks</b>");
+    expect(message).toContain("<code>remind me to check the washer after 5 mins</code>");
+    expect(message).toContain("<b>Settings</b>");
+    expect(message).toContain("<code>remind me again every 3 hours</code>");
+    expect(message).toContain("<code>/commands</code>");
+    expect(message).not.toContain("Page 1/");
+    expect(message).not.toContain("Google Calendar");
+    expect(message).not.toContain("Gmail");
+  });
+
+  it("keeps slash commands discoverable in the command reference", () => {
+    const message = formatCommandReference();
 
     expect(message.indexOf("<code>/add</code>")).toBeLessThan(message.indexOf("<code>/archived</code>"));
     expect(message.indexOf("<code>/archived</code>")).toBeLessThan(message.indexOf("<code>/brief</code>"));
-    expect(message).not.toContain("<code>/start</code> - Show first-run onboarding");
+    expect(message).toContain("<code>/commands</code> - Show the full slash-command reference.");
+  });
+
+  it("formats focused help topics for natural questions", () => {
+    const reminders = formatHelpTopic("reminders");
+    const notes = formatHelpTopic("notes");
+    const commands = formatHelpTopic("commands");
+
+    expect(reminders).toContain("<b>Help: Reminders And Tasks</b>");
+    expect(reminders).toContain("<code>remind me to check the washer after 5 mins</code>");
+    expect(reminders).not.toContain("<b>Help: Notes</b>");
+    expect(notes).toContain("<b>Help: Notes</b>");
+    expect(notes).toContain("<code>show note 3</code>");
+    expect(commands).toContain("<b>Threadwise commands</b>");
   });
 
   it("includes important and version commands in help metadata", () => {
@@ -288,14 +315,14 @@ describe("bot formatters", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
   });
 
-  it("shows a tiny onboarding checklist after start", () => {
+  it("shows natural-first onboarding after start", () => {
     const message = formatStartText("Asia/Yangon");
 
-    expect(message).toContain("<b>First checklist</b>");
-    expect(message).toContain("[ ] <code>change timezone to Singapore</code> - set timezone if this looks wrong");
-    expect(message).toContain("[ ] <code>add pay invoice tomorrow at 9am</code> - add your first task");
-    expect(message).toContain("[ ] <code>note Deployment reliability depends on avoiding sleeping workers</code> - save your first note");
+    expect(message).toContain("<b>Try typing</b>");
+    expect(message).toContain("<code>remind me to call mom tomorrow at 9</code>");
+    expect(message).toContain("<code>show me my tasks</code>");
     expect(message).toContain("Telegram does not share an exact device timezone with bots");
+    expect(message).toContain("<code>/commands</code> shows the compact slash-command reference.");
   });
 });
 

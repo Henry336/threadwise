@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Added a natural-language `/help` capability guide and moved the compact slash-command list to `/commands`.
+- Added deterministic help-question routing for phrases like `how do I set reminders?`, `help me with notes`, and `how do I view the command list?`.
+- Added friendlier natural settings phrases such as `remind me again every 3 hours`, `warn me 10 mins before due tasks`, and `allow up to 200 reminders per day`.
 - Added `/googlecal` plus natural phrases like `give me the google calendar link for TASK-1` to retrieve calendar links only when needed.
 - Added natural-language list/detail/settings handling for parent-friendly phrases like `show me the notes`, `show me the tasks`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, and `quiet hours off`.
 - Added best-effort timezone defaults from Telegram language codes for new users where Telegram exposes a clear language signal.
@@ -20,6 +23,7 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Raised the default daily reminder safety limit from 5 to 200 so normal reminder-bot usage is not capped too aggressively.
 - Improved task, note, idea, pin, review, archive, and reminder message formatting so content appears before IDs/dates and long Google Calendar URLs stay out of normal task cards.
 - Fixed saved/archived/detail timestamps using the server timezone instead of the user's configured Threadwise timezone.
 - Fixed `after 5 mins` reminder phrasing so it is treated like `in 5 mins`.

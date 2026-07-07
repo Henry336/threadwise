@@ -16,7 +16,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try: change timezone to Myanmar, set reminder interval to 3 hours, set due nudge to 3 mins, set quiet hours to 22:00-08:00, quiet hours off, or max reminders 5."
+        "Try: change timezone to Myanmar, remind me again every 3 hours, warn me 10 mins before due tasks, set quiet hours to 22:00-08:00, quiet hours off, or allow up to 200 reminders per day."
     };
   }
 
@@ -47,8 +47,8 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return { updatedTasks, raisedMax, maxRemindersPerDay };
     });
 
-    const maxNote = result.raisedMax ? ` Daily cap raised to ${result.maxRemindersPerDay} so the short interval can actually repeat.` : "";
-    return { message: `Reminder interval set to ${minutes} minutes. Updated ${result.updatedTasks} open task${result.updatedTasks === 1 ? "" : "s"}.${maxNote}` };
+    const maxNote = result.raisedMax ? ` Daily reminder safety limit raised to ${result.maxRemindersPerDay} so frequent reminders can actually repeat.` : "";
+    return { message: `Open tasks will remind you again every ${minutes} minutes until they are done. Updated ${result.updatedTasks} open task${result.updatedTasks === 1 ? "" : "s"}.${maxNote}` };
   }
 
   if (setting === "timezone") {
@@ -104,7 +104,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { maxRemindersPerDay: max } });
-    return { message: `Max reminders per day set to ${max}.` };
+    return { message: `Daily reminder safety limit set to ${max}. This only caps reminder messages; normal commands and saved items still work.` };
   }
 
   if (setting === "due-nudge" || setting === "duenudge" || setting === "nudge") {
@@ -114,12 +114,12 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         return rescheduleOpenTasksForSettings(tx, userId, settings);
       });
 
-      return { message: `Due nudges turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
+      return { message: `Early warnings for exact-time reminders are off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
     }
 
     const minutes = Number(value);
     if (!Number.isInteger(minutes) || minutes < 1) {
-      return { message: "Pick a whole-number due nudge of at least 1 minute, or use /settings due-nudge off." };
+      return { message: "Pick a whole number of minutes for early warnings, or say: turn due nudge off." };
     }
 
     const updatedTasks = await prisma.$transaction(async (tx) => {
@@ -127,11 +127,11 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return rescheduleOpenTasksForSettings(tx, userId, settings);
     });
 
-    return { message: `Due nudge set to ${minutes} minutes. Dated tasks start nudging ${minutes} minutes before they are due and repeat until done.` };
+    return { message: `Exact-time reminders will start warning you ${minutes} minutes before they are due, then keep reminding until done.` };
   }
 
   if (setting === "digest" || setting === "compact") {
-    return { message: "That reminder display setting is not exposed right now. Use /settings interval, /settings due-nudge, /settings quiet, or /settings timezone." };
+    return { message: "That reminder display setting is not exposed right now. Try: remind me again every 3 hours, warn me 10 mins before due tasks, quiet hours off, or change timezone to Myanmar." };
   }
 
   return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
@@ -141,28 +141,35 @@ export async function formatSettings(userId: string): Promise<string> {
   const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
   return [
     bold("Threadwise settings"),
-    `${bold("Reminder interval")} ${settings.reminderIntervalMinutes} minutes`,
+    `${bold("Remind me again every")} ${settings.reminderIntervalMinutes} minutes`,
     `${bold("Timezone")} ${h(settings.timezone)}`,
-    `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
-    `${bold("Max reminders/day")} ${settings.maxRemindersPerDay}`,
-    `${bold("Due nudge")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes` : "off"}`,
+    `${bold("Do not disturb")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
+    `${bold("Daily reminder safety limit")} ${settings.maxRemindersPerDay}`,
+    `${bold("Early warning for exact-time reminders")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes before` : "off"}`,
     reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
     "",
-    bold("Examples"),
+    bold("What these mean"),
+    "Remind me again every: how often open tasks repeat if you have not completed or snoozed them.",
+    "Early warning: for tasks with a due time, when I start warning you before that time.",
+    "Daily reminder safety limit: a high guardrail against accidental reminder loops. It does not limit normal commands.",
+    "",
+    bold("Try saying"),
     code("change timezone to Myanmar"),
-    code("set reminder interval to 3 hours"),
-    code("set due nudge to 3 mins"),
+    code("remind me again every 3 hours"),
+    code("warn me 10 mins before due tasks"),
     code("set quiet hours to 22:00-08:00"),
     code("quiet hours off"),
-    code("max reminders 5"),
+    code("allow up to 200 reminders per day"),
+    "",
+    bold("Slash equivalents"),
     code("/settings interval 180"),
     code("/settings timezone Asia/Singapore"),
     code("/settings timezone Asia/Yangon"),
     code("/settings timezone America/New_York"),
     code("/settings quiet 22:00 08:00"),
     code("/settings quiet off"),
-    code("/settings max 5"),
-    code("/settings due-nudge 3")
+    code("/settings max 200"),
+    code("/settings due-nudge 10")
   ].join("\n");
 }
 
@@ -208,13 +215,13 @@ async function rescheduleOpenTasksForSettings(
 }
 
 function reminderCapacityWarning(intervalMinutes: number, maxRemindersPerDay: number): string | undefined {
-  if (intervalMinutes > 30 || maxRemindersPerDay > 10) {
+  if (intervalMinutes > 30 || maxRemindersPerDay >= 200) {
     return undefined;
   }
 
   const coveredMinutes = intervalMinutes * maxRemindersPerDay;
   const coveredHours = Math.round((coveredMinutes / 60) * 10) / 10;
-  return `${bold("Reminder cap note")} ${h(`${maxRemindersPerDay} reminders at ${intervalMinutes} minutes covers about ${coveredHours} hours/day.`)}`;
+  return `${bold("Safety limit note")} ${h(`${maxRemindersPerDay} reminders at ${intervalMinutes} minutes covers about ${coveredHours} hours/day. Raise the limit if you want very frequent nudges.`)}`;
 }
 
 function recommendedMaxForInterval(intervalMinutes: number): number | undefined {

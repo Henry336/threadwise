@@ -1,4 +1,5 @@
 export type ListKind = "tasks" | "notes" | "ideas";
+export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "search" | "settings" | "cleanup" | "commands";
 
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
@@ -20,6 +21,26 @@ export function parseNaturalReminderBody(text: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefined {
+  const normalized = normalize(text).replace(/[?.!]+$/g, "");
+
+  if (/^(help|help me|what can you do|how do i use this bot|how do i use threadwise|what does this bot do)$/.test(normalized)) {
+    return "general";
+  }
+
+  if (/^(commands|slash commands|show commands|show command list|command list|full command list)$/.test(normalized)) {
+    return "commands";
+  }
+
+  const helpMatch = normalized.match(/^(?:help(?:\s+me)?(?:\s+with|\s+on)?|how\s+do\s+i|how\s+can\s+i|what\s+can\s+i\s+do\s+with|show\s+me\s+how\s+to|teach\s+me\s+to)\s+(.+)$/);
+  const topicText = helpMatch?.[1]?.trim();
+  if (!topicText) {
+    return undefined;
+  }
+
+  return helpTopicFromText(topicText);
+}
+
 export function parseNaturalSettingChange(text: string): string[] | undefined {
   const timezone = parseNaturalTimezoneChange(text);
   if (timezone) {
@@ -31,14 +52,18 @@ export function parseNaturalSettingChange(text: string): string[] | undefined {
     return quiet;
   }
 
-  const dueNudge = parseNaturalMinutesSetting(text, /^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:due\s+)?nudge\s*(?:to|as)?\s+(.+)$/i, "due-nudge");
+  const dueNudge = parseNaturalMinutesSetting(
+    text,
+    /^(?:please\s+)?(?:(?:change|set|update|make)?\s*(?:my\s+)?(?:due\s+)?nudge\s*(?:to|as)?|(?:start\s+)?warn(?:ing)?\s+me(?:\s+again)?|(?:start\s+)?warning\s+me)\s+(.+?)(?:\s+before\s+(?:due\s+)?(?:tasks?|reminders?))?$/i,
+    "due-nudge"
+  );
   if (dueNudge) {
     return dueNudge;
   }
 
   const interval = parseNaturalMinutesSetting(
     text,
-    /^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:reminder\s+)?interval\s*(?:to|as|every)?\s+(.+)$/i,
+    /^(?:please\s+)?(?:(?:change|set|update|make)?\s*(?:my\s+)?(?:reminder\s+)?interval\s*(?:to|as|every)?|remind\s+me\s+again\s+every|keep\s+reminding\s+me\s+every)\s+(.+)$/i,
     "interval"
   );
   if (interval) {
@@ -46,9 +71,51 @@ export function parseNaturalSettingChange(text: string): string[] | undefined {
   }
 
   const maxMatch = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:max(?:imum)?\s+)?reminders?(?:\s+per\s+day)?\s*(?:to|as)?\s+(\d+)$/i)
+    ?? text.match(/^(?:please\s+)?allow\s+up\s+to\s+(\d+)\s+reminders?(?:\s+per\s+day)?$/i)
     ?? text.match(/^(?:please\s+)?(?:change|set|update|make)\s+(?:my\s+)?max(?:imum)?\s*(?:to|as)?\s+(\d+)$/i);
   if (maxMatch?.[1]) {
     return ["max", maxMatch[1]];
+  }
+
+  return undefined;
+}
+
+function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
+  const normalized = normalize(text)
+    .replace(/^(?:to|the|my|with|about)\s+/g, "")
+    .replace(/\b(?:things|stuff|features|commands?)\b/g, "command")
+    .trim();
+
+  if (/(?:command|slash|command list)/.test(normalized)) {
+    return "commands";
+  }
+
+  if (/(?:remind|reminder|reminders|task|tasks|todo|to do|snooze|complete|done|reschedule|move task|important)/.test(normalized)) {
+    return "reminders";
+  }
+
+  if (/(?:note|notes|save note|saved note|merge note|archive note)/.test(normalized)) {
+    return "notes";
+  }
+
+  if (/(?:idea|ideas|score|brief|implementation brief)/.test(normalized)) {
+    return "ideas";
+  }
+
+  if (/(?:search|find|review|pins|pinned|archived|archives)/.test(normalized)) {
+    return "search";
+  }
+
+  if (/(?:setting|settings|timezone|time zone|quiet hour|quiet hours|interval|every|warn|warning|nudge|max|limit)/.test(normalized)) {
+    return "settings";
+  }
+
+  if (/(?:undo|cleanup|clean up|restore|archive|unstar|unpin|delete|remove)/.test(normalized)) {
+    return "cleanup";
+  }
+
+  if (/(?:use this bot|use threadwise|start|begin|get started)/.test(normalized)) {
+    return "general";
   }
 
   return undefined;

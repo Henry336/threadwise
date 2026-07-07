@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseListRequest, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTimezoneChange } from "./naturalCommandParsing";
+import { parseListRequest, parseNaturalHelpRequest, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTimezoneChange } from "./naturalCommandParsing";
 
 describe("natural command parsing", () => {
   it.each([
@@ -9,6 +9,28 @@ describe("natural command parsing", () => {
     ["open tasks", "tasks"]
   ])("parses list requests: %s", (input, expected) => {
     expect(parseListRequest(input)).toBe(expected);
+  });
+
+  it.each([
+    ["help", "general"],
+    ["how do i use this bot?", "general"],
+    ["what can you do", "general"],
+    ["how do i set reminders?", "reminders"],
+    ["help me with reminders", "reminders"],
+    ["help me set reminders", "reminders"],
+    ["how can i snooze tasks?", "reminders"],
+    ["how do i save notes?", "notes"],
+    ["help me with notes", "notes"],
+    ["how do i save ideas?", "ideas"],
+    ["what can i do with search?", "search"],
+    ["how do i change my settings?", "settings"],
+    ["help me with quiet hours", "settings"],
+    ["how do i view the command list?", "commands"],
+    ["show command list", "commands"],
+    ["slash commands", "commands"],
+    ["how do i undo something?", "cleanup"]
+  ])("parses natural help requests: %s", (input, expected) => {
+    expect(parseNaturalHelpRequest(input)).toBe(expected);
   });
 
   it.each([
@@ -24,10 +46,14 @@ describe("natural command parsing", () => {
 
   it.each([
     ["set reminder interval to 3 hours", ["interval", "180"]],
+    ["remind me again every 3 hours", ["interval", "180"]],
     ["set due nudge to 3 mins", ["due-nudge", "3"]],
+    ["warn me 10 mins before due tasks", ["due-nudge", "10"]],
+    ["start warning me 30 minutes before reminders", ["due-nudge", "30"]],
     ["quiet hours off", ["quiet", "off"]],
     ["set quiet hours to 22:00-08:00", ["quiet", "22:00", "08:00"]],
-    ["max reminders 5", ["max", "5"]]
+    ["max reminders 5", ["max", "5"]],
+    ["allow up to 200 reminders per day", ["max", "200"]]
   ])("parses natural settings: %s", (input, expected) => {
     expect(parseNaturalSettingChange(input)).toEqual(expected);
   });

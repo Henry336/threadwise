@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
 import {
   createIdea,
   createImplementationBrief,
@@ -26,11 +26,11 @@ import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigu
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
-import { parseListRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
+import { parseListRequest, parseNaturalHelpRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
@@ -39,7 +39,18 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const user = await ensureUser(ctx);
 
   if (lower === "help") {
-    await replyHtml(ctx, formatHelpPage(1), { reply_markup: helpPageKeyboard(1, helpTotalPages(HELP_PAGE_SIZE)) });
+    await replyHtml(ctx, formatHelpGuide());
+    return true;
+  }
+
+  const helpTopic = parseNaturalHelpRequest(trimmed);
+  if (helpTopic) {
+    await replyHtml(ctx, formatHelpTopic(helpTopic));
+    return true;
+  }
+
+  if (lower === "commands" || lower === "slash commands" || lower === "show commands") {
+    await replyHtml(ctx, formatCommandReference());
     return true;
   }
 

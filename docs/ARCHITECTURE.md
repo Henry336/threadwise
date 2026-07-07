@@ -26,7 +26,7 @@ Telegram copy follows a small convention: show the saved content first, then a c
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests such as `show me the notes`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
+Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `help me with notes`, `show me the notes`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `remind me again every 3 hours`, `warn me 10 mins before due tasks`, `allow up to 200 reminders per day`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
 
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
@@ -35,16 +35,16 @@ Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview
 ## Reminder Flow
 
 1. The reminder loop periodically queries open tasks where `nextReminderAt <= now`.
-2. It checks quiet hours and max reminders per day.
+2. It checks quiet hours and the daily reminder safety limit.
 3. It sends a Telegram DM with inline buttons.
 4. It records `ReminderDelivery`.
-5. It advances `nextReminderAt` using the user's current reminder interval.
+5. It advances `nextReminderAt` using the user's current repeat timing.
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
-Scheduled reminders use a separate due-nudge cadence. If `dueNudgeMinutes` is 5, a dated task starts nudging 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Due-nudge deliveries bypass quiet hours and daily caps because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and caps.
+Scheduled reminders use a separate early-warning cadence. If `dueNudgeMinutes` is 5, a dated task starts warning 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
 
-Changing `/settings interval` or natural text such as `set reminder interval to 3 hours` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short intervals, Threadwise also raises an obviously-too-low daily cap so the new cadence can actually repeat. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
+Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminders/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
 
 Telegram does not provide an exact device timezone to bots during `/start`. New-user settings can only make a best-effort guess from Telegram language code, then users can correct the value with IANA names or common aliases such as `Myanmar`, `Yangon`, `Malaysia`, and `Singapore`.
 

@@ -60,10 +60,10 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
         task.reminderIntervalMinutes && task.reminderIntervalMinutes !== settings.reminderIntervalMinutes
           ? field("Stored Task Interval", `${task.reminderIntervalMinutes} minutes`)
           : undefined,
-        field("Daily Cap", `${settings.maxRemindersPerDay} reminders/day`),
+        field("Daily Reminder Safety Limit", `${settings.maxRemindersPerDay} reminders/day`),
         field("Quiet Hours", settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off"),
         settings.reminderIntervalMinutes <= 30 && settings.maxRemindersPerDay <= 10
-          ? field("Cap Note", `At this interval, the daily cap covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)
+          ? field("Safety Limit Note", `At this interval, the daily safety limit covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)
           : undefined
       ].filter(Boolean).join("\n")
     : undefined;

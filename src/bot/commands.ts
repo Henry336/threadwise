@@ -1,6 +1,6 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import {
@@ -55,16 +55,18 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
+import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
     const user = await ensureUser(ctx);
     await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
   });
-  bot.command("help", async (ctx) => replyHtml(ctx, formatHelpPage(1), { reply_markup: helpPageKeyboard(1, helpTotalPages(HELP_PAGE_SIZE)) }));
+  bot.command("help", async (ctx) => handleHelp(ctx));
+  bot.command("commands", async (ctx) => replyHtml(ctx, formatCommandReference()));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
   bot.command("ideas", async (ctx) => handleIdeas(ctx));
   bot.command("note", async (ctx) => handleNote(ctx, ai));
@@ -96,6 +98,12 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("googlecal", async (ctx) => handleCalendar(ctx, false));
   bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
+}
+
+async function handleHelp(ctx: Context) {
+  const topicText = commandBody(ctx.message?.text ?? "", "help");
+  const topic = topicText ? parseNaturalHelpRequest(`help ${topicText}`) : undefined;
+  await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide());
 }
 
 async function handleIdea(ctx: Context, ai: AiProvider) {
