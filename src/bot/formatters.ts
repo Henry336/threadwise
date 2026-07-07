@@ -3,8 +3,9 @@ import type { IdeaScore } from "../ai/types";
 import type { SearchResult } from "../services/search";
 import type { TaskListItem } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
-import { truncate } from "../utils/text";
 import { bold, code, h, italic } from "../utils/html";
+import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import { truncate } from "../utils/text";
 
 export function formatOpenTasks(
   tasks: TaskListItem[],
@@ -16,7 +17,7 @@ export function formatOpenTasks(
 
   const numbered = tasks.map((task, index) => ({ task, number: index + 1 }));
   const groups = [
-    { title: "❗ IMPORTANT ❗", items: numbered.filter(({ task }) => task.pinnedAt) },
+    { title: "Important", items: numbered.filter(({ task }) => task.pinnedAt) },
     { title: "Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
     { title: "Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
     { title: "Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
@@ -44,33 +45,37 @@ export type ReminderSettingsView = {
 
 export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  return [
-    `${code(task.publicId)} ${bold(task.title)}`,
-    "",
-    task.pinnedAt ? bold("❗ IMPORTANT TASK ❗") : undefined,
+  const metadata = [
+    fieldHtml("Task ID", code(task.publicId)),
+    field("Status", task.status.toLowerCase()),
+    field("Due Date", task.dueAt ? formatDateTimeForUser(task.dueAt, timezone) : "None"),
+    field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
+    task.pinnedAt ? field("Important", "Yes") : undefined,
+    field("Reminders Sent", task.reminderCount)
+  ].filter(Boolean).join("\n");
+
+  const reminderSettings = settings
+    ? [
+        field("Current Interval", `${settings.reminderIntervalMinutes} minutes`),
+        task.reminderIntervalMinutes && task.reminderIntervalMinutes !== settings.reminderIntervalMinutes
+          ? field("Stored Task Interval", `${task.reminderIntervalMinutes} minutes`)
+          : undefined,
+        field("Daily Cap", `${settings.maxRemindersPerDay} reminders/day`),
+        field("Quiet Hours", settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off"),
+        settings.reminderIntervalMinutes <= 30 && settings.maxRemindersPerDay <= 10
+          ? field("Cap Note", `At this interval, the daily cap covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)
+          : undefined
+      ].filter(Boolean).join("\n")
+    : undefined;
+
+  return joinBlocks([
+    task.pinnedAt ? bold("Important task") : undefined,
+    bold(task.title),
     task.description ? h(task.description) : undefined,
-    `${bold("Status")} ${h(task.status.toLowerCase())}`,
-    task.pinnedAt ? `${bold("Important")} yes` : undefined,
-    task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : `${bold("Due")} none`,
-    task.nextReminderAt ? `${bold("Next reminder")} ${h(formatDateTimeForUser(task.nextReminderAt, timezone))}` : `${bold("Next reminder")} none`,
-    settings ? `${bold("Current interval")} ${settings.reminderIntervalMinutes} minutes` : undefined,
-    task.reminderIntervalMinutes && settings && task.reminderIntervalMinutes !== settings.reminderIntervalMinutes
-      ? `${bold("Stored task interval")} ${task.reminderIntervalMinutes} minutes`
-      : undefined,
-    settings ? `${bold("Daily cap")} ${settings.maxRemindersPerDay} reminders/day` : undefined,
-    settings
-      ? `${bold("Quiet hours")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`
-      : undefined,
-    settings && settings.reminderIntervalMinutes <= 30 && settings.maxRemindersPerDay <= 10
-      ? `${bold("Cap note")} ${h(`At this interval, the daily cap covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)}`
-      : undefined,
-    `${bold("Reminders sent")} ${task.reminderCount}`,
-    task.calendarUrl ? `${bold("Calendar")} ${h(task.calendarUrl)}` : undefined,
-    "",
-    `${bold("Captured")} ${h(truncate(task.sourceText, 500))}`
-  ]
-    .filter(Boolean)
-    .join("\n");
+    metadata,
+    reminderSettings ? [bold("Reminder Settings"), reminderSettings].join("\n") : undefined,
+    [bold("Captured Text"), h(truncate(task.sourceText, 500))].join("\n")
+  ]);
 }
 
 export function formatSearchResults(results: SearchResult[], label?: string): string {
@@ -132,19 +137,19 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
 
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  const title = task.pinnedAt ? `❗ IMPORTANT ❗ ${task.title}` : task.title;
-  const lines = [`${number}. ${bold(title)}`, `   ${code(task.publicId)}`];
+  const title = task.pinnedAt ? `${task.title} (important)` : task.title;
+  const lines = [`${number}. ${bold(title)}`, `   ${fieldHtml("Task ID", code(task.publicId))}`];
 
   if (task.pinnedAt) {
-    lines.push(`   ${bold("IMPORTANT")} ${italic("starred task")}`);
+    lines.push(`   ${bold("Important")} ${italic("starred task")}`);
   }
 
   if (task.dueAt) {
-    lines.push(`   ${italic(formatDateTimeForUser(task.dueAt, timezone))}`);
+    lines.push(`   ${field("Due Date", formatDateTimeForUser(task.dueAt, timezone))}`);
   }
 
   if (task.reminderCount > 0) {
-    lines.push(`   Reminders sent: ${task.reminderCount}`);
+    lines.push(`   ${field("Reminders Sent", task.reminderCount)}`);
   }
 
   return lines.join("\n");

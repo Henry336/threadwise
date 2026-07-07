@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
+import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { taskActionsKeyboard } from "../bot/keyboards";
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
@@ -200,23 +201,42 @@ export function formatReminderMessage(
     reminderMode: ReminderMode;
   }
 ): string {
-  const dueLine = task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone))}` : undefined;
+  const metadata = [
+    task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)) : undefined,
+    fieldHtml("Task ID", code(task.publicId))
+  ].filter(Boolean).join("\n");
 
   if (task.pinnedAt) {
-    return [
-      bold("❗ IMPORTANT TASK ❗"),
-      `${code(task.publicId)} ${bold(task.title)}`,
-      dueLine,
-      bold("Do this now, or snooze it intentionally."),
-      "❗ ❗ ❗"
-    ].filter(Boolean).join("\n\n");
+    return joinBlocks([
+      bold("Important task"),
+      h(task.title),
+      metadata,
+      bold("Do this now, or snooze it intentionally.")
+    ]);
   }
 
   if (settings.reminderMode === ReminderMode.DIGEST) {
-    return [`${bold("Threadwise reminder")} ${code(task.publicId)}`, h(task.title), dueLine].filter(Boolean).join("\n\n");
+    return joinBlocks([
+      h(task.title),
+      metadata,
+      "Threadwise reminder."
+    ]);
   }
 
-  return [`${bold("Still open")} ${code(task.publicId)}`, h(task.title), dueLine, "I'll keep this on your radar until it is done."].filter(Boolean).join("\n\n");
+  return joinBlocks([
+    h(task.title),
+    metadata,
+    reminderAssistantLine(task.publicId)
+  ]);
+}
+
+function reminderAssistantLine(publicId: string): string {
+  return stableChoice(publicId, [
+    "I'll remind you when the time comes.",
+    "I'll keep this on your radar until it is done.",
+    "I'll make sure this stays visible until you complete it.",
+    "I'll bring this back so it does not get buried."
+  ]);
 }
 
 export function shouldBypassReminderLimits(task: { dueAt?: Date | null; lastRemindedAt?: Date | null; reminderCount: number }): boolean {

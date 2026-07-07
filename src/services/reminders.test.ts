@@ -92,9 +92,9 @@ describe("reminder policy", () => {
       }
     );
 
-    expect(message).toContain("<b>❗ IMPORTANT TASK ❗</b>");
+    expect(message).toContain("<b>Important task</b>");
     expect(message).toContain("<b>Do this now, or snooze it intentionally.</b>");
-    expect(message).toContain("❗ ❗ ❗");
+    expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
   });
 
   it("starts with empty reminder diagnostics before the first loop run", () => {

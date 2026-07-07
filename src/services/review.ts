@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser } from "../utils/dates";
+import { field, fieldHtml } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
 import { listOpenTasks, type TaskListItem } from "./tasks";
 
@@ -43,8 +44,11 @@ function formatTaskFocus(tasks: TaskListItem[], timezone: string): string {
   return tasks
     .slice(0, 5)
     .map((task, index) => {
-      const due = task.dueAt ? ` due ${formatDateTimeForUser(task.dueAt, task.timezone ?? timezone)}` : "";
-      return `${index + 1}. ${bold(task.title)} ${code(task.publicId)}${due ? `\n   ${italic(due.trim())}` : ""}`;
+      return [
+        `${index + 1}. ${bold(task.title)}`,
+        `   ${fieldHtml("Task ID", code(task.publicId))}`,
+        task.dueAt ? `   ${field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? timezone))}` : undefined
+      ].filter(Boolean).join("\n");
     })
     .join("\n");
 }
@@ -54,7 +58,11 @@ function formatRecentNotes(notes: Array<{ publicId: string; title: string; summa
     return [bold("Recent notes"), "None yet."].join("\n");
   }
 
-  return [bold("Recent notes"), ...notes.map((note) => `${code(note.publicId)} ${bold(note.title)}\n${h(truncate(note.summary, 120))}`)].join("\n");
+  return [bold("Recent notes"), ...notes.map((note) => [
+    bold(note.title),
+    fieldHtml("Note ID", code(note.publicId)),
+    h(truncate(note.summary, 120))
+  ].join("\n"))].join("\n\n");
 }
 
 function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string }>): string {
@@ -62,7 +70,11 @@ function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; conce
     return [bold("Recent ideas"), "None yet."].join("\n");
   }
 
-  return [bold("Recent ideas"), ...ideas.map((idea) => `${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 120))}`)].join("\n");
+  return [bold("Recent ideas"), ...ideas.map((idea) => [
+    bold(idea.title),
+    fieldHtml("Idea ID", code(idea.publicId)),
+    h(truncate(idea.concept, 120))
+  ].join("\n"))].join("\n\n");
 }
 
 function nextStep(tasks: TaskListItem[]): string {

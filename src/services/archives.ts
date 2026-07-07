@@ -3,6 +3,7 @@ import { prisma } from "../db/prisma";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 import { formatDateTimeForUser } from "../utils/dates";
+import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 
 export type ArchiveKind = "notes" | "ideas" | "tasks";
 
@@ -146,13 +147,18 @@ export function formatArchivedPage(page: ArchivedPage, timezone = "UTC"): string
 }
 
 function formatArchivedItem(item: ArchivedItem, timezone: string): string {
-  const reason = item.archivedReason ? ` ${italic(item.archivedReason)}` : "";
-  const mergedInto = item.mergedIntoPublicId ? `\n${bold("Merged into")} ${code(item.mergedIntoPublicId)}` : "";
-  return [
-    `${code(item.publicId)} ${bold(item.title)}${reason}`,
+  const metadata = [
+    fieldHtml("Item ID", code(item.publicId)),
+    field("Archived Date", formatDateTimeForUser(item.archivedAt, timezone)),
+    item.archivedReason ? field("Reason", item.archivedReason) : undefined,
+    item.mergedIntoPublicId ? fieldHtml("Merged Into", code(item.mergedIntoPublicId)) : undefined
+  ].filter(Boolean).join("\n");
+
+  return joinBlocks([
+    bold(item.title),
     h(truncate(item.summary, 180)),
-    `${bold("Archived")} ${h(formatDateTimeForUser(item.archivedAt, timezone))}${mergedInto}`
-  ].join("\n");
+    metadata
+  ]);
 }
 
 function pageResult(kind: ArchiveKind, page: number, pageSize: number, totalItems: number, items: ArchivedItem[]): ArchivedPage {

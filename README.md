@@ -36,7 +36,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Marks important tasks and pins notes or ideas with `/pin`, `/star`, and `/pins`.
 - Starts a short edit flow from item edit buttons; the next normal message becomes the new title.
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
-- Uses clean Telegram HTML formatting for headings, IDs, due dates, summaries, and command examples.
+- Uses clean Telegram HTML formatting with content first, then IDs/dates/settings metadata below.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
 - Handles normal messages with deterministic first-pass classification for obvious tasks, reminders, notes, and ideas. Clear captures can save automatically with an undo hint; ambiguous captures still use AI or ask before saving.
 - Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
@@ -45,7 +45,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
-- Creates calendar-ready tasks with Google Calendar links and `.ics` exports.
+- Creates calendar-ready tasks without showing long calendar links in normal task cards; `/googlecal` retrieves the stored Google Calendar link on demand, and `/calendar` also sends an `.ics` export.
 - Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
 - Shows release, AI, Gmail, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
@@ -106,6 +106,8 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /brief IDEA-1
 /calendar TASK-1
 /calendar 1
+/googlecal TASK-1
+/googlecal 1
 /gmail
 /gmail connect
 /gmail scan
@@ -126,9 +128,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 `/start` gives new users a short onboarding checklist for timezone setup, adding a first task, saving a first note, and checking `/help`.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "set reminder interval to 3 hours", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
-For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use louder Telegram formatting so they stand out from normal task reminders.
+For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
 For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply.
 
@@ -160,6 +162,8 @@ GET /admin/reminders/status
 ```
 
 Send the token as `Authorization: Bearer <ADMIN_STATUS_TOKEN>` or `x-threadwise-admin-token`. The run endpoint performs one due-reminder pass and returns delivery diagnostics.
+
+Calendar links are stored on each dated task row. That means `TASK-1` already maps to its Google Calendar URL through the database; Threadwise does not need an in-memory hashtable that would be lost on restart or split across deployments.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 

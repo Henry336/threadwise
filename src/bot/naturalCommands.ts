@@ -1,5 +1,4 @@
 import type { Context } from "grammy";
-import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
@@ -23,7 +22,6 @@ import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
-import { createIcs } from "../services/calendar";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
@@ -33,6 +31,7 @@ import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { parseListRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
+import { replyWithTaskCalendar } from "./calendarReplies";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -346,21 +345,25 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const calendarMatch = trimmed.match(/^calendar\s+(\S+)$/i);
-  if (calendarMatch?.[1]) {
-    const task = await findTaskReference(user.id, normalizePublicId(calendarMatch[1]));
-    if (!task.dueAt) {
-      await ctx.reply(`${task.publicId} does not have a due date yet, so there is nothing calendar-shaped to export.`);
-      return true;
-    }
-    const ics = createIcs({
-      title: task.title,
-      details: task.description ?? task.sourceText,
-      dueAt: task.dueAt,
-      timezone: task.timezone ?? user.settings?.timezone ?? "UTC"
+  const calendarLinkMatch = trimmed.match(/^(?:(?:send|give|get)(?:\s+me)?(?:\s+the)?\s+)?google\s+calendar\s+link\s+(?:for\s+)?(\S+)$/i);
+  if (calendarLinkMatch?.[1]) {
+    await replyWithTaskCalendar(ctx, {
+      userId: user.id,
+      reference: calendarLinkMatch[1],
+      timezone: user.settings?.timezone,
+      includeIcs: false
     });
-    await replyHtml(ctx, [`${bold("Calendar options")} ${code(task.publicId)}`, task.calendarUrl ? `${bold("Google Calendar")} ${h(task.calendarUrl)}` : undefined].filter(Boolean).join("\n"));
-    await ctx.replyWithDocument(new InputFile(Buffer.from(ics), `${task.publicId}.ics`));
+    return true;
+  }
+
+  const calendarMatch = trimmed.match(/^(?:calendar|googlecal)\s+(\S+)$/i);
+  if (calendarMatch?.[1]) {
+    await replyWithTaskCalendar(ctx, {
+      userId: user.id,
+      reference: calendarMatch[1],
+      timezone: user.settings?.timezone,
+      includeIcs: !/^googlecal/i.test(trimmed)
+    });
     return true;
   }
 

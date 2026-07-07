@@ -1,6 +1,7 @@
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
-import { bold, code, h, italic } from "../utils/html";
+import { bold, code, h } from "../utils/html";
+import { field, fieldHtml } from "../utils/messageFormat";
 import { findIdeaReference } from "./ideas";
 import { findNoteReference } from "./notes";
 import { findTaskReference } from "./tasks";
@@ -131,7 +132,12 @@ export function formatPinnedItems(items: PinnableItem[]): string {
   return [
     bold("Pinned items"),
     "",
-    ...items.map((item) => `${code(item.publicId)} ${bold(item.title)}\n${italic(item.kind === "task" ? "IMPORTANT task" : item.kind)} - ${h(item.summary.slice(0, 180))}`)
+    ...items.map((item) => [
+      bold(item.title),
+      fieldHtml("Item ID", code(item.publicId)),
+      field("Type", item.kind === "task" ? "important task" : item.kind),
+      h(item.summary.slice(0, 180))
+    ].join("\n"))
   ].join("\n\n");
 }
 

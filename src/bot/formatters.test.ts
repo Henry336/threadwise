@@ -4,6 +4,7 @@ import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatHelpPage, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
+import { formatTaskCreated } from "../services/tasks";
 import { formatNoteDetail } from "../services/notes";
 import { formatIdeaDetail } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
@@ -48,16 +49,30 @@ describe("bot formatters", () => {
       "Asia/Singapore"
     );
 
-    expect(message).toContain("❗ IMPORTANT ❗");
-    expect(message).toContain("<b>IMPORTANT</b>");
+    expect(message).toContain("<b>Important</b>");
+    expect(message).toContain("<b>Important</b> <i>starred task</i>");
     expect(message.indexOf("Important task")).toBeLessThan(message.indexOf("Regular task"));
   });
 
   it("marks starred task details as important", () => {
     const message = formatTaskDetail(task({ title: "Reply to bank", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
 
-    expect(message).toContain("<b>❗ IMPORTANT TASK ❗</b>");
-    expect(message).toContain("<b>Important</b> yes");
+    expect(message).toContain("<b>Important task</b>");
+    expect(message).toContain("<b>Important:</b> Yes");
+  });
+
+  it("formats newly created tasks without noisy calendar links", () => {
+    const message = formatTaskCreated({
+      publicId: "TASK-9",
+      title: "Prepare a gift",
+      dueAt: new Date("2026-07-06T18:44:35.000Z"),
+      timezone: "Asia/Singapore"
+    }, "Asia/Singapore");
+
+    expect(message).toContain("Prepare a gift");
+    expect(message).toContain("<b>Due Date:</b>");
+    expect(message).toContain("<b>Task ID:</b> <code>TASK-9</code>");
+    expect(message).not.toContain("calendar.google.com");
   });
 
   it("escapes user task text in HTML output", () => {
@@ -165,9 +180,11 @@ describe("bot formatters", () => {
       createdAt: new Date("2026-07-06T18:44:35.000Z")
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Saved</b>");
+    expect(message).toContain("<b>Saved Date:</b>");
     expect(message).toContain("2:44");
     expect(message).not.toContain("6:44");
+    expect(message).not.toContain("<b>Summary</b>");
+    expect(message).not.toContain("<b>Tags</b>");
   });
 
   it("formats idea saved dates in the user's timezone", () => {
@@ -179,7 +196,7 @@ describe("bot formatters", () => {
       createdAt: new Date("2026-07-06T18:44:35.000Z")
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Saved</b>");
+    expect(message).toContain("<b>Saved Date:</b>");
     expect(message).toContain("2:44");
     expect(message).not.toContain("6:44");
   });
@@ -200,7 +217,7 @@ describe("bot formatters", () => {
       }]
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Archived</b>");
+    expect(message).toContain("<b>Archived Date:</b>");
     expect(message).toContain("2:44");
     expect(message).not.toContain("6:44");
   });
@@ -266,6 +283,7 @@ describe("bot formatters", () => {
 
   it("includes important and version commands in help metadata", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/googlecal");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
   });

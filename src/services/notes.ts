@@ -6,6 +6,7 @@ import { prisma } from "../db/prisma";
 import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { formatDateTimeForUser } from "../utils/dates";
+import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -185,13 +186,11 @@ export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
 }
 
 export function formatNoteCreated(note: { publicId: string; title: string; summary: string }): string {
-  return [
-    `${bold("Saved note")} ${code(note.publicId)} ${h(note.title)}`,
-    "",
-    h(note.summary)
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return joinBlocks([
+    bold("Saved note"),
+    [bold(note.title), h(note.summary)].join("\n"),
+    fieldHtml("Note ID", code(note.publicId))
+  ]);
 }
 
 export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>): string {
@@ -204,7 +203,11 @@ export function formatRecentNotes(notes: Array<{ publicId: string; title: string
     "",
     ...notes.map((note, index) => {
       const pin = note.pinnedAt ? `${bold("Pinned")} ` : "";
-      return `${index + 1}. ${pin}${code(note.publicId)} ${bold(note.title)}\n${h(note.summary)}`;
+      return [
+        `${index + 1}. ${pin}${bold(note.title)}`,
+        fieldHtml("Note ID", code(note.publicId)),
+        h(note.summary)
+      ].join("\n");
     })
   ].join("\n\n");
 }
@@ -219,18 +222,18 @@ export function formatNoteDetail(note: {
   archivedAt?: Date | null;
   archivedReason?: string | null;
 }, timezone = "UTC"): string {
-  return [
-    `${code(note.publicId)} ${bold(note.title)}`,
-    "",
+  const metadata = [
+    fieldHtml("Note ID", code(note.publicId)),
+    field("Saved Date", formatDateTimeForUser(note.createdAt, timezone)),
+    note.archivedAt ? field("Archived Date", formatDateTimeForUser(note.archivedAt, timezone)) : undefined,
+    note.archivedReason ? field("Archive Reason", note.archivedReason) : undefined
+  ].filter(Boolean).join("\n");
+
+  return joinBlocks([
+    bold(note.title),
     h(note.body),
-    "",
-    `${bold("Summary")} ${h(note.summary)}`,
-    note.tags.length ? `${bold("Tags")} ${h(note.tags.join(", "))}` : undefined,
-    note.archivedAt ? `${bold("Archived")} ${h(formatDateTimeForUser(note.archivedAt, timezone))}${note.archivedReason ? ` (${h(note.archivedReason)})` : ""}` : undefined,
-    `${bold("Saved")} ${h(formatDateTimeForUser(note.createdAt, timezone))}`
-  ]
-    .filter(Boolean)
-    .join("\n");
+    metadata
+  ]);
 }
 
 export function formatNoteAnalysis(analysis: {

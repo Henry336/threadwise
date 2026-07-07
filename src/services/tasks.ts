@@ -4,6 +4,7 @@ import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
+import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
 import { nextPublicId } from "./publicIds";
 import { nextDueReminderAt } from "./reminders";
@@ -322,16 +323,32 @@ export function sortTasksForDisplay<T extends { dueAt?: Date | null; createdAt: 
 }
 
 export function formatTaskCreated(
-  task: { publicId: string; title: string; dueAt?: Date | null; timezone?: string | null; calendarUrl?: string | null },
+  task: { publicId: string; title: string; dueAt?: Date | null; timezone?: string | null },
   fallbackTimezone = "UTC"
 ): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  return [
-    `${bold("Added task")} ${code(task.publicId)} ${h(task.title)}`,
-    task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, timezone))}` : undefined,
-    "I'll keep this on your radar until it is done.",
-    task.calendarUrl ? `${bold("Calendar")} ${h(task.calendarUrl)}` : undefined
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return joinBlocks([
+    h(task.title),
+    [
+      task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
+      fieldHtml("Task ID", code(task.publicId))
+    ].join("\n"),
+    taskAssistantLine(task.publicId, Boolean(task.dueAt))
+  ]);
+}
+
+function taskAssistantLine(publicId: string, hasDueDate: boolean): string {
+  const choices = hasDueDate
+    ? [
+        "I'll remind you when the time comes.",
+        "I'll keep watch and bring this back at the right time.",
+        "I'll make sure this comes back onto your radar."
+      ]
+    : [
+        "I'll keep this on your radar until it is done.",
+        "I'll keep nudging this until you complete it.",
+        "I'll make sure this does not quietly disappear."
+      ];
+
+  return stableChoice(publicId, choices);
 }

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added `/googlecal` plus natural phrases like `give me the google calendar link for TASK-1` to retrieve calendar links only when needed.
 - Added natural-language list/detail/settings handling for parent-friendly phrases like `show me the notes`, `show me the tasks`, `change timezone to Myanmar`, `set reminder interval to 3 hours`, and `quiet hours off`.
 - Added best-effort timezone defaults from Telegram language codes for new users where Telegram exposes a clear language signal.
 - Added inline undo and cancel buttons to more task, capture, and edit flows.
@@ -19,6 +20,7 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Improved task, note, idea, pin, review, archive, and reminder message formatting so content appears before IDs/dates and long Google Calendar URLs stay out of normal task cards.
 - Fixed saved/archived/detail timestamps using the server timezone instead of the user's configured Threadwise timezone.
 - Fixed `after 5 mins` reminder phrasing so it is treated like `in 5 mins`.
 - Fixed `/note 1` so numeric note references open note details instead of saving a note titled `1`.

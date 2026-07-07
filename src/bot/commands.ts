@@ -1,5 +1,4 @@
 import type { Bot, Context } from "grammy";
-import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { formatHelpPage, formatStartText, helpTotalPages, HELP_PAGE_SIZE } from "./help";
 import { ensureUser } from "../services/users";
@@ -51,7 +50,6 @@ import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "..
 import { undoLastAction } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
-import { createIcs } from "../services/calendar";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
@@ -59,6 +57,7 @@ import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDe
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, helpPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
+import { replyWithTaskCalendar } from "./calendarReplies";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -93,7 +92,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("search", async (ctx) => handleSearch(ctx, ai));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
   bot.command("brief", async (ctx) => handleBrief(ctx));
-  bot.command("calendar", async (ctx) => handleCalendar(ctx));
+  bot.command("calendar", async (ctx) => handleCalendar(ctx, true));
+  bot.command("googlecal", async (ctx) => handleCalendar(ctx, false));
   bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
 }
@@ -567,41 +567,21 @@ async function handleBrief(ctx: Context) {
   await replyInChunks(ctx, [`Implementation prompt for ${result.publicId}:`, "", result.prompt].join("\n"));
 }
 
-async function handleCalendar(ctx: Context) {
+async function handleCalendar(ctx: Context, includeIcs: boolean) {
   const user = await ensureUser(ctx);
-  const id = commandBody(ctx.message?.text ?? "", "calendar");
+  const command = ctx.message?.text?.startsWith("/googlecal") ? "googlecal" : "calendar";
+  const id = commandBody(ctx.message?.text ?? "", command);
   if (!id) {
-    await ctx.reply("Send it like this: /calendar TASK-1 or /calendar 1");
+    await ctx.reply(`Send it like this: /${command} TASK-1 or /${command} 1`);
     return;
   }
 
-  let task;
-  try {
-    task = await findTaskReference(user.id, normalizePublicId(id));
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-    return;
-  }
-
-  if (!task.dueAt) {
-    await ctx.reply(`${task.publicId} does not have a due date yet, so there is nothing calendar-shaped to export.`);
-    return;
-  }
-
-  const ics = createIcs({
-    title: task.title,
-    details: task.description ?? task.sourceText,
-    dueAt: task.dueAt,
-    timezone: task.timezone ?? user.settings?.timezone ?? "UTC"
+  await replyWithTaskCalendar(ctx, {
+    userId: user.id,
+    reference: id,
+    timezone: user.settings?.timezone,
+    includeIcs
   });
-
-  await replyHtml(
-    ctx,
-    [`${bold("Calendar options")} ${code(task.publicId)}`, task.calendarUrl ? `${bold("Google Calendar")} ${h(task.calendarUrl)}` : undefined]
-      .filter(Boolean)
-      .join("\n")
-  );
-  await ctx.replyWithDocument(new InputFile(Buffer.from(ics), `${task.publicId}.ics`));
 }
 
 async function handleGmail(ctx: Context, ai: AiProvider) {

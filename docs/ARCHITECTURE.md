@@ -20,7 +20,9 @@ Threadwise is intentionally split into small modules so future contributors can 
 3. The handler calls a domain service.
 4. Services read/write through Prisma.
 5. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
-6. Replies are formatted by bot formatter helpers.
+6. Replies are formatted by bot/service formatter helpers.
+
+Telegram copy follows a small convention: show the saved content first, then a compact metadata block with stable IDs and dates, then any assistant guidance. Shared formatting helpers live in `src/utils/messageFormat.ts`; task list/detail/search formatters live in `src/bot/formatters.ts`; note and idea card formatting lives with their services. New contributors should change copy in those formatter functions instead of spreading ad hoc message strings through handlers.
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
@@ -86,6 +88,16 @@ Current bottlenecks to watch as usage grows:
 - Search loads recent rows into memory and scores app-side. This is fine for hundreds of personal items; move to pgvector or indexed full-text search if users reach thousands to tens of thousands of items.
 - Telegram itself is an external latency floor. Even fully deterministic handling still waits on Telegram send operations.
 
+Message formatting helpers are constant-time apart from escaping and truncating user text. The deterministic wording variation uses a small hash over the public ID, so it is `O(id length)`, requires no network call, and produces stable output for the same item.
+
+## Security And Data Scope
+
+Handlers should never look up tasks, notes, ideas, calendar links, pins, or archives by public ID alone. Every lookup must include the current `userId`, either directly in Prisma or through helpers such as `findTaskReference`, `findNoteReference`, and `findIdeaReference`. This keeps another Telegram user from retrieving or mutating someone else's saved items by guessing IDs like `TASK-1`.
+
+Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
+
+Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Gmail OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
+
 ## Search
 
 Search is personal-scale lexical plus deterministic semantic search:
@@ -106,9 +118,11 @@ Archive fields hide items from active views without hard-deleting them. `archive
 
 ## Calendar Integration
 
-The first implementation stores due dates and returns:
+The first implementation stores due dates and keeps a Google Calendar template URL on each dated task row. The public task ID plus `userId` is the lookup key, so calendar links are durable across restarts and scoped to the right Telegram user. This is safer and more deployable than an in-memory hashtable.
 
-- Google Calendar template links
-- `.ics` files
+Normal task cards do not display the long Google Calendar URL. Users can ask for it only when needed:
+
+- `/googlecal TASK-1` or natural text like `give me the google calendar link for TASK-1` returns the stored Google Calendar template link.
+- `/calendar TASK-1` returns the link and sends a `.ics` file.
 
 Full OAuth sync should be added as a provider module later, with token storage scoped per user.

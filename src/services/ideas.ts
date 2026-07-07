@@ -6,6 +6,7 @@ import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { formatDateTimeForUser } from "../utils/dates";
+import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
@@ -190,13 +191,11 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
 }
 
 export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string }): string {
-  return [
-    `${bold("Saved idea")} ${code(idea.publicId)} ${h(idea.title)}`,
-    "",
-    h(idea.concept)
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return joinBlocks([
+    bold("Saved idea"),
+    [bold(idea.title), h(idea.concept)].join("\n"),
+    fieldHtml("Idea ID", code(idea.publicId))
+  ]);
 }
 
 export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>): string {
@@ -209,7 +208,11 @@ export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string
     "",
     ...ideas.map((idea, index) => {
       const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";
-      return `${index + 1}. ${pin}${code(idea.publicId)} ${bold(idea.title)}\n${h(truncate(idea.concept, 220))}`;
+      return [
+        `${index + 1}. ${pin}${bold(idea.title)}`,
+        fieldHtml("Idea ID", code(idea.publicId)),
+        h(truncate(idea.concept, 220))
+      ].join("\n");
     })
   ].join("\n\n");
 }
@@ -225,19 +228,21 @@ export function formatIdeaDetail(idea: {
   pinnedAt?: Date | null;
   createdAt: Date;
 }, timezone = "UTC"): string {
-  return [
-    `${code(idea.publicId)} ${bold(idea.title)}`,
-    "",
+  const metadata = [
+    fieldHtml("Idea ID", code(idea.publicId)),
+    field("Saved Date", formatDateTimeForUser(idea.createdAt, timezone)),
+    idea.pinnedAt ? field("Pinned", "Yes") : undefined,
+    idea.type ? field("Type", idea.type) : undefined,
+    idea.tags.length ? field("Tags", idea.tags.join(", ")) : undefined
+  ].filter(Boolean).join("\n");
+
+  return joinBlocks([
+    bold(idea.title),
     h(idea.concept),
-    idea.problem ? `${bold("Problem")} ${h(idea.problem)}` : undefined,
-    idea.targetUser ? `${bold("Target user")} ${h(idea.targetUser)}` : undefined,
-    idea.type ? `${bold("Type")} ${h(idea.type)}` : undefined,
-    idea.tags.length ? `${bold("Tags")} ${h(idea.tags.join(", "))}` : undefined,
-    idea.pinnedAt ? `${bold("Pinned")} yes` : undefined,
-    `${bold("Saved")} ${h(formatDateTimeForUser(idea.createdAt, timezone))}`
-  ]
-    .filter(Boolean)
-    .join("\n");
+    idea.problem ? [bold("Problem"), h(idea.problem)].join("\n") : undefined,
+    idea.targetUser ? [bold("Target User"), h(idea.targetUser)].join("\n") : undefined,
+    metadata
+  ]);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

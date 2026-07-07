@@ -37,6 +37,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/archived", description: "Browse archived notes, ideas, or tasks.", example: "/archived notes" },
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Get calendar export options for a dated task.", example: "/calendar 1" },
+  { command: "/googlecal", description: "Get only the Google Calendar link for a dated task.", example: "/googlecal 1" },
   { command: "/gmail", description: "Connect Gmail, scan unread emails, and create reminders for important mail.", example: "/gmail connect" },
   { command: "/settings", description: "View or edit timezone, quiet hours, reminder interval, and caps.", example: "/settings timezone Myanmar" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
