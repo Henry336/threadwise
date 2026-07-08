@@ -44,11 +44,16 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
     return true;
   }
 
-  if (ctx.message?.reply_to_message?.from?.id === ctx.me.id) {
+  const bot = botInfo(ctx);
+  if (bot?.id && ctx.message?.reply_to_message?.from?.id === bot.id) {
     return true;
   }
 
-  if (ctx.me.username && mentionRegex(ctx.me.username).test(text)) {
+  if (bot?.username && mentionRegex(bot.username).test(text)) {
+    return true;
+  }
+
+  if (messageMentionsBot(ctx, text, bot)) {
     return true;
   }
 
@@ -57,11 +62,14 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
 
 function stripBotReference(ctx: Context, text: string): string {
   let next = text;
-  if (ctx.me.username) {
-    next = next.replace(mentionRegex(ctx.me.username, true), " ");
+  const bot = botInfo(ctx);
+  if (bot?.username) {
+    next = next.replace(mentionRegex(bot.username, true), " ");
+  } else {
+    next = stripLeadingMentionEntity(ctx, next);
   }
 
-  const name = ctx.me.first_name?.trim();
+  const name = bot?.first_name?.trim();
   if (name) {
     next = next.replace(new RegExp(`^\\s*${escapeRegExp(name)}(?:\\s+|[:,.!?]+\\s*)`, "i"), "");
   }
@@ -70,7 +78,7 @@ function stripBotReference(ctx: Context, text: string): string {
 }
 
 function startsWithBotName(ctx: Context, text: string): boolean {
-  const name = ctx.me.first_name?.trim();
+  const name = botInfo(ctx)?.first_name?.trim();
   if (!name) {
     return false;
   }
@@ -78,8 +86,55 @@ function startsWithBotName(ctx: Context, text: string): boolean {
   return new RegExp(`^\\s*${escapeRegExp(name)}(?:\\s+|[:,.!?]|$)`, "i").test(text);
 }
 
+function messageMentionsBot(ctx: Context, text: string, bot: BotInfo | undefined): boolean {
+  const entities = ctx.message?.entities ?? [];
+  for (const entity of entities) {
+    if (entity.type === "text_mention" && bot?.id && entity.user.id === bot.id) {
+      return true;
+    }
+
+    if (entity.type !== "mention") {
+      continue;
+    }
+
+    const mention = text.slice(entity.offset, entity.offset + entity.length);
+    if (bot?.username && sameUsername(mention, bot.username)) {
+      return true;
+    }
+
+    if (!bot?.username && entity.offset === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function stripLeadingMentionEntity(ctx: Context, text: string): string {
+  const mention = ctx.message?.entities?.find((entity) => entity.type === "mention" && entity.offset === 0);
+  if (!mention) {
+    return text;
+  }
+
+  return `${text.slice(0, mention.offset)} ${text.slice(mention.offset + mention.length)}`;
+}
+
+type BotInfo = {
+  id: number;
+  first_name?: string;
+  username?: string;
+};
+
+function botInfo(ctx: Context): BotInfo | undefined {
+  return (ctx as unknown as { me?: BotInfo }).me;
+}
+
+function sameUsername(mention: string, username: string): boolean {
+  return mention.replace(/^@/, "").toLowerCase() === username.replace(/^@/, "").toLowerCase();
+}
+
 function mentionRegex(username: string, global = false): RegExp {
-  return new RegExp(`(^|\\s)@${escapeRegExp(username)}(?=$|[\\s,.:;!?])`, global ? "ig" : "i");
+  return new RegExp(`(^|\\s)@${escapeRegExp(username.replace(/^@/, ""))}(?=$|[\\s,.:;!?])`, global ? "ig" : "i");
 }
 
 function escapeRegExp(value: string): string {

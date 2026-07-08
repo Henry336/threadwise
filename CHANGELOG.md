@@ -24,6 +24,7 @@
 - Added in-memory reminder diagnostics for last run, due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 
 ### Fixed
+- Fixed group-chat bot mentions such as `@threadwise_1_bot remind @user to...` not reliably reaching natural-language reminder handling.
 - Raised the default daily reminder safety limit from 5 to 200 so normal reminder-bot usage is not capped too aggressively.
 - Improved task, note, idea, pin, review, archive, and reminder message formatting so content appears before IDs/dates and long Google Calendar URLs stay out of normal task cards.
 - Fixed saved/archived/detail timestamps using the server timezone instead of the user's configured Threadwise timezone.
