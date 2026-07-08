@@ -74,7 +74,11 @@ function stripBotReference(ctx: Context, text: string): string {
     next = next.replace(new RegExp(`^\\s*${escapeRegExp(name)}(?:\\s+|[:,.!?]+\\s*)`, "i"), "");
   }
 
-  return next.replace(/\s+/g, " ").replace(/^(?:hey|hi|hello)\s+/i, "").trim();
+  return next
+    .replace(/\s+/g, " ")
+    .replace(/^(?:hey|hi|hello)\s+/i, "")
+    .replace(/^\s*[,.:;!?]\s*/, "")
+    .trim();
 }
 
 function startsWithBotName(ctx: Context, text: string): boolean {

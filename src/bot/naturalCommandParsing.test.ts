@@ -61,6 +61,8 @@ describe("natural command parsing", () => {
   it.each([
     ["remind me to check the washer after 5 mins", "me to check the washer after 5 mins"],
     ["please remind me about the meeting in 2 hours", "me about the meeting in 2 hours"],
+    ["remind us to submit our assignment at 10:16 am", "us to submit our assignment at 10:16 am"],
+    ["remind @henry_derek to submit his assignment at 10:19 am", "@henry_derek to submit his assignment at 10:19 am"],
     ["set a reminder for school at 9 am", "for school at 9 am"],
     ["create reminder to leave in 20 min", "to leave in 20 min"]
   ])("parses reminder starter bodies: %s", (input, expected) => {

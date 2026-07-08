@@ -91,6 +91,18 @@ describe("date utilities", () => {
     });
   });
 
+  it("splits group reminder targets with inline timing", () => {
+    expect(splitReminderText("us to submit our assignment at 10:16 am")).toEqual({
+      whenText: "submit our assignment at 10:16 am",
+      taskText: "submit our assignment at 10:16 am"
+    });
+
+    expect(splitReminderText("@henry_derek to submit his assignment at 10:19 am")).toEqual({
+      whenText: "submit his assignment at 10:19 am",
+      taskText: "@henry_derek submit his assignment at 10:19 am"
+    });
+  });
+
   it("splits remind-me about and set-reminder target language", () => {
     expect(splitReminderText("me about the meeting after 5 mins")).toEqual({
       whenText: "the meeting after 5 mins",

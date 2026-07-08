@@ -87,6 +87,22 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
+  const mentionedAssigneeMatch = input.match(/^(@[\w_]{3,32})\s+(?:to|about|for)\s+(.+)$/i);
+  if (mentionedAssigneeMatch?.[1] && mentionedAssigneeMatch[2]) {
+    return {
+      whenText: mentionedAssigneeMatch[2].trim(),
+      taskText: `${mentionedAssigneeMatch[1]} ${mentionedAssigneeMatch[2]}`.trim()
+    };
+  }
+
+  const groupTargetMatch = input.match(/^(?:us|everyone|everybody|all)\s+(?:to|about|for)\s+(.+)$/i);
+  if (groupTargetMatch?.[1]) {
+    return {
+      whenText: groupTargetMatch[1].trim(),
+      taskText: groupTargetMatch[1].trim()
+    };
+  }
+
   const leadingTargetMatch = input.match(/^(?:to|about|for)\s+(.+)$/i);
   if (leadingTargetMatch?.[1]) {
     return {
