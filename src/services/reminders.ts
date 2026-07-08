@@ -1,11 +1,12 @@
 import type { Bot } from "grammy";
-import { ReminderMode, TaskStatus } from "@prisma/client";
+import { RecurrenceRule, ReminderMode, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
-import { formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
+import { formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, nextRecurringDueAt, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { taskActionsKeyboard } from "../bot/keyboards";
+import { createGoogleCalendarUrl } from "./calendar";
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
 
@@ -141,6 +142,15 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
           reply_markup: taskActionsKeyboard(task)
         });
 
+        const nextSchedule = nextTaskScheduleAfterDelivery({
+          now,
+          dueAt: task.dueAt,
+          timezone: task.timezone ?? settings.timezone,
+          dueNudgeMinutes: settings.dueNudgeMinutes,
+          intervalMinutes: settings.reminderIntervalMinutes,
+          recurrenceIntervalDays: task.recurrenceIntervalDays
+        });
+
         await prisma.$transaction([
           prisma.reminderDelivery.create({
             data: {
@@ -156,12 +166,15 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
               lastRemindedAt: now,
               reminderCount: { increment: 1 },
               reminderIntervalMinutes: settings.reminderIntervalMinutes,
-              nextReminderAt: nextReminderAtAfterDelivery({
-                now,
-                dueAt: task.dueAt,
-                dueNudgeMinutes: settings.dueNudgeMinutes,
-                intervalMinutes: settings.reminderIntervalMinutes
-              })
+              ...nextSchedule,
+              calendarUrl: nextSchedule.dueAt
+                ? createGoogleCalendarUrl({
+                    title: task.title,
+                    details: task.description ?? task.sourceText,
+                    dueAt: nextSchedule.dueAt,
+                    timezone: task.timezone ?? settings.timezone
+                  })
+                : task.calendarUrl
             }
           })
         ]);
@@ -195,6 +208,9 @@ export function formatReminderMessage(
     dueAt?: Date | null;
     timezone?: string | null;
     pinnedAt?: Date | null;
+    assignedUsername?: string | null;
+    assignedDisplayName?: string | null;
+    recurrenceRule?: RecurrenceRule | null;
   },
   settings: {
     timezone: string;
@@ -203,6 +219,8 @@ export function formatReminderMessage(
 ): string {
   const metadata = [
     task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)) : undefined,
+    task.assignedUsername || task.assignedDisplayName ? field("Assigned To", task.assignedUsername ? `@${task.assignedUsername}` : task.assignedDisplayName ?? "Unassigned") : undefined,
+    task.recurrenceRule ? field("Repeats", task.recurrenceRule === RecurrenceRule.WEEKLY ? "Weekly" : "Daily") : undefined,
     fieldHtml("Task ID", code(task.publicId))
   ].filter(Boolean).join("\n");
 
@@ -285,6 +303,27 @@ export function nextReminderAtAfterDelivery(input: {
   }
 
   return nextIntervalReminderAt(input.now, input.intervalMinutes);
+}
+
+export function nextTaskScheduleAfterDelivery(input: {
+  now: Date;
+  dueAt?: Date | null;
+  timezone: string;
+  dueNudgeMinutes: number;
+  intervalMinutes: number;
+  recurrenceIntervalDays?: number | null;
+}): { dueAt?: Date | null; nextReminderAt: Date } {
+  if (input.dueAt && input.recurrenceIntervalDays) {
+    const nextDueAt = nextRecurringDueAt(input.dueAt, input.recurrenceIntervalDays, input.timezone, input.now);
+    return {
+      dueAt: nextDueAt,
+      nextReminderAt: nextDueReminderAt(nextDueAt, input.dueNudgeMinutes, input.now)
+    };
+  }
+
+  return {
+    nextReminderAt: nextReminderAtAfterDelivery(input)
+  };
 }
 
 export function nextReminderAfterSettingChange(task: {

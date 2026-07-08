@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { TaskStatus } from "@prisma/client";
+import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
-import { formatTaskCreated } from "../services/tasks";
+import { formatTaskCompleted, formatTaskCreated } from "../services/tasks";
 import { formatNoteDetail } from "../services/notes";
 import { formatIdeaDetail } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
@@ -66,13 +66,30 @@ describe("bot formatters", () => {
       publicId: "TASK-9",
       title: "Prepare a gift",
       dueAt: new Date("2026-07-06T18:44:35.000Z"),
-      timezone: "Asia/Singapore"
+      timezone: "Asia/Singapore",
+      assignedUsername: "henry_derek",
+      recurrenceRule: RecurrenceRule.DAILY
     }, "Asia/Singapore");
 
     expect(message).toContain("Prepare a gift");
     expect(message).toContain("<b>Due Date:</b>");
+    expect(message).toContain("<b>Assigned To:</b> @henry_derek");
+    expect(message).toContain("<b>Repeats:</b> Daily");
     expect(message).toContain("<b>Task ID:</b> <code>TASK-9</code>");
     expect(message).not.toContain("calendar.google.com");
+  });
+
+  it("formats recurring task completion as one occurrence", () => {
+    const message = formatTaskCompleted(task({
+      title: "Have dinner",
+      recurrenceRule: RecurrenceRule.DAILY,
+      recurrenceIntervalDays: 1,
+      dueAt: new Date("2026-07-06T11:00:00.000Z")
+    }), "Asia/Singapore");
+
+    expect(message).toContain("Completed this occurrence");
+    expect(message).toContain("<b>Next Occurrence:</b>");
+    expect(message).toContain("<b>Repeats:</b> Daily");
   });
 
   it("escapes user task text in HTML output", () => {
@@ -342,6 +359,11 @@ function task(overrides: Partial<TaskListItem>): TaskListItem {
     snoozedUntil: overrides.snoozedUntil ?? null,
     lastRemindedAt: overrides.lastRemindedAt ?? null,
     reminderCount: overrides.reminderCount ?? 0,
+    assignedTelegramId: overrides.assignedTelegramId ?? null,
+    assignedUsername: overrides.assignedUsername ?? null,
+    assignedDisplayName: overrides.assignedDisplayName ?? null,
+    recurrenceRule: overrides.recurrenceRule ?? null,
+    recurrenceIntervalDays: overrides.recurrenceIntervalDays ?? null,
     pinnedAt: overrides.pinnedAt ?? null,
     archivedAt: overrides.archivedAt ?? null,
     createdAt: overrides.createdAt ?? new Date("2026-07-05T00:00:00.000Z"),

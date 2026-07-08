@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { IdeaScore } from "../ai/types";
 import type { SearchResult } from "../services/search";
-import type { TaskListItem } from "../services/tasks";
+import { formatAssignee, formatRecurrence, type TaskListItem } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, italic } from "../utils/html";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
@@ -50,6 +50,8 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     field("Status", task.status.toLowerCase()),
     field("Due Date", task.dueAt ? formatDateTimeForUser(task.dueAt, timezone) : "None"),
     field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
+    task.assignedUsername || task.assignedDisplayName ? field("Assigned To", formatAssignee(task)) : undefined,
+    task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
     task.pinnedAt ? field("Important", "Yes") : undefined,
     field("Reminders Sent", task.reminderCount)
   ].filter(Boolean).join("\n");
@@ -146,6 +148,14 @@ function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone
 
   if (task.dueAt) {
     lines.push(`   ${field("Due Date", formatDateTimeForUser(task.dueAt, timezone))}`);
+  }
+
+  if (task.assignedUsername || task.assignedDisplayName) {
+    lines.push(`   ${field("Assigned To", formatAssignee(task))}`);
+  }
+
+  if (task.recurrenceRule) {
+    lines.push(`   ${field("Repeats", formatRecurrence(task.recurrenceRule))}`);
   }
 
   if (task.reminderCount > 0) {

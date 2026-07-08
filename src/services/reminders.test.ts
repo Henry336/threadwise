@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ReminderMode } from "@prisma/client";
-import { dueNudgeStartAt, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
+import { RecurrenceRule, ReminderMode } from "@prisma/client";
+import { dueNudgeStartAt, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -77,6 +77,20 @@ describe("reminder policy", () => {
     ).toBe("2026-07-05T00:05:00.000Z");
   });
 
+  it("advances recurring reminders to the next occurrence after delivery", () => {
+    const result = nextTaskScheduleAfterDelivery({
+      now: new Date("2026-07-05T11:01:00.000Z"),
+      dueAt: new Date("2026-07-05T11:00:00.000Z"),
+      timezone: "Asia/Singapore",
+      dueNudgeMinutes: 3,
+      intervalMinutes: 180,
+      recurrenceIntervalDays: 1
+    });
+
+    expect(result.dueAt?.toISOString()).toBe("2026-07-06T11:00:00.000Z");
+    expect(result.nextReminderAt.toISOString()).toBe("2026-07-06T10:57:00.000Z");
+  });
+
   it("makes important task reminders hard to miss", () => {
     const message = formatReminderMessage(
       {
@@ -84,7 +98,9 @@ describe("reminder policy", () => {
         title: "Reply to bank",
         pinnedAt: new Date("2026-07-05T00:01:00.000Z"),
         dueAt: new Date("2026-07-05T01:00:00.000Z"),
-        timezone: "Asia/Singapore"
+        timezone: "Asia/Singapore",
+        assignedUsername: "henry_derek",
+        recurrenceRule: RecurrenceRule.DAILY
       },
       {
         timezone: "Asia/Singapore",
@@ -94,6 +110,8 @@ describe("reminder policy", () => {
 
     expect(message).toContain("<b>Important task</b>");
     expect(message).toContain("<b>Do this now, or snooze it intentionally.</b>");
+    expect(message).toContain("<b>Assigned To:</b> @henry_derek");
+    expect(message).toContain("<b>Repeats:</b> Daily");
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
   });
 

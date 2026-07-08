@@ -18,6 +18,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
+- Schedules recurring reminders with natural phrases such as "remind me to have dinner at 7pm every day" or "remind me to clean the fridge at 9am every week".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
 - Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and "remind me to check the washer after 5 mins".
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
@@ -52,6 +53,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 - Supports group chats with shared chat-scoped tasks, notes, ideas, settings, and reminders. In groups, slash commands work directly, while natural-language messages must mention the bot or reply to one of its messages.
+- Supports first-class group task assignees from `@username` mentions, plus `assign task 2 to @username` and `unassign task 2`.
 
 ## Commands
 
@@ -85,6 +87,8 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /snooze TASK-1 1h
 /snooze 1 1h
 /reschedule 1 tomorrow at 10am
+/assign 1 @henry_derek
+/unassign 1
 /undo
 /rename 1 Follow up with Sam
 /rename NOTE-1 Deployment notes
@@ -130,9 +134,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 `/start` introduces Threadwise as a natural-language bot first. `/help` shows a full capability guide with natural examples and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "how do I use this bot?", "how do I set reminders?", "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "remind me again every 3 hours", "warn me 10 mins before due tasks", "allow up to 200 reminders per day", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "how do I use this bot?", "how do I set reminders?", "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "remind me again every 3 hours", "warn me 10 mins before due tasks", "allow up to 200 reminders per day", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "assign task 2 to @henry_derek", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to have dinner at 7pm every day", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
 
-In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @Henry to bring snacks at 5pm`. The saved task belongs to the group chat, and the reminder is sent back to that group. Keeping the assignee mention in the task text is the simplest assignment path for now because Telegram will notify that username when the reminder message appears.
+In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @henry_derek to bring snacks at 5pm`. The saved task belongs to the group chat, stores `@henry_derek` as the assignee, and sends reminders back to that group. If Telegram provides a numeric user id through a text mention, Threadwise stores that too; otherwise it stores the public username.
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
@@ -147,6 +151,7 @@ Undoing a newly saved capture archives it out of active lists and search instead
 Reminders are database-driven. Each open task has a `nextReminderAt`, and the reminder loop polls due tasks instead of relying on in-memory timers.
 
 - The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
+- Daily and weekly recurring reminders advance to their next occurrence after each delivery instead of creating duplicate task rows.
 - Repeat nudges use the current "remind me again every..." value. Changing it also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
 - `/settings timezone <zone>` or natural text such as `change timezone to Myanmar` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily safety limits reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
 - Telegram does not expose a user's exact device timezone to bots on `/start`. Threadwise makes a best-effort default from Telegram language code when it is clear, then lets users correct it naturally.
@@ -395,6 +400,5 @@ Current validation status at initial implementation:
 - External search provider for live market/competition research.
 - Web dashboard for reviewing ideas and tasks.
 - Weekly digest.
-- Recurring task templates.
 - Richer idea selection-to-implementation workflow.
 - Per-user privacy controls and export/delete flows.

@@ -57,6 +57,10 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
     return true;
   }
 
+  if (leadingBotLikeMention(text)) {
+    return true;
+  }
+
   return startsWithBotName(ctx, text);
 }
 
@@ -68,6 +72,8 @@ function stripBotReference(ctx: Context, text: string): string {
   } else {
     next = stripLeadingMentionEntity(ctx, next);
   }
+
+  next = stripLeadingBotLikeMention(next);
 
   const name = bot?.first_name?.trim();
   if (name) {
@@ -115,7 +121,7 @@ function messageMentionsBot(ctx: Context, text: string, bot: BotInfo | undefined
 }
 
 function stripLeadingMentionEntity(ctx: Context, text: string): string {
-  const mention = ctx.message?.entities?.find((entity) => entity.type === "mention" && entity.offset === 0);
+  const mention = ctx.message?.entities?.find((entity) => (entity.type === "mention" || entity.type === "text_mention") && entity.offset === 0);
   if (!mention) {
     return text;
   }
@@ -139,6 +145,14 @@ function sameUsername(mention: string, username: string): boolean {
 
 function mentionRegex(username: string, global = false): RegExp {
   return new RegExp(`(^|\\s)@${escapeRegExp(username.replace(/^@/, ""))}(?=$|[\\s,.:;!?])`, global ? "ig" : "i");
+}
+
+function leadingBotLikeMention(text: string): boolean {
+  return /^\s*(?:(?:hey|hi|hello)\s+)?@[A-Za-z0-9_]*bot\b/i.test(text);
+}
+
+function stripLeadingBotLikeMention(text: string): string {
+  return text.replace(/^\s*(?:(?:hey|hi|hello)\s+)?@[A-Za-z0-9_]*bot\b(?:\s*[,.:;!?])?\s*/i, "");
 }
 
 function escapeRegExp(value: string): string {

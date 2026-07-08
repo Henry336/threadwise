@@ -13,6 +13,7 @@ import { bold, code, h, italic, replyHtml } from "../utils/html";
 import { prepareNaturalLanguageText } from "./groupRouting";
 import { captureConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { handleNaturalCommand } from "./naturalCommands";
+import { taskCreationOptionsFromContext } from "./taskMentions";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -65,7 +66,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (shouldAutoSave(classification.kind, classification.confidence)) {
         if (classification.kind === "task") {
-          const task = await createTask(user.id, text, ai);
+          const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
           await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
             reply_markup: taskCreatedKeyboard(task)
           });

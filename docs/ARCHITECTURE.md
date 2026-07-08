@@ -33,6 +33,8 @@ Group routing lives in `src/bot/groupRouting.ts`. Slash commands are treated as 
 
 `ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
 
+Group task assignment is task metadata, not just title text. `Task.assignedUsername`, `Task.assignedTelegramId`, and `Task.assignedDisplayName` are set from leading `@username` mentions or Telegram text-mention entities when available. The reminder and task formatters show `Assigned To`, and natural commands such as `assign task 2 to @henry_derek` update the stored assignee.
+
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
@@ -48,6 +50,8 @@ Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
 Scheduled reminders use a separate early-warning cadence. If `dueNudgeMinutes` is 5, a dated task starts warning 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
+
+Daily and weekly recurring reminders store `recurrenceRule` plus `recurrenceIntervalDays` on the task row. After each recurring delivery, the reminder pass advances `dueAt` and `nextReminderAt` to the next future occurrence instead of creating another task row. This keeps recurring reminders O(1) per delivery and avoids duplicate task buildup.
 
 Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminders/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
 
@@ -79,6 +83,7 @@ Most Telegram updates now stay on the deterministic path. For a message of lengt
 Approximate per-request work:
 
 - Natural reminder/task capture: `O(L) + DB create + Telegram reply`
+- Recurring reminder delivery: `O(1) DB update` after the normal due-task fetch; the task row is advanced in place.
 - Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
 - Simple note capture: `O(L) + DB create + Telegram reply`
 - Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
@@ -101,7 +106,7 @@ Message formatting helpers are constant-time apart from escaping and truncating 
 
 Handlers should never look up tasks, notes, ideas, calendar links, pins, or archives by public ID alone. Every lookup must include the current `userId`, either directly in Prisma or through helpers such as `findTaskReference`, `findNoteReference`, and `findIdeaReference`. This keeps another Telegram user from retrieving or mutating someone else's saved items by guessing IDs like `TASK-1`.
 
-In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Do not mix the human sender id into group lookups unless the feature is specifically about per-member permissions or assignment.
+In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Human Telegram ids may be stored on task assignment fields, but item lookup and mutation still stay scoped to the group owner id.
 
 Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
 

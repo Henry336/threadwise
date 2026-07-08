@@ -27,6 +27,8 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/done", description: "Complete a task.", example: "/done 1" },
   { command: "/snooze", description: "Delay a task reminder.", example: "/snooze 1 1h" },
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
+  { command: "/assign", description: "Assign a group task to a Telegram username.", example: "/assign 1 @henry_derek" },
+  { command: "/unassign", description: "Remove a task assignee.", example: "/unassign 1" },
   { command: "/cancel", description: "Cancel an open task.", example: "/cancel 1" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
@@ -74,6 +76,8 @@ const HELP_SECTIONS: HelpSection[] = [
     natural: [
       "add pay invoice tomorrow at 9am",
       "remind me to check the washer after 5 mins",
+      "remind me to have dinner at 7pm every day",
+      "assign task 2 to @henry_derek",
       "show task 2",
       "complete task 1",
       "snooze task 1 for 1 hour",
@@ -81,7 +85,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "mark task 2 important",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind in 5 mins | check washer", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/cancel 3"]
+    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/assign 2 @henry_derek", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/cancel 3"]
   },
   {
     topic: "notes",

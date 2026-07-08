@@ -16,7 +16,7 @@ import {
 } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, updateTaskDescription } from "../services/tasks";
+import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskCompleted, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -32,6 +32,7 @@ import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { parseListRequest, parseNaturalHelpRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
+import { taskCreationOptionsFromContext } from "./taskMentions";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -258,7 +259,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const doneMatch = trimmed.match(/^(?:done|complete)\s+(\S+)$/i);
   if (doneMatch?.[1]) {
     const task = await completeTask(user.id, normalizePublicId(doneMatch[1]));
-    await replyHtml(ctx, `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
     return true;
   }
 
@@ -273,6 +274,20 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
+    return true;
+  }
+
+  const assignMatch = trimmed.match(/^assign\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  if (assignMatch?.[1] && assignMatch[2]) {
+    const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2]);
+    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}`);
+    return true;
+  }
+
+  const unassignMatch = trimmed.match(/^unassign\s+(?:task\s+)?(\S+)$/i);
+  if (unassignMatch?.[1]) {
+    const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
+    await replyHtml(ctx, `${bold("Unassigned")} ${code(task.publicId)} ${h(task.title)}`);
     return true;
   }
 
@@ -392,7 +407,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (!parsed || !scheduledAt || scheduledAt.getTime() <= Date.now()) {
       return false;
     }
-    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
+    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
     await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
@@ -406,7 +421,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const addMatch = trimmed.match(/^(?:add|todo|task)\s+(.+)$/i);
   if (addMatch?.[1]) {
-    const task = await createTask(user.id, addMatch[1], ai);
+    const task = await createTask(user.id, addMatch[1], ai, taskCreationOptionsFromContext(ctx, addMatch[1]));
     await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }

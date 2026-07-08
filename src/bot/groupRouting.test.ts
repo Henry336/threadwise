@@ -107,6 +107,21 @@ describe("group routing", () => {
     expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("remind @henry_derek to submit his assignment at 10:19 am");
   });
 
+  it("falls back to a leading bot-style mention when runtime bot metadata is missing", () => {
+    const ctx = {
+      from: { id: 456, is_bot: false, first_name: "Parent" },
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: {
+        message_id: 13,
+        date: 0,
+        chat: { id: -100456, type: "supergroup", title: "Family" },
+        text: "@threadwise_1_bot show me the tasks"
+      }
+    } as unknown as Context;
+
+    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("show me the tasks");
+  });
+
   it("accepts the screenshot-style bot mention and keeps the assignee mention", () => {
     const ctx = context({
       from: { id: 456, is_bot: false, first_name: "Parent" },

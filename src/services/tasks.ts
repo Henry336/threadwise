@@ -1,8 +1,8 @@
-import { Prisma, TaskStatus } from "@prisma/client";
+import { Prisma, RecurrenceRule, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
-import { formatDateTimeForUser, parseDueDate, parseDurationMinutes } from "../utils/dates";
+import { formatDateTimeForUser, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, stripRecurrenceText } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
@@ -20,6 +20,11 @@ export type TaskListItem = {
   dueAt?: Date | null;
   timezone?: string | null;
   calendarUrl?: string | null;
+  assignedTelegramId?: string | null;
+  assignedUsername?: string | null;
+  assignedDisplayName?: string | null;
+  recurrenceRule?: RecurrenceRule | null;
+  recurrenceIntervalDays?: number | null;
   reminderIntervalMinutes?: number | null;
   nextReminderAt?: Date | null;
   snoozedUntil?: Date | null;
@@ -31,17 +36,32 @@ export type TaskListItem = {
   updatedAt: Date;
 };
 
-export async function createTask(userId: string, sourceText: string, ai: AiProvider) {
+export type TaskEntityMention = {
+  offset: number;
+  length: number;
+  username?: string;
+  telegramId?: string;
+  displayName?: string;
+};
+
+export type TaskCreationOptions = {
+  mentions?: TaskEntityMention[];
+};
+
+export async function createTask(userId: string, sourceText: string, ai: AiProvider, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
   if (!settings) {
     throw new Error("User settings are missing.");
   }
 
-  const structured = structureTaskDeterministically(sourceText);
+  const prepared = prepareTaskInput(sourceText, options);
+  const recurrence = parseRecurrencePattern(prepared.text);
+  const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
+  const structured = structureTaskDeterministically(recurrenceCleanedText);
   const dueAt = structured.dueDateText
-    ? parseDueDate(structured.dueDateText, settings.timezone) ?? parseDueDate(sourceText, settings.timezone)
-    : parseDueDate(sourceText, settings.timezone);
+    ? parseDueDate(structured.dueDateText, settings.timezone) ?? parseDueDate(recurrenceCleanedText, settings.timezone)
+    : parseDueDate(recurrenceCleanedText, settings.timezone);
   const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const intervalReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
@@ -69,7 +89,12 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
         nextReminderAt,
         embedding,
-        calendarUrl
+        calendarUrl,
+        assignedTelegramId: prepared.assignee?.telegramId,
+        assignedUsername: prepared.assignee?.username,
+        assignedDisplayName: prepared.assignee?.displayName,
+        recurrenceRule: recurrence?.rule,
+        recurrenceIntervalDays: recurrence?.intervalDays
       }
     });
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
@@ -77,14 +102,17 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
-export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider) {
+export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
   if (!settings) {
     throw new Error("User settings are missing.");
   }
 
-  const structured = structureTaskDeterministically(sourceText);
+  const prepared = prepareTaskInput(sourceText, options);
+  const recurrence = parseRecurrencePattern(prepared.text);
+  const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
+  const structured = structureTaskDeterministically(recurrenceCleanedText);
   const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const calendarUrl = createGoogleCalendarUrl({
@@ -107,7 +135,12 @@ export async function createScheduledReminder(userId: string, sourceText: string
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
         nextReminderAt: nextDueReminderAt(scheduledAt, settings.dueNudgeMinutes, new Date()),
         embedding,
-        calendarUrl
+        calendarUrl,
+        assignedTelegramId: prepared.assignee?.telegramId,
+        assignedUsername: prepared.assignee?.username,
+        assignedDisplayName: prepared.assignee?.displayName,
+        recurrenceRule: recurrence?.rule,
+        recurrenceIntervalDays: recurrence?.intervalDays
       }
     });
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
@@ -127,6 +160,29 @@ export async function listOpenTasks(userId: string, take = 50): Promise<TaskList
 
 export async function completeTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
+  if (task.recurrenceRule && task.recurrenceIntervalDays && task.dueAt) {
+    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceIntervalDays, task.timezone ?? "UTC");
+    return prisma.$transaction(async (tx) => {
+      await recordTaskStateUndo(tx, userId, task, "complete-task");
+      return tx.task.update({
+        where: { id: task.id },
+        data: {
+          status: TaskStatus.OPEN,
+          completedAt: new Date(),
+          dueAt: nextDueAt,
+          nextReminderAt: nextDueAt,
+          snoozedUntil: null,
+          calendarUrl: createGoogleCalendarUrl({
+            title: task.title,
+            details: task.description ?? task.sourceText,
+            dueAt: nextDueAt,
+            timezone: task.timezone ?? "UTC"
+          })
+        }
+      });
+    });
+  }
+
   return prisma.$transaction(async (tx) => {
     await recordTaskStateUndo(tx, userId, task, "complete-task");
     return tx.task.update({
@@ -230,6 +286,35 @@ export async function updateTaskDescription(userId: string, reference: string, d
   });
 }
 
+export async function assignTask(userId: string, reference: string, assigneeText: string) {
+  const task = await findTaskReference(userId, reference);
+  const assignee = parseAssignee(assigneeText);
+  if (!assignee?.username && !assignee?.displayName) {
+    throw new Error("Use a Telegram mention like @henry_derek so I know who to assign it to.");
+  }
+
+  return prisma.task.update({
+    where: { id: task.id },
+    data: {
+      assignedTelegramId: assignee.telegramId,
+      assignedUsername: assignee.username,
+      assignedDisplayName: assignee.displayName
+    }
+  });
+}
+
+export async function unassignTask(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
+  return prisma.task.update({
+    where: { id: task.id },
+    data: {
+      assignedTelegramId: null,
+      assignedUsername: null,
+      assignedDisplayName: null
+    }
+  });
+}
+
 export async function rescheduleTask(userId: string, reference: string, dueDateText: string) {
   const task = await findTaskReference(userId, reference);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
@@ -323,7 +408,15 @@ export function sortTasksForDisplay<T extends { dueAt?: Date | null; createdAt: 
 }
 
 export function formatTaskCreated(
-  task: { publicId: string; title: string; dueAt?: Date | null; timezone?: string | null },
+  task: {
+    publicId: string;
+    title: string;
+    dueAt?: Date | null;
+    timezone?: string | null;
+    assignedUsername?: string | null;
+    assignedDisplayName?: string | null;
+    recurrenceRule?: RecurrenceRule | null;
+  },
   fallbackTimezone = "UTC"
 ): string {
   const timezone = task.timezone ?? fallbackTimezone;
@@ -331,10 +424,84 @@ export function formatTaskCreated(
     h(task.title),
     [
       task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
+      task.assignedUsername || task.assignedDisplayName ? field("Assigned To", formatAssignee(task)) : undefined,
+      task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
       fieldHtml("Task ID", code(task.publicId))
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     taskAssistantLine(task.publicId, Boolean(task.dueAt))
   ]);
+}
+
+export function formatTaskCompleted(task: { publicId: string; title: string; status: TaskStatus; recurrenceRule?: RecurrenceRule | null; dueAt?: Date | null; timezone?: string | null }, fallbackTimezone = "UTC"): string {
+  if (task.recurrenceRule && task.status === TaskStatus.OPEN && task.dueAt) {
+    return joinBlocks([
+      `${bold("Completed this occurrence")} ${code(task.publicId)} ${h(task.title)}`,
+      [
+        field("Next Occurrence", formatDateTimeForUser(task.dueAt, task.timezone ?? fallbackTimezone)),
+        field("Repeats", formatRecurrence(task.recurrenceRule))
+      ].join("\n")
+    ]);
+  }
+
+  return `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}`;
+}
+
+export function formatAssignee(task: { assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+  if (task.assignedUsername) {
+    return `@${task.assignedUsername}`;
+  }
+
+  return task.assignedDisplayName ?? "Unassigned";
+}
+
+export function formatRecurrence(rule: RecurrenceRule): string {
+  return rule === RecurrenceRule.WEEKLY ? "Weekly" : "Daily";
+}
+
+function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignee?: ParsedAssignee } {
+  const assignee = parseAssignee(sourceText, options.mentions);
+  if (!assignee) {
+    return { text: sourceText };
+  }
+
+  const text = assignee.username
+    ? sourceText.replace(new RegExp(`^\\s*@${escapeRegExp(assignee.username)}\\s+`, "i"), "").trim()
+    : sourceText;
+  return { text: text || sourceText, assignee };
+}
+
+type ParsedAssignee = {
+  telegramId?: string;
+  username?: string;
+  displayName?: string;
+};
+
+function parseAssignee(sourceText: string, mentions: TaskEntityMention[] = []): ParsedAssignee | undefined {
+  const leadingMention = sourceText.match(/^\s*@([A-Za-z0-9_]{3,32})\b/);
+  if (leadingMention?.[1]) {
+    const username = leadingMention[1];
+    const entity = mentions.find((mention) => mention.username?.toLowerCase() === username.toLowerCase() || mention.offset === sourceText.indexOf(`@${username}`));
+    return {
+      telegramId: entity?.telegramId,
+      username,
+      displayName: entity?.displayName ?? username
+    };
+  }
+
+  const textMention = mentions.find((mention) => mention.telegramId);
+  if (textMention) {
+    return {
+      telegramId: textMention.telegramId,
+      username: textMention.username,
+      displayName: textMention.displayName
+    };
+  }
+
+  return undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function taskAssistantLine(publicId: string, hasDueDate: boolean): string {

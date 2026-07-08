@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { RecurrenceRule } from "@prisma/client";
 
 export type QuietHours = {
   start?: string | null;
@@ -127,6 +128,45 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
   }
 
   return undefined;
+}
+
+export type RecurrencePattern = {
+  rule: RecurrenceRule;
+  intervalDays: number;
+};
+
+export function parseRecurrencePattern(input: string): RecurrencePattern | undefined {
+  const text = input.toLowerCase();
+  if (/\b(?:every\s+day|daily|each\s+day)\b/.test(text)) {
+    return { rule: RecurrenceRule.DAILY, intervalDays: 1 };
+  }
+
+  if (/\b(?:every\s+week|weekly|each\s+week)\b/.test(text)) {
+    return { rule: RecurrenceRule.WEEKLY, intervalDays: 7 };
+  }
+
+  return undefined;
+}
+
+export function stripRecurrenceText(input: string): string {
+  return input
+    .replace(/\b(?:every\s+day|daily|each\s+day)\b/ig, "")
+    .replace(/\b(?:every\s+week|weekly|each\s+week)\b/ig, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:| -]+$/g, "")
+    .trim();
+}
+
+export function nextRecurringDueAt(previousDueAt: Date, intervalDays: number, timezone: string, now: Date = new Date()): Date {
+  const interval = Math.max(1, intervalDays);
+  let next = DateTime.fromJSDate(previousDueAt).setZone(timezone);
+  const current = DateTime.fromJSDate(now).setZone(timezone);
+
+  do {
+    next = next.plus({ days: interval });
+  } while (next <= current);
+
+  return next.toJSDate();
 }
 
 function hasReminderTimeText(input: string): boolean {

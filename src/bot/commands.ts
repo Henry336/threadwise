@@ -16,16 +16,20 @@ import {
   updateIdeaConcept
 } from "../services/ideas";
 import {
+  assignTask,
   cancelTask,
   createScheduledReminder,
   createTask,
   completeTask,
   findTaskReference,
+  formatAssignee,
+  formatTaskCompleted,
   formatTaskCreated,
   listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
   snoozeTask,
+  unassignTask,
   updateTaskDescription
 } from "../services/tasks";
 import {
@@ -59,6 +63,7 @@ import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemLis
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
+import { taskCreationOptionsFromContext } from "./taskMentions";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -81,6 +86,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("done", async (ctx) => handleDone(ctx));
   bot.command("snooze", async (ctx) => handleSnooze(ctx));
   bot.command(["reschedule", "move"], async (ctx) => handleReschedule(ctx));
+  bot.command("assign", async (ctx) => handleAssign(ctx));
+  bot.command("unassign", async (ctx) => handleUnassign(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
@@ -219,7 +226,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   try {
-    const task = await createTask(user.id, text, ai);
+    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
     await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't add that task. Try again in a moment.");
@@ -263,7 +270,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   }
 
   try {
-    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai);
+    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
     await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");
@@ -314,7 +321,7 @@ async function handleDone(ctx: Context) {
 
   try {
     const task = await completeTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -352,6 +359,39 @@ async function handleReschedule(ctx: Context) {
     await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
+  }
+}
+
+async function handleAssign(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "assign");
+  const match = body.match(/^(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  if (!match?.[1] || !match[2]) {
+    await ctx.reply("Send it like this: /assign 1 @username or /assign TASK-1 @username");
+    return;
+  }
+
+  try {
+    const task = await assignTask(user.id, normalizePublicId(match[1]), match[2]);
+    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}`);
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
+  }
+}
+
+async function handleUnassign(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const id = commandBody(ctx.message?.text ?? "", "unassign");
+  if (!id) {
+    await ctx.reply("Send it like this: /unassign 1 or /unassign TASK-1");
+    return;
+  }
+
+  try {
+    const task = await unassignTask(user.id, normalizePublicId(id));
+    await replyHtml(ctx, `${bold("Unassigned")} ${code(task.publicId)} ${h(task.title)}`);
+  } catch (error) {
+    await ctx.reply(taskLookupError(error));
   }
 }
 

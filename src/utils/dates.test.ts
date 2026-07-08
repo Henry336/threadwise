@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatDateTimeForUser, isWithinQuietHours, parseDueDate, parseDurationMinutes, splitReminderText } from "./dates";
+import { RecurrenceRule } from "@prisma/client";
+import { formatDateTimeForUser, isWithinQuietHours, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, splitReminderText, stripRecurrenceText } from "./dates";
 
 describe("date utilities", () => {
   it("parses relative durations", () => {
@@ -75,6 +76,29 @@ describe("date utilities", () => {
     const now = new Date("2026-07-06T01:00:00.000Z");
     const due = parseDueDate("next monday at 10am", "Asia/Singapore", now);
     expect(due?.toISOString()).toBe("2026-07-13T02:00:00.000Z");
+  });
+
+  it.each([
+    ["remind me to have dinner at 7pm every day", RecurrenceRule.DAILY, 1],
+    ["set a reminder to take a walk at 5 pm daily", RecurrenceRule.DAILY, 1],
+    ["remind me to clean the fridge at 9am every week", RecurrenceRule.WEEKLY, 7]
+  ])("parses recurrence patterns: %s", (text, rule, intervalDays) => {
+    expect(parseRecurrencePattern(text)).toEqual({ rule, intervalDays });
+  });
+
+  it("strips recurrence words before task title extraction", () => {
+    expect(stripRecurrenceText("take my dog out for a walk every day at 5 pm")).toBe("take my dog out for a walk at 5 pm");
+  });
+
+  it("advances recurring due dates to the next future occurrence", () => {
+    expect(
+      nextRecurringDueAt(
+        new Date("2026-07-05T11:00:00.000Z"),
+        1,
+        "Asia/Singapore",
+        new Date("2026-07-05T11:01:00.000Z")
+      ).toISOString()
+    ).toBe("2026-07-06T11:00:00.000Z");
   });
 
   it("splits explicit reminder commands", () => {

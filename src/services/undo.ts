@@ -33,6 +33,7 @@ export async function recordTaskStateUndo(
     publicId: string;
     title: string;
     status: TaskStatus;
+    dueAt?: Date | null;
     completedAt?: Date | null;
     nextReminderAt?: Date | null;
     snoozedUntil?: Date | null;
@@ -46,6 +47,7 @@ export async function recordTaskStateUndo(
     publicId: task.publicId,
     title: task.title,
     status: task.status,
+    dueAt: toIso(task.dueAt),
     completedAt: toIso(task.completedAt),
     nextReminderAt: toIso(task.nextReminderAt),
     snoozedUntil: toIso(task.snoozedUntil)
@@ -305,6 +307,7 @@ async function undoTaskState(entryId: string, payload: Record<string, unknown>):
       where: { id: target.id, archivedAt: null },
       data: {
         status,
+        dueAt: dateValue(payload.dueAt),
         completedAt: dateValue(payload.completedAt),
         nextReminderAt: dateValue(payload.nextReminderAt),
         snoozedUntil: dateValue(payload.snoozedUntil)

@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, formatTaskCompleted, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
@@ -39,7 +39,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await completeTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await replyHtml(ctx, `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}`, {
+  await replyHtml(ctx, formatTaskCompleted(task, user.settings?.timezone), {
     reply_markup: undoKeyboard("Undo complete")
   });
 }

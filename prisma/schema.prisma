@@ -28,6 +28,11 @@ enum ReminderMode {
   DIGEST
 }
 
+enum RecurrenceRule {
+  DAILY
+  WEEKLY
+}
+
 enum CaptureKind {
   IDEA
   TASK
@@ -127,6 +132,11 @@ model Task {
   reminderCount           Int        @default(0)
   embedding               Json?
   calendarUrl             String?
+  assignedTelegramId      String?
+  assignedUsername        String?
+  assignedDisplayName     String?
+  recurrenceRule          RecurrenceRule?
+  recurrenceIntervalDays  Int?
   pinnedAt                DateTime?
   archivedAt              DateTime?
   archivedReason          String?
@@ -139,6 +149,8 @@ model Task {
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])
   @@index([userId, createdAt])
+  @@index([userId, assignedUsername])
+  @@index([recurrenceRule, nextReminderAt])
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
 }
