@@ -55,10 +55,37 @@ describe("date utilities", () => {
     expect(due?.toISOString()).toBe("2026-07-06T01:00:00.000Z");
   });
 
+  it.each([
+    "decide if I am coming to YIH by 1:30 pm today",
+    "decide if I am coming to YIH at 1:30 pm today",
+    "decide if I am coming to YIH 1:30 pm today"
+  ])("parses today reminders when the time comes before today: %s", (text) => {
+    const now = new Date("2026-07-08T03:54:00.000Z");
+    const due = parseDueDate(text, "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-08T05:30:00.000Z");
+  });
+
+  it("parses tomorrow reminders when the time comes before tomorrow", () => {
+    const now = new Date("2026-07-08T03:54:00.000Z");
+    const due = parseDueDate("submit the form by 8 am tomorrow", "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-09T00:00:00.000Z");
+  });
+
   it("parses clock-only reminders as the next future occurrence", () => {
     const now = new Date("2026-07-05T04:00:00.000Z");
     const due = parseDueDate("at 6pm", "Asia/Singapore", now);
     expect(due?.toISOString()).toBe("2026-07-05T10:00:00.000Z");
+  });
+
+  it.each([
+    "declare check-out on UHMS before moving out from KE7 by 8 am 10 July",
+    "declare check-out on UHMS before moving out from KE7 8 am 10 July",
+    "declare check-out on UHMS before moving out from KE7 10 July at 8 am",
+    "declare check-out on UHMS before moving out from KE7 10 July 8 am"
+  ])("parses month-day reminders when the time is near the date: %s", (text) => {
+    const now = new Date("2026-07-08T17:41:00.000Z");
+    const due = parseDueDate(text, "Asia/Singapore", now);
+    expect(due?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
   });
 
   it("parses same-day early-morning reminders in the user timezone", () => {

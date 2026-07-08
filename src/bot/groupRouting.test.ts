@@ -122,6 +122,21 @@ describe("group routing", () => {
     expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("show me the tasks");
   });
 
+  it("falls back to bot-style mentions outside the first token", () => {
+    const ctx = {
+      from: { id: 456, is_bot: false, first_name: "Parent" },
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: {
+        message_id: 14,
+        date: 0,
+        chat: { id: -100456, type: "supergroup", title: "Family" },
+        text: "show me the notes @threadwise_1_bot"
+      }
+    } as unknown as Context;
+
+    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("show me the notes");
+  });
+
   it("accepts the screenshot-style bot mention and keeps the assignee mention", () => {
     const ctx = context({
       from: { id: 456, is_bot: false, first_name: "Parent" },

@@ -22,6 +22,12 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
     return base.plus({ [unit]: amount }).toJSDate();
   }
 
+  const timeBeforeRelativeDayMatch = text.match(/\b(?:at|by|before)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+(today|tomorrow)\b/);
+  if (timeBeforeRelativeDayMatch?.[1] && timeBeforeRelativeDayMatch[3] && timeBeforeRelativeDayMatch[4]) {
+    const dayBase = timeBeforeRelativeDayMatch[4] === "tomorrow" ? base.plus({ days: 1 }) : base;
+    return withOptionalTime(dayBase, timeBeforeRelativeDayMatch[1], timeBeforeRelativeDayMatch[2], timeBeforeRelativeDayMatch[3]).toJSDate();
+  }
+
   const tomorrowMatch = text.match(/\btomorrow(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
   if (tomorrowMatch) {
     return withOptionalTime(base.plus({ days: 1 }), tomorrowMatch[1], tomorrowMatch[2], tomorrowMatch[3]).toJSDate();
@@ -249,26 +255,60 @@ function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
     ["dec", 12],
     ["december", 12]
   ]);
-  const match = text.match(/\b(?:(?:on)\s+)?(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  const monthPattern = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
+  const timeBeforeMatch = text.match(new RegExp(`\\b(?:at|by|before)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\s+(?:on\\s+)?(\\d{1,2})\\s+(${monthPattern})\\b`));
+  if (timeBeforeMatch?.[1] && timeBeforeMatch[3] && timeBeforeMatch[4] && timeBeforeMatch[5]) {
+    return monthDayDateTime({
+      base,
+      months,
+      dayText: timeBeforeMatch[4],
+      monthText: timeBeforeMatch[5],
+      hourText: timeBeforeMatch[1],
+      minuteText: timeBeforeMatch[2],
+      meridiem: timeBeforeMatch[3]
+    });
+  }
+
+  const match = text.match(new RegExp(`\\b(?:(?:on)\\s+)?(\\d{1,2})\\s+(${monthPattern})(?:\\s+(?:at|by|before)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?)?\\b`));
   if (!match?.[1] || !match[2]) {
     return undefined;
   }
 
-  const month = months.get(match[2]);
+  return monthDayDateTime({
+    base,
+    months,
+    dayText: match[1],
+    monthText: match[2],
+    hourText: match[3],
+    minuteText: match[4],
+    meridiem: match[5]
+  });
+}
+
+function monthDayDateTime(input: {
+  base: DateTime;
+  months: Map<string, number>;
+  dayText: string;
+  monthText: string;
+  hourText?: string;
+  minuteText?: string;
+  meridiem?: string;
+}): DateTime | undefined {
+  const month = input.months.get(input.monthText);
   if (!month) {
     return undefined;
   }
 
   let scheduled = withOptionalTime(
-    base.set({ month, day: Number(match[1]), second: 0, millisecond: 0 }),
-    match[3],
-    match[4],
-    match[5]
+    input.base.set({ month, day: Number(input.dayText), second: 0, millisecond: 0 }),
+    input.hourText,
+    input.minuteText,
+    input.meridiem
   );
   if (!scheduled.isValid) {
     return undefined;
   }
-  if (scheduled <= base) {
+  if (scheduled <= input.base) {
     scheduled = scheduled.plus({ years: 1 });
   }
 
