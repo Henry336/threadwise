@@ -42,6 +42,7 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, 
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
+import { isGroupChat } from "./groupRouting";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -410,15 +411,22 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const assignMatch = trimmed.match(/^(?:assign|give)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
   if (assignMatch?.[1] && assignMatch[2]) {
-    const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2]);
-    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}`);
+    const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2], taskCreationOptionsFromContext(ctx, assignMatch[2]));
+    const dmSetup = isGroupChat(ctx) && ctx.me.username ? `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm` : "";
+    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}${dmSetup}`);
     return true;
   }
 
-  const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignee (?:from|on))\s+(?:task\s+)?(\S+)$/i);
+  const removeOneAssignee = trimmed.match(/^(?:unassign|remove)\s+(.+?)\s+from\s+(?:task\s+)?(\S+)$/i);
+  const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignees? (?:from|on))\s+(?:task\s+)?(\S+)$/i);
+  if (removeOneAssignee?.[1] && removeOneAssignee[2]) {
+    const task = await unassignTask(user.id, normalizePublicId(removeOneAssignee[2]), removeOneAssignee[1], taskCreationOptionsFromContext(ctx, removeOneAssignee[1]));
+    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
+    return true;
+  }
   if (unassignMatch?.[1]) {
     const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
-    await replyHtml(ctx, `${bold("Unassigned")} ${code(task.publicId)} ${h(task.title)}`);
+    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
     return true;
   }
 

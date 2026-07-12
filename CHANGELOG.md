@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.15.0 - 2026-07-12
+
+### Added
+- Added several assignees per shared task through both natural language and slash commands, with backward-compatible migration of existing single assignments.
+- Added optional private deadline nudges for assignees who have opened Threadwise privately and enabled `/settings dm on`.
+- Added selective unassignment such as `remove @alex from task 2` and `/unassign 2 @alex`; omitting the person still clears all assignees.
+
+### Changed
+- Group reminders render every Telegram assignee as a clickable mention, while plain names remain available as display-only assignees.
+- Assigned-task confirmations explain Telegram's one-time private-chat opt-in requirement.
+- Expanded deterministic reminder parsing for phrases such as `remind Dad and @alex to check the bot at 10 pm`.
+
+### Reliability
+- Private nudge delivery is isolated from the group reminder: an unavailable or non-opted-in recipient is skipped without failing the shared reminder.
+- Reminder diagnostics now report private nudges sent, skipped, and failed.
+
 ## v0.14.0 - 2026-07-12
 
 ### Added

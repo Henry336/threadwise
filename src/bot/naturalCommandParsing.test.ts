@@ -68,7 +68,9 @@ describe("natural command parsing", () => {
     ["set OCR language to English and Burmese", ["ocr", "English and Burmese"]],
     ["use Myanmar for image OCR", ["ocr", "Myanmar"]],
     ["use compact reminders", ["mode", "compact"]],
-    ["make my reminders detailed", ["mode", "detailed"]]
+    ["make my reminders detailed", ["mode", "detailed"]],
+    ["send me assigned task reminders in private", ["dm", "on"]],
+    ["stop dming me", ["dm", "off"]]
   ])("parses natural settings: %s", (input, expected) => {
     expect(parseNaturalSettingChange(input)).toEqual(expected);
   });

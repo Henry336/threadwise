@@ -44,6 +44,9 @@ export function formatVersionStatus(status: VersionStatus, now = new Date()): st
     `${bold("Deferred")} ${status.reminders.deferredForQuietHours}`,
     `${bold("Capped")} ${status.reminders.cappedByDailyLimit}`,
     `${bold("Failures")} ${status.reminders.failedDeliveries}`,
+    `${bold("Private assignee nudges sent")} ${status.reminders.directNudgesSent}`,
+    `${bold("Private nudges skipped")} ${status.reminders.directNudgesSkipped}`,
+    `${bold("Private nudge failures")} ${status.reminders.directNudgeFailures}`,
     status.reminders.lastError ? `${bold("Last error")} ${h(status.reminders.lastError)}` : undefined
   ].filter(Boolean).join("\n");
 }

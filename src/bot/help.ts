@@ -27,8 +27,8 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/done", description: "Complete one task, or preview and confirm several.", example: "/done 1 2 3" },
   { command: "/snooze", description: "Delay a task reminder.", example: "/snooze 1 1h" },
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
-  { command: "/assign", description: "Assign a group task to a Telegram username.", example: "/assign 1 @henry_derek" },
-  { command: "/unassign", description: "Remove a task assignee.", example: "/unassign 1" },
+  { command: "/assign", description: "Add one or more people to a group task.", example: "/assign 1 @alex and @sam" },
+  { command: "/unassign", description: "Remove one assignee, or everyone when no name is given.", example: "/unassign 1 @alex" },
   { command: "/cancel", description: "Cancel one task, or preview and confirm several.", example: "/cancel 1 2 3" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
@@ -86,7 +86,10 @@ const HELP_SECTIONS: HelpSection[] = [
       "remind me to have dinner at 7pm every day",
       "remind me to take out the trash every Friday at 7pm",
       "remind me of Mum's birthday on 26 July every year",
-      "assign task 2 to @henry_derek",
+      "remind Dad and @alex to check the bot at 10pm",
+      "assign task 2 to @alex and @sam",
+      "remove @alex from task 2",
+      "send me assigned task reminders in private",
       "show task 2",
       "complete task 1",
       "complete tasks 1, 2 and 3",
@@ -99,7 +102,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "add task 2 to my calendar",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @henry_derek", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 1 2 3"]
+    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @alex and @sam", "/unassign 2 @alex", "/settings dm on", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 1 2 3"]
   },
   {
     topic: "notes",

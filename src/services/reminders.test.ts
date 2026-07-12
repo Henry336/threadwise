@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode } from "@prisma/client";
-import { dueNudgeStartAt, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, formatDirectAssigneeNudge, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -125,6 +125,32 @@ describe("reminder policy", () => {
     );
 
     expect(message).toContain("<b>Repeats:</b> Yearly");
+  });
+
+  it("mentions every assigned person in the group reminder", () => {
+    const message = formatReminderMessage({
+      publicId: "TASK-3",
+      title: "Check the bot",
+      dueAt: new Date("2026-07-12T14:00:00.000Z"),
+      assignees: [
+        { displayName: "Dad" },
+        { username: "Soul_Positive_Light", displayName: "Soul Positive Light" }
+      ]
+    }, { timezone: "Asia/Singapore", reminderMode: ReminderMode.INDIVIDUAL });
+    expect(message).toContain("Dad, @Soul_Positive_Light");
+  });
+
+  it("formats an actionable private assignee nudge without group-only buttons", () => {
+    const message = formatDirectAssigneeNudge({
+      publicId: "TASK-3",
+      title: "Check the bot",
+      dueAt: new Date("2026-07-12T14:00:00.000Z"),
+      timezone: "Asia/Singapore",
+      user: { firstName: "Family" }
+    });
+    expect(message).toContain("<b>Private task nudge</b>");
+    expect(message).toContain("<b>Group:</b> Family");
+    expect(message).toContain("Open the group");
   });
 
   it("starts with empty reminder diagnostics before the first loop run", () => {

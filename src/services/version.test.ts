@@ -23,7 +23,10 @@ describe("version status", () => {
         skippedMissingSettings: 0,
         deferredForQuietHours: 1,
         cappedByDailyLimit: 0,
-        failedDeliveries: 0
+        failedDeliveries: 0,
+        directNudgesSent: 1,
+        directNudgesSkipped: 1,
+        directNudgeFailures: 0
       }
     }, new Date("2026-07-06T01:05:00.000Z"));
 
@@ -34,5 +37,6 @@ describe("version status", () => {
     expect(message).toContain("<b>Microsoft Excel</b> configured");
     expect(message).toContain("<b>Due tasks found</b> 3");
     expect(message).toContain("<b>Sent</b> 2");
+    expect(message).toContain("<b>Private assignee nudges sent</b> 1");
   });
 });

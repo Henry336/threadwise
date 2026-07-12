@@ -26,6 +26,7 @@ export type TaskListItem = {
   assignedTelegramId?: string | null;
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
+  assignees?: TaskAssigneeInfo[];
   recurrenceRule?: RecurrenceRule | null;
   recurrenceIntervalDays?: number | null;
   reminderIntervalMinutes?: number | null;
@@ -38,6 +39,12 @@ export type TaskListItem = {
   archivedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type TaskAssigneeInfo = {
+  telegramId?: string | null;
+  username?: string | null;
+  displayName?: string | null;
 };
 
 export type TaskEntityMention = {
@@ -60,6 +67,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   }
 
   const prepared = prepareTaskInput(sourceText, options);
+  const primaryAssignee = prepared.assignees[0];
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
@@ -94,12 +102,14 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         nextReminderAt,
         embedding,
         calendarUrl,
-        assignedTelegramId: prepared.assignee?.telegramId,
-        assignedUsername: prepared.assignee?.username,
-        assignedDisplayName: prepared.assignee?.displayName,
+        assignedTelegramId: primaryAssignee?.telegramId,
+        assignedUsername: primaryAssignee?.username,
+        assignedDisplayName: primaryAssignee?.displayName,
+        assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
         recurrenceRule: recurrence?.rule,
         recurrenceIntervalDays: recurrence?.intervalDays
-      }
+      },
+      include: { assignees: true }
     });
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
     return task;
@@ -114,6 +124,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
   }
 
   const prepared = prepareTaskInput(sourceText, options);
+  const primaryAssignee = prepared.assignees[0];
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
@@ -140,12 +151,14 @@ export async function createScheduledReminder(userId: string, sourceText: string
         nextReminderAt: nextDueReminderAt(scheduledAt, settings.dueNudgeMinutes, new Date()),
         embedding,
         calendarUrl,
-        assignedTelegramId: prepared.assignee?.telegramId,
-        assignedUsername: prepared.assignee?.username,
-        assignedDisplayName: prepared.assignee?.displayName,
+        assignedTelegramId: primaryAssignee?.telegramId,
+        assignedUsername: primaryAssignee?.username,
+        assignedDisplayName: primaryAssignee?.displayName,
+        assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
         recurrenceRule: recurrence?.rule,
         recurrenceIntervalDays: recurrence?.intervalDays
-      }
+      },
+      include: { assignees: true }
     });
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
     return task;
@@ -156,7 +169,8 @@ export async function listOpenTasks(userId: string, take = 50): Promise<TaskList
   const tasks = await prisma.task.findMany({
     where: { userId, status: TaskStatus.OPEN, archivedAt: null },
     orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
-    take
+    take,
+    include: { assignees: true }
   });
 
   return sortTasksForDisplay(tasks);
@@ -325,32 +339,64 @@ export async function updateTaskDescription(userId: string, reference: string, d
   });
 }
 
-export async function assignTask(userId: string, reference: string, assigneeText: string) {
+export async function assignTask(userId: string, reference: string, assigneeText: string, options: TaskCreationOptions = {}) {
   const task = await findTaskReference(userId, reference);
-  const assignee = parseAssignee(assigneeText);
-  if (!assignee?.username && !assignee?.displayName) {
-    throw new Error("Use a Telegram mention like @henry_derek so I know who to assign it to.");
+  const assignees = parseTaskAssignees(assigneeText, options.mentions, true);
+  if (assignees.length === 0) {
+    throw new Error("Use one or more Telegram mentions, like @alex and @sam. Plain names can be displayed but cannot receive DMs.");
   }
 
-  return prisma.task.update({
-    where: { id: task.id },
-    data: {
-      assignedTelegramId: assignee.telegramId,
-      assignedUsername: assignee.username,
-      assignedDisplayName: assignee.displayName
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.taskAssignee.findMany({ where: { taskId: task.id } });
+    const additions = assignees.filter((assignee) => !existing.some((item) => sameAssignee(item, assignee)));
+    if (additions.length) {
+      await tx.taskAssignee.createMany({
+        data: additions.map((assignee) => ({ taskId: task.id, ...assigneeCreateData(assignee) })),
+        skipDuplicates: true
+      });
     }
+    const allAssignees = await tx.taskAssignee.findMany({ where: { taskId: task.id }, orderBy: { createdAt: "asc" } });
+    const primary = allAssignees[0];
+    return tx.task.update({
+      where: { id: task.id },
+      data: {
+        assignedTelegramId: primary?.telegramId,
+        assignedUsername: primary?.username,
+        assignedDisplayName: primary?.displayName
+      },
+      include: { assignees: true }
+    });
   });
 }
 
-export async function unassignTask(userId: string, reference: string) {
+export async function unassignTask(userId: string, reference: string, assigneeText?: string, options: TaskCreationOptions = {}) {
   const task = await findTaskReference(userId, reference);
-  return prisma.task.update({
-    where: { id: task.id },
-    data: {
-      assignedTelegramId: null,
-      assignedUsername: null,
-      assignedDisplayName: null
-    }
+  const selected = assigneeText ? parseTaskAssignees(assigneeText, options.mentions, true) : [];
+  return prisma.$transaction(async (tx) => {
+    await tx.taskAssignee.deleteMany({
+      where: selected.length
+        ? {
+            taskId: task.id,
+            OR: selected.flatMap((assignee) => [
+              { normalizedKey: assigneeKey(assignee) },
+              ...(assignee.telegramId ? [{ telegramId: assignee.telegramId }] : []),
+              ...(assignee.username ? [{ username: { equals: assignee.username, mode: "insensitive" as const } }] : []),
+              ...(assignee.displayName ? [{ displayName: { equals: assignee.displayName, mode: "insensitive" as const } }] : [])
+            ])
+          }
+        : { taskId: task.id }
+    });
+    const remaining = await tx.taskAssignee.findMany({ where: { taskId: task.id }, orderBy: { createdAt: "asc" } });
+    const primary = remaining[0];
+    return tx.task.update({
+      where: { id: task.id },
+      data: {
+        assignedTelegramId: primary?.telegramId ?? null,
+        assignedUsername: primary?.username ?? null,
+        assignedDisplayName: primary?.displayName ?? null
+      },
+      include: { assignees: true }
+    });
   });
 }
 
@@ -402,7 +448,8 @@ export async function findTask(userId: string, publicOrUuid: string) {
       userId,
       archivedAt: null,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
-    }
+    },
+    include: { assignees: true }
   });
 }
 
@@ -454,6 +501,7 @@ export function formatTaskCreated(
     timezone?: string | null;
     assignedUsername?: string | null;
     assignedDisplayName?: string | null;
+    assignees?: TaskAssigneeInfo[];
     recurrenceRule?: RecurrenceRule | null;
   },
   fallbackTimezone = "UTC"
@@ -463,11 +511,14 @@ export function formatTaskCreated(
     h(task.title),
     [
       task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
-      task.assignedUsername || task.assignedDisplayName ? field("Assigned To", formatAssignee(task)) : undefined,
+      hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
       task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
       fieldHtml("Task ID", code(task.publicId))
     ].filter(Boolean).join("\n"),
-    taskAssistantLine(task.publicId, Boolean(task.dueAt))
+    taskAssistantLine(task.publicId, Boolean(task.dueAt)),
+    hasAssignees(task)
+      ? "For private deadline nudges, each assignee must open Threadwise privately and send /settings dm on."
+      : undefined
   ]);
 }
 
@@ -511,28 +562,40 @@ export function formatTaskAlreadyCompleted(task: { publicId: string; title: stri
   return `${bold("Task already completed")} ${code(task.publicId)} ${h(task.title)}\nRestore it?`;
 }
 
-export function formatAssignee(task: { assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
-  if (task.assignedUsername) {
-    return `@${task.assignedUsername}`;
-  }
+export function formatAssignee(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+  const assignees = task.assignees?.length
+    ? task.assignees
+    : task.assignedUsername || task.assignedDisplayName
+      ? [{ username: task.assignedUsername, displayName: task.assignedDisplayName }]
+      : [];
+  return assignees.length ? assignees.map(formatOneAssignee).join(", ") : "Unassigned";
+}
 
-  return task.assignedDisplayName ?? "Unassigned";
+export function formatAssigneeHtml(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+  const assignees = task.assignees?.length
+    ? task.assignees
+    : task.assignedUsername || task.assignedDisplayName
+      ? [{ username: task.assignedUsername, displayName: task.assignedDisplayName }]
+      : [];
+  return assignees.length ? assignees.map(formatOneAssigneeHtml).join(", ") : "Unassigned";
 }
 
 export function formatRecurrence(rule: RecurrenceRule): string {
   return formatRecurrenceRule(rule);
 }
 
-function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignee?: ParsedAssignee } {
-  const assignee = parseAssignee(sourceText, options.mentions);
-  if (!assignee) {
-    return { text: sourceText };
-  }
-
-  const text = assignee.username
-    ? sourceText.replace(new RegExp(`^\\s*@${escapeRegExp(assignee.username)}\\s+`, "i"), "").trim()
-    : sourceText;
-  return { text: text || sourceText, assignee };
+export function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignees: ParsedAssignee[] } {
+  const assignmentPrefix = sourceText.match(/^(.+?)\s+(?:to|about|for)\s+(.+)$/i);
+  const prefix = assignmentPrefix?.[1] ?? "";
+  const prefixHasTelegramTarget = /@[A-Za-z0-9_]{3,32}\b/.test(prefix)
+    || (options.mentions ?? []).some((mention) => mention.offset >= 0 && mention.offset < prefix.length);
+  const assigneeSource = prefixHasTelegramTarget ? prefix : sourceText;
+  const assignees = parseTaskAssignees(assigneeSource, options.mentions, prefixHasTelegramTarget);
+  if (assignees.length === 0) return { text: sourceText, assignees: [] };
+  const text = prefixHasTelegramTarget
+    ? assignmentPrefix?.[2]?.trim() ?? sourceText
+    : stripLeadingTelegramTargets(sourceText, assignees);
+  return { text: text || sourceText, assignees };
 }
 
 type ParsedAssignee = {
@@ -541,28 +604,79 @@ type ParsedAssignee = {
   displayName?: string;
 };
 
-function parseAssignee(sourceText: string, mentions: TaskEntityMention[] = []): ParsedAssignee | undefined {
-  const leadingMention = sourceText.match(/^\s*@([A-Za-z0-9_]{3,32})\b/);
-  if (leadingMention?.[1]) {
-    const username = leadingMention[1];
-    const entity = mentions.find((mention) => mention.username?.toLowerCase() === username.toLowerCase() || mention.offset === sourceText.indexOf(`@${username}`));
-    return {
-      telegramId: entity?.telegramId,
-      username,
-      displayName: entity?.displayName ?? username
-    };
+export function parseTaskAssignees(sourceText: string, mentions: TaskEntityMention[] = [], allowPlainNames = false): ParsedAssignee[] {
+  const assignees: ParsedAssignee[] = [];
+  for (const mention of mentions.filter((item) => item.offset >= 0)) {
+    addAssignee(assignees, { telegramId: mention.telegramId, username: mention.username, displayName: mention.displayName ?? mention.username });
   }
-
-  const textMention = mentions.find((mention) => mention.telegramId);
-  if (textMention) {
-    return {
-      telegramId: textMention.telegramId,
-      username: textMention.username,
-      displayName: textMention.displayName
-    };
+  for (const match of sourceText.matchAll(/@([A-Za-z0-9_]{3,32})\b/g)) {
+    const username = match[1];
+    if (!username) continue;
+    const entity = mentions.find((mention) => mention.username?.toLowerCase() === username.toLowerCase());
+    addAssignee(assignees, { telegramId: entity?.telegramId, username, displayName: entity?.displayName ?? username });
   }
+  if (allowPlainNames) {
+    for (const part of sourceText.split(/\s*(?:,|&|\band\b)\s*/i)) {
+      const displayName = part.replace(/@[A-Za-z0-9_]{3,32}\b/g, "").trim();
+      if (displayName && /^(?!me$|us$|everyone$|everybody$)[\p{L}][\p{L}\p{M} .'-]{0,60}$/iu.test(displayName)) {
+        addAssignee(assignees, { displayName });
+      }
+    }
+  }
+  return assignees;
+}
 
-  return undefined;
+function assigneeCreateData(assignee: ParsedAssignee) {
+  return { normalizedKey: assigneeKey(assignee), telegramId: assignee.telegramId, username: assignee.username, displayName: assignee.displayName };
+}
+
+function assigneeKey(assignee: ParsedAssignee): string {
+  if (assignee.telegramId) return `id:${assignee.telegramId}`;
+  if (assignee.username) return `username:${assignee.username.toLowerCase()}`;
+  return `name:${(assignee.displayName ?? "unknown").toLowerCase()}`;
+}
+
+function addAssignee(assignees: ParsedAssignee[], assignee: ParsedAssignee): void {
+  const label = assignee.displayName?.toLowerCase();
+  if ((!assignee.telegramId && !assignee.username && !assignee.displayName) || assignees.some((item) =>
+    assigneeKey(item) === assigneeKey(assignee)
+    || Boolean(assignee.telegramId && item.telegramId === assignee.telegramId)
+    || Boolean(assignee.username && item.username?.toLowerCase() === assignee.username.toLowerCase())
+    || Boolean(label && item.displayName?.toLowerCase() === label)
+  )) return;
+  assignees.push(assignee);
+}
+
+function sameAssignee(left: TaskAssigneeInfo & { normalizedKey?: string }, right: ParsedAssignee): boolean {
+  return left.normalizedKey === assigneeKey(right)
+    || Boolean(right.telegramId && left.telegramId === right.telegramId)
+    || Boolean(right.username && left.username?.toLowerCase() === right.username.toLowerCase())
+    || Boolean(right.displayName && left.displayName?.toLowerCase() === right.displayName.toLowerCase());
+}
+
+function formatOneAssignee(assignee: TaskAssigneeInfo): string {
+  return assignee.username ? `@${assignee.username}` : assignee.displayName ?? "Unknown";
+}
+
+function formatOneAssigneeHtml(assignee: TaskAssigneeInfo): string {
+  if (assignee.username) return h(`@${assignee.username}`);
+  if (assignee.telegramId && /^\d+$/.test(assignee.telegramId)) {
+    return `<a href="tg://user?id=${assignee.telegramId}">${h(assignee.displayName ?? "Assigned user")}</a>`;
+  }
+  return h(assignee.displayName ?? "Unknown");
+}
+
+export function hasAssignees(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): boolean {
+  return Boolean(task.assignees?.length || task.assignedUsername || task.assignedDisplayName);
+}
+
+function stripLeadingTelegramTargets(sourceText: string, assignees: ParsedAssignee[]): string {
+  let text = sourceText.trim();
+  for (const assignee of assignees) {
+    if (!assignee.username) continue;
+    text = text.replace(new RegExp(`^\\s*@${escapeRegExp(assignee.username)}\\s*(?:,|&|and)?\\s*`, "i"), "");
+  }
+  return text.trim();
 }
 
 function escapeRegExp(value: string): string {

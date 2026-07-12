@@ -222,6 +222,17 @@ describe("date utilities", () => {
     });
   });
 
+  it("keeps several assignees while parsing the reminder time from the task", () => {
+    expect(splitReminderText("Dad and @Soul_Positive_Light to check the bot at 10 pm")).toEqual({
+      whenText: "check the bot at 10 pm",
+      taskText: "Dad and @Soul_Positive_Light to check the bot at 10 pm"
+    });
+    expect(splitReminderText("@alex and @sam to submit the form tomorrow at 9")).toEqual({
+      whenText: "submit the form tomorrow at 9",
+      taskText: "@alex and @sam to submit the form tomorrow at 9"
+    });
+  });
+
   it("keeps a same-day weekday occurrence when its time is still ahead", () => {
     const now = new Date("2026-07-10T08:00:00.000Z"); // Friday, 4pm Singapore
     expect(parseDueDate("take out the trash every Friday at 7pm", "Asia/Singapore", now)?.toISOString())

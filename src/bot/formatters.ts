@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import type { IdeaScore } from "../ai/types";
 import type { SearchResult } from "../services/search";
-import { formatAssignee, formatRecurrence, type TaskListItem } from "../services/tasks";
+import { formatAssigneeHtml, formatRecurrence, hasAssignees, type TaskListItem } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, italic } from "../utils/html";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
@@ -50,7 +50,7 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     field("Status", task.status.toLowerCase()),
     field("Due Date", task.dueAt ? formatDateTimeForUser(task.dueAt, timezone) : "None"),
     field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
-    task.assignedUsername || task.assignedDisplayName ? field("Assigned To", formatAssignee(task)) : undefined,
+    hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
     task.calendarEventId ? field("Google Calendar", task.calendarSyncedAt ? `Synced ${formatDateTimeForUser(task.calendarSyncedAt, timezone)}` : "Synced") : undefined,
     task.pinnedAt ? field("Important", "Yes") : undefined,
@@ -151,8 +151,8 @@ function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone
     lines.push(`   ${field("Due Date", formatDateTimeForUser(task.dueAt, timezone))}`);
   }
 
-  if (task.assignedUsername || task.assignedDisplayName) {
-    lines.push(`   ${field("Assigned To", formatAssignee(task))}`);
+  if (hasAssignees(task)) {
+    lines.push(`   ${fieldHtml("Assigned To", formatAssigneeHtml(task))}`);
   }
 
   if (task.recurrenceRule) {

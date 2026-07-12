@@ -88,6 +88,7 @@ model UserSettings {
   reminderChatId          String?
   expenseCurrency         String       @default("SGD")
   ocrLanguages            String       @default("eng")
+  directNudgesEnabled     Boolean      @default(false)
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
@@ -159,6 +160,7 @@ model Task {
 
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   reminderHistory ReminderDelivery[]
+  assignees       TaskAssignee[]
 
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])
@@ -167,6 +169,22 @@ model Task {
   @@index([recurrenceRule, nextReminderAt])
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
+}
+
+model TaskAssignee {
+  id            String   @id @default(uuid())
+  taskId        String
+  normalizedKey String
+  telegramId    String?
+  username      String?
+  displayName   String?
+  createdAt     DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, normalizedKey])
+  @@index([telegramId])
+  @@index([username])
 }
 
 model Note {

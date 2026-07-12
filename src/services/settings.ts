@@ -103,6 +103,25 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Image text extraction set to ${formatOcrLanguages(languages)}. This uses bundled local OCR and no API key.` };
   }
 
+  if (setting === "dm" || setting === "direct-nudges" || setting === "private-nudges") {
+    const enabled = /^(?:on|yes|enable|enabled|true)$/i.test(value)
+      ? true
+      : /^(?:off|no|disable|disabled|false)$/i.test(value)
+        ? false
+        : undefined;
+    if (enabled === undefined) {
+      return { message: "Choose on or off. Try: /settings dm on" };
+    }
+    const owner = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (owner.telegramId.startsWith("chat:")) {
+      return { message: "Private nudges are a personal setting. Open Threadwise in a private chat and send /settings dm on." };
+    }
+    await prisma.userSettings.update({ where: { userId }, data: { directNudgesEnabled: enabled } });
+    return { message: enabled
+      ? "Private assignee nudges are on. When a group task assigned to you is due, Threadwise will also DM you."
+      : "Private assignee nudges are off. Group reminders will continue normally." };
+  }
+
   if (setting === "quiet") {
     if (value.toLowerCase() === "off") {
       const updatedTasks = await prisma.$transaction(async (tx) => {
@@ -184,6 +203,7 @@ export async function formatSettings(userId: string): Promise<string> {
     `${bold("Default expense currency")} ${h(settings.expenseCurrency)}`,
     `${bold("Image OCR languages")} ${h(formatOcrLanguages(settings.ocrLanguages))}`,
     `${bold("Reminder message style")} ${settings.reminderMode === ReminderMode.DIGEST ? "compact" : "detailed"}`,
+    `${bold("Private assignee nudges")} ${settings.directNudgesEnabled ? "on" : "off"}`,
     `${bold("Do not disturb")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
     `${bold("Daily reminder safety limit")} ${settings.maxRemindersPerDay}`,
     `${bold("Early warning for exact-time reminders")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes before` : "off"}`,
@@ -199,6 +219,7 @@ export async function formatSettings(userId: string): Promise<string> {
     code("set my expense currency to MMK"),
     code("read images in Burmese"),
     code("use compact reminders"),
+    code("send me assigned task reminders in private"),
     code("remind me again every 3 hours"),
     code("warn me 10 mins before due tasks"),
     code("set quiet hours to 22:00-08:00"),
@@ -213,6 +234,7 @@ export async function formatSettings(userId: string): Promise<string> {
     code("/settings currency MMK"),
     code("/settings ocr English and Burmese"),
     code("/settings mode compact"),
+    code("/settings dm on"),
     code("/settings quiet 22:00 08:00"),
     code("/settings quiet off"),
     code("/settings max 200"),

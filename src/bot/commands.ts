@@ -76,10 +76,7 @@ import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionReques
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
-  bot.command("start", async (ctx) => {
-    const user = await ensureUser(ctx);
-    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
-  });
+  bot.command("start", async (ctx) => handleStart(ctx));
   bot.command("help", async (ctx) => handleHelp(ctx));
   bot.command("commands", async (ctx) => replyHtml(ctx, formatCommandReference()));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
@@ -392,13 +389,13 @@ async function handleAssign(ctx: Context) {
   const body = commandBody(ctx.message?.text ?? "", "assign");
   const match = body.match(/^(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
   if (!match?.[1] || !match[2]) {
-    await ctx.reply("Send it like this: /assign 1 @username or /assign TASK-1 @username");
+    await ctx.reply("Send it like this: /assign 1 @alex and @sam, or /assign TASK-1 Dad and @sam");
     return;
   }
 
   try {
-    const task = await assignTask(user.id, normalizePublicId(match[1]), match[2]);
-    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}`);
+    const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
+    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}${assigneeDmSetupLine(ctx)}`);
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
   }
@@ -406,18 +403,24 @@ async function handleAssign(ctx: Context) {
 
 async function handleUnassign(ctx: Context) {
   const user = await ensureUser(ctx);
-  const id = commandBody(ctx.message?.text ?? "", "unassign");
-  if (!id) {
-    await ctx.reply("Send it like this: /unassign 1 or /unassign TASK-1");
+  const body = commandBody(ctx.message?.text ?? "", "unassign");
+  const match = body.match(/^(?:task\s+)?(\S+)(?:\s+(.+))?$/i);
+  if (!match?.[1]) {
+    await ctx.reply("Send it like this: /unassign 1 to clear everyone, or /unassign 1 @username to remove one person.");
     return;
   }
 
   try {
-    const task = await unassignTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${bold("Unassigned")} ${code(task.publicId)} ${h(task.title)}`);
+    const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
+    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
+}
+
+function assigneeDmSetupLine(ctx: Context): string {
+  if (!isGroupChat(ctx) || !ctx.me.username) return "";
+  return `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm`;
 }
 
 async function handleUndo(ctx: Context) {
@@ -728,6 +731,21 @@ async function handleGmail(ctx: Context, ai: AiProvider) {
   }
 
   await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
+}
+
+async function handleStart(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "start");
+  if (/^(?:dm|nudges?|private)$/i.test(body)) {
+    if (isGroupChat(ctx)) {
+      await ctx.reply(`Open Threadwise privately and press Start to enable personal assignment nudges: https://t.me/${ctx.me.username}?start=dm`);
+      return;
+    }
+    const result = await updateSetting(user.id, ["dm", "on"]);
+    await ctx.reply(result.message);
+    return;
+  }
+  await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
 }
 
 async function handleGroupCheck(ctx: Context) {

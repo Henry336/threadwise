@@ -122,6 +122,14 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
+  const multipleAssigneesMatch = input.match(/^(.+?@[A-Za-z0-9_]{3,32}.*?)\s+(?:to|about|for)\s+(.+)$/i);
+  if (multipleAssigneesMatch?.[1] && multipleAssigneesMatch[2] && hasReminderTimeText(multipleAssigneesMatch[2])) {
+    return {
+      whenText: multipleAssigneesMatch[2].trim(),
+      taskText: input.trim()
+    };
+  }
+
   const mentionedAssigneeMatch = input.match(/^(@[\w_]{3,32})\s+(?:to|about|for)\s+(.+)$/i);
   if (mentionedAssigneeMatch?.[1] && mentionedAssigneeMatch[2]) {
     return {

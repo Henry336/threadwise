@@ -94,6 +94,14 @@ export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefi
 }
 
 export function parseNaturalSettingChange(text: string): string[] | undefined {
+  if (/^(?:please\s+)?(?:send|give)\s+me\s+(?:my\s+)?(?:assigned\s+)?task\s+(?:reminders?|nudges?)\s+(?:in\s+private|privately|by\s+dm)$/i.test(text)
+    || /^(?:please\s+)?(?:turn|switch|enable)\s+(?:my\s+)?(?:private|dm|direct)\s+(?:task\s+)?(?:reminders?|nudges?)\s+on$/i.test(text)) {
+    return ["dm", "on"];
+  }
+  if (/^(?:please\s+)?(?:stop\s+dm(?:ing)?\s+me|(?:turn|switch|disable)\s+(?:my\s+)?(?:private|dm|direct)\s+(?:task\s+)?(?:reminders?|nudges?)\s+off)$/i.test(text)) {
+    return ["dm", "off"];
+  }
+
   const reminderMode = text.match(/^(?:please\s+)?(?:use|switch\s+to|set|make)\s+(?:my\s+)?(?:reminder\s+)?(?:messages?\s+)?(?:to\s+)?(compact|digest|detailed|full|normal|individual)(?:\s+(?:reminders?|messages?))?$/i)
     ?? text.match(/^(?:please\s+)?(?:make|show)\s+(?:my\s+)?reminders?\s+(compact|detailed|full|normal)$/i);
   if (reminderMode?.[1]) return ["mode", reminderMode[1].toLowerCase()];

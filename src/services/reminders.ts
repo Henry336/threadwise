@@ -6,6 +6,7 @@ import { formatDateTimeForUser, formatRecurrenceRule, isWithinQuietHours, nextQu
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { taskActionsKeyboard } from "../bot/keyboards";
+import type { TaskAssigneeInfo } from "./tasks";
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
 
@@ -20,6 +21,9 @@ export type ReminderDiagnostics = {
   deferredForQuietHours: number;
   cappedByDailyLimit: number;
   failedDeliveries: number;
+  directNudgesSent: number;
+  directNudgesSkipped: number;
+  directNudgeFailures: number;
 };
 
 let reminderDiagnostics: ReminderDiagnostics = {
@@ -28,7 +32,10 @@ let reminderDiagnostics: ReminderDiagnostics = {
   skippedMissingSettings: 0,
   deferredForQuietHours: 0,
   cappedByDailyLimit: 0,
-  failedDeliveries: 0
+  failedDeliveries: 0,
+  directNudgesSent: 0,
+  directNudgesSkipped: 0,
+  directNudgeFailures: 0
 };
 let activeReminderRun: Promise<ReminderDiagnostics> | undefined;
 
@@ -69,7 +76,10 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     skippedMissingSettings: 0,
     deferredForQuietHours: 0,
     cappedByDailyLimit: 0,
-    failedDeliveries: 0
+    failedDeliveries: 0,
+    directNudgesSent: 0,
+    directNudgesSkipped: 0,
+    directNudgeFailures: 0
   };
 
   try {
@@ -81,7 +91,8 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }]
       },
       include: {
-        user: { include: { settings: true } }
+        user: { include: { settings: true } },
+        assignees: true
       },
       take: 50,
       orderBy: { nextReminderAt: "asc" }
@@ -169,6 +180,15 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         ]);
 
         run.remindersSent += 1;
+        try {
+          const direct = await sendDirectAssigneeNudges(bot, task);
+          run.directNudgesSent += direct.sent;
+          run.directNudgesSkipped += direct.skipped;
+          run.directNudgeFailures += direct.failed;
+        } catch (error) {
+          run.directNudgeFailures += Math.max(1, task.assignees.length);
+          logger.warn("Could not finish private assignee nudges after the group reminder was delivered.", { taskId: task.id, error: String(error) });
+        }
       } catch (error) {
         run.failedDeliveries += 1;
         logger.error("Failed to send reminder.", { taskId: task.id, error: String(error) });
@@ -190,6 +210,67 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
   }
 }
 
+async function sendDirectAssigneeNudges(bot: Bot, task: {
+  publicId: string;
+  title: string;
+  dueAt?: Date | null;
+  timezone?: string | null;
+  assignees: TaskAssigneeInfo[];
+  user: { telegramId: string; firstName?: string | null };
+}): Promise<{ sent: number; skipped: number; failed: number }> {
+  const result = { sent: 0, skipped: 0, failed: 0 };
+  if (!task.user.telegramId.startsWith("chat:")) return result;
+  const deliveredTo = new Set<string>();
+  for (const assignee of task.assignees) {
+    const privateUser = await findDirectNudgeUser(assignee);
+    if (!privateUser?.settings?.directNudgesEnabled || deliveredTo.has(privateUser.telegramId)) {
+      result.skipped += 1;
+      continue;
+    }
+    try {
+      await bot.api.sendMessage(privateUser.telegramId, formatDirectAssigneeNudge(task), HTML_REPLY);
+      deliveredTo.add(privateUser.telegramId);
+      result.sent += 1;
+    } catch (error) {
+      result.failed += 1;
+      logger.warn("Could not send an assignee DM nudge.", { taskId: task.publicId, telegramId: privateUser.telegramId, error: String(error) });
+    }
+  }
+  return result;
+}
+
+async function findDirectNudgeUser(assignee: TaskAssigneeInfo) {
+  if (assignee.telegramId) {
+    return prisma.user.findUnique({ where: { telegramId: assignee.telegramId }, include: { settings: true } });
+  }
+  if (!assignee.username) return undefined;
+  const matches = await prisma.user.findMany({
+    where: { username: { equals: assignee.username, mode: "insensitive" } },
+    include: { settings: true },
+    take: 5
+  });
+  return matches.find((user) => /^\d+$/.test(user.telegramId));
+}
+
+export function formatDirectAssigneeNudge(task: {
+  publicId: string;
+  title: string;
+  dueAt?: Date | null;
+  timezone?: string | null;
+  user: { firstName?: string | null };
+}): string {
+  return joinBlocks([
+    bold("Private task nudge"),
+    h(task.title),
+    [
+      task.user.firstName ? field("Group", task.user.firstName) : undefined,
+      task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? "UTC")) : undefined,
+      fieldHtml("Task ID", code(task.publicId))
+    ].filter(Boolean).join("\n"),
+    "Open the group to complete, snooze, or change this shared task. Send /settings dm off here anytime to stop private nudges."
+  ]);
+}
+
 export function formatReminderMessage(
   task: {
     publicId: string;
@@ -199,6 +280,7 @@ export function formatReminderMessage(
     pinnedAt?: Date | null;
     assignedUsername?: string | null;
     assignedDisplayName?: string | null;
+    assignees?: TaskAssigneeInfo[];
     recurrenceRule?: RecurrenceRule | null;
   },
   settings: {
@@ -208,7 +290,7 @@ export function formatReminderMessage(
 ): string {
   const metadata = [
     task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)) : undefined,
-    task.assignedUsername || task.assignedDisplayName ? field("Assigned To", task.assignedUsername ? `@${task.assignedUsername}` : task.assignedDisplayName ?? "Unassigned") : undefined,
+    reminderAssignees(task).length > 0 ? fieldHtml("Assigned To", formatReminderAssigneesHtml(task)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrenceRule(task.recurrenceRule)) : undefined,
     fieldHtml("Task ID", code(task.publicId))
   ].filter(Boolean).join("\n");
@@ -235,6 +317,31 @@ export function formatReminderMessage(
     metadata,
     reminderAssistantLine(task.publicId)
   ]);
+}
+
+function reminderAssignees(task: {
+  assignedUsername?: string | null;
+  assignedDisplayName?: string | null;
+  assignees?: TaskAssigneeInfo[];
+}): TaskAssigneeInfo[] {
+  if (task.assignees?.length) return task.assignees;
+  if (!task.assignedUsername && !task.assignedDisplayName) return [];
+  return [{ username: task.assignedUsername, displayName: task.assignedDisplayName }];
+}
+
+function formatReminderAssigneesHtml(task: {
+  assignedUsername?: string | null;
+  assignedDisplayName?: string | null;
+  assignees?: TaskAssigneeInfo[];
+}): string {
+  return reminderAssignees(task).map((assignee) => {
+    if (assignee.username) return h(`@${assignee.username}`);
+    const label = assignee.displayName || "Telegram user";
+    if (assignee.telegramId && /^\d+$/.test(assignee.telegramId)) {
+      return `<a href="tg://user?id=${assignee.telegramId}">${h(label)}</a>`;
+    }
+    return h(label);
+  }).join(", ");
 }
 
 function reminderAssistantLine(publicId: string): string {
