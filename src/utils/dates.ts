@@ -11,15 +11,35 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   const text = input.toLowerCase();
   const base = DateTime.fromJSDate(now).setZone(timezone);
 
-  const inMatch = text.match(/\b(?:in|after)\s+(\d+)\s*(minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/);
-  if (inMatch?.[1] && inMatch[2]) {
-    const amount = Number(inMatch[1]);
-    const unit = inMatch[2].startsWith("min")
+  const inMatch = text.match(/\b(?:in|after)\s+(?:(\d+)|(a|an|one|two|three|four|five|six|seven|eight|nine|ten|half)(?:\s+an?)?)\s*(minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/);
+  if ((inMatch?.[1] || inMatch?.[2]) && inMatch[3]) {
+    const amount = inMatch[1] ? Number(inMatch[1]) : relativeAmount(inMatch[2] ?? "");
+    const unit = inMatch[3].startsWith("min")
       ? "minutes"
-      : inMatch[2].startsWith("h")
+      : inMatch[3].startsWith("h")
         ? "hours"
         : "days";
     return base.plus({ [unit]: amount }).toJSDate();
+  }
+
+  const dayAfterTomorrowMatch = text.match(/\bday\s+after\s+tomorrow(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  if (dayAfterTomorrowMatch) {
+    return withOptionalTime(base.plus({ days: 2 }), dayAfterTomorrowMatch[1], dayAfterTomorrowMatch[2], dayAfterTomorrowMatch[3]).toJSDate();
+  }
+
+  const namedClockMatch = text.match(/\b(?:at\s+)?(noon|midnight)(?:\s+(today|tomorrow))?\b/);
+  if (namedClockMatch?.[1]) {
+    const explicitDay = namedClockMatch[2];
+    let scheduled = (explicitDay === "tomorrow" ? base.plus({ days: 1 }) : base).set({
+      hour: namedClockMatch[1] === "noon" ? 12 : 0,
+      minute: 0,
+      second: 0,
+      millisecond: 0
+    });
+    if (!explicitDay && scheduled <= base) {
+      scheduled = scheduled.plus({ days: 1 });
+    }
+    return scheduled.toJSDate();
   }
 
   const timeBeforeRelativeDayMatch = text.match(/\b(?:at|by|before)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s+(today|tomorrow)\b/);
@@ -176,7 +196,26 @@ export function nextRecurringDueAt(previousDueAt: Date, intervalDays: number, ti
 }
 
 function hasReminderTimeText(input: string): boolean {
-  return /\b(?:(?:in|after)\s+\d+\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|(?:today|tomorrow|next\s+\w+)(?:\s+at\s+\d{1,2})?|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{4}-\d{2}-\d{2})\b/i.test(input);
+  return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|next\s+\w+)(?:\s+at\s+\d{1,2})?|noon|midnight|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{4}-\d{2}-\d{2})\b/i.test(input);
+}
+
+function relativeAmount(value: string): number {
+  const values: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    half: 0.5
+  };
+  return values[value.toLowerCase()] ?? 1;
 }
 
 function withOptionalTime(base: DateTime, hourText?: string, minuteText?: string, meridiem?: string): DateTime {
@@ -269,9 +308,22 @@ function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
     });
   }
 
-  const match = text.match(new RegExp(`\\b(?:(?:on)\\s+)?(\\d{1,2})\\s+(${monthPattern})(?:\\s+(?:at|by|before)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?)?\\b`));
+  const match = text.match(new RegExp(`\\b(?:(?:on)\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthPattern})(?:\\s+(?:at|by|before)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?)?\\b`));
   if (!match?.[1] || !match[2]) {
-    return undefined;
+    const monthFirstMatch = text.match(new RegExp(`\\b(?:on\\s+)?(${monthPattern})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(?:at|by|before)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?)?\\b`));
+    if (!monthFirstMatch?.[1] || !monthFirstMatch[2]) {
+      return undefined;
+    }
+
+    return monthDayDateTime({
+      base,
+      months,
+      dayText: monthFirstMatch[2],
+      monthText: monthFirstMatch[1],
+      hourText: monthFirstMatch[3],
+      minuteText: monthFirstMatch[4],
+      meridiem: monthFirstMatch[5]
+    });
   }
 
   return monthDayDateTime({

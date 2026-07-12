@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.10.0 - 2026-07-12
 
 ### Added
+- Expanded deterministic natural-language coverage across the full command surface, including status/version, Gmail, calendar, search, lists, task actions, pins, archives, restore, edits, settings, ideas, and note analysis.
+- Added natural capture phrases such as `write this down`, `remember that`, `I need to`, and `I have an idea for`, keeping common captures useful without an OpenAI token.
+- Added polite and indirect reminder phrasing such as `could you remind me`, `don't let me forget`, `nudge me`, and `send me a reminder`.
+- Added reminder parsing for word-based durations, half-hours, day-after-tomorrow, noon/midnight, month-first dates, and ordinal dates.
 - Added first-class group task assignees with stored Telegram usernames/ids where available, visible `Assigned To` metadata, and `/assign`/`/unassign` plus natural assignment commands.
 - Added daily and weekly recurring reminders from natural phrases like `remind me to have dinner at 7pm every day`; recurring tasks advance to the next occurrence after delivery.
 - Added first-pass group chat support: group data is scoped to the chat, slash commands work in groups, natural-language messages require a bot mention or reply, and reminders are delivered back into the group.
@@ -44,6 +48,7 @@
 - Fixed duplicate Telegram update claims so expected duplicates no longer emit Prisma unique-constraint errors.
 
 ### Removed
+- Removed the unused `OPENAI_EMBEDDING_MODEL` setting; embeddings are intentionally local and deterministic, so capture and search never spend embedding API quota.
 - Removed the discontinued reflection feature from active AI classification, provider contracts, public ID generation, and service code.
 
 ## v0.9.0 - 2026-07-06

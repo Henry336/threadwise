@@ -23,6 +23,8 @@ import { createPendingSearch, parseSearchRequest, semanticSearch } from "../serv
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
+import { getReminderDiagnostics } from "../services/reminders";
+import { formatVersionStatus } from "../services/version";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
@@ -30,7 +32,7 @@ import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemLis
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
-import { parseListRequest, parseNaturalHelpRequest, parseNaturalReminderBody, parseNaturalSettingChange } from "./naturalCommandParsing";
+import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
@@ -55,17 +57,17 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (lower === "start") {
+  if (/^(?:start|get started|show (?:me )?(?:the )?(?:setup|onboarding)|take me through (?:the )?setup)$/.test(lower)) {
     await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
     return true;
   }
 
-  if (lower === "undo") {
+  if (/^(?:undo|undo that|take that back|reverse (?:the )?(?:last )?change)$/.test(lower)) {
     await replyHtml(ctx, await undoLastAction(user.id));
     return true;
   }
 
-  if (lower === "review" || lower === "show review") {
+  if (/^(?:review|show (?:me )?(?:my )?review|give me (?:a )?review|what needs (?:my )?attention)$/.test(lower)) {
     await replyHtml(ctx, await buildReview(user.id, user.settings?.timezone ?? "UTC"));
     return true;
   }
@@ -92,12 +94,12 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (lower === "pins" || lower === "show pins" || lower === "pinned") {
+  if (/^(?:pins|pinned|show (?:me )?(?:my )?(?:pins|pinned items|important items))$/.test(lower)) {
     await replyHtml(ctx, formatPinnedItems(await listPinnedItems(user.id)));
     return true;
   }
 
-  if (lower === "settings" || lower === "show settings") {
+  if (/^(?:settings|preferences|show (?:me )?(?:my )?(?:settings|preferences)|what are my settings)$/.test(lower)) {
     await replyHtml(ctx, await formatSettings(user.id));
     return true;
   }
@@ -109,12 +111,12 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (lower === "gmail" || lower === "gmail status") {
+  if (/^(?:gmail|gmail status|show (?:me )?(?:my )?gmail status|is gmail connected)$/.test(lower)) {
     await replyHtml(ctx, await formatGmailStatus(user.id));
     return true;
   }
 
-  if (lower === "gmail connect" || lower === "connect gmail") {
+  if (/^(?:gmail connect|connect (?:my )?gmail|set up gmail|link (?:my )?gmail)$/.test(lower)) {
     if (!gmailConfigured()) {
       await ctx.reply("Gmail is not configured on the server yet. Add Google OAuth env vars first.");
       return true;
@@ -126,18 +128,18 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (lower === "gmail scan" || lower === "scan gmail" || lower === "scan unread gmail") {
+  if (/^(?:gmail scan|scan (?:my )?(?:unread )?gmail|check (?:my )?(?:unread )?(?:gmail|email)|summari[sz]e (?:my )?unread (?:gmail|email))$/.test(lower)) {
     const result = await scanGmailNow(user.id, ai);
     await replyHtml(ctx, result.message);
     return true;
   }
 
-  if (lower === "gmail disconnect" || lower === "disconnect gmail") {
+  if (/^(?:gmail disconnect|disconnect (?:my )?gmail|unlink (?:my )?gmail)$/.test(lower)) {
     await replyHtml(ctx, await disconnectGmail(user.id));
     return true;
   }
 
-  const archivedMatch = lower.match(/^(?:show |view |list )?archived\s+(notes?|ideas?|tasks?)(?:\s+(\d+))?$/);
+  const archivedMatch = lower.match(/^(?:(?:show|view|list|browse)(?:\s+me)?(?:\s+my)?\s+)?archived\s+(notes?|ideas?|tasks?)(?:\s+(?:page\s+)?(\d+))?$/);
   if (archivedMatch?.[1]) {
     const kind = parseArchiveKind(archivedMatch[1]);
     if (!kind) return false;
@@ -149,7 +151,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const mergeMatch = trimmed.match(/^merge\s+notes\s+(.+)$/i);
+  const mergeMatch = trimmed.match(/^(?:merge|combine|join)\s+(?:my\s+)?notes\s+(.+)$/i);
   if (mergeMatch?.[1]) {
     try {
       const preview = await createNoteMergePreview(user.id, mergeMatch[1].split(/\s+/).map(normalizePublicId), ai);
@@ -160,14 +162,14 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const restoreMatch = trimmed.match(/^restore\s+(\S+)$/i);
+  const restoreMatch = trimmed.match(/^(?:restore|recover|bring back)\s+(?:(?:archived|my)\s+)?(?:(?:task|note|idea)\s+)?(\S+)$/i);
   if (restoreMatch?.[1]) {
     const message = await restoreArchivedItem(user.id, normalizePublicId(restoreMatch[1]));
     await replyHtml(ctx, message ?? "I couldn't find that archived item. Try archived notes, archived ideas, or archived tasks.");
     return true;
   }
 
-  const searchMatch = trimmed.match(/^search\s+(.+)$/i);
+  const searchMatch = trimmed.match(/^(?:search(?:\s+for)?|look\s+for|find\s+(?:anything\s+)?(?:about\s+)?)\s*(.+)$/i);
   if (searchMatch?.[1]) {
     const parsed = parseSearchRequest(searchMatch[1]);
     if (!parsed.query) {
@@ -187,13 +189,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const noteAnalysisMatch = lower === "note analysis" || lower === "analyze notes" || lower === "analyse notes";
+  const noteAnalysisMatch = /^(?:note analysis|analy[sz]e (?:my )?notes|how (?:am i|do i) (?:take|write|keep) notes)$/.test(lower);
   if (noteAnalysisMatch) {
     await replyHtml(ctx, formatNoteAnalysis(await analyzeNoteStyle(user.id, ai)));
     return true;
   }
 
-  const viewNoteMatch = trimmed.match(/^(?:(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?)?note\s+(\d+|NOTE-\d+)$/i);
+  const viewNoteMatch = trimmed.match(/^(?:(?:show|view|open|read)\s+(?:me\s+)?(?:the\s+)?)?note\s+(\d+|NOTE-\d+)$/i);
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
@@ -208,7 +210,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const viewIdeaMatch = trimmed.match(/^(?:idea|show idea)\s+(\S+)$/i);
+  const viewIdeaMatch = trimmed.match(/^(?:idea|(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?idea)\s+(\S+)$/i);
   if (viewIdeaMatch?.[1] && /^(\d+|IDEA-\d+)$/i.test(viewIdeaMatch[1])) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
@@ -238,7 +240,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const taskDetailMatch = trimmed.match(/^(?:task|show task)\s+(\S+)$/i);
+  const taskDetailMatch = trimmed.match(/^(?:task|(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?task)\s+(\S+)$/i);
   if (taskDetailMatch?.[1]) {
     try {
       const task = await findTaskReference(user.id, normalizePublicId(taskDetailMatch[1]));
@@ -256,57 +258,69 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const doneMatch = trimmed.match(/^(?:done|complete)\s+(\S+)$/i);
+  const doneMatch = trimmed.match(/^(?:done|complete|finish)\s+(?:task\s+)?(\S+)$/i)
+    ?? trimmed.match(/^mark\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|finished)$/i)
+    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|finished)$/i);
   if (doneMatch?.[1]) {
     const task = await completeTask(user.id, normalizePublicId(doneMatch[1]));
     await replyHtml(ctx, `${formatTaskCompleted(task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
     return true;
   }
 
-  const snoozeMatch = trimmed.match(/^snooze\s+(\S+)(?:\s+(.+))?$/i);
+  const snoozeMatch = trimmed.match(/^(?:snooze|delay)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i);
   if (snoozeMatch?.[1]) {
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
     await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("Undo snooze") });
     return true;
   }
 
-  const rescheduleMatch = trimmed.match(/^(?:reschedule|move)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  const rescheduleMatch = trimmed.match(/^(?:reschedule|move|postpone|push)\s+(?:task\s+)?(\S+)\s+(?:to|until|for|by)?\s*(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
     return true;
   }
 
-  const assignMatch = trimmed.match(/^assign\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  const assignMatch = trimmed.match(/^(?:assign|give)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
   if (assignMatch?.[1] && assignMatch[2]) {
     const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2]);
     await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}`);
     return true;
   }
 
-  const unassignMatch = trimmed.match(/^unassign\s+(?:task\s+)?(\S+)$/i);
+  const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignee (?:from|on))\s+(?:task\s+)?(\S+)$/i);
   if (unassignMatch?.[1]) {
     const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
     await replyHtml(ctx, `${bold("Unassigned")} ${code(task.publicId)} ${h(task.title)}`);
     return true;
   }
 
-  const cancelMatch = trimmed.match(/^(?:cancel|delete)\s+(\S+)$/i);
+  const cancelMatch = trimmed.match(/^(?:cancel|delete|drop)\s+(?:task\s+)?(\S+)$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
     await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`, { reply_markup: undoKeyboard("Undo cancel") });
     return true;
   }
 
-  const pinMatch = trimmed.match(/^(pin|star|important|unpin|unstar)\s+(.+)$/i);
-  if (pinMatch?.[1] && pinMatch[2]) {
-    const shouldPin = ["pin", "star", "important"].includes(pinMatch[1].toLowerCase());
-    const item = await pinItem(user.id, normalizePublicId(pinMatch[2]), shouldPin);
+  const removeImportantMatch = trimmed.match(/^(?:remove|clear)\s+(?:the\s+)?important(?:\s+mark)?\s+from\s+(?:task\s+)?(.+)$/i)
+    ?? trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+not\s+important$/i);
+  const markImportantMatch = trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+important$/i);
+  const pinMatch = trimmed.match(/^(pin|star|important|unpin|unstar)\s+(?:task\s+|note\s+|idea\s+)?(.+)$/i);
+  if (removeImportantMatch?.[1]) {
+    const item = await pinItem(user.id, normalizePublicId(removeImportantMatch[1]), false);
+    await replyHtml(ctx, `${formatPinResult(item, false)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
+    return true;
+  }
+  if (markImportantMatch?.[1] || (pinMatch?.[1] && pinMatch[2])) {
+    const shouldPin = Boolean(markImportantMatch) || ["pin", "star", "important"].includes(pinMatch?.[1]?.toLowerCase() ?? "");
+    const reference = markImportantMatch?.[1] ?? pinMatch?.[2] ?? "";
+    const item = await pinItem(user.id, normalizePublicId(reference), shouldPin);
     await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
     return true;
   }
 
-  const archiveNoteMatch = trimmed.match(/^(?:archive|remove|delete)\s+note\s+(\S+)$/i);
+  const archiveNoteMatch = trimmed.match(/^(?:archive|remove|delete|hide)\s+(?:my\s+)?note\s+(\S+)$/i)
+    ?? trimmed.match(/^move\s+(?:my\s+)?note\s+(\S+)\s+to\s+(?:the\s+)?archive$/i);
   if (archiveNoteMatch?.[1]) {
     const note = await archiveNote(user.id, normalizePublicId(archiveNoteMatch[1]));
     await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
@@ -315,8 +329,16 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
+  const naturalRenameMatch = trimmed.match(/^change\s+(?:(title|details?|description|body|concept)\s+of\s+)?(?:(task|note|idea)\s+)?(\d+|TASK-\d+|NOTE-\d+|IDEA-\d+)\s+to\s+(.+)$/i);
   const renameMatch = trimmed.match(/^(?:rename|edit)\s+(.+)$/i);
-  const renameParsed = renameMatch?.[1] ? parseReferenceAndTitle(renameMatch[1]) : undefined;
+  const naturalRenameBody = naturalRenameMatch
+    ? [naturalRenameMatch[2], naturalRenameMatch[3], naturalRenameMatch[1], naturalRenameMatch[4]].filter(Boolean).join(" ")
+    : undefined;
+  const renameParsed = naturalRenameBody
+    ? parseReferenceAndTitle(naturalRenameBody)
+    : renameMatch?.[1]
+      ? parseReferenceAndTitle(renameMatch[1])
+      : undefined;
   if (renameParsed) {
     if (renameParsed.field === "description") {
       const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
@@ -357,21 +379,21 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const scoreMatch = trimmed.match(/^score\s+(IDEA-\d+)$/i);
+  const scoreMatch = trimmed.match(/^(?:score|rate|evaluate)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i);
   if (scoreMatch?.[1]) {
     const result = await scoreIdea(user.id, normalizePublicId(scoreMatch[1]), ai);
     await replyHtml(ctx, formatIdeaScore(result.publicId, result.score));
     return true;
   }
 
-  const briefMatch = trimmed.match(/^brief\s+(IDEA-\d+)$/i);
+  const briefMatch = trimmed.match(/^(?:brief|build (?:an\s+)?(?:implementation\s+)?brief|create (?:an\s+)?implementation (?:brief|prompt) for)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i);
   if (briefMatch?.[1]) {
     const result = await createImplementationBrief(user.id, normalizePublicId(briefMatch[1]));
     await replyInChunks(ctx, [`Implementation prompt for ${result.publicId}:`, "", result.prompt].join("\n"));
     return true;
   }
 
-  const calendarLinkMatch = trimmed.match(/^(?:(?:send|give|get)(?:\s+me)?(?:\s+the)?\s+)?google\s+calendar\s+link\s+(?:for\s+)?(\S+)$/i);
+  const calendarLinkMatch = trimmed.match(/^(?:(?:send|give|get)(?:\s+me)?(?:\s+the)?\s+)?google\s+calendar\s+link\s+(?:for\s+)?(?:task\s+)?(\S+)$/i);
   if (calendarLinkMatch?.[1]) {
     await replyWithTaskCalendar(ctx, {
       userId: user.id,
@@ -382,7 +404,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const calendarMatch = trimmed.match(/^(?:calendar|googlecal)\s+(\S+)$/i);
+  const calendarMatch = trimmed.match(/^(?:calendar|googlecal)\s+(?:for\s+)?(?:task\s+)?(\S+)$/i)
+    ?? trimmed.match(/^(?:add|put)\s+(?:task\s+)?(\S+)\s+(?:to|on)\s+(?:my\s+)?calendar$/i);
   if (calendarMatch?.[1]) {
     await replyWithTaskCalendar(ctx, {
       userId: user.id,
@@ -412,23 +435,32 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const ideaMatch = trimmed.match(/^idea\s+(.+)$/i);
-  if (ideaMatch?.[1]) {
-    const idea = await createIdea(user.id, ideaMatch[1], ai);
+  if (/^(?:version|status|bot status|system status|what version (?:is this|are you running)|are reminders working)$/.test(lower)) {
+    await replyHtml(ctx, formatVersionStatus({
+      ai: ai.getStatus(),
+      gmailConfigured: gmailConfigured(),
+      reminders: getReminderDiagnostics()
+    }));
+    return true;
+  }
+
+  const ideaBody = parseNaturalIdeaBody(trimmed);
+  if (ideaBody) {
+    const idea = await createIdea(user.id, ideaBody, ai);
     await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
     return true;
   }
 
-  const addMatch = trimmed.match(/^(?:add|todo|task)\s+(.+)$/i);
-  if (addMatch?.[1]) {
-    const task = await createTask(user.id, addMatch[1], ai, taskCreationOptionsFromContext(ctx, addMatch[1]));
+  const taskBody = parseNaturalTaskBody(trimmed);
+  if (taskBody) {
+    const task = await createTask(user.id, taskBody, ai, taskCreationOptionsFromContext(ctx, taskBody));
     await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
 
-  const noteMatch = trimmed.match(/^(?:note|save note)\s+(.+)$/i);
-  if (noteMatch?.[1]) {
-    const note = await createNote(user.id, noteMatch[1], ai);
+  const noteBody = parseNaturalNoteBody(trimmed);
+  if (noteBody) {
+    const note = await createNote(user.id, noteBody, ai);
     await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
     return true;
   }

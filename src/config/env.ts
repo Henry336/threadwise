@@ -7,7 +7,6 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_MODEL_FALLBACKS: z.string().default("gpt-5.5,gpt-5.4,gpt-5.4-nano"),
-  OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   ADMIN_STATUS_TOKEN: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   WEBHOOK_URL: z.string().url().optional(),

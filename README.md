@@ -20,7 +20,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Schedules recurring reminders with natural phrases such as "remind me to have dinner at 7pm every day" or "remind me to clean the fridge at 9am every week".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
-- Detects natural reminder messages like "remind me to check the logs tomorrow at 9am" and "remind me to check the washer after 5 mins".
+- Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "don't let me forget to submit the form at 5pm", and "nudge me to check the oven in half an hour" without requiring OpenAI.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
@@ -39,7 +39,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting with content first, then IDs/dates/settings metadata below.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with deterministic first-pass classification for obvious tasks, reminders, notes, and ideas. Clear captures can save automatically with an undo hint; ambiguous captures still use AI or ask before saving.
+- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, cleanup, Gmail, calendar, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
 - Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
 - Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
 - Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
@@ -134,7 +134,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 `/start` introduces Threadwise as a natural-language bot first. `/help` shows a full capability guide with natural examples and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
-Normal Telegram messages are also supported. Threadwise first checks for command-like natural language such as "how do I use this bot?", "how do I set reminders?", "show me the notes", "show me the tasks", "show note 1", "archive note 1", "delete note NOTE-1", "change timezone to Myanmar", "change timezone singapore", "remind me again every 3 hours", "warn me 10 mins before due tasks", "allow up to 200 reminders per day", "quiet hours off", "merge notes 1 2 3", "show archived notes", "search notes deployment", "search done curriculum paper", "reschedule task 1 to tomorrow 10am", "assign task 2 to @henry_derek", "give me the google calendar link for TASK-1", "pin NOTE-1", or "undo". If it is not a command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation. Users can also talk naturally, such as "remind me to check the logs tomorrow at 9am", "remind me to have dinner at 7pm every day", "remind me to do sth after 5 mins", "remind me about the meeting in 2 hrs", "please remind me to prepare a gift at 3:20 pm", "set a reminder for school at 9 am", or "add renew passport next Friday".
+Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI classification. It understands broad variations including "what notes do I have?", "write this down: ...", "remember that ...", "I need to submit the report by Friday", "could you remind me ...?", "don't let me forget ...", "mark task 1 as done", "remove important from task 2", "bring back NOTE-2", "check my unread email", "add task 1 to my calendar", "what version are you running?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, day-after-tomorrow, noon/midnight, weekday dates, month-first dates, and ordinals. If a message is not a recognized command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
 
 In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @henry_derek to bring snacks at 5pm`. The saved task belongs to the group chat, stores `@henry_derek` as the assignee, and sends reminders back to that group. If Telegram provides a numeric user id through a text mention, Threadwise stores that too; otherwise it stores the public username.
 
@@ -266,6 +266,10 @@ OPENAI_API_KEY=
 ```
 
 `OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses deterministic local behavior plus heuristic fallbacks for synthesis features such as scoring and note analysis.
+
+### API cost behavior
+
+The normal command path does not need OpenAI. Command intent, reminder dates, tasks, short notes, settings, edits, lists, archives, calendar exports, embeddings, and search all run locally. If an OpenAI key is configured, chat calls are reserved for ambiguous message classification and synthesis-heavy features such as idea structuring, long or explicitly rewritten notes, note merging/analysis, idea scoring, and email summaries. Remove `OPENAI_API_KEY` to run the entire bot in local/heuristic mode; every command remains available.
 
 4. Generate Prisma client:
 

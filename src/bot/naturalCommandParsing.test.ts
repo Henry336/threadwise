@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { parseListRequest, parseNaturalHelpRequest, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTimezoneChange } from "./naturalCommandParsing";
+import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody, parseNaturalTimezoneChange } from "./naturalCommandParsing";
 
 describe("natural command parsing", () => {
   it.each([
     ["show me the notes", "notes"],
     ["show me the tasks", "tasks"],
     ["list my ideas", "ideas"],
-    ["open tasks", "tasks"]
+    ["open tasks", "tasks"],
+    ["what notes do I have", "notes"],
+    ["let me see my ideas", "ideas"],
+    ["show recent notes", "notes"],
+    ["what are my open tasks", "tasks"]
   ])("parses list requests: %s", (input, expected) => {
     expect(parseListRequest(input)).toBe(expected);
   });
@@ -64,8 +68,37 @@ describe("natural command parsing", () => {
     ["remind us to submit our assignment at 10:16 am", "us to submit our assignment at 10:16 am"],
     ["remind @henry_derek to submit his assignment at 10:19 am", "@henry_derek to submit his assignment at 10:19 am"],
     ["set a reminder for school at 9 am", "for school at 9 am"],
-    ["create reminder to leave in 20 min", "to leave in 20 min"]
+    ["create reminder to leave in 20 min", "to leave in 20 min"],
+    ["could you remind me to call Mum tomorrow at 9?", "me to call Mum tomorrow at 9"],
+    ["don't let me forget to submit the form at 5pm", "me to submit the form at 5pm"],
+    ["nudge me to check the oven in 20 minutes", "me to check the oven in 20 minutes"],
+    ["send me a reminder about rent on 10 July at 8am", "me about rent on 10 July at 8am"]
   ])("parses reminder starter bodies: %s", (input, expected) => {
     expect(parseNaturalReminderBody(input)).toBe(expected);
+  });
+
+  it.each([
+    ["save a note that the spare key is in the blue drawer", "the spare key is in the blue drawer"],
+    ["write this down: DATABASE_URL lives in Render", "DATABASE_URL lives in Render"],
+    ["make a note about the book Alex recommended", "the book Alex recommended"],
+    ["note to self: renew the passport after the trip", "renew the passport after the trip"],
+    ["remember that Wi-Fi password is on the router", "Wi-Fi password is on the router"]
+  ])("parses natural note capture: %s", (input, expected) => {
+    expect(parseNaturalNoteBody(input)).toBe(expected);
+  });
+
+  it.each([
+    ["create a task to buy batteries tomorrow", "buy batteries tomorrow"],
+    ["I need to submit the report by Friday", "submit the report by Friday"],
+    ["put book dentist on my todo list", "book dentist"]
+  ])("parses natural task capture: %s", (input, expected) => {
+    expect(parseNaturalTaskBody(input)).toBe(expected);
+  });
+
+  it.each([
+    ["save this as an idea: a receipt scanner for Telegram", "a receipt scanner for Telegram"],
+    ["I have an idea for a quiet-hours dashboard", "a quiet-hours dashboard"]
+  ])("parses natural idea capture: %s", (input, expected) => {
+    expect(parseNaturalIdeaBody(input)).toBe(expected);
   });
 });

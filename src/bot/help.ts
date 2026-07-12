@@ -62,6 +62,8 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Type normal messages. Clear requests become tasks, reminders, notes, ideas, searches, or settings changes.",
     natural: [
       "remind me to call mom tomorrow at 9",
+      "don't let me forget to submit the form at 5pm",
+      "nudge me to check the oven in half an hour",
       "save note passport expires in May",
       "show me my tasks",
       "change timezone to Myanmar",
@@ -76,13 +78,16 @@ const HELP_SECTIONS: HelpSection[] = [
     natural: [
       "add pay invoice tomorrow at 9am",
       "remind me to check the washer after 5 mins",
+      "could you remind me to call Mum day after tomorrow at noon?",
       "remind me to have dinner at 7pm every day",
       "assign task 2 to @henry_derek",
       "show task 2",
       "complete task 1",
+      "mark task 1 as done",
       "snooze task 1 for 1 hour",
       "move task 2 to Friday",
       "mark task 2 important",
+      "remove important from task 2",
       "cancel task 3"
     ],
     commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/assign 2 @henry_derek", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/cancel 3"]
@@ -93,12 +98,14 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Save, open, search, merge, archive, or restore notes.",
     natural: [
       "note DATABASE_URL is stored in Render",
+      "write this down: the spare key is in the blue drawer",
+      "remember that Wi-Fi password is on the router",
       "show me the notes",
       "show note 3",
       "search notes deployment",
       "merge notes 1 2 3",
       "archive note 2",
-      "restore NOTE-2"
+      "bring back note NOTE-2"
     ],
     commands: ["/note DATABASE_URL is stored in Render", "/notes", "/note 3", "/search notes deployment", "/merge notes 1 2 3", "/archive note 2", "/restore NOTE-2"]
   },
@@ -108,6 +115,7 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Capture ideas, open them later, score them, or create implementation briefs.",
     natural: [
       "idea build a Telegram bot for life admin",
+      "I have an idea for a quiet-hours dashboard",
       "show me my ideas",
       "show idea 1",
       "score IDEA-1",
@@ -148,6 +156,7 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Reverse recent saves, edits, pins, and archive changes.",
     natural: [
       "undo",
+      "take that back",
       "unstar NOTE-1",
       "remove important from task 2",
       "show archived tasks"

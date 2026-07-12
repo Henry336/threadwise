@@ -214,11 +214,13 @@ function stripTaskShell(text: string): string {
 
 function removeSchedulePhrases(text: string): string {
   return text
+    .replace(/\bday\s+after\s+tomorrow(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\b(?:today|tomorrow)(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\bnext\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\bon\s+\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\b\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?\b/g, "")
-    .replace(/\b(?:in|after)\s+\d+\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/ig, "")
+    .replace(/\b(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/ig, "")
+    .replace(/\b(?:at\s+)?(?:noon|midnight)(?:\s+(?:today|tomorrow))?\b/ig, "")
     .replace(/\bat\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?\b/ig, "");
 }
 

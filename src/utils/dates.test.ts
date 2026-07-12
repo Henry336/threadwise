@@ -22,6 +22,28 @@ describe("date utilities", () => {
   });
 
   it.each([
+    ["remind me in an hour", "2026-07-05T05:00:00.000Z"],
+    ["nudge me after half an hour", "2026-07-05T04:30:00.000Z"],
+    ["remind me in two days", "2026-07-07T04:00:00.000Z"]
+  ])("parses word-based relative reminders: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it("parses the day after tomorrow", () => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate("call Alex day after tomorrow at 8am", "Asia/Singapore", now)?.toISOString()).toBe("2026-07-07T00:00:00.000Z");
+  });
+
+  it.each([
+    ["remind me at noon", "2026-07-06T04:00:00.000Z"],
+    ["remind me at midnight tomorrow", "2026-07-05T16:00:00.000Z"]
+  ])("parses named times: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
     "remind me about the meeting in 2 hours",
     "remind me about the meeting in 2 hrs",
     "remind me about the meeting in 2 hr",
@@ -86,6 +108,14 @@ describe("date utilities", () => {
     const now = new Date("2026-07-08T17:41:00.000Z");
     const due = parseDueDate(text, "Asia/Singapore", now);
     expect(due?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
+  });
+
+  it.each([
+    "remind me on July 10 at 8 am",
+    "remind me on 10th July at 8 am"
+  ])("parses month-first and ordinal dates: %s", (text) => {
+    const now = new Date("2026-07-08T17:41:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe("2026-07-10T00:00:00.000Z");
   });
 
   it("parses same-day early-morning reminders in the user timezone", () => {

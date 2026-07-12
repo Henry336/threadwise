@@ -3,7 +3,9 @@ export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "se
 
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
-  const match = normalized.match(/^(?:(?:show|list|view|open)\s+)?(?:me\s+)?(?:my\s+|the\s+)?(tasks?|notes?|ideas?)$/);
+  const match = normalized.match(/^(?:(?:show|list|view|open|give)\s+)?(?:me\s+)?(?:all\s+|recent\s+|open\s+)?(?:my\s+|the\s+)?(tasks?|notes?|ideas?)$/)
+    ?? normalized.match(/^(?:let\s+me\s+(?:see|view)|what\s+(?:are|were)\s+my|what)\s+(?:all\s+|recent\s+|open\s+)?(?:my\s+)?(tasks?|notes?|ideas?)(?:\s+do\s+i\s+have)?$/)
+    ?? normalized.match(/^what\s+(tasks?|notes?|ideas?)\s+do\s+i\s+have$/);
   if (!match?.[1]) {
     return undefined;
   }
@@ -16,9 +18,54 @@ export function parseListRequest(text: string): ListKind | undefined {
 
 export function parseNaturalReminderBody(text: string): string | undefined {
   const normalized = text.trim();
-  const match = normalized.match(/^(?:please\s+)?remind\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:set|create|make)\s+(?:a\s+)?reminder\s+(.+)$/i);
-  return match?.[1]?.trim();
+  const directMatch = normalized.match(/^(?:please\s+)?remind\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:can|could|would|will)\s+you\s+remind\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:set|create|make)\s+(?:me\s+)?(?:a\s+)?reminder\s+(.+)$/i);
+  if (directMatch?.[1]) {
+    return stripTrailingPunctuation(directMatch[1]);
+  }
+
+  const forgetMatch = normalized.match(/^(?:please\s+)?(?:do\s+not|don't)\s+let\s+me\s+forget\s+(to|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?i\s+need\s+to\s+remember\s+(to|about)\s+(.+)$/i);
+  if (forgetMatch?.[1] && forgetMatch[2]) {
+    return `me ${forgetMatch[1].toLowerCase()} ${stripTrailingPunctuation(forgetMatch[2])}`;
+  }
+
+  const nudgeMatch = normalized.match(/^(?:please\s+)?(?:ping|nudge)\s+me\s+(to|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:give|send)\s+me\s+(?:a\s+)?reminder\s+(to|about|for)\s+(.+)$/i);
+  if (nudgeMatch?.[1] && nudgeMatch[2]) {
+    return `me ${nudgeMatch[1].toLowerCase()} ${stripTrailingPunctuation(nudgeMatch[2])}`;
+  }
+
+  return undefined;
+}
+
+export function parseNaturalNoteBody(text: string): string | undefined {
+  const normalized = text.trim();
+  const match = normalized.match(/^(?:please\s+)?note\s+to\s+self\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:note|save\s+(?:this\s+as\s+)?(?:a\s+)?note)\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:write|jot)\s+(?:this\s+)?down\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:save|keep|store)\s+(?:this\s+)?(?:as\s+)?(?:a\s+)?note\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:make|create)\s+(?:me\s+)?(?:a\s+)?note\s+(?:that|of|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?remember\s+that\s+(.+)$/i);
+  return match?.[1] ? stripTrailingPunctuation(match[1]).replace(/^that\s+/i, "") : undefined;
+}
+
+export function parseNaturalIdeaBody(text: string): string | undefined {
+  const normalized = text.trim();
+  const match = normalized.match(/^(?:please\s+)?idea\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:save|capture|record)\s+(?:this\s+)?(?:as\s+)?(?:an\s+)?idea\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?i\s+(?:have|had)\s+an\s+idea\s+(?:for|to|about)\s+(.+)$/i);
+  return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
+}
+
+export function parseNaturalTaskBody(text: string): string | undefined {
+  const normalized = text.trim();
+  const match = normalized.match(/^(?:please\s+)?(?:add|create|make)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:task|todo|to-do)\s*(?:to|for|:|-)?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:add|todo|task)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?i\s+need\s+to\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+my\s+(?:task|todo|to-do)\s+list$/i);
+  return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 
 export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefined {
@@ -180,4 +227,8 @@ function parseMinutes(text: string): number | undefined {
 
 function normalize(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function stripTrailingPunctuation(text: string): string {
+  return text.trim().replace(/[?.!]+$/g, "").trim();
 }
