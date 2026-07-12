@@ -88,6 +88,12 @@ function stripBotReference(ctx: Context, text: string): string {
     .trim();
 }
 
+export function shouldHandleGroupUpdate(ctx: Context): boolean {
+  if (!isGroupChat(ctx) || !ctx.message) return true;
+  if (ctx.message.text?.startsWith("/")) return true;
+  return messageTargetsBot(ctx, ctx.message.text ?? ctx.message.caption ?? "");
+}
+
 export function telegramGroupPrivacyEnabled(ctx: Context): boolean {
   return botInfo(ctx)?.can_read_all_group_messages !== true;
 }

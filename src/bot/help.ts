@@ -24,16 +24,16 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/remind", description: "Schedule a reminder for a specific time.", example: "/remind tomorrow at 9am | submit the form" },
   { command: "/tasks", description: "List open tasks with active numbers and buttons.", example: "/tasks" },
   { command: "/task", description: "Show one task's details and reminder status.", example: "/task 1" },
-  { command: "/done", description: "Complete a task.", example: "/done 1" },
+  { command: "/done", description: "Complete one task, or preview and confirm several.", example: "/done 1 2 3" },
   { command: "/snooze", description: "Delay a task reminder.", example: "/snooze 1 1h" },
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
   { command: "/assign", description: "Assign a group task to a Telegram username.", example: "/assign 1 @henry_derek" },
   { command: "/unassign", description: "Remove a task assignee.", example: "/unassign 1" },
-  { command: "/cancel", description: "Cancel an open task.", example: "/cancel 1" },
+  { command: "/cancel", description: "Cancel one task, or preview and confirm several.", example: "/cancel 1 2 3" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
   { command: "/important", description: "Mark a task important.", example: "/important 1" },
-  { command: "/archive", description: "Archive a note you no longer want in active notes.", example: "/archive note 1" },
+  { command: "/archive", description: "Archive notes or ideas; multiple items require confirmation.", example: "/archive notes 1 2 3" },
   { command: "/score", description: "Score an idea for usefulness, buildability, risk, and more.", example: "/score IDEA-1" },
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
   { command: "/note", description: "Save a cleaned searchable note, or open a note by number.", example: "/note 1" },
@@ -89,6 +89,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "assign task 2 to @henry_derek",
       "show task 2",
       "complete task 1",
+      "complete tasks 1, 2 and 3",
       "mark task 1 as done",
       "snooze task 1 for 1 hour",
       "move task 2 to Friday",
@@ -98,7 +99,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "add task 2 to my calendar",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @henry_derek", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 3"]
+    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @henry_derek", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 1 2 3"]
   },
   {
     topic: "notes",
@@ -113,9 +114,10 @@ const HELP_SECTIONS: HelpSection[] = [
       "search notes deployment",
       "merge notes 1 2 3",
       "archive note 2",
+      "delete notes 1, 2 and 3",
       "bring back note NOTE-2"
     ],
-    commands: ["/note DATABASE_URL is stored in Render", "/notes", "/note 3", "/search notes deployment", "/merge notes 1 2 3", "/archive note 2", "/restore NOTE-2"]
+    commands: ["/note DATABASE_URL is stored in Render", "/notes", "/note 3", "/search notes deployment", "/merge notes 1 2 3", "/archive notes 1 2 3", "/restore NOTE-2"]
   },
   {
     topic: "ideas",
@@ -212,9 +214,10 @@ const HELP_SECTIONS: HelpSection[] = [
       "take that back",
       "unstar NOTE-1",
       "remove important from task 2",
-      "show archived tasks"
+      "show archived tasks",
+      "delete ideas 1, 2 and 3"
     ],
-    commands: ["/undo", "/unpin NOTE-1", "/unpin 2", "/archived tasks"]
+    commands: ["/undo", "/unpin NOTE-1", "/unpin 2", "/delete ideas 1 2 3", "/archived tasks"]
   }
 ];
 

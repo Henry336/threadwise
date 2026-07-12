@@ -17,6 +17,7 @@ import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPe
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -45,6 +46,28 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^expense:page:(all|day|month|year):([^:]+):(\d+)$/, async (ctx) => {
     await handleExpensePage(ctx, `${ctx.match[1]}:${ctx.match[2]}`, ctx.match[3]);
   });
+  bot.callbackQuery(/^bulk:(confirm|cancel):(.+)$/, async (ctx) => {
+    await handleBulkAction(ctx, ctx.match[1], ctx.match[2]);
+  });
+}
+
+async function handleBulkAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
+  if (!action || !pendingId || !ctx.from?.id) return;
+  const user = await ensureUser(ctx);
+  try {
+    if (action === "cancel") {
+      await cancelBulkAction(user.id, pendingId, String(ctx.from.id));
+      await ctx.answerCallbackQuery({ text: "Canceled" });
+      await ctx.reply("Bulk action canceled. Nothing changed.");
+      return;
+    }
+    const result = await confirmBulkAction(user.id, pendingId, String(ctx.from.id));
+    await ctx.answerCallbackQuery({ text: "Bulk action complete" });
+    await replyHtml(ctx, formatBulkActionResult(result));
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: "Could not complete action" });
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't complete that bulk action.");
+  }
 }
 
 async function handleImageAction(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {

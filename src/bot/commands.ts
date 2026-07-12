@@ -72,6 +72,8 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, 
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
+import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
+import { bulkActionConfirmationKeyboard } from "./keyboards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -328,7 +330,13 @@ async function handleDone(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "done");
   if (!id) {
-    await ctx.reply("Send it like this: /done 1 or /done TASK-1");
+    await ctx.reply("Send it like this: /done 1, /done TASK-1, or /done 1 2 3 for a confirmation preview.");
+    return;
+  }
+
+  const references = parseBulkReferences(id);
+  if (references && references.length > 1) {
+    await replyBulkActionPreview(ctx, user.id, { action: "complete", itemKind: "task", references });
     return;
   }
 
@@ -524,10 +532,15 @@ async function handleArchive(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/remove") ? "remove" : "archive";
   const body = commandBody(ctx.message?.text ?? "", command);
+  const bulkRequest = parseBulkActionRequest(`${command} ${body}`);
+  if (bulkRequest) {
+    await replyBulkActionPreview(ctx, user.id, bulkRequest);
+    return;
+  }
   const noteMatch = body.match(/^(?:note\s+)?(.+)$/i);
   const reference = noteMatch?.[1]?.trim();
   if (!reference) {
-    await ctx.reply(`Send it like this: /${command} note 1 or /${command} NOTE-1`);
+    await ctx.reply(`Send it like this: /${command} note 1, /${command} notes 1 2 3, or /${command} ideas 1 2 3`);
     return;
   }
 
@@ -558,7 +571,17 @@ async function handleCancel(ctx: Context) {
   const command = ctx.message?.text?.startsWith("/delete") ? "delete" : "cancel";
   const id = commandBody(ctx.message?.text ?? "", command);
   if (!id) {
-    await ctx.reply(`Send it like this: /${command} 1 or /${command} TASK-1`);
+    await ctx.reply(`Send it like this: /${command} 1, /${command} 1 2 3, or /delete notes 1 2 3`);
+    return;
+  }
+
+  const parsedBulk = parseBulkActionRequest(`${command} ${id}`);
+  const references = parseBulkReferences(id);
+  const bulkRequest = parsedBulk ?? (references && references.length > 1
+    ? { action: "delete" as const, itemKind: "task" as const, references }
+    : undefined);
+  if (bulkRequest) {
+    await replyBulkActionPreview(ctx, user.id, bulkRequest);
     return;
   }
 
@@ -836,6 +859,21 @@ async function handleVersion(ctx: Context, ai: AiProvider) {
     excelConfigured: microsoftExcelConfigured(),
     reminders: getReminderDiagnostics()
   }));
+}
+
+async function replyBulkActionPreview(ctx: Context, userId: string, request: BulkActionRequest) {
+  if (!ctx.from?.id) {
+    await ctx.reply("I couldn't identify who requested that bulk action.");
+    return;
+  }
+  try {
+    const preview = await createBulkActionPreview(userId, String(ctx.from.id), request);
+    await replyHtml(ctx, formatBulkActionPreview(preview), {
+      reply_markup: bulkActionConfirmationKeyboard(preview.pending.id)
+    });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that bulk action.");
+  }
 }
 
 async function replyInChunks(ctx: Context, text: string) {

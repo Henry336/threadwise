@@ -59,6 +59,7 @@ model User {
   pendingCaptures       PendingCapture[]
   pendingNoteMerges     PendingNoteMerge[]
   pendingItemEdits      PendingItemEdit[]
+  pendingBulkActions    PendingBulkAction[]
   pendingSearches       PendingSearch[]
   pendingGmailOAuth     PendingGmailOAuth[]
   gmailConnection       GmailConnection?
@@ -261,6 +262,21 @@ model PendingItemEdit {
   previousValue String?
   expiresAt     DateTime
   createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PendingBulkAction {
+  id                    String   @id @default(uuid())
+  userId                String
+  action                String
+  itemKind              String
+  itemIds               String[]
+  requestedByTelegramId String
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

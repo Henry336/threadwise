@@ -29,6 +29,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`. Pressing Complete again reports that the task is already completed and offers a safe Restore button.
+- Supports bulk task completion and bulk task/note/idea removal with an itemized preview, requester-only Confirm/Cancel buttons, a 25-item limit, and no changes before confirmation.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
 - Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
 - Archives notes from note list/detail buttons, `/archive note 1`, or natural text such as `delete note 1`.
@@ -76,6 +77,8 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /ideas 1
 /merge notes 1 2 3
 /archive note 1
+/archive notes 1 2 3
+/archive ideas 1-3
 /remove NOTE-1
 /archived notes
 /archived ideas
@@ -88,6 +91,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /task 1
 /done TASK-1
 /done 1
+/done 1 2 3
 /snooze TASK-1 1h
 /snooze 1 1h
 /reschedule 1 tomorrow at 10am
@@ -107,7 +111,10 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /unpin NOTE-1
 /pins
 /cancel 1
+/cancel 1 2 3
 /delete TASK-1
+/delete notes 1 2 3
+/delete ideas IDEA-1 IDEA-2
 /search reminder bot ideas
 /search done curriculum paper
 /search tasks invoice
@@ -162,7 +169,7 @@ Normal Telegram messages are also supported. Threadwise checks deterministic com
 
 In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @henry_derek to bring snacks at 5pm`. The saved task belongs to the group chat, stores `@henry_derek` as the assignee, and sends reminders back to that group. If Telegram provides a numeric user id through a text mention, Threadwise stores that too; otherwise it stores the public username. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode.
 
-Telegram's privacy-enabled bots do not receive ordinary messages merely because the text contains their `@username`; they receive bot commands and replies instead. To enable Threadwise's natural addressed messages, open BotFather, run `/setprivacy`, select the Threadwise bot, and choose `Disable`. Threadwise still ignores unaddressed group conversation in its own routing. If an existing group does not reflect the change immediately, remove and re-add the bot once.
+Telegram's privacy-enabled bots do not receive ordinary messages merely because the text contains their `@username`; they receive bot commands and replies instead. To enable Threadwise's natural addressed messages, open BotFather, run `/setprivacy`, select the Threadwise bot, and choose `Disable`. Threadwise has its own centralized address gate: unaddressed group text, photos, image documents, and captions are discarded before capture, OCR, editing, or natural-language handling. Slash commands, replies to Threadwise, and messages that mention Threadwise are allowed. If an existing group does not reflect the BotFather change immediately, remove and re-add the bot once.
 
 The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, expenses, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
 
@@ -171,6 +178,8 @@ For tasks, `/pin`, `/star`, and `/important` mark the task as important. Importa
 For high-confidence tasks, notes, and ideas, Threadwise may save immediately and include `/undo` in the reply.
 
 `TASK-1`, `TASK-2`, and similar public IDs are stable database references and are not reused. `/tasks` also shows active list numbers, so a single open task can be handled as `/done 1` even if its stable ID is `TASK-999`.
+
+Bulk examples include `complete tasks 1, 2 and 3`, `delete notes 1-3`, `remove ideas IDEA-2 and IDEA-4`, `/done 1 2 3`, and `/delete notes 1 2 3`. Threadwise resolves current list numbers before showing the preview. Only the Telegram user who requested the action can press Confirm or Cancel. Bulk “delete” remains recoverable by archiving tasks, notes, and ideas; use `/archived <type>` and `/restore <ID>` to bring one back. Notes and ideas do not have a completed state; completion applies to tasks.
 
 Undoing a newly saved capture archives it out of active lists and search instead of hard-deleting the row. That keeps public IDs durable and avoids future items silently reusing an old ID. Archived items keep an archive reason where available; notes merged into another note also keep the merged-into note reference.
 

@@ -4,7 +4,7 @@ import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h } from "../utils/html";
 import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
-import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
+import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { formatDateTimeForUser } from "../utils/dates";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 
@@ -66,6 +66,25 @@ export async function findIdeaReference(userId: string, reference: string) {
   }
 
   return findIdea(userId, normalized);
+}
+
+export async function archiveIdea(userId: string, reference: string) {
+  const idea = await findIdeaReference(userId, reference);
+  const archivedAt = new Date();
+  return prisma.$transaction(async (tx) => {
+    await recordArchiveUndo(tx, userId, {
+      kind: "idea",
+      id: idea.id,
+      publicId: idea.publicId,
+      title: idea.title,
+      archivedAt: idea.archivedAt,
+      archivedReason: idea.archivedReason
+    });
+    return tx.idea.update({
+      where: { id: idea.id },
+      data: { archivedAt, archivedReason: "removed" }
+    });
+  });
 }
 
 export async function renameIdeaTitle(userId: string, publicOrUuid: string, title: string) {

@@ -5,7 +5,7 @@ import { logger } from "../logger";
 import { claimTelegramUpdate } from "../services/telegramUpdates";
 import { registerCallbacks } from "./callbacks";
 import { registerCommands } from "./commands";
-import { isGroupChat, isTelegramContextAllowed } from "./groupRouting";
+import { isGroupChat, isTelegramContextAllowed, shouldHandleGroupUpdate } from "./groupRouting";
 import { registerNaturalLanguage } from "./naturalLanguage";
 import { registerImageMessages } from "./imageMessages";
 
@@ -35,6 +35,10 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   });
 
   bot.use(async (ctx, next) => {
+    if (!shouldHandleGroupUpdate(ctx)) {
+      return;
+    }
+
     const shouldProcess = await claimTelegramUpdate(ctx.update.update_id);
     if (!shouldProcess) {
       logger.warn("Skipping duplicate Telegram update.", { updateId: ctx.update.update_id });

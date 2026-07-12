@@ -164,6 +164,12 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
   return keyboard;
 }
 
+export function bulkActionConfirmationKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Confirm", `bulk:confirm:${pendingId}`)
+    .text("Cancel", `bulk:cancel:${pendingId}`);
+}
+
 export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Save note", `image:note:${pendingId}`)

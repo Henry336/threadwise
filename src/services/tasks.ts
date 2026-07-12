@@ -8,7 +8,7 @@ import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageForm
 import { createGoogleCalendarUrl } from "./calendar";
 import { nextPublicId } from "./publicIds";
 import { nextDueReminderAt } from "./reminders";
-import { recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
+import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
 
 export type TaskListItem = {
   id: string;
@@ -483,6 +483,28 @@ export function formatTaskCompleted(task: { publicId: string; title: string; sta
   }
 
   return `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}`;
+}
+
+export async function archiveTask(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
+  const archivedAt = new Date();
+  return prisma.$transaction(async (tx) => {
+    await recordArchiveUndo(tx, userId, {
+      kind: "task",
+      id: task.id,
+      publicId: task.publicId,
+      title: task.title,
+      archivedAt: task.archivedAt,
+      archivedReason: null
+    });
+    return tx.task.update({
+      where: { id: task.id },
+      data: {
+        archivedAt,
+        archivedReason: "removed"
+      }
+    });
+  });
 }
 
 export function formatTaskAlreadyCompleted(task: { publicId: string; title: string }): string {

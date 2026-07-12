@@ -40,11 +40,30 @@ import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
+import { bulkActionConfirmationKeyboard } from "./keyboards";
+import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
   const lower = trimmed.toLowerCase();
   const user = await ensureUser(ctx);
+
+  const bulkRequest = parseBulkActionRequest(trimmed);
+  if (bulkRequest) {
+    if (!ctx.from?.id) {
+      await ctx.reply("I couldn't identify who requested that bulk action.");
+      return true;
+    }
+    try {
+      const preview = await createBulkActionPreview(user.id, String(ctx.from.id), bulkRequest);
+      await replyHtml(ctx, formatBulkActionPreview(preview), {
+        reply_markup: bulkActionConfirmationKeyboard(preview.pending.id)
+      });
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that bulk action.");
+    }
+    return true;
+  }
 
   if (lower === "help") {
     await replyHtml(ctx, formatHelpGuide());

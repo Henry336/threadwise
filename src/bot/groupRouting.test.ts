@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { describe, expect, it } from "vitest";
-import { isTelegramContextAllowed, prepareNaturalLanguageText, telegramAllowlistKeys, telegramGroupPrivacyEnabled } from "./groupRouting";
+import { isTelegramContextAllowed, prepareNaturalLanguageText, shouldHandleGroupUpdate, telegramAllowlistKeys, telegramGroupPrivacyEnabled } from "./groupRouting";
 
 const bot = {
   id: 99,
@@ -68,6 +68,38 @@ describe("group routing", () => {
     expect(telegramGroupPrivacyEnabled(context({
       me: { ...bot, can_read_all_group_messages: true }
     }))).toBe(false);
+  });
+
+  it("strictly ignores unaddressed group text and images when Telegram privacy is disabled", () => {
+    expect(shouldHandleGroupUpdate(context({
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: { message_id: 1, date: 0, chat: { id: -100456, type: "supergroup", title: "Family" }, text: "buy milk" }
+    }))).toBe(false);
+    expect(shouldHandleGroupUpdate(context({
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: { message_id: 2, date: 0, chat: { id: -100456, type: "supergroup", title: "Family" }, photo: [{ file_id: "p", file_unique_id: "u", width: 100, height: 100 }] }
+    }))).toBe(false);
+  });
+
+  it("allows group slash commands, mentions, replies, and addressed image captions", () => {
+    expect(shouldHandleGroupUpdate(context({
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: { message_id: 3, date: 0, chat: { id: -100456, type: "supergroup", title: "Family" }, text: "/tasks" }
+    }))).toBe(true);
+    expect(shouldHandleGroupUpdate(context({
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: { message_id: 4, date: 0, chat: { id: -100456, type: "supergroup", title: "Family" }, caption: "@threadwise_1_bot save this receipt", photo: [{ file_id: "p", file_unique_id: "u", width: 100, height: 100 }] }
+    }))).toBe(true);
+    expect(shouldHandleGroupUpdate(context({
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: {
+        message_id: 5,
+        date: 0,
+        chat: { id: -100456, type: "supergroup", title: "Family" },
+        text: "complete tasks 1 and 2",
+        reply_to_message: { message_id: 4, date: 0, chat: { id: -100456, type: "supergroup", title: "Family" }, from: bot, text: "Tasks" }
+      }
+    }))).toBe(true);
   });
 
   it.each([

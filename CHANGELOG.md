@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.14.0 - 2026-07-12
+
+### Added
+- Added bulk task completion through natural phrases such as `complete tasks 1, 2 and 3` and slash syntax such as `/done 1 2 3`.
+- Added bulk removal for tasks, notes, and ideas, including numeric ranges and stable public IDs.
+- Added durable 15-minute bulk-action previews with itemized Confirm/Cancel buttons; only the requesting Telegram user can act on the preview.
+
+### Changed
+- Bulk “delete” stays recoverable by archiving tasks, notes, and ideas for `/restore`.
+- Added a centralized group-update gate so disabling BotFather privacy does not expose ambient group conversation to capture, OCR, edits, or natural-language routing.
+
+### Security
+- Unaddressed group text, photos, image documents, and captions are discarded before feature handlers; slash commands, replies, and actual bot mentions remain allowed.
+
 ## v0.13.1 - 2026-07-12
 
 ### Fixed
