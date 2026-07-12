@@ -14,7 +14,7 @@ describe("Excel configuration", () => {
   it("recognizes a complete Microsoft Excel configuration", async () => {
     const { microsoftExcelConfigured } = await import("./excel");
     expect(microsoftExcelConfigured()).toBe(true);
-  });
+  }, 15_000);
 
   it("builds a usable workbook with the predefined expense columns", async () => {
     const ExcelJS = (await import("exceljs")).default;

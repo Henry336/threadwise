@@ -17,8 +17,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- Reads clear images and receipts locally with Tesseract OCR, then offers buttons to save the result as a note, task, reminder, or expense. No OCR or OpenAI API key is required.
+- Reads clear English, Burmese, or mixed English/Burmese images and receipts locally with Tesseract OCR, then offers buttons to save the result as a note, task, reminder, or expense. No OCR or OpenAI API key is required.
 - Stores confirmed expenses in Threadwise, supports manual text and receipt photos, and lists 10 newest-first rows per page with day, month, and year filters.
+- Gives each user a regional expense-currency default, accepts an explicit currency per expense, detects common currency codes/symbols/words on receipts, and lets saved expenses be corrected later.
 - Exports expenses as a standalone `.xlsx` file, or optionally creates and synchronizes a private workbook in the user's OneDrive through Microsoft OAuth.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Schedules calendar-aware daily, weekly-on-a-weekday, and yearly reminders with natural phrases such as "remind me to sleep at 12am daily", "remind me to take out the trash every Friday at 7pm", and "remind me of Mum's birthday on 26 July every year".
@@ -125,6 +126,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /gmail scan
 /gmail disconnect
 /expense spent $18.40 on lunch at Toast Box today using Visa
+/expense edit EXP-2 currency MMK
 /expenses
 /expenses today
 /expenses this month
@@ -137,6 +139,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /excel use https://onedrive.live.com/...
 /excel disconnect
 /version
+/groupcheck
 /settings
 /settings interval 180
 /settings timezone Asia/Singapore
@@ -144,6 +147,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /settings timezone Myanmar
 /settings timezone Malaysia
 /settings timezone America/New_York
+/settings currency MMK
+/settings ocr English and Burmese
+/settings mode compact
 /settings quiet 22:00 08:00
 /settings quiet off
 /settings max 200
@@ -154,7 +160,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI classification. It understands broad variations including "what notes do I have?", "write this down: ...", "remember that ...", "I need to submit the report by Friday", "could you remind me ...?", "don't let me forget ...", "mark task 1 as done", "remove important from task 2", "bring back NOTE-2", "check my unread email", "add task 1 to my calendar", "what version are you running?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, day-after-tomorrow, noon/midnight, weekday dates, month-first dates, and ordinals. If a message is not a recognized command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
 
-In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @henry_derek to bring snacks at 5pm`. The saved task belongs to the group chat, stores `@henry_derek` as the assignee, and sends reminders back to that group. If Telegram provides a numeric user id through a text mention, Threadwise stores that too; otherwise it stores the public username.
+In group chats, natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @henry_derek to bring snacks at 5pm`. The saved task belongs to the group chat, stores `@henry_derek` as the assignee, and sends reminders back to that group. If Telegram provides a numeric user id through a text mention, Threadwise stores that too; otherwise it stores the public username. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, sender ID, and allowlist state.
 
 The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, expenses, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
 
@@ -218,7 +224,7 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 
 ## Image Text Extraction
 
-Send Threadwise a photo or an image document. It will extract printed English text locally and show a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform the action immediately:
+Send Threadwise a photo or an image document. It will extract printed English, Burmese, or mixed text locally and show a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform the action immediately:
 
 ```text
 extract the text
@@ -226,9 +232,10 @@ save this as a note
 turn this into a task
 remind me about this tomorrow at 9
 save this receipt as an expense
+read this in Burmese and save as an expense
 ```
 
-OCR uses bundled Tesseract language data and Sharp image cleanup on the Render server. It does not send the image to OpenAI or another OCR API and needs no API key. Images are rotated, resized, converted to grayscale, normalized, and sharpened before recognition. The safety limits are 10 MB and 20 megapixels, and recognition times out after 60 seconds. The first image after a deployment may be slower while the OCR worker starts.
+OCR uses bundled English and Burmese Tesseract language data and Sharp image cleanup on the Render server. It does not send the image to OpenAI or another OCR API and needs no API key. Choose a saved default with `read images in Burmese`, `read images in English and Burmese`, or `/settings ocr ...`; an individual image caption can override it. Images are rotated, resized, converted to grayscale, normalized, and sharpened before recognition. The safety limits are 10 MB and 20 megapixels, and recognition times out after 60 seconds. The first image after a deployment or language change may be slower while the OCR worker starts.
 
 For the best result, use a bright, straight, tightly cropped photo with sharp printed text. Screenshots and clear receipts work best. Handwriting, curved or blurred receipts, unusual fonts, multiple languages, and complex tables may need manual correction. Threadwise always shows a confirmation preview before saving a parsed receipt.
 
@@ -243,9 +250,12 @@ spent $18.40 on lunch at Toast Box today using Visa
 record an expense of SGD 25 for groceries
 paid 12.50 for parking yesterday
 bought printer paper for $9.90
+spent 12000 kyat on groceries
 ```
 
-Threadwise extracts the transaction date, merchant, category, description, subtotal, tax, discount, total, currency, and payment method when they are present. It shows a draft first. Use the buttons to save it, save and sync it to Excel, edit fields, or discard it. Receipt images also retain the OCR confidence and original extracted text. Re-sending the same Telegram receipt is detected so it is not saved twice accidentally.
+Threadwise extracts the transaction date, merchant, category, description, subtotal, tax, discount, total, currency, and payment method when they are present. New users get a best-effort regional currency based on their Threadwise timezone; set it explicitly with `set my expense currency to MMK` or `/settings currency MMK`. An explicit currency in a message or a recognizable receipt marker overrides that default. Burmese receipt amounts using Myanmar digits are normalized before parsing. It shows a draft first. Use the buttons to save it, save and sync it to Excel, edit fields, or discard it. Receipt images also retain the OCR confidence and original extracted text. Re-sending the same Telegram receipt is detected so it is not saved twice accidentally.
+
+Correct a confirmed expense with natural language such as `change currency of EXP-2 to USD`, `update EXP-2 total 18.50`, or `/expense edit EXP-2 currency USD`. Threadwise and future `.xlsx` exports use the correction. If the old row was already synchronized into a linked OneDrive workbook, change or remove that existing workbook row manually; Threadwise deliberately does not append a duplicate correction row.
 
 Browse expenses with `/expenses`, `/expenses today`, `/expenses 12 July 2026`, `/expenses this month`, `/expenses June 2026`, or `/expenses 2026`. Natural requests such as `what did I spend this month?` work too. Results are ordered from most recent to oldest, 10 per page, with Prev and Next buttons. Year filtering is already implemented.
 
@@ -372,6 +382,8 @@ npm run dev
 
 Leave `WEBHOOK_URL` empty for local development.
 
+Run `npm run smoke:ocr` to verify that both bundled English and Burmese OCR data load and recognize a generated mixed-language receipt without an API key.
+
 ## Render Deployment
 
 This repo includes `render.yaml` for a Render web service plus PostgreSQL database.
@@ -491,4 +503,5 @@ Current validation status at initial implementation:
 - Richer idea selection-to-implementation workflow.
 - Per-user privacy controls and export/delete flows.
 - Receipt review learning: remember a user's merchant/category corrections locally.
-- Optional multi-language OCR packs and multi-receipt batch import.
+- Additional local OCR languages beyond English and Burmese, plus multi-receipt batch import.
+- Full Burmese UI localization: translated message catalog, Burmese deterministic commands, Burmese date phrasing, and native-speaker QA.

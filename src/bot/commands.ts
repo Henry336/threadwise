@@ -59,7 +59,7 @@ import { createNoteMergePreview, formatNoteMergePreview } from "../services/note
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
-import { formatVersionStatus } from "../services/version";
+import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
@@ -67,9 +67,11 @@ import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitRe
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
+import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
+import { allowedTelegramIds } from "../config/env";
+import { isGroupChat, isTelegramContextAllowed } from "./groupRouting";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -114,6 +116,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("expenses", async (ctx) => handleExpenses(ctx));
   bot.command("excel", async (ctx) => handleExcel(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
+  bot.command("groupcheck", async (ctx) => handleGroupCheck(ctx));
 }
 
 async function handleHelp(ctx: Context) {
@@ -704,6 +707,24 @@ async function handleGmail(ctx: Context, ai: AiProvider) {
   await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
 }
 
+async function handleGroupCheck(ctx: Context) {
+  if (!isGroupChat(ctx)) {
+    await ctx.reply("/groupcheck is for Telegram groups. Add or open the bot in a group, then run it there.");
+    return;
+  }
+  const allowlist = allowedTelegramIds();
+  await replyHtml(ctx, [
+    bold("Threadwise group check"),
+    `${bold("Version")} ${code(`v${appVersion()}`)}`,
+    `${bold("Bot username")} ${h(ctx.me.username ? `@${ctx.me.username}` : "unavailable")}`,
+    `${bold("Group chat ID")} ${code(String(ctx.chat?.id ?? "unknown"))}`,
+    `${bold("Your Telegram ID")} ${code(String(ctx.from?.id ?? "unknown"))}`,
+    `${bold("Allowlist")} ${!allowlist?.size ? "open" : isTelegramContextAllowed(ctx, allowlist) ? "allowed" : "blocked"}`,
+    "",
+    "If this command works but an @mention does not, send the exact mention again and check that it matches the bot username above."
+  ].join("\n"));
+}
+
 async function handleExpense(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "expense");
@@ -711,8 +732,18 @@ async function handleExpense(ctx: Context) {
     await ctx.reply("Send it like this: /expense spent $18.40 on lunch at Toast Box today using Visa. You can also send a clear receipt photo with the caption 'save as expense'.");
     return;
   }
+  const editMatch = body.match(/^edit\s+(\S+)\s+(.+)$/i);
+  if (editMatch?.[1] && editMatch[2]) {
+    try {
+      const expense = await updateSavedExpense(user.id, normalizePublicId(editMatch[1]), editMatch[2], user.settings?.timezone ?? "UTC");
+      await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't update that expense.");
+    }
+    return;
+  }
   try {
-    const pending = await createPendingExpenseFromText(user.id, body, user.settings?.timezone ?? "UTC", { sourceType: "manual" });
+    const pending = await createPendingExpenseFromText(user.id, body, user.settings?.timezone ?? "UTC", { sourceType: "manual", defaultCurrency: user.settings?.expenseCurrency });
     await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
       reply_markup: expenseConfirmationKeyboard(pending.id)
     });

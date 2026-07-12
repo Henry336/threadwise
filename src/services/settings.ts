@@ -1,8 +1,10 @@
-import { Prisma, TaskStatus } from "@prisma/client";
+import { Prisma, ReminderMode, TaskStatus } from "@prisma/client";
 import { bold, code, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextReminderAfterSettingChange } from "./reminders";
 import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
+import { COMMON_CURRENCIES, defaultCurrencyForTimezone, normalizeCurrency } from "../utils/currencies";
+import { formatOcrLanguages, normalizeOcrLanguages } from "../utils/ocrLanguages";
 
 export type SettingsUpdateResult = {
   message: string;
@@ -16,7 +18,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try: change timezone to Myanmar, remind me again every 3 hours, warn me 10 mins before due tasks, set quiet hours to 22:00-08:00, quiet hours off, or allow up to 200 reminders per day."
+        "Try: set my expense currency to MMK, read images in Burmese, change timezone to Myanmar, remind me again every 3 hours, or quiet hours off."
     };
   }
 
@@ -63,7 +65,15 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const settings = await tx.userSettings.update({ where: { userId }, data: { timezone: parsed.timezone } });
+      const existing = await tx.userSettings.findUniqueOrThrow({ where: { userId } });
+      const followsRegionalDefault = existing.expenseCurrency === defaultCurrencyForTimezone(existing.timezone);
+      const settings = await tx.userSettings.update({
+        where: { userId },
+        data: {
+          timezone: parsed.timezone,
+          expenseCurrency: followsRegionalDefault ? defaultCurrencyForTimezone(parsed.timezone) : existing.expenseCurrency
+        }
+      });
       return rescheduleOpenTasksForSettings(tx, userId, {
         intervalMinutes: settings.reminderIntervalMinutes,
         dueNudgeMinutes: settings.dueNudgeMinutes,
@@ -72,7 +82,25 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     });
 
     const aliasNote = parsed.wasAlias ? ` (${value} -> ${parsed.timezone})` : "";
-    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders.` };
+    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders. Your expense currency follows the new region unless you previously chose a custom currency.` };
+  }
+
+  if (setting === "currency" || setting === "expense-currency") {
+    const currency = normalizeCurrency(value);
+    if (!currency) {
+      return { message: `I don't recognize that currency. Try an ISO code or name such as SGD, USD, MMK/kyat, MYR/ringgit, THB/baht, EUR, GBP, JPY, or INR. Common codes: ${COMMON_CURRENCIES.join(", ")}.` };
+    }
+    await prisma.userSettings.update({ where: { userId }, data: { expenseCurrency: currency } });
+    return { message: `Default expense currency set to ${currency}. You can still specify a different currency in any expense or receipt correction.` };
+  }
+
+  if (setting === "ocr" || setting === "ocr-language" || setting === "image-language") {
+    const languages = normalizeOcrLanguages(value);
+    if (!languages) {
+      return { message: "Choose English, Burmese, or English + Burmese. Try: /settings ocr Burmese" };
+    }
+    await prisma.userSettings.update({ where: { userId }, data: { ocrLanguages: languages } });
+    return { message: `Image text extraction set to ${formatOcrLanguages(languages)}. This uses bundled local OCR and no API key.` };
   }
 
   if (setting === "quiet") {
@@ -130,8 +158,18 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return { message: `Exact-time reminders will start warning you ${minutes} minutes before they are due, then keep reminding until done.` };
   }
 
-  if (setting === "digest" || setting === "compact") {
-    return { message: "That reminder display setting is not exposed right now. Try: remind me again every 3 hours, warn me 10 mins before due tasks, quiet hours off, or change timezone to Myanmar." };
+  if (setting === "mode" || setting === "digest" || setting === "compact") {
+    const requested = setting === "digest" || setting === "compact" ? setting : value.toLowerCase();
+    const reminderMode = ["digest", "compact"].includes(requested)
+      ? ReminderMode.DIGEST
+      : ["individual", "normal", "full", "detailed"].includes(requested)
+        ? ReminderMode.INDIVIDUAL
+        : undefined;
+    if (!reminderMode) {
+      return { message: "Choose compact or detailed reminders. Try: use compact reminders, or /settings mode detailed" };
+    }
+    await prisma.userSettings.update({ where: { userId }, data: { reminderMode } });
+    return { message: reminderMode === ReminderMode.DIGEST ? "Reminder messages set to compact mode." : "Reminder messages set to detailed mode." };
   }
 
   return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
@@ -143,6 +181,9 @@ export async function formatSettings(userId: string): Promise<string> {
     bold("Threadwise settings"),
     `${bold("Remind me again every")} ${settings.reminderIntervalMinutes} minutes`,
     `${bold("Timezone")} ${h(settings.timezone)}`,
+    `${bold("Default expense currency")} ${h(settings.expenseCurrency)}`,
+    `${bold("Image OCR languages")} ${h(formatOcrLanguages(settings.ocrLanguages))}`,
+    `${bold("Reminder message style")} ${settings.reminderMode === ReminderMode.DIGEST ? "compact" : "detailed"}`,
     `${bold("Do not disturb")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
     `${bold("Daily reminder safety limit")} ${settings.maxRemindersPerDay}`,
     `${bold("Early warning for exact-time reminders")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes before` : "off"}`,
@@ -155,6 +196,9 @@ export async function formatSettings(userId: string): Promise<string> {
     "",
     bold("Try saying"),
     code("change timezone to Myanmar"),
+    code("set my expense currency to MMK"),
+    code("read images in Burmese"),
+    code("use compact reminders"),
     code("remind me again every 3 hours"),
     code("warn me 10 mins before due tasks"),
     code("set quiet hours to 22:00-08:00"),
@@ -166,6 +210,9 @@ export async function formatSettings(userId: string): Promise<string> {
     code("/settings timezone Asia/Singapore"),
     code("/settings timezone Asia/Yangon"),
     code("/settings timezone America/New_York"),
+    code("/settings currency MMK"),
+    code("/settings ocr English and Burmese"),
+    code("/settings mode compact"),
     code("/settings quiet 22:00 08:00"),
     code("/settings quiet off"),
     code("/settings max 200"),

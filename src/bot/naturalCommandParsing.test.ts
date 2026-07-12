@@ -60,7 +60,15 @@ describe("natural command parsing", () => {
     ["quiet hours off", ["quiet", "off"]],
     ["set quiet hours to 22:00-08:00", ["quiet", "22:00", "08:00"]],
     ["max reminders 5", ["max", "5"]],
-    ["allow up to 200 reminders per day", ["max", "200"]]
+    ["allow up to 200 reminders per day", ["max", "200"]],
+    ["set my expense currency to MMK", ["currency", "MMK"]],
+    ["record my expenses in kyat", ["currency", "kyat"]],
+    ["use EUR for my expenses", ["currency", "EUR"]],
+    ["read images in Burmese", ["ocr", "Burmese"]],
+    ["set OCR language to English and Burmese", ["ocr", "English and Burmese"]],
+    ["use Myanmar for image OCR", ["ocr", "Myanmar"]],
+    ["use compact reminders", ["mode", "compact"]],
+    ["make my reminders detailed", ["mode", "detailed"]]
   ])("parses natural settings: %s", (input, expected) => {
     expect(parseNaturalSettingChange(input)).toEqual(expected);
   });

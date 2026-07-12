@@ -53,9 +53,10 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/expense", description: "Prepare a manual expense for confirmation.", example: "/expense spent $18.40 on lunch at Toast Box today" },
   { command: "/expenses", description: "Browse saved expenses with date, month, or year filters.", example: "/expenses this month" },
   { command: "/excel", description: "Export expenses or connect and synchronize an Excel workbook.", example: "/excel create" },
-  { command: "/settings", description: "View or edit timezone, quiet hours, reminder timing, and reminder limits.", example: "/settings timezone Myanmar" },
+  { command: "/settings", description: "Edit timezone, expense currency, OCR languages, quiet hours, and reminder behavior.", example: "/settings currency MMK" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
-  { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" }
+  { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" },
+  { command: "/groupcheck", description: "Diagnose bot identity and allowlist access inside a Telegram group.", example: "/groupcheck" }
 ];
 
 const HELP_SECTIONS: HelpSection[] = [
@@ -137,10 +138,12 @@ const HELP_SECTIONS: HelpSection[] = [
     natural: [
       "send an image with: extract the text",
       "send a receipt with: save this as an expense",
+      "send a Burmese receipt with: read this in Burmese and save as expense",
       "send a screenshot with: turn this into a task",
-      "send an image with: remind me about this tomorrow at 9"
+      "send an image with: remind me about this tomorrow at 9",
+      "read images in English and Burmese"
     ],
-    commands: ["No command needed: attach an image and optionally add a caption.", "/help images"]
+    commands: ["No command needed: attach an image and optionally add a caption.", "/settings ocr English and Burmese", "/help images"]
   },
   {
     topic: "expenses",
@@ -149,11 +152,13 @@ const HELP_SECTIONS: HelpSection[] = [
     natural: [
       "spent $18.40 on lunch at Toast Box today using Visa",
       "record an expense of SGD 25 for groceries",
+      "set my expense currency to MMK",
+      "change currency of EXP-2 to USD",
       "show my expenses today",
       "what did I spend this month",
       "show expenses for June 2026"
     ],
-    commands: ["/expense spent $18.40 on lunch", "/expenses", "/expenses today", "/expenses this month", "/expenses 2026"]
+    commands: ["/expense spent $18.40 on lunch", "/expense edit EXP-2 currency USD", "/expenses", "/expenses today", "/expenses this month", "/expenses 2026"]
   },
   {
     topic: "excel",
@@ -187,13 +192,16 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Change reminder behavior without scheduler jargon.",
     natural: [
       "change timezone to Singapore",
+      "set my expense currency to MMK",
+      "read images in English and Burmese",
+      "use compact reminders",
       "quiet hours off",
       "set quiet hours to 22:00-08:00",
       "remind me again every 3 hours",
       "start warning me 10 mins before due tasks",
       "allow up to 200 reminders per day"
     ],
-    commands: ["/settings timezone Singapore", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
+    commands: ["/settings timezone Singapore", "/settings currency MMK", "/settings ocr English and Burmese", "/settings mode compact", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
   },
   {
     topic: "cleanup",

@@ -28,10 +28,18 @@ async function main() {
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
   if (env.WEBHOOK_URL) {
+    await bot.init();
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
-    await bot.api.setWebhook(webhookUrl);
+    await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member"] });
+    const webhookInfo = await bot.api.getWebhookInfo();
     server = await startServer(bot, ai, { port: env.PORT, webhookPath: env.WEBHOOK_SECRET_PATH, adminStatusToken: env.ADMIN_STATUS_TOKEN });
-    logger.info("Threadwise is running with Telegram webhooks.", { webhookUrl });
+    logger.info("Threadwise is running with Telegram webhooks.", {
+      webhookUrl,
+      botUsername: bot.botInfo.username,
+      allowedUpdates: webhookInfo.allowed_updates,
+      pendingUpdates: webhookInfo.pending_update_count,
+      lastWebhookError: webhookInfo.last_error_message
+    });
   } else {
     await bot.api.deleteWebhook();
     void bot.start({

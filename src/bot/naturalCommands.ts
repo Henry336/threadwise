@@ -37,7 +37,7 @@ import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils
 import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
+import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 
@@ -130,10 +130,24 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
+  const directExpenseEdit = trimmed.match(/^(?:change|update|edit|correct)\s+(?:expense\s+)?(EXP-\d+)\s+(.+)$/i);
+  const currencyExpenseEdit = trimmed.match(/^(?:change|update|set)\s+(?:the\s+)?currency\s+(?:of|for)\s+(EXP-\d+)\s+(?:to|as)\s+(.+)$/i);
+  const expenseEditMatch = directExpenseEdit ?? currencyExpenseEdit;
+  if (expenseEditMatch?.[1] && expenseEditMatch[2]) {
+    try {
+      const editText = currencyExpenseEdit ? `currency ${expenseEditMatch[2]}` : expenseEditMatch[2];
+      const expense = await updateSavedExpense(user.id, expenseEditMatch[1], editText, user.settings?.timezone ?? "UTC");
+      await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't update that expense.");
+    }
+    return true;
+  }
+
   const expenseText = naturalExpenseText(trimmed);
   if (expenseText) {
     try {
-      const pending = await createPendingExpenseFromText(user.id, expenseText, user.settings?.timezone ?? "UTC", { sourceType: "manual" });
+      const pending = await createPendingExpenseFromText(user.id, expenseText, user.settings?.timezone ?? "UTC", { sourceType: "manual", defaultCurrency: user.settings?.expenseCurrency });
       await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
         reply_markup: expenseConfirmationKeyboard(pending.id)
       });
@@ -592,8 +606,8 @@ function naturalExpenseText(text: string): string | undefined {
   const explicit = trimmed.match(/^(?:please\s+)?(?:log|record|add|save|track)\s+(?:this\s+)?(?:as\s+)?(?:an?\s+)?expense(?:\s+(?:of|for))?\s+(.+)$/i)
     ?? trimmed.match(/^expense\s*[:,-]?\s+(.+)$/i);
   if (explicit?.[1]) return `expense ${explicit[1]}`;
-  const bought = trimmed.match(/^(?:i\s+)?bought\s+(.+?)\s+for\s+((?:sgd|s\$|\$|usd|eur|gbp|€|£)?\s*[\d,]+(?:\.\d{1,2})?)(.*)$/i);
-  if (bought?.[1] && bought[2]) return `spent ${bought[2]} on ${bought[1]}${bought[3] ?? ""}`;
+  const bought = trimmed.match(/^(?:i\s+)?bought\s+(.+?)\s+for\s+(.+\d.+|\d.+)$/i);
+  if (bought?.[1] && bought[2]) return `spent ${bought[2]} on ${bought[1]}`;
   return undefined;
 }
 

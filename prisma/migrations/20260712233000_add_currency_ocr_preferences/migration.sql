@@ -1,0 +1,3 @@
+ALTER TABLE "UserSettings"
+ADD COLUMN "expenseCurrency" TEXT NOT NULL DEFAULT 'SGD',
+ADD COLUMN "ocrLanguages" TEXT NOT NULL DEFAULT 'eng';

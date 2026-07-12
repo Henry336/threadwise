@@ -2,21 +2,26 @@ import Tesseract from "tesseract.js";
 import sharp from "sharp";
 import os from "os";
 import path from "path";
+import { copyFile, mkdir } from "fs/promises";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
+import type { OcrLanguages } from "../utils/ocrLanguages";
 
 const englishLanguageData = require("@tesseract.js-data/eng") as { langPath: string };
+const burmeseLanguageData = require("@tesseract.js-data/mya") as { langPath: string };
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_IMAGE_PIXELS = 20_000_000;
 const OCR_TIMEOUT_MS = 60_000;
 
 let workerPromise: Promise<Tesseract.Worker> | undefined;
+let workerLanguages: OcrLanguages | undefined;
 let queue: Promise<void> = Promise.resolve();
+let languageDirectoryPromise: Promise<string> | undefined;
 
 export type ImageIntent = "note" | "task" | "reminder" | "expense" | "extract";
 
-export async function extractTextFromImage(input: Buffer): Promise<{ text: string; confidence: number }> {
+export async function extractTextFromImage(input: Buffer, languages: OcrLanguages = "eng"): Promise<{ text: string; confidence: number }> {
   if (input.length > MAX_IMAGE_BYTES) {
     throw new Error("That image is larger than 10 MB. Send a smaller or compressed image.");
   }
@@ -31,7 +36,7 @@ export async function extractTextFromImage(input: Buffer): Promise<{ text: strin
       .png()
       .toBuffer();
 
-    const worker = await getWorker();
+    const worker = await getWorker(languages);
     try {
       const result = await withTimeout(worker.recognize(prepared), OCR_TIMEOUT_MS);
       const text = normalizeExtractedText(result.data.text);
@@ -112,13 +117,19 @@ export async function findPendingImageReminder(userId: string) {
   });
 }
 
-async function getWorker(): Promise<Tesseract.Worker> {
-  workerPromise ??= Tesseract.createWorker("eng", undefined, {
-    langPath: englishLanguageData.langPath,
+async function getWorker(languages: OcrLanguages): Promise<Tesseract.Worker> {
+  if (workerPromise && workerLanguages !== languages) {
+    await resetWorker();
+  }
+  const langPath = await prepareLanguageDirectory();
+  workerLanguages = languages;
+  workerPromise ??= Tesseract.createWorker(languages, undefined, {
+    langPath,
     cachePath: path.join(os.tmpdir(), "threadwise-tesseract"),
+    gzip: true,
     logger: (message) => {
       if (message.status === "recognizing text" && message.progress === 1) {
-        logger.info("Local image OCR completed.");
+        logger.info("Local image OCR completed.", { languages });
       }
     }
   });
@@ -128,6 +139,7 @@ async function getWorker(): Promise<Tesseract.Worker> {
 async function resetWorker(): Promise<void> {
   const current = workerPromise;
   workerPromise = undefined;
+  workerLanguages = undefined;
   if (current) {
     try {
       await (await current).terminate();
@@ -135,6 +147,19 @@ async function resetWorker(): Promise<void> {
       // The worker is already unusable; the next request will create a fresh one.
     }
   }
+}
+
+async function prepareLanguageDirectory(): Promise<string> {
+  languageDirectoryPromise ??= (async () => {
+    const directory = path.join(os.tmpdir(), "threadwise-tesseract-languages");
+    await mkdir(directory, { recursive: true });
+    await Promise.all([
+      copyFile(path.join(englishLanguageData.langPath, "eng.traineddata.gz"), path.join(directory, "eng.traineddata.gz")),
+      copyFile(path.join(burmeseLanguageData.langPath, "mya.traineddata.gz"), path.join(directory, "mya.traineddata.gz"))
+    ]);
+    return directory;
+  })();
+  return languageDirectoryPromise;
 }
 
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {

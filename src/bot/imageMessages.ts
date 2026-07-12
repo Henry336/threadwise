@@ -9,6 +9,7 @@ import { parseDueDate } from "../utils/dates";
 import { bold, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { expenseConfirmationKeyboard, imageTextActionsKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
@@ -34,18 +35,20 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
     return;
   }
 
-  const progress = await ctx.reply("Reading the image locally… This can take a little while on the first image.");
+  const user = await ensureUser(ctx);
+  const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
+  const progress = await ctx.reply(`Reading the image locally (${formatOcrLanguages(ocrLanguages)})... This can take a little while on the first image.`);
   try {
     const buffer = await downloadTelegramFile(ctx, token, target.fileId);
-    const extracted = await extractTextFromImage(buffer);
-    const user = await ensureUser(ctx);
+    const extracted = await extractTextFromImage(buffer, ocrLanguages);
     const intent = parseImageCaptionIntent(preparedCaption);
 
     if (intent === "expense") {
       const pendingExpense = await createPendingExpenseFromText(user.id, extracted.text, user.settings?.timezone ?? "UTC", {
         sourceType: "receipt",
         receiptFileUniqueId: target.uniqueId,
-        ocrConfidence: extracted.confidence
+        ocrConfidence: extracted.confidence,
+        defaultCurrency: user.settings?.expenseCurrency
       });
       await replyHtml(ctx, formatPendingExpense(pendingExpense, user.settings?.timezone ?? "UTC"), {
         reply_markup: expenseConfirmationKeyboard(pendingExpense.id)

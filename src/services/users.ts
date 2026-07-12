@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
+import { defaultCurrencyForTimezone } from "../utils/currencies";
 
 export async function ensureUser(ctx: Context) {
   const identity = threadwiseUserIdentity(ctx);
@@ -22,7 +23,9 @@ export async function ensureUser(ctx: Context) {
           reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
           quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
           quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
-          reminderChatId: identity.reminderChatId
+          reminderChatId: identity.reminderChatId,
+          expenseCurrency: identity.defaultCurrency,
+          ocrLanguages: identity.defaultOcrLanguages
         }
       }
     },
@@ -37,7 +40,9 @@ export async function ensureUser(ctx: Context) {
         reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
         quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
         quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
-        reminderChatId: identity.reminderChatId
+        reminderChatId: identity.reminderChatId,
+        expenseCurrency: identity.defaultCurrency,
+        ocrLanguages: identity.defaultOcrLanguages
       }
     });
 
@@ -70,6 +75,8 @@ type ThreadwiseUserIdentity = {
   defaultTimezone: string;
   reminderChatId: string;
   isGroup: boolean;
+  defaultCurrency: string;
+  defaultOcrLanguages: string;
 };
 
 export function threadwiseUserIdentity(ctx: Context): ThreadwiseUserIdentity {
@@ -82,7 +89,9 @@ export function threadwiseUserIdentity(ctx: Context): ThreadwiseUserIdentity {
       lastName: undefined,
       defaultTimezone: env.DEFAULT_TIMEZONE,
       reminderChatId: chatId,
-      isGroup: true
+      isGroup: true,
+      defaultCurrency: defaultCurrencyForTimezone(env.DEFAULT_TIMEZONE),
+      defaultOcrLanguages: env.DEFAULT_TIMEZONE === "Asia/Yangon" ? "eng+mya" : "eng"
     };
   }
 
@@ -100,8 +109,14 @@ export function threadwiseUserIdentity(ctx: Context): ThreadwiseUserIdentity {
     lastName: from.last_name,
     defaultTimezone,
     reminderChatId: ctx.chat ? String(ctx.chat.id) : telegramId,
-    isGroup: false
+    isGroup: false,
+    defaultCurrency: defaultCurrencyForTimezone(defaultTimezone),
+    defaultOcrLanguages: codeForOcr(from.language_code)
   };
+}
+
+function codeForOcr(languageCode?: string): string {
+  return languageCode?.toLowerCase().split("-")[0] === "my" ? "eng+mya" : "eng";
 }
 
 export function defaultTimezoneForTelegramLanguage(languageCode?: string): string | undefined {

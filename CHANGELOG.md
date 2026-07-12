@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.13.0 - 2026-07-12
+
+### Added
+- Added per-user expense currency preferences with regional defaults, broad ISO-code support, common currency names/symbols, and natural settings such as `set my expense currency to MMK`.
+- Added best-effort receipt currency detection with the user's saved currency as a fallback, including kyat/MMK markers and Myanmar digits.
+- Added post-save expense corrections through `/expense edit EXP-2 currency USD` and natural phrases such as `change currency of EXP-2 to USD`.
+- Added bundled Burmese Tesseract data for local, API-key-free English, Burmese, or mixed OCR, with saved preferences and per-image caption overrides.
+- Added `/groupcheck` for deployed version, bot username, group ID, sender ID, and allowlist diagnostics.
+- Added release version and Render commit metadata to `/health`.
+- Finished the existing compact reminder mode with natural settings such as `use compact reminders` and `/settings mode compact`.
+
+### Changed
+- Changing timezone also changes the regional currency default when the user has not explicitly selected a custom currency.
+- Telegram webhook registration now explicitly requests message, callback-query, and membership updates.
+
+### Fixed
+- Initialized the Telegram bot identity before webhook registration so the first group mention has the exact runtime username available to mention routing.
+- Avoided duplicate Excel rows after correcting an expense that was already synchronized; Threadwise preserves the sync marker and explains that the old workbook row needs manual correction.
+- Fixed natural `change currency of EXP-2 to MMK` wording so the value is applied to the currency field instead of being treated as an incomplete edit.
+
 ## v0.12.0 - 2026-07-12
 
 ### Added

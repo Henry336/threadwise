@@ -1,6 +1,6 @@
 {
   "name": "threadwise",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "A Telegram life inbox for notes, tasks, reminders, local image OCR, expenses, Excel sync, search, and ideas.",
   "main": "dist/main.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",
+    "smoke:ocr": "tsx scripts/ocr-smoke.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
@@ -28,6 +29,7 @@
   "dependencies": {
     "@prisma/client": "^6.1.0",
     "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/mya": "^1.0.0",
     "exceljs": "^4.4.0",
     "fastify": "^5.1.0",
     "grammy": "^1.33.0",

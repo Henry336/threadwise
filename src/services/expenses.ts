@@ -5,6 +5,7 @@ import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
 import { nextPublicId } from "./publicIds";
+import { detectCurrency, normalizeCurrency } from "../utils/currencies";
 
 export const EXPENSE_PAGE_SIZE = 10;
 export const EXPENSE_COLUMNS = [
@@ -49,10 +50,11 @@ type PendingExpenseInput = {
   sourceType: "manual" | "receipt";
   receiptFileUniqueId?: string;
   ocrConfidence?: number;
+  defaultCurrency?: string;
 };
 
-export function parseExpenseText(text: string, timezone: string, now = new Date()): ParsedExpense | undefined {
-  const normalized = text.replace(/\r/g, "").trim();
+export function parseExpenseText(text: string, timezone: string, now = new Date(), defaultCurrency = "SGD"): ParsedExpense | undefined {
+  const normalized = normalizeExpenseDigits(text).replace(/\r/g, "").trim();
   if (!normalized) return undefined;
 
   const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -75,7 +77,7 @@ export function parseExpenseText(text: string, timezone: string, now = new Date(
     tax: findLabeledAmount(lines, /\b(?:gst|vat|tax)\b/i),
     discount: findLabeledAmount(lines, /\b(?:discount|savings?)\b/i),
     total,
-    currency: detectCurrency(normalized),
+    currency: detectCurrency(normalized, defaultCurrency),
     paymentMethod: detectPaymentMethod(normalized)
   };
 }
@@ -86,7 +88,7 @@ export async function createPendingExpenseFromText(
   timezone: string,
   input: PendingExpenseInput
 ) {
-  const parsed = parseExpenseText(sourceText, timezone);
+  const parsed = parseExpenseText(sourceText, timezone, new Date(), input.defaultCurrency);
   if (!parsed) {
     throw new Error("I couldn't confidently find an expense total. Try something like: spent $18.40 on lunch at Toast Box today.");
   }
@@ -196,6 +198,21 @@ export async function confirmPendingExpense(userId: string, pendingId: string) {
     }
     throw error;
   }
+}
+
+export async function updateSavedExpense(userId: string, reference: string, text: string, timezone: string) {
+  const normalized = reference.trim().toUpperCase();
+  const expense = await prisma.expense.findFirstOrThrow({
+    where: { userId, OR: [{ id: reference.trim() }, { publicId: normalized }] }
+  });
+  const updates = parseExpenseEdits(text, timezone);
+  if (Object.keys(updates).length === 0) {
+    throw new Error("I couldn't find a field to change. Try: currency MMK, total 12000, merchant City Mart, category groceries, or date yesterday.");
+  }
+  return prisma.expense.update({
+    where: { id: expense.id },
+    data: updates
+  });
 }
 
 export async function listExpenses(userId: string, filter: ExpenseFilter, page: number, timezone: string) {
@@ -380,7 +397,10 @@ function parseExpenseEdits(text: string, timezone: string): Prisma.PendingExpens
     if (field === "merchant") data.merchant = value;
     else if (field === "category") data.category = value;
     else if (field === "description") data.description = value;
-    else if (field === "currency") data.currency = value.toUpperCase();
+    else if (field === "currency") {
+      const currency = normalizeCurrency(value);
+      if (currency) data.currency = currency;
+    }
     else if (field.startsWith("payment")) data.paymentMethod = value;
     else if (field.startsWith("note")) data.notes = value;
     else if (field === "date") {
@@ -436,7 +456,7 @@ function findLabeledAmount(lines: string[], pattern: RegExp): number | undefined
 }
 
 function findManualAmount(text: string): number | undefined {
-  const explicit = text.match(/\b(?:spent|paid|expense(?:\s+of)?|cost(?:s|ing)?)\s*(?:sgd|s\$|us\$|usd|eur|gbp|\$|€|£)?\s*([\d,]+(?:\.\d{1,2})?)/i)?.[1];
+  const explicit = text.match(/\b(?:spent|paid|expense(?:\s+of)?|cost(?:s|ing)?)\s*(?:sgd|s\$|us\$|usd|mmk|kyats?|myr|rm|thb|baht|eur|gbp|jpy|cny|rmb|inr|php|idr|aud|cad|nzd|hkd|\$|€|£|฿|₹|₱)?\s*([\d,]+(?:\.\d{1,2})?)/i)?.[1];
   return explicit ? parseMoney(explicit) : undefined;
 }
 
@@ -516,14 +536,6 @@ function inferExpenseCategory(text: string): string | undefined {
   return categories.find(([, words]) => words.some((word) => lower.includes(word)))?.[0];
 }
 
-function detectCurrency(text: string): string {
-  if (/\b(?:usd|us\$)\b/i.test(text)) return "USD";
-  if (/\b(?:eur)\b|€/i.test(text)) return "EUR";
-  if (/\b(?:gbp)\b|£/i.test(text)) return "GBP";
-  if (/\b(?:myr|rm)\b/i.test(text)) return "MYR";
-  return "SGD";
-}
-
 function detectPaymentMethod(text: string): string | undefined {
   const methods: Array<[RegExp, string]> = [
     [/\bvisa\b/i, "Visa"],
@@ -568,4 +580,9 @@ function cleanText(value?: string): string | undefined {
 
 function normalizeHashText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeExpenseDigits(text: string): string {
+  const myanmarDigits = "၀၁၂၃၄၅၆၇၈၉";
+  return text.replace(/[၀-၉]/g, (digit) => String(myanmarDigits.indexOf(digit)));
 }

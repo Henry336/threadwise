@@ -8,6 +8,7 @@ import { handleGmailOAuthCallback } from "./services/gmail";
 import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
+import { appVersion } from "./services/version";
 
 export async function startServer(bot: Bot, ai: AiProvider, options: { port: number; webhookPath: string; adminStatusToken?: string }) {
   const server = Fastify({ logger: false });
@@ -15,6 +16,8 @@ export async function startServer(bot: Bot, ai: AiProvider, options: { port: num
   server.get("/health", async () => ({
     ok: true,
     service: "threadwise",
+    version: appVersion(),
+    commit: process.env.RENDER_GIT_COMMIT?.slice(0, 12) ?? process.env.GIT_COMMIT?.slice(0, 12) ?? "unknown",
     timestamp: new Date().toISOString()
   }));
 

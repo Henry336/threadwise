@@ -39,6 +39,22 @@ describe("expense parsing", () => {
     });
   });
 
+  it("uses the user's currency when a receipt has no currency marker", () => {
+    const parsed = parseExpenseText("CITY MART\nTOTAL 12500", "Asia/Yangon", new Date("2026-07-12T04:00:00.000Z"), "MMK");
+    expect(parsed).toMatchObject({ merchant: "CITY MART", total: 12500, currency: "MMK" });
+  });
+
+  it("lets an explicit currency override the user's default", () => {
+    const parsed = parseExpenseText("spent USD 20 on lunch", "Asia/Yangon", new Date("2026-07-12T04:00:00.000Z"), "MMK");
+    expect(parsed).toMatchObject({ total: 20, currency: "USD" });
+  });
+
+  it("parses Myanmar digits and kyat from Burmese receipt text", () => {
+    const parsed = parseExpenseText("City Mart\nTOTAL ၁၂,၅၀၀ ကျပ်", "Asia/Yangon", new Date("2026-07-12T00:00:00Z"), "SGD");
+    expect(parsed?.total).toBe(12500);
+    expect(parsed?.currency).toBe("MMK");
+  });
+
   it.each([
     ["today", { kind: "day", value: "2026-07-12" }],
     ["12 July 2026", { kind: "day", value: "2026-07-12" }],

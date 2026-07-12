@@ -94,6 +94,20 @@ export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefi
 }
 
 export function parseNaturalSettingChange(text: string): string[] | undefined {
+  const reminderMode = text.match(/^(?:please\s+)?(?:use|switch\s+to|set|make)\s+(?:my\s+)?(?:reminder\s+)?(?:messages?\s+)?(?:to\s+)?(compact|digest|detailed|full|normal|individual)(?:\s+(?:reminders?|messages?))?$/i)
+    ?? text.match(/^(?:please\s+)?(?:make|show)\s+(?:my\s+)?reminders?\s+(compact|detailed|full|normal)$/i);
+  if (reminderMode?.[1]) return ["mode", reminderMode[1].toLowerCase()];
+
+  const currencyMatch = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:default\s+|expense\s+)?currency\s*(?:to|as|is)?\s+(.+)$/i)
+    ?? text.match(/^(?:please\s+)?(?:use|record|save)\s+(.+?)\s+(?:as|for|when recording|for recording)\s+(?:my\s+)?expenses?$/i)
+    ?? text.match(/^(?:please\s+)?record\s+(?:my\s+)?expenses?\s+in\s+(.+)$/i);
+  if (currencyMatch?.[1]) return ["currency", currencyMatch[1].trim()];
+
+  const ocrMatch = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:image\s+)?ocr(?:\s+language)?\s*(?:to|as|is)?\s+(.+)$/i)
+    ?? text.match(/^(?:please\s+)?(?:read|scan|extract(?:\s+text\s+from)?)\s+(?:my\s+)?images?\s+in\s+(.+)$/i)
+    ?? text.match(/^(?:please\s+)?use\s+(.+?)\s+for\s+(?:image\s+)?ocr$/i);
+  if (ocrMatch?.[1]) return ["ocr", ocrMatch[1].trim()];
+
   const timezone = parseNaturalTimezoneChange(text);
   if (timezone) {
     return ["timezone", timezone];
@@ -170,7 +184,7 @@ function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
     return "search";
   }
 
-  if (/(?:setting|settings|timezone|time zone|quiet hour|quiet hours|interval|every|warn|warning|nudge|max|limit)/.test(normalized)) {
+  if (/(?:setting|settings|timezone|time zone|currency|ocr|image language|quiet hour|quiet hours|interval|every|warn|warning|nudge|max|limit)/.test(normalized)) {
     return "settings";
   }
 

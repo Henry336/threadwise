@@ -46,7 +46,22 @@ describe("user defaults", () => {
       firstName: "Family reminders",
       defaultTimezone: "Asia/Singapore",
       reminderChatId: "-100123",
-      isGroup: true
+      isGroup: true,
+      defaultCurrency: "SGD",
+      defaultOcrLanguages: "eng"
+    });
+  });
+
+  it("uses Myanmar-friendly defaults for a new private user", () => {
+    const identity = threadwiseUserIdentity({
+      chat: { id: 456, type: "private", first_name: "Henry" },
+      from: { id: 456, is_bot: false, first_name: "Henry", language_code: "my" }
+    } as Context);
+
+    expect(identity).toMatchObject({
+      defaultTimezone: "Asia/Yangon",
+      defaultCurrency: "MMK",
+      defaultOcrLanguages: "eng+mya"
     });
   });
 });

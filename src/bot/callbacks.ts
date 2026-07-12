@@ -73,7 +73,8 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       const expense = await createPendingExpenseFromText(user.id, pending.extractedText, user.settings?.timezone ?? "UTC", {
         sourceType: "receipt",
         receiptFileUniqueId: pending.telegramUniqueId ?? undefined,
-        ocrConfidence: pending.confidence ?? undefined
+        ocrConfidence: pending.confidence ?? undefined,
+        defaultCurrency: user.settings?.expenseCurrency
       });
       await consumePendingImageCapture(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Expense preview" });

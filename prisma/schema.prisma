@@ -85,6 +85,8 @@ model UserSettings {
   dueNudgeMinutes         Int          @default(3)
   reminderMode            ReminderMode @default(INDIVIDUAL)
   reminderChatId          String?
+  expenseCurrency         String       @default("SGD")
+  ocrLanguages            String       @default("eng")
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
