@@ -13,6 +13,7 @@ describe("version status", () => {
       },
       gmailConfigured: true,
       calendarConfigured: true,
+      excelConfigured: true,
       reminders: {
         source: "loop",
         lastStartedAt: "2026-07-06T01:00:00.000Z",
@@ -30,6 +31,7 @@ describe("version status", () => {
     expect(message).toContain("<b>AI</b> OpenAI (gpt-5.4-mini)");
     expect(message).toContain("<b>Gmail</b> configured");
     expect(message).toContain("<b>Google Calendar</b> configured");
+    expect(message).toContain("<b>Microsoft Excel</b> configured");
     expect(message).toContain("<b>Due tasks found</b> 3");
     expect(message).toContain("<b>Sent</b> 2");
   });

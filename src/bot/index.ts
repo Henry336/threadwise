@@ -7,6 +7,7 @@ import { registerCallbacks } from "./callbacks";
 import { registerCommands } from "./commands";
 import { isGroupChat, isTelegramContextAllowed } from "./groupRouting";
 import { registerNaturalLanguage } from "./naturalLanguage";
+import { registerImageMessages } from "./imageMessages";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -45,6 +46,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
 
   registerCommands(bot, ai);
   registerCallbacks(bot, ai);
+  registerImageMessages(bot, ai, token);
   registerNaturalLanguage(bot, ai);
 
   bot.catch((error) => {

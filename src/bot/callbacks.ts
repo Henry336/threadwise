@@ -12,8 +12,11 @@ import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type Ed
 import { findPendingSearch, semanticSearch } from "../services/search";
 import { undoLastAction } from "../services/undo";
 import { formatSearchResultsPage } from "./formatters";
+import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
+import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
+import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -32,6 +35,118 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^capture:(task|idea|note|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
+  bot.callbackQuery(/^image:(note|task|reminder|expense|text|discard):(.+)$/, async (ctx) => {
+    await handleImageAction(ctx, ai, ctx.match[1], ctx.match[2]);
+  });
+  bot.callbackQuery(/^expense:(save|excel|edit|discard):(.+)$/, async (ctx) => {
+    await handleExpenseAction(ctx, ctx.match[1], ctx.match[2]);
+  });
+  bot.callbackQuery(/^expense:page:(all|day|month|year):([^:]+):(\d+)$/, async (ctx) => {
+    await handleExpensePage(ctx, `${ctx.match[1]}:${ctx.match[2]}`, ctx.match[3]);
+  });
+}
+
+async function handleImageAction(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
+  if (!action || !pendingId) return;
+  const user = await ensureUser(ctx);
+  try {
+    if (action === "discard") {
+      await discardPendingImageCapture(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Discarded" });
+      await ctx.reply("Discarded. Nothing was saved.");
+      return;
+    }
+    const pending = await findPendingImageCapture(user.id, pendingId);
+    if (action === "text") {
+      await ctx.answerCallbackQuery({ text: "Full text" });
+      await replyInChunks(ctx, pending.extractedText);
+      return;
+    }
+    if (action === "reminder") {
+      await awaitImageReminderTime(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Choose a time" });
+      await ctx.reply("When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.");
+      return;
+    }
+    if (action === "expense") {
+      const expense = await createPendingExpenseFromText(user.id, pending.extractedText, user.settings?.timezone ?? "UTC", {
+        sourceType: "receipt",
+        receiptFileUniqueId: pending.telegramUniqueId ?? undefined,
+        ocrConfidence: pending.confidence ?? undefined
+      });
+      await consumePendingImageCapture(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Expense preview" });
+      await replyHtml(ctx, formatPendingExpense(expense, user.settings?.timezone ?? "UTC"), {
+        reply_markup: expenseConfirmationKeyboard(expense.id)
+      });
+      return;
+    }
+    const consumed = await consumePendingImageCapture(user.id, pendingId);
+    await ctx.answerCallbackQuery({ text: "Saving" });
+    if (action === "note") {
+      const note = await createNote(user.id, consumed.extractedText, ai);
+      await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+      return;
+    }
+    const task = await createTask(user.id, consumed.extractedText, ai);
+    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: "Action expired or failed" });
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't finish that image action.");
+  }
+}
+
+async function handleExpenseAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
+  if (!action || !pendingId) return;
+  const user = await ensureUser(ctx);
+  try {
+    if (action === "discard") {
+      await cancelPendingExpense(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Discarded" });
+      await ctx.reply("Expense discarded. Nothing was saved.");
+      return;
+    }
+    if (action === "edit") {
+      await beginExpenseEdit(user.id, pendingId);
+      await ctx.answerCallbackQuery({ text: "Ready to edit" });
+      await ctx.reply("Send the fields to change, for example: total 12.50, merchant Toast Box, category Food, date today. Send 'cancel expense edit' to stop.");
+      return;
+    }
+    const expense = await confirmPendingExpense(user.id, pendingId);
+    await ctx.answerCallbackQuery({ text: action === "excel" ? "Saving and syncing" : "Saved" });
+    let syncMessage = "";
+    if (action === "excel") {
+      try {
+        await syncExpenseToExcel(user.id, expense.id, user.settings?.timezone ?? "UTC");
+        syncMessage = "\nExcel: synced";
+      } catch (error) {
+        syncMessage = `\nExcel: not synced (${error instanceof Error ? error.message : "sync failed"})`;
+      }
+    }
+    await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`);
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: "Could not save" });
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that expense.");
+  }
+}
+
+async function handleExpensePage(ctx: Context, encoded: string, pageText: string | undefined) {
+  const page = Number(pageText);
+  const filter = decodeExpenseFilter(encoded);
+  if (!filter || !Number.isInteger(page) || page < 1) return;
+  const user = await ensureUser(ctx);
+  const result = await listExpenses(user.id, filter, page, user.settings?.timezone ?? "UTC");
+  await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
+  await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
+    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
+  });
+}
+
+async function replyInChunks(ctx: Context, text: string) {
+  const maxLength = 3800;
+  for (let start = 0; start < text.length; start += maxLength) {
+    await ctx.reply(text.slice(start, start + maxLength));
+  }
 }
 
 async function handleTaskDone(ctx: Context, taskId: string | undefined) {

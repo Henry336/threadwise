@@ -32,7 +32,10 @@ describe("natural command parsing", () => {
     ["how do i view the command list?", "commands"],
     ["show command list", "commands"],
     ["slash commands", "commands"],
-    ["how do i undo something?", "cleanup"]
+    ["how do i undo something?", "cleanup"],
+    ["how do I extract text from an image?", "images"],
+    ["help me save a receipt", "expenses"],
+    ["how do I sync expenses to Excel?", "excel"]
   ])("parses natural help requests: %s", (input, expected) => {
     expect(parseNaturalHelpRequest(input)).toBe(expected);
   });

@@ -35,6 +35,14 @@ services:
         sync: false
       - key: GMAIL_TOKEN_ENCRYPTION_KEY
         sync: false
+      - key: MICROSOFT_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_REDIRECT_URI
+        sync: false
+      - key: MICROSOFT_TOKEN_ENCRYPTION_KEY
+        sync: false
       - key: GMAIL_SCAN_POLL_MS
         value: "900000"
       - key: GMAIL_DAILY_SCAN_HOUR

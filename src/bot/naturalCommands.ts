@@ -1,4 +1,5 @@
 import type { Context } from "grammy";
+import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
@@ -36,6 +37,9 @@ import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils
 import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
+import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
+import { expenseConfirmationKeyboard, expensePageKeyboard } from "./keyboards";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -109,6 +113,91 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (settingChange) {
     const result = await updateSetting(user.id, settingChange);
     await ctx.reply(result.message);
+    return true;
+  }
+
+  const expenseListQuery = naturalExpenseListQuery(trimmed);
+  if (expenseListQuery !== undefined) {
+    const filter = parseExpenseFilter(expenseListQuery || "all", user.settings?.timezone ?? "UTC");
+    if (!filter) {
+      await ctx.reply("I can show all expenses, today, yesterday, a date, a month, or a year. Try: show expenses this month.");
+      return true;
+    }
+    const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
+    await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
+      reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
+    });
+    return true;
+  }
+
+  const expenseText = naturalExpenseText(trimmed);
+  if (expenseText) {
+    try {
+      const pending = await createPendingExpenseFromText(user.id, expenseText, user.settings?.timezone ?? "UTC", { sourceType: "manual" });
+      await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
+        reply_markup: expenseConfirmationKeyboard(pending.id)
+      });
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that expense.");
+    }
+    return true;
+  }
+
+  if (/^(?:excel|excel status|show (?:me )?(?:my )?excel status|is excel connected)$/.test(lower)) {
+    await replyHtml(ctx, await formatExcelStatus(user.id));
+    return true;
+  }
+
+  if (/^(?:connect|link|set up) (?:my )?(?:microsoft )?excel(?: account)?$/.test(lower)) {
+    if (!microsoftExcelConfigured()) {
+      await ctx.reply("Excel OAuth is not configured on the server yet.");
+      return true;
+    }
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createMicrosoftConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [bold("Connect Microsoft Excel"), "Open this Microsoft link and approve file access.", "", h(url)].join("\n"));
+    return true;
+  }
+
+  if (/^(?:create|make|set up) (?:my )?(?:threadwise )?(?:expense )?(?:excel )?(?:workbook|spreadsheet)$/.test(lower)) {
+    try {
+      const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
+      await replyHtml(ctx, [bold("Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined].filter(Boolean).join("\n"));
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
+    }
+    return true;
+  }
+
+  const excelLinkMatch = trimmed.match(/^(?:use|link|connect) (?:this )?(?:excel )?(?:workbook|spreadsheet)?\s*(https?:\/\/\S+)$/i);
+  if (excelLinkMatch?.[1]) {
+    try {
+      const item = await linkExpenseWorkbook(user.id, excelLinkMatch[1]);
+      await replyHtml(ctx, `${bold("Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}`);
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
+    }
+    return true;
+  }
+
+  if (/^(?:sync|send|copy|upload) (?:my )?(?:unsynced )?expenses (?:to|into) excel$/.test(lower)) {
+    try {
+      const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
+      await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "Excel sync failed.");
+    }
+    return true;
+  }
+
+  if (/^(?:export|download|give me) (?:all )?(?:my )?expenses (?:as|to|in) (?:an )?excel(?: workbook| file)?$/.test(lower)) {
+    const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
+    await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
+    return true;
+  }
+
+  if (/^(?:disconnect|unlink) (?:my )?(?:microsoft )?excel$/.test(lower)) {
+    await replyHtml(ctx, await disconnectMicrosoft(user.id));
     return true;
   }
 
@@ -462,6 +551,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       ai: ai.getStatus(),
       gmailConfigured: gmailConfigured(),
       calendarConfigured: calendarConfigured(),
+      excelConfigured: microsoftExcelConfigured(),
       reminders: getReminderDiagnostics()
     }));
     return true;
@@ -489,6 +579,24 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   return false;
+}
+
+function naturalExpenseText(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (/^(?:i\s+)?(?:spent|paid)\s+.+/i.test(trimmed)) return trimmed;
+  const explicit = trimmed.match(/^(?:please\s+)?(?:log|record|add|save|track)\s+(?:this\s+)?(?:as\s+)?(?:an?\s+)?expense(?:\s+(?:of|for))?\s+(.+)$/i)
+    ?? trimmed.match(/^expense\s*[:,-]?\s+(.+)$/i);
+  if (explicit?.[1]) return `expense ${explicit[1]}`;
+  const bought = trimmed.match(/^(?:i\s+)?bought\s+(.+?)\s+for\s+((?:sgd|s\$|\$|usd|eur|gbp|€|£)?\s*[\d,]+(?:\.\d{1,2})?)(.*)$/i);
+  if (bought?.[1] && bought[2]) return `spent ${bought[2]} on ${bought[1]}${bought[3] ?? ""}`;
+  return undefined;
+}
+
+function naturalExpenseListQuery(text: string): string | undefined {
+  const normalized = text.trim().replace(/[?.!]+$/g, "");
+  if (/^(?:expenses|my expenses|show expenses|show my expenses|list expenses|list my expenses)$/i.test(normalized)) return "all";
+  const match = normalized.match(/^(?:(?:show|list|view|give)(?:\s+me)?(?:\s+all)?(?:\s+my)?\s+expenses|(?:what|how much)\s+did\s+i\s+spend)(?:\s+(?:for|from|on|in))?\s*(.*)$/i);
+  return match ? (match[1]?.trim() || "all") : undefined;
 }
 
 function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {

@@ -14,7 +14,7 @@ type HelpSection = {
   commands: string[];
 };
 
-export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "search" | "settings" | "cleanup" | "commands";
+export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "commands";
 
 export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
@@ -50,6 +50,9 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/calendar", description: "Connect Google Calendar or add/update a dated task as an event.", example: "/calendar 1" },
   { command: "/googlecal", description: "Get only the Google Calendar link for a dated task.", example: "/googlecal 1" },
   { command: "/gmail", description: "Connect Gmail, scan unread emails, and create reminders for important mail.", example: "/gmail connect" },
+  { command: "/expense", description: "Prepare a manual expense for confirmation.", example: "/expense spent $18.40 on lunch at Toast Box today" },
+  { command: "/expenses", description: "Browse saved expenses with date, month, or year filters.", example: "/expenses this month" },
+  { command: "/excel", description: "Export expenses or connect and synchronize an Excel workbook.", example: "/excel create" },
   { command: "/settings", description: "View or edit timezone, quiet hours, reminder timing, and reminder limits.", example: "/settings timezone Myanmar" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" }
@@ -126,6 +129,44 @@ const HELP_SECTIONS: HelpSection[] = [
     commands: ["/idea build a Telegram bot for life admin", "/ideas", "/ideas 1", "/score IDEA-1", "/brief IDEA-1"]
   },
   {
+    topic: "images",
+    title: "Images And OCR",
+    description: "Send a clear photo or screenshot. Threadwise reads it locally, then lets you save the text as a note, task, reminder, or expense.",
+    natural: [
+      "send an image with: extract the text",
+      "send a receipt with: save this as an expense",
+      "send a screenshot with: turn this into a task",
+      "send an image with: remind me about this tomorrow at 9"
+    ],
+    commands: ["No command needed: attach an image and optionally add a caption.", "/help images"]
+  },
+  {
+    topic: "expenses",
+    title: "Expenses",
+    description: "Save manual spending or receipt results in Threadwise, confirm/edit fields, and browse 10 newest-first rows per page.",
+    natural: [
+      "spent $18.40 on lunch at Toast Box today using Visa",
+      "record an expense of SGD 25 for groceries",
+      "show my expenses today",
+      "what did I spend this month",
+      "show expenses for June 2026"
+    ],
+    commands: ["/expense spent $18.40 on lunch", "/expenses", "/expenses today", "/expenses this month", "/expenses 2026"]
+  },
+  {
+    topic: "excel",
+    title: "Excel",
+    description: "Threadwise always keeps the expense record. Excel is an optional export or synchronized OneDrive workbook.",
+    natural: [
+      "connect my Microsoft Excel",
+      "create my expense workbook",
+      "sync my expenses to Excel",
+      "download my expenses as Excel",
+      "show my Excel status"
+    ],
+    commands: ["/excel connect", "/excel create", "/excel sync", "/excel export", "/excel use <OneDrive link>", "/excel disconnect"]
+  },
+  {
     topic: "search",
     title: "Find And Review",
     description: "Search saved items, review open loops, and see pinned or archived items.",
@@ -196,12 +237,21 @@ export const HELP_TEXT = formatHelpGuide();
 export function formatHelpGuide(): string {
   return [
     bold("Threadwise help"),
-    "Type naturally. These are the main things I understand.",
+    "Type naturally. Pick a topic below for detailed examples.",
     "",
-    ...HELP_SECTIONS.map(formatHelpSection),
+    ...HELP_SECTIONS.map(formatHelpSectionSummary),
     "",
     `Prefer slash commands? Type ${code("/commands")} for the full reference.`
   ].join("\n\n");
+}
+
+function formatHelpSectionSummary(section: HelpSection): string {
+  return [
+    bold(section.title),
+    section.description,
+    section.natural[0] ? `Try: ${code(section.natural[0])}` : undefined,
+    `More: ${code(`/help ${section.topic}`)}`
+  ].filter(Boolean).join("\n");
 }
 
 export function formatHelpTopic(topic: HelpTopic): string {
@@ -267,5 +317,5 @@ function formatHelpSection(section: HelpSection): string {
 }
 
 function formatHelpCommand(item: HelpCommand): string {
-  return [`${code(item.command)} - ${item.description}`, `Example: ${code(item.example)}`].join("\n");
+  return `${code(item.command)} - ${item.description}`;
 }

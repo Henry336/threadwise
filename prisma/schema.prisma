@@ -50,22 +50,27 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  settings             UserSettings?
-  ideas                Idea[]
-  tasks                Task[]
-  notes                Note[]
-  reflections          Reflection[]
-  pendingCaptures      PendingCapture[]
-  pendingNoteMerges    PendingNoteMerge[]
-  pendingItemEdits     PendingItemEdit[]
-  pendingSearches      PendingSearch[]
-  pendingGmailOAuth    PendingGmailOAuth[]
-  gmailConnection      GmailConnection?
-  gmailSummaries       GmailMessageSummary[]
-  pendingCalendarOAuth PendingCalendarOAuth[]
-  calendarConnection   CalendarConnection?
-  reminderHistory      ReminderDelivery[]
-  auditLogs            AuditLog[]
+  settings              UserSettings?
+  ideas                 Idea[]
+  tasks                 Task[]
+  notes                 Note[]
+  reflections           Reflection[]
+  pendingCaptures       PendingCapture[]
+  pendingNoteMerges     PendingNoteMerge[]
+  pendingItemEdits      PendingItemEdit[]
+  pendingSearches       PendingSearch[]
+  pendingGmailOAuth     PendingGmailOAuth[]
+  gmailConnection       GmailConnection?
+  gmailSummaries        GmailMessageSummary[]
+  pendingCalendarOAuth  PendingCalendarOAuth[]
+  calendarConnection    CalendarConnection?
+  pendingImageCaptures  PendingImageCapture[]
+  pendingExpenses       PendingExpense[]
+  expenses              Expense[]
+  pendingMicrosoftOAuth PendingMicrosoftOAuth[]
+  microsoftConnection   MicrosoftConnection?
+  reminderHistory       ReminderDelivery[]
+  auditLogs             AuditLog[]
 }
 
 model UserSettings {
@@ -350,6 +355,118 @@ model CalendarConnection {
   accessToken          String?
   refreshToken         String
   accessTokenExpiresAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PendingImageCapture {
+  id               String   @id @default(uuid())
+  userId           String
+  extractedText    String
+  caption          String?
+  telegramFileId   String?
+  telegramUniqueId String?
+  confidence       Float?
+  awaitingAction   String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([userId, awaitingAction, expiresAt])
+}
+
+model PendingExpense {
+  id                  String   @id @default(uuid())
+  userId              String
+  sourceText          String
+  sourceType          String
+  merchant            String?
+  transactionAt       DateTime
+  category            String?
+  description         String?
+  subtotal            Decimal? @db.Decimal(12, 2)
+  tax                 Decimal? @db.Decimal(12, 2)
+  discount            Decimal? @db.Decimal(12, 2)
+  total               Decimal  @db.Decimal(12, 2)
+  currency            String   @default("SGD")
+  paymentMethod       String?
+  receiptFileUniqueId String?
+  ocrConfidence       Float?
+  notes               String?
+  awaitingEdit        Boolean  @default(false)
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([userId, awaitingEdit, expiresAt])
+}
+
+model Expense {
+  id                  String    @id @default(uuid())
+  userId              String
+  publicId            String
+  merchant            String?
+  transactionAt       DateTime
+  category            String?
+  description         String?
+  subtotal            Decimal?  @db.Decimal(12, 2)
+  tax                 Decimal?  @db.Decimal(12, 2)
+  discount            Decimal?  @db.Decimal(12, 2)
+  total               Decimal   @db.Decimal(12, 2)
+  currency            String    @default("SGD")
+  paymentMethod       String?
+  sourceType          String
+  receiptFileUniqueId String?
+  receiptContentHash  String?
+  rawText             String
+  ocrConfidence       Float?
+  notes               String?
+  excelSyncedAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, publicId])
+  @@unique([userId, receiptContentHash])
+  @@index([userId, transactionAt])
+  @@index([userId, createdAt])
+  @@index([userId, excelSyncedAt])
+}
+
+model PendingMicrosoftOAuth {
+  id        String   @id @default(uuid())
+  userId    String
+  state     String   @unique
+  chatId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model MicrosoftConnection {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  microsoftEmail       String?
+  accessToken          String?
+  refreshToken         String
+  accessTokenExpiresAt DateTime?
+  workbookDriveItemId  String?
+  workbookDriveId      String?
+  workbookWebUrl       String?
+  workbookName         String?
+  tableName            String    @default("Expenses")
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

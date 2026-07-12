@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.11.0 - 2026-07-12
+
+### Added
+- Added local image and receipt text extraction with Sharp preprocessing, bundled English Tesseract data, a 60-second timeout, safety limits, and no OCR or OpenAI API key requirement.
+- Added image action previews for saving extracted text as a note, task, reminder, or expense, including caption-driven natural actions.
+- Added durable Threadwise expenses with manual and receipt parsing, confirmation/edit/discard flows, duplicate receipt protection, and stable `EXP-*` IDs.
+- Added newest-first expense retrieval with all/day/month/year filtering, 10-row pages, and Prev/Next buttons.
+- Added broad natural expense capture and retrieval phrases such as `spent`, `paid`, `bought`, `record an expense`, and `what did I spend this month`.
+- Added standalone `.xlsx` expense exports that require no Microsoft account.
+- Added Microsoft OAuth and optional OneDrive Excel synchronization, automatic timestamped workbook creation, existing workbook selection, exact column validation, token refresh, and encrypted per-user tokens.
+- Added focused `/help images`, `/help expenses`, and `/help excel` guidance plus `/expense`, `/expenses`, and `/excel` commands.
+- Added database migrations and tests for image routing, expense parsing/filtering, Excel configuration, and real workbook generation.
+
+### Changed
+- Made the Threadwise database the expense source of truth; Excel synchronization is an optional mirror and a failed sync does not discard a confirmed expense.
+- Made the main `/help` response compact and topic-based so the growing natural-language guide stays readable in Telegram.
+- Updated the app description, Render blueprint, environment example, release status, and setup documentation for OCR, expenses, and Excel.
+
+### Security
+- Pinned ExcelJS's transitive UUID dependency to a non-vulnerable release; `npm audit` reports no known vulnerabilities.
+- Microsoft access and refresh tokens are encrypted at rest with AES-256-GCM.
+
 ## v0.10.0 - 2026-07-12
 
 ### Added

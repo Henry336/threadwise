@@ -34,6 +34,8 @@ General task apps often require the user to switch context, choose the right fie
 - Deterministic settings and routing for phrases such as `show me the notes`, `show me the tasks`, and `change timezone to Myanmar`.
 - Reminder diagnostics and protected admin endpoints for checking delivery behavior.
 - Gmail read-only OAuth scanning with deterministic triage before AI summarization.
+- Local image and receipt OCR with confirmation-first note, task, reminder, and expense flows.
+- Durable expense tracking with natural manual input, receipt parsing, date-filtered pagination, standalone Excel export, and optional OneDrive workbook synchronization.
 - Local deterministic embeddings and semantic-style search for personal-scale notes, ideas, and tasks.
 - Documentation covering setup, deployment, architecture, performance model, validation, and current behavior.
 

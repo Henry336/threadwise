@@ -6,12 +6,14 @@ import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
-import { createTask, formatTaskCreated } from "../services/tasks";
+import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
+import { applyPendingExpenseEdit, formatPendingExpense } from "../services/expenses";
+import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
 import { prepareNaturalLanguageText } from "./groupRouting";
-import { captureConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { handleNaturalCommand } from "./naturalCommands";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
@@ -32,6 +34,38 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const user = await ensureUser(ctx);
+
+      const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
+      if (expenseEdit) {
+        if (expenseEdit.canceled) {
+          await ctx.reply("Expense edit canceled. The preview is unchanged.");
+        } else if (expenseEdit.message) {
+          await ctx.reply(expenseEdit.message);
+        } else {
+          await replyHtml(ctx, formatPendingExpense(expenseEdit.pending, user.settings?.timezone ?? "UTC"), {
+            reply_markup: expenseConfirmationKeyboard(expenseEdit.pending.id)
+          });
+        }
+        return;
+      }
+
+      const pendingImageReminder = await findPendingImageReminder(user.id);
+      if (pendingImageReminder) {
+        if (/^(?:cancel|stop|discard)(?:\s+(?:image\s+)?reminder)?$/i.test(text.trim())) {
+          await discardPendingImageCapture(user.id, pendingImageReminder.id);
+          await ctx.reply("Image reminder canceled. Nothing was saved.");
+          return;
+        }
+        const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+        if (!dueAt || dueAt.getTime() <= Date.now()) {
+          await ctx.reply("I still need a future reminder time. Try: tomorrow at 9am, in 2 hours, or next Monday at noon. Send 'cancel image reminder' to stop.");
+          return;
+        }
+        const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
+        await consumePendingImageCapture(user.id, pendingImageReminder.id);
+        await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+        return;
+      }
 
       if (/^(cancel|stop)\s+edit$/i.test(text.trim())) {
         const canceled = await cancelPendingItemEdit(user.id);

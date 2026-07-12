@@ -159,3 +159,34 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
 
   return keyboard;
 }
+
+export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Save note", `image:note:${pendingId}`)
+    .text("Create task", `image:task:${pendingId}`)
+    .row()
+    .text("Set reminder", `image:reminder:${pendingId}`)
+    .text("Save expense", `image:expense:${pendingId}`)
+    .row()
+    .text("Show full text", `image:text:${pendingId}`)
+    .text("Discard", `image:discard:${pendingId}`);
+}
+
+export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Save in Threadwise", `expense:save:${pendingId}`)
+    .row()
+    .text("Save + sync Excel", `expense:excel:${pendingId}`)
+    .row()
+    .text("Edit fields", `expense:edit:${pendingId}`)
+    .text("Discard", `expense:discard:${pendingId}`);
+}
+
+export function expensePageKeyboard(encodedFilter: string, page: number, totalPages: number): InlineKeyboard | undefined {
+  if (totalPages <= 1) return undefined;
+  const keyboard = new InlineKeyboard();
+  if (page > 1) keyboard.text("Prev", `expense:page:${encodedFilter}:${page - 1}`);
+  keyboard.text(`Page ${page}/${totalPages}`, `expense:page:${encodedFilter}:${page}`);
+  if (page < totalPages) keyboard.text("Next", `expense:page:${encodedFilter}:${page + 1}`);
+  return keyboard;
+}

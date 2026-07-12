@@ -17,6 +17,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
+- Reads clear images and receipts locally with Tesseract OCR, then offers buttons to save the result as a note, task, reminder, or expense. No OCR or OpenAI API key is required.
+- Stores confirmed expenses in Threadwise, supports manual text and receipt photos, and lists 10 newest-first rows per page with day, month, and year filters.
+- Exports expenses as a standalone `.xlsx` file, or optionally creates and synchronizes a private workbook in the user's OneDrive through Microsoft OAuth.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Schedules recurring reminders with natural phrases such as "remind me to have dinner at 7pm every day" or "remind me to clean the fridge at 9am every week".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
@@ -121,6 +124,18 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /gmail connect
 /gmail scan
 /gmail disconnect
+/expense spent $18.40 on lunch at Toast Box today using Visa
+/expenses
+/expenses today
+/expenses this month
+/expenses 2026
+/excel
+/excel export
+/excel connect
+/excel create
+/excel sync
+/excel use https://onedrive.live.com/...
+/excel disconnect
 /version
 /settings
 /settings interval 180
@@ -198,6 +213,65 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 - Threadwise sends a Telegram digest of unread messages and creates open follow-up tasks for messages classified as important.
 - Gmail messages are not marked read. Threadwise stores encrypted OAuth tokens plus message IDs, sender, subject, snippet, summary, importance reason, and any created task link so the same email does not create duplicate reminders.
 - The integration accepts only `https://www.googleapis.com/auth/gmail.readonly`; it cannot send, delete, archive, or mark emails read.
+
+## Image Text Extraction
+
+Send Threadwise a photo or an image document. It will extract printed English text locally and show a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform the action immediately:
+
+```text
+extract the text
+save this as a note
+turn this into a task
+remind me about this tomorrow at 9
+save this receipt as an expense
+```
+
+OCR uses bundled Tesseract language data and Sharp image cleanup on the Render server. It does not send the image to OpenAI or another OCR API and needs no API key. Images are rotated, resized, converted to grayscale, normalized, and sharpened before recognition. The safety limits are 10 MB and 20 megapixels, and recognition times out after 60 seconds. The first image after a deployment may be slower while the OCR worker starts.
+
+For the best result, use a bright, straight, tightly cropped photo with sharp printed text. Screenshots and clear receipts work best. Handwriting, curved or blurred receipts, unusual fonts, multiple languages, and complex tables may need manual correction. Threadwise always shows a confirmation preview before saving a parsed receipt.
+
+## Expenses
+
+Threadwise's database is the source of truth. Excel is an optional mirror, so a Microsoft outage or a spreadsheet edit cannot make a newly confirmed expense disappear.
+
+Manual examples include:
+
+```text
+spent $18.40 on lunch at Toast Box today using Visa
+record an expense of SGD 25 for groceries
+paid 12.50 for parking yesterday
+bought printer paper for $9.90
+```
+
+Threadwise extracts the transaction date, merchant, category, description, subtotal, tax, discount, total, currency, and payment method when they are present. It shows a draft first. Use the buttons to save it, save and sync it to Excel, edit fields, or discard it. Receipt images also retain the OCR confidence and original extracted text. Re-sending the same Telegram receipt is detected so it is not saved twice accidentally.
+
+Browse expenses with `/expenses`, `/expenses today`, `/expenses 12 July 2026`, `/expenses this month`, `/expenses June 2026`, or `/expenses 2026`. Natural requests such as `what did I spend this month?` work too. Results are ordered from most recent to oldest, 10 per page, with Prev and Next buttons. Year filtering is already implemented.
+
+Every expense uses these predefined Excel columns: Expense ID, Transaction Date, Merchant, Category, Description, Subtotal, Tax, Discount, Total, Currency, Payment Method, Source, OCR Confidence, Notes, and Added At.
+
+## Microsoft Excel
+
+Excel is optional. The simplest no-login option is `/excel export`, which sends the user a ready-to-open `.xlsx` file containing all saved expenses.
+
+For ongoing synchronization:
+
+1. Run `/excel connect` and approve Microsoft access.
+2. Run `/excel create`. Threadwise creates a timestamped workbook in the user's own OneDrive, adds the predefined table and columns, and includes existing expenses.
+3. Confirm new expenses with `Save + sync Excel`, or run `/excel sync` to send up to 200 waiting expenses.
+4. Run `/excel` or say `show my Excel status` to see the connected account and workbook.
+
+The user does not need to provide a link when using `/excel create`. Advanced users can select an existing OneDrive or SharePoint `.xlsx` file with `/excel use <sharing link>`, but it must contain an Excel table named `Expenses` with the exact Threadwise columns in the documented order. `/excel disconnect` removes stored Microsoft tokens but does not delete the workbook or any Threadwise expenses.
+
+To enable Microsoft sign-in on Render, create a Microsoft Entra app registration, add a Web redirect URI of `https://threadwise-90du.onrender.com/excel/oauth/callback`, and grant delegated `User.Read` and `Files.ReadWrite` permissions. `offline_access` is requested during sign-in so synchronization can continue after the initial connection. Then set:
+
+```text
+MICROSOFT_CLIENT_ID=<Application client ID>
+MICROSOFT_CLIENT_SECRET=<client secret value>
+MICROSOFT_REDIRECT_URI=https://threadwise-90du.onrender.com/excel/oauth/callback
+MICROSOFT_TOKEN_ENCRYPTION_KEY=<long random secret>
+```
+
+Generate the encryption key with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep it stable: changing it makes existing encrypted Microsoft tokens unreadable, and affected users will need to reconnect. The integration only accesses files the signed-in user can access; it does not require a separate Excel API key.
 
 ## Tech Stack
 
@@ -310,6 +384,10 @@ OPENAI_MODEL_FALLBACKS
 ADMIN_STATUS_TOKEN
 WEBHOOK_URL
 BOT_ALLOWED_TELEGRAM_IDS
+MICROSOFT_CLIENT_ID
+MICROSOFT_CLIENT_SECRET
+MICROSOFT_REDIRECT_URI
+MICROSOFT_TOKEN_ENCRYPTION_KEY
 ```
 
 `DATABASE_URL` is wired from the Render database in `render.yaml`.
@@ -405,9 +483,10 @@ Current validation status at initial implementation:
 
 ## Future Improvements
 
-- Full Google Calendar OAuth sync.
 - External search provider for live market/competition research.
 - Web dashboard for reviewing ideas and tasks.
 - Weekly digest.
 - Richer idea selection-to-implementation workflow.
 - Per-user privacy controls and export/delete flows.
+- Receipt review learning: remember a user's merchant/category corrections locally.
+- Optional multi-language OCR packs and multi-receipt batch import.

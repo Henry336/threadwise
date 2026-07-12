@@ -295,13 +295,14 @@ describe("bot formatters", () => {
 
     expect(message).toContain("<b>Threadwise help</b>");
     expect(message).toContain("<b>Reminders And Tasks</b>");
-    expect(message).toContain("<code>remind me to check the washer after 5 mins</code>");
+    expect(message).toContain("<code>/help reminders</code>");
     expect(message).toContain("<b>Settings</b>");
-    expect(message).toContain("<code>remind me again every 3 hours</code>");
+    expect(message).toContain("<b>Images And OCR</b>");
+    expect(message).toContain("<b>Expenses</b>");
+    expect(message).toContain("<b>Excel</b>");
     expect(message).toContain("<code>/commands</code>");
     expect(message).not.toContain("Page 1/");
-    expect(message).toContain("Google Calendar");
-    expect(message).not.toContain("Gmail");
+    expect(message.length).toBeLessThan(4_096);
   });
 
   it("keeps slash commands discoverable in the command reference", () => {
@@ -310,6 +311,7 @@ describe("bot formatters", () => {
     expect(message.indexOf("<code>/add</code>")).toBeLessThan(message.indexOf("<code>/archived</code>"));
     expect(message.indexOf("<code>/archived</code>")).toBeLessThan(message.indexOf("<code>/brief</code>"));
     expect(message).toContain("<code>/commands</code> - Show the full slash-command reference.");
+    expect(message.length).toBeLessThan(4_096);
   });
 
   it("formats focused help topics for natural questions", () => {
@@ -329,6 +331,9 @@ describe("bot formatters", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/googlecal");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expense");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expenses");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/excel");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
   });
 

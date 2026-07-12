@@ -1,4 +1,5 @@
 import type { Bot, Context } from "grammy";
+import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
 import { ensureUser } from "../services/users";
@@ -65,6 +66,9 @@ import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
+import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
+import { expenseConfirmationKeyboard, expensePageKeyboard } from "./keyboards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -105,6 +109,9 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("calendar", async (ctx) => handleCalendar(ctx, true));
   bot.command("googlecal", async (ctx) => handleCalendar(ctx, false));
   bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
+  bot.command("expense", async (ctx) => handleExpense(ctx));
+  bot.command("expenses", async (ctx) => handleExpenses(ctx));
+  bot.command("excel", async (ctx) => handleExcel(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
 }
 
@@ -691,11 +698,100 @@ async function handleGmail(ctx: Context, ai: AiProvider) {
   await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
 }
 
+async function handleExpense(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "expense");
+  if (!body) {
+    await ctx.reply("Send it like this: /expense spent $18.40 on lunch at Toast Box today using Visa. You can also send a clear receipt photo with the caption 'save as expense'.");
+    return;
+  }
+  try {
+    const pending = await createPendingExpenseFromText(user.id, body, user.settings?.timezone ?? "UTC", { sourceType: "manual" });
+    await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
+      reply_markup: expenseConfirmationKeyboard(pending.id)
+    });
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that expense.");
+  }
+}
+
+async function handleExpenses(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "expenses");
+  const filter = parseExpenseFilter(body || "all", user.settings?.timezone ?? "UTC");
+  if (!filter) {
+    await ctx.reply("Try /expenses, /expenses today, /expenses 2026-07-12, /expenses this month, /expenses June 2026, or /expenses 2026.");
+    return;
+  }
+  const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
+  await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
+    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
+  });
+}
+
+async function handleExcel(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "excel").trim();
+  const lower = body.toLowerCase();
+  if (!body || lower === "status") {
+    await replyHtml(ctx, await formatExcelStatus(user.id));
+    return;
+  }
+  if (lower === "connect") {
+    if (!microsoftExcelConfigured()) {
+      await ctx.reply("Excel OAuth is not configured on the server yet. The setup instructions are in README.md.");
+      return;
+    }
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createMicrosoftConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [bold("Connect Microsoft Excel"), "Open this Microsoft link and approve access to files you can already use.", "", h(url)].join("\n"));
+    return;
+  }
+  if (lower === "create" || lower === "setup" || lower === "set up") {
+    try {
+      const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
+      await replyHtml(ctx, [bold("Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
+    }
+    return;
+  }
+  if (lower.startsWith("use ")) {
+    try {
+      const item = await linkExpenseWorkbook(user.id, body.slice(4).trim());
+      await replyHtml(ctx, `${bold("Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}`);
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
+    }
+    return;
+  }
+  if (lower === "sync" || lower === "sync expenses") {
+    try {
+      const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
+      await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
+    } catch (error) {
+      await ctx.reply(error instanceof Error ? error.message : "Excel sync failed.");
+    }
+    return;
+  }
+  if (lower === "export" || lower === "download") {
+    const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
+    await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
+    return;
+  }
+  if (lower === "disconnect") {
+    await replyHtml(ctx, await disconnectMicrosoft(user.id));
+    return;
+  }
+  await ctx.reply("Try /excel, /excel connect, /excel create, /excel sync, /excel export, /excel use <OneDrive link>, or /excel disconnect.");
+}
+
 async function handleVersion(ctx: Context, ai: AiProvider) {
   await replyHtml(ctx, formatVersionStatus({
     ai: ai.getStatus(),
     gmailConfigured: gmailConfigured(),
     calendarConfigured: calendarConfigured(),
+    excelConfigured: microsoftExcelConfigured(),
     reminders: getReminderDiagnostics()
   }));
 }
