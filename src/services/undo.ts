@@ -38,7 +38,7 @@ export async function recordTaskStateUndo(
     nextReminderAt?: Date | null;
     snoozedUntil?: Date | null;
   },
-  type: "complete-task" | "cancel-task"
+  type: "complete-task" | "cancel-task" | "restore-task"
 ): Promise<void> {
   await recordUndo(tx, userId, type, {
     type,
@@ -228,7 +228,7 @@ export async function undoLastAction(userId: string): Promise<string> {
       return await undoCreate(entry.id, payload);
     }
 
-    if (type === "complete-task" || type === "cancel-task") {
+    if (type === "complete-task" || type === "cancel-task" || type === "restore-task") {
       return await undoTaskState(entry.id, payload);
     }
 

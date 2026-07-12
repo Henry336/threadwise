@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
-import { formatTaskCompleted, formatTaskCreated } from "../services/tasks";
+import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
 import { formatNoteDetail } from "../services/notes";
 import { formatIdeaDetail } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
@@ -90,6 +90,19 @@ describe("bot formatters", () => {
     expect(message).toContain("Completed this occurrence");
     expect(message).toContain("<b>Next Occurrence:</b>");
     expect(message).toContain("<b>Repeats:</b> Daily");
+  });
+
+  it("formats an already-completed task as a restore prompt", () => {
+    const completed = task({ status: TaskStatus.DONE, title: "Submit report" });
+    const message = formatTaskAlreadyCompleted(completed);
+    const keyboard = restoreCompletedTaskKeyboard(completed.id);
+
+    expect(message).toContain("Task already completed");
+    expect(message).toContain("Restore it?");
+    expect(keyboard.inline_keyboard[0]?.[0]).toEqual({
+      text: "Restore task",
+      callback_data: `task:restore:${completed.id}`
+    });
   });
 
   it("escapes user task text in HTML output", () => {

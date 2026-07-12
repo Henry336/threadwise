@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.11.2 - 2026-07-12
+
+### Fixed
+- Repeated completion presses are now idempotent: an already-completed task is not updated again and does not create another completion undo entry.
+- Stale Complete buttons now respond with `Task already completed` and a dedicated Restore task button.
+- Restoring a completed task reopens it, clears its completion timestamp, safely schedules its next reminder, and supports undo.
+- Slash and natural-language completion requests use the same already-completed response instead of reporting a false new completion.
+
 ## v0.11.1 - 2026-07-12
 
 ### Fixed

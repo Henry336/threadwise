@@ -24,6 +24,7 @@ import {
   completeTask,
   findTaskReference,
   formatAssignee,
+  formatTaskAlreadyCompleted,
   formatTaskCompleted,
   formatTaskCreated,
   listOpenTasks,
@@ -68,7 +69,7 @@ import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
-import { expenseConfirmationKeyboard, expensePageKeyboard } from "./keyboards";
+import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -328,8 +329,12 @@ async function handleDone(ctx: Context) {
   }
 
   try {
-    const task = await completeTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${formatTaskCompleted(task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    const completion = await completeTask(user.id, normalizePublicId(id));
+    if (completion.alreadyCompleted) {
+      await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
+      return;
+    }
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }

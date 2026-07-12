@@ -59,6 +59,10 @@ export function undoKeyboard(label = "Undo"): InlineKeyboard {
   return new InlineKeyboard().text(label, "undo:last");
 }
 
+export function restoreCompletedTaskKeyboard(taskId: string): InlineKeyboard {
+  return new InlineKeyboard().text("Restore task", `task:restore:${taskId}`);
+}
+
 export function editCancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Cancel edit", "edit:cancel");
 }

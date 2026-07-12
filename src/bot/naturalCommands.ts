@@ -17,7 +17,7 @@ import {
 } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskCompleted, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
+import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -39,7 +39,7 @@ import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter } from "../services/expenses";
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
-import { expenseConfirmationKeyboard, expensePageKeyboard } from "./keyboards";
+import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -352,8 +352,12 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^mark\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|finished)$/i)
     ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|finished)$/i);
   if (doneMatch?.[1]) {
-    const task = await completeTask(user.id, normalizePublicId(doneMatch[1]));
-    await replyHtml(ctx, `${formatTaskCompleted(task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    const completion = await completeTask(user.id, normalizePublicId(doneMatch[1]));
+    if (completion.alreadyCompleted) {
+      await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
+      return true;
+    }
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
     return true;
   }
 

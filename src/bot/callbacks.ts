@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, formatTaskCompleted, formatTaskCreated, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
@@ -16,10 +16,11 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
@@ -152,10 +153,34 @@ async function replyInChunks(ctx: Context, text: string) {
 async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const user = await ensureUser(ctx);
-  const task = await completeTask(user.id, taskId);
+  const completion = await completeTask(user.id, taskId);
+  if (completion.alreadyCompleted) {
+    await ctx.answerCallbackQuery({ text: "Already completed" });
+    await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), {
+      reply_markup: restoreCompletedTaskKeyboard(completion.task.id)
+    });
+    return;
+  }
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await replyHtml(ctx, formatTaskCompleted(task, user.settings?.timezone), {
+  await replyHtml(ctx, formatTaskCompleted(completion.task, user.settings?.timezone), {
     reply_markup: undoKeyboard("Undo complete")
+  });
+}
+
+async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
+  if (!taskId) return;
+  const user = await ensureUser(ctx);
+  const result = await restoreCompletedTask(user.id, taskId);
+  if (!result.restored) {
+    await ctx.answerCallbackQuery({ text: "Task is already open" });
+    await replyHtml(ctx, `${bold("Task already open")} ${code(result.task.publicId)} ${h(result.task.title)}`, {
+      reply_markup: taskActionsKeyboard(result.task)
+    });
+    return;
+  }
+  await ctx.answerCallbackQuery({ text: "Restored" });
+  await replyHtml(ctx, `${bold("Restored task")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} if that was a mistake.`, {
+    reply_markup: taskActionsKeyboard(result.task).row().text("Undo restore", "undo:last")
   });
 }
 

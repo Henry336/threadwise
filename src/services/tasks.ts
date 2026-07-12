@@ -33,6 +33,7 @@ export type TaskListItem = {
   snoozedUntil?: Date | null;
   lastRemindedAt?: Date | null;
   reminderCount: number;
+  completedAt?: Date | null;
   pinnedAt?: Date | null;
   archivedAt?: Date | null;
   createdAt: Date;
@@ -163,9 +164,12 @@ export async function listOpenTasks(userId: string, take = 50): Promise<TaskList
 
 export async function completeTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
+  if (task.status === TaskStatus.DONE) {
+    return { task, alreadyCompleted: true as const };
+  }
   if (task.recurrenceRule && task.recurrenceIntervalDays && task.dueAt) {
     const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceIntervalDays, task.timezone ?? "UTC");
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       await recordTaskStateUndo(tx, userId, task, "complete-task");
       return tx.task.update({
         where: { id: task.id },
@@ -184,12 +188,12 @@ export async function completeTask(userId: string, reference: string) {
         }
       });
     });
+    return { task: updated, alreadyCompleted: false as const };
   }
 
   return prisma.$transaction(async (tx) => {
-    await recordTaskStateUndo(tx, userId, task, "complete-task");
-    return tx.task.update({
-      where: { id: task.id },
+    const changed = await tx.task.updateMany({
+      where: { id: task.id, userId, status: { not: TaskStatus.DONE } },
       data: {
         status: TaskStatus.DONE,
         completedAt: new Date(),
@@ -197,6 +201,38 @@ export async function completeTask(userId: string, reference: string) {
         snoozedUntil: null
       }
     });
+    const current = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
+    if (changed.count === 0) {
+      return { task: current, alreadyCompleted: true as const };
+    }
+    await recordTaskStateUndo(tx, userId, task, "complete-task");
+    return { task: current, alreadyCompleted: false as const };
+  });
+}
+
+export async function restoreCompletedTask(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
+  if (task.status !== TaskStatus.DONE) {
+    return { task, restored: false as const };
+  }
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
+  if (!user.settings) throw new Error("User settings are missing.");
+  const now = new Date();
+  const nextReminderAt = task.dueAt && task.dueAt.getTime() > now.getTime()
+    ? nextDueReminderAt(task.dueAt, user.settings.dueNudgeMinutes, now)
+    : nextIntervalReminderAtForTask(now, task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes);
+
+  return prisma.$transaction(async (tx) => {
+    const changed = await tx.task.updateMany({
+      where: { id: task.id, userId, status: TaskStatus.DONE },
+      data: { status: TaskStatus.OPEN, completedAt: null, nextReminderAt, snoozedUntil: null }
+    });
+    const current = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
+    if (changed.count === 0) {
+      return { task: current, restored: false as const };
+    }
+    await recordTaskStateUndo(tx, userId, task, "restore-task");
+    return { task: current, restored: true as const };
   });
 }
 
@@ -447,6 +483,10 @@ export function formatTaskCompleted(task: { publicId: string; title: string; sta
   }
 
   return `${bold("Completed task")} ${code(task.publicId)} ${h(task.title)}`;
+}
+
+export function formatTaskAlreadyCompleted(task: { publicId: string; title: string }): string {
+  return `${bold("Task already completed")} ${code(task.publicId)} ${h(task.title)}\nRestore it?`;
 }
 
 export function formatAssignee(task: { assignedUsername?: string | null; assignedDisplayName?: string | null }): string {

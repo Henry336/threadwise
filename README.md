@@ -27,7 +27,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
-- Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`.
+- Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`. Pressing Complete again reports that the task is already completed and offers a safe Restore button.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
 - Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
 - Archives notes from note list/detail buttons, `/archive note 1`, or natural text such as `delete note 1`.
