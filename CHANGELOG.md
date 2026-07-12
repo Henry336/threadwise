@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.13.1 - 2026-07-12
+
+### Fixed
+- Corrected the group setup guidance: Telegram privacy-enabled bots receive commands and replies, but Telegram does not deliver ordinary sentences merely containing the bot's `@username`.
+- `/groupcheck` now reports Telegram group privacy from the live bot identity and gives the exact BotFather `/setprivacy` instructions when it is enabled.
+- Documented that Threadwise continues ignoring unaddressed group conversation after BotFather privacy is disabled.
+
 ## v0.13.0 - 2026-07-12
 
 ### Added

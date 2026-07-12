@@ -71,7 +71,7 @@ import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 import { allowedTelegramIds } from "../config/env";
-import { isGroupChat, isTelegramContextAllowed } from "./groupRouting";
+import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => {
@@ -713,6 +713,8 @@ async function handleGroupCheck(ctx: Context) {
     return;
   }
   const allowlist = allowedTelegramIds();
+  const privacyEnabled = telegramGroupPrivacyEnabled(ctx);
+  const username = ctx.me.username ? `@${ctx.me.username}` : "the bot";
   await replyHtml(ctx, [
     bold("Threadwise group check"),
     `${bold("Version")} ${code(`v${appVersion()}`)}`,
@@ -720,8 +722,11 @@ async function handleGroupCheck(ctx: Context) {
     `${bold("Group chat ID")} ${code(String(ctx.chat?.id ?? "unknown"))}`,
     `${bold("Your Telegram ID")} ${code(String(ctx.from?.id ?? "unknown"))}`,
     `${bold("Allowlist")} ${!allowlist?.size ? "open" : isTelegramContextAllowed(ctx, allowlist) ? "allowed" : "blocked"}`,
+    `${bold("Telegram group privacy")} ${privacyEnabled ? "enabled" : "disabled"}`,
     "",
-    "If this command works but an @mention does not, send the exact mention again and check that it matches the bot username above."
+    privacyEnabled
+      ? `Ordinary @mention sentences are not delivered to privacy-enabled bots. In BotFather, run /setprivacy, select ${username}, and choose Disable. If Telegram does not apply it immediately, remove and re-add the bot to this group.`
+      : "Direct @mentions can be delivered. Threadwise will still ignore ordinary group conversation unless it mentions or replies to the bot."
   ].join("\n"));
 }
 

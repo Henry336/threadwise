@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { describe, expect, it } from "vitest";
-import { isTelegramContextAllowed, prepareNaturalLanguageText, telegramAllowlistKeys } from "./groupRouting";
+import { isTelegramContextAllowed, prepareNaturalLanguageText, telegramAllowlistKeys, telegramGroupPrivacyEnabled } from "./groupRouting";
 
 const bot = {
   id: 99,
@@ -61,6 +61,13 @@ describe("group routing", () => {
 
     expect(prepareNaturalLanguageText(ctx, "@threadwise_1_bot, show me the tasks")).toBe("show me the tasks");
     expect(prepareNaturalLanguageText(ctx, "hey @threadwise_1_bot, show me the notes")).toBe("show me the notes");
+  });
+
+  it("reports Telegram group privacy from the bot identity", () => {
+    expect(telegramGroupPrivacyEnabled(context({}))).toBe(true);
+    expect(telegramGroupPrivacyEnabled(context({
+      me: { ...bot, can_read_all_group_messages: true }
+    }))).toBe(false);
   });
 
   it.each([

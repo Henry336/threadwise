@@ -88,6 +88,10 @@ function stripBotReference(ctx: Context, text: string): string {
     .trim();
 }
 
+export function telegramGroupPrivacyEnabled(ctx: Context): boolean {
+  return botInfo(ctx)?.can_read_all_group_messages !== true;
+}
+
 function stripBotMentionEntities(ctx: Context, text: string, bot: BotInfo | undefined): string {
   const botEntities = (ctx.message?.entities ?? [])
     .filter((entity) => {
@@ -150,6 +154,7 @@ type BotInfo = {
   id: number;
   first_name?: string;
   username?: string;
+  can_read_all_group_messages?: boolean;
 };
 
 function botInfo(ctx: Context): BotInfo | undefined {
