@@ -75,7 +75,13 @@ describe("natural command parsing", () => {
     ["could you remind me to call Mum tomorrow at 9?", "me to call Mum tomorrow at 9"],
     ["don't let me forget to submit the form at 5pm", "me to submit the form at 5pm"],
     ["nudge me to check the oven in 20 minutes", "me to check the oven in 20 minutes"],
-    ["send me a reminder about rent on 10 July at 8am", "me about rent on 10 July at 8am"]
+    ["send me a reminder about rent on 10 July at 8am", "me about rent on 10 July at 8am"],
+    ["remind me to finish all tasks by 9 pm", "me to finish all tasks by 9 pm"],
+    ["notify me to leave before 8:30am", "me to leave before 8:30am"],
+    ["I need a reminder to pay rent by 9pm", "to pay rent by 9pm"],
+    ["make sure I remember to call Mum around 7pm", "me to call Mum around 7pm"],
+    ["don't forget to lock the door at 11pm", "me to lock the door at 11pm"],
+    ["reminder: submit the form tomorrow", "submit the form tomorrow"]
   ])("parses reminder starter bodies: %s", (input, expected) => {
     expect(parseNaturalReminderBody(input)).toBe(expected);
   });

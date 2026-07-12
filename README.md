@@ -23,7 +23,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Schedules recurring reminders with natural phrases such as "remind me to have dinner at 7pm every day" or "remind me to clean the fridge at 9am every week".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
-- Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "don't let me forget to submit the form at 5pm", and "nudge me to check the oven in half an hour" without requiring OpenAI.
+- Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to finish all tasks by 9 pm", "don't let me forget to submit the form at 5pm", and "nudge me to check the oven in half an hour" without requiring OpenAI.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks with active list numbers, while keeping stable task IDs for durable references.

@@ -100,6 +100,17 @@ describe("date utilities", () => {
   });
 
   it.each([
+    ["remind me to finish all tasks by 9 pm", "2026-07-05T13:00:00.000Z"],
+    ["remind me to finish all tasks before 9pm", "2026-07-05T13:00:00.000Z"],
+    ["please nudge me around 9:30 pm", "2026-07-05T13:30:00.000Z"],
+    ["remind me no later than 21:45", "2026-07-05T13:45:00.000Z"],
+    ["remind me to call Mum 9pm", "2026-07-05T13:00:00.000Z"]
+  ])("parses deadline-style and conversational clocks: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
     "declare check-out on UHMS before moving out from KE7 by 8 am 10 July",
     "declare check-out on UHMS before moving out from KE7 8 am 10 July",
     "declare check-out on UHMS before moving out from KE7 10 July at 8 am",
@@ -199,6 +210,21 @@ describe("date utilities", () => {
     expect(splitReminderText("do this at 4 pm")).toEqual({
       whenText: "do this at 4 pm",
       taskText: "do this at 4 pm"
+    });
+  });
+
+  it.each([
+    "me to finish all tasks by 9 pm",
+    "me to send the report before 8:30am",
+    "me to call Mum 9pm"
+  ])("keeps deadline-style reminder text schedulable: %s", (text) => {
+    expect(splitReminderText(text)).toEqual({ whenText: text.replace(/^me to /, ""), taskText: text.replace(/^me to /, "") });
+  });
+
+  it("accepts informal remind-me wording without requiring the word to", () => {
+    expect(splitReminderText("me finish all tasks by 9pm")).toEqual({
+      whenText: "finish all tasks by 9pm",
+      taskText: "finish all tasks by 9pm"
     });
   });
 

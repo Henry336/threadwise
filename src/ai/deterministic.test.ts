@@ -40,7 +40,10 @@ describe("deterministic AI helpers", () => {
     ["remind me to leave my house in 20 minute", "Leave my house"],
     ["remind me to leave my house in 20 minutes", "Leave my house"],
     ["please remind me to prepare a gift at 3:20 pm", "Prepare a gift"],
-    ["set a reminder for school at 9 am", "School"]
+    ["set a reminder for school at 9 am", "School"],
+    ["remind me to finish all tasks by 9 pm", "Finish all tasks"],
+    ["remind me to send the report before 8:30am", "Send the report"],
+    ["remind me to call Mum 9pm", "Call Mum"]
   ])("handles expected reminder phrasing: %s", (input, title) => {
     const classification = classifyMessageDeterministically(input, "Asia/Singapore");
     expect(classification?.kind).toBe("task");

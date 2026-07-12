@@ -114,6 +114,14 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
+  const informalRemindMeMatch = input.match(/^me\s+(.+)$/i);
+  if (informalRemindMeMatch?.[1] && hasReminderTimeText(informalRemindMeMatch[1])) {
+    return {
+      whenText: informalRemindMeMatch[1].trim(),
+      taskText: informalRemindMeMatch[1].trim()
+    };
+  }
+
   const mentionedAssigneeMatch = input.match(/^(@[\w_]{3,32})\s+(?:to|about|for)\s+(.+)$/i);
   if (mentionedAssigneeMatch?.[1] && mentionedAssigneeMatch[2]) {
     return {
@@ -196,7 +204,7 @@ export function nextRecurringDueAt(previousDueAt: Date, intervalDays: number, ti
 }
 
 function hasReminderTimeText(input: string): boolean {
-  return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|next\s+\w+)(?:\s+at\s+\d{1,2})?|noon|midnight|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{4}-\d{2}-\d{2})\b/i.test(input);
+  return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|tonight|next\s+\w+)(?:\s+(?:at|by|before|around)\s+\d{1,2})?|noon|midnight|(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{4}-\d{2}-\d{2})\b/i.test(input);
 }
 
 function relativeAmount(value: string): number {
@@ -368,7 +376,8 @@ function monthDayDateTime(input: {
 }
 
 function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: string; meridiem?: string } | undefined {
-  const match = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  const match = text.match(/\b(?:at|by|before|around|no\s+later\s+than)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/)
+    ?? text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
   if (!match?.[1]) {
     return undefined;
   }

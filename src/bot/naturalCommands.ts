@@ -539,7 +539,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     const parsed = splitReminderText(reminderBody);
     const scheduledAt = parseDueDate(parsed?.whenText ?? reminderBody, user.settings?.timezone ?? "UTC");
     if (!parsed || !scheduledAt || scheduledAt.getTime() <= Date.now()) {
-      return false;
+      await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try adding something like: by 9pm, tomorrow morning, Friday at 3, or in 20 minutes.");
+      return true;
     }
     const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
     await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });

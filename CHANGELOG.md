@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.1 - 2026-07-12
+
+### Fixed
+- Fixed explicit reminders such as `remind me to finish all tasks by 9 pm` falling through to an undated ordinary task.
+- Added deterministic clock parsing for `by`, `before`, `around`, `no later than`, and bare meridiem phrases such as `9pm`.
+- Added more reminder starters including `notify me`, `I need a reminder`, `make sure I remember`, `don't forget`, and `reminder:`.
+- Explicit reminder requests with a missing or unrecognized future time now ask for clarification instead of silently saving the wrong item type.
+- Deadline wording is removed from the visible task title while remaining stored in the reminder details.
+
 ## v0.11.0 - 2026-07-12
 
 ### Added

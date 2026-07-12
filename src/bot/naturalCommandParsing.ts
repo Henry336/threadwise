@@ -20,7 +20,9 @@ export function parseNaturalReminderBody(text: string): string | undefined {
   const normalized = text.trim();
   const directMatch = normalized.match(/^(?:please\s+)?remind\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:can|could|would|will)\s+you\s+remind\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:set|create|make)\s+(?:me\s+)?(?:a\s+)?reminder\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?(?:set|create|make)\s+(?:me\s+)?(?:a\s+)?reminder\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:i\s+)?(?:need|want)\s+(?:a\s+)?reminder\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?reminder\s*[:,-]?\s+(.+)$/i);
   if (directMatch?.[1]) {
     return stripTrailingPunctuation(directMatch[1]);
   }
@@ -32,7 +34,10 @@ export function parseNaturalReminderBody(text: string): string | undefined {
   }
 
   const nudgeMatch = normalized.match(/^(?:please\s+)?(?:ping|nudge)\s+me\s+(to|about)\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:give|send)\s+me\s+(?:a\s+)?reminder\s+(to|about|for)\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?(?:alert|notify)\s+me\s+(to|about|for)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:give|send)\s+me\s+(?:a\s+)?reminder\s+(to|about|for)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+remember\s+(to|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?don't\s+forget\s+(to|about)\s+(.+)$/i);
   if (nudgeMatch?.[1] && nudgeMatch[2]) {
     return `me ${nudgeMatch[1].toLowerCase()} ${stripTrailingPunctuation(nudgeMatch[2])}`;
   }

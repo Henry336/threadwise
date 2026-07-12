@@ -221,7 +221,8 @@ function removeSchedulePhrases(text: string): string {
     .replace(/\b\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?\b/g, "")
     .replace(/\b(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/ig, "")
     .replace(/\b(?:at\s+)?(?:noon|midnight)(?:\s+(?:today|tomorrow))?\b/ig, "")
-    .replace(/\bat\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?\b/ig, "");
+    .replace(/\b(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?\b/ig, "")
+    .replace(/\b\d{1,2}(?::(\d{2}))?\s*(?:am|pm)\b/ig, "");
 }
 
 function cleanTaskTitle(text: string): string {
