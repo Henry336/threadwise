@@ -12,7 +12,7 @@ import { applyPendingExpenseEdit, formatPendingExpense } from "../services/expen
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
-import { prepareNaturalLanguageText } from "./groupRouting";
+import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { handleNaturalCommand } from "./naturalCommands";
 import { taskCreationOptionsFromContext } from "./taskMentions";
@@ -28,8 +28,12 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
     }
 
     try {
+      const addressedGroupMessage = isGroupChat(ctx) && messageTargetsBot(ctx, rawText);
       const text = prepareNaturalLanguageText(ctx, rawText);
       if (!text) {
+        if (addressedGroupMessage) {
+          await ctx.reply("I'm here. Tell me what to save, find, change, or remind the group about. Try: remind us to take out the trash every Friday at 7pm.");
+        }
         return;
       }
 
@@ -95,6 +99,9 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       });
 
       if (classification.kind === "noise" || classification.confidence < 0.45) {
+        if (addressedGroupMessage) {
+          await ctx.reply("I saw your mention, but I'm not sure what you want me to do. Try a full request, or send /help for examples.");
+        }
         return;
       }
 

@@ -63,7 +63,7 @@ import { formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
-import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
+import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
@@ -279,7 +279,8 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   }
 
   try {
-    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
+    const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
+    const task = await createScheduledReminder(user.id, taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, taskText));
     await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");

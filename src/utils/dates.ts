@@ -106,7 +106,7 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
-  const remindMeMatch = input.match(/^me\s+(?:to|about|for)\s+(.+)$/i);
+  const remindMeMatch = input.match(/^me\s+(?:to|about|for|of)\s+(.+)$/i);
   if (remindMeMatch?.[1]) {
     return {
       whenText: remindMeMatch[1].trim(),
@@ -130,7 +130,7 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
-  const groupTargetMatch = input.match(/^(?:us|everyone|everybody|all)\s+(?:to|about|for)\s+(.+)$/i);
+  const groupTargetMatch = input.match(/^(?:us|everyone|everybody|all)\s+(?:to|about|for|of)\s+(.+)$/i);
   if (groupTargetMatch?.[1]) {
     return {
       whenText: groupTargetMatch[1].trim(),
@@ -138,7 +138,7 @@ export function splitReminderText(input: string): { whenText: string; taskText: 
     };
   }
 
-  const leadingTargetMatch = input.match(/^(?:to|about|for)\s+(.+)$/i);
+  const leadingTargetMatch = input.match(/^(?:to|about|for|of)\s+(.+)$/i);
   if (leadingTargetMatch?.[1]) {
     return {
       whenText: leadingTargetMatch[1].trim(),
@@ -171,11 +171,15 @@ export type RecurrencePattern = {
 
 export function parseRecurrencePattern(input: string): RecurrencePattern | undefined {
   const text = input.toLowerCase();
-  if (/\b(?:every\s+day|daily|each\s+day)\b/.test(text)) {
+  if (/\b(?:every\s+(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening))\b/.test(text)) {
     return { rule: RecurrenceRule.DAILY, intervalDays: 1 };
   }
 
-  if (/\b(?:every\s+week|weekly|each\s+week)\b/.test(text)) {
+  if (/\b(?:every\s+year|yearly|annually|annual|each\s+year|once\s+a\s+year)\b/.test(text)) {
+    return { rule: RecurrenceRule.YEARLY, intervalDays: 365 };
+  }
+
+  if (/\b(?:every\s+week|weekly|each\s+week|(?:every|each)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays))\b/.test(text)) {
     return { rule: RecurrenceRule.WEEKLY, intervalDays: 7 };
   }
 
@@ -184,23 +188,48 @@ export function parseRecurrencePattern(input: string): RecurrencePattern | undef
 
 export function stripRecurrenceText(input: string): string {
   return input
-    .replace(/\b(?:every\s+day|daily|each\s+day)\b/ig, "")
+    .replace(/\b(?:every\s+(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening))\b/ig, "")
+    .replace(/\b(?:every\s+year|yearly|annually|annual|each\s+year|once\s+a\s+year)\b/ig, "")
+    .replace(/\b(?:every|each)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/ig, "")
+    .replace(/\b(?:on\s+)?(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays)\b/ig, "")
     .replace(/\b(?:every\s+week|weekly|each\s+week)\b/ig, "")
     .replace(/\s+/g, " ")
     .replace(/[.,;:| -]+$/g, "")
     .trim();
 }
 
-export function nextRecurringDueAt(previousDueAt: Date, intervalDays: number, timezone: string, now: Date = new Date()): Date {
-  const interval = Math.max(1, intervalDays);
+export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, timezone: string, now: Date = new Date()): Date {
   let next = DateTime.fromJSDate(previousDueAt).setZone(timezone);
   const current = DateTime.fromJSDate(now).setZone(timezone);
+  const step = rule === RecurrenceRule.DAILY
+    ? { days: 1 }
+    : rule === RecurrenceRule.WEEKLY
+      ? { weeks: 1 }
+      : { years: 1 };
 
   do {
-    next = next.plus({ days: interval });
+    next = next.plus(step);
   } while (next <= current);
 
   return next.toJSDate();
+}
+
+export function carryRecurrenceToTaskText(taskText: string, scheduleText: string): string {
+  if (parseRecurrencePattern(taskText)) return taskText;
+  const recurrence = parseRecurrencePattern(scheduleText);
+  if (!recurrence) return taskText;
+  const suffix = recurrence.rule === RecurrenceRule.DAILY
+    ? "every day"
+    : recurrence.rule === RecurrenceRule.WEEKLY
+      ? "every week"
+      : "every year";
+  return `${taskText.trim()} ${suffix}`.trim();
+}
+
+export function formatRecurrenceRule(rule: RecurrenceRule): string {
+  if (rule === RecurrenceRule.WEEKLY) return "Weekly";
+  if (rule === RecurrenceRule.YEARLY) return "Yearly";
+  return "Daily";
 }
 
 function hasReminderTimeText(input: string): boolean {
@@ -268,11 +297,14 @@ function parseWeekday(text: string, base: DateTime): DateTime | undefined {
   }
 
   let daysToAdd = targetWeekday - base.weekday;
-  if (daysToAdd < 0 || daysToAdd === 0 || match[1]) {
+  if (daysToAdd < 0 || match[1]) {
     daysToAdd += 7;
   }
-
-  return withOptionalTime(base.plus({ days: daysToAdd }), match[3], match[4], match[5]);
+  let scheduled = withOptionalTime(base.plus({ days: daysToAdd }), match[3], match[4], match[5]);
+  if (daysToAdd === 0 && scheduled <= base) {
+    scheduled = scheduled.plus({ weeks: 1 });
+  }
+  return scheduled;
 }
 
 function parseMonthDay(text: string, base: DateTime): DateTime | undefined {

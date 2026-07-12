@@ -65,8 +65,8 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
 }
 
 function stripBotReference(ctx: Context, text: string): string {
-  let next = text;
   const bot = botInfo(ctx);
+  let next = stripBotMentionEntities(ctx, text, bot);
   if (bot?.username) {
     next = next.replace(mentionRegex(bot.username, true), " ");
   } else {
@@ -81,10 +81,27 @@ function stripBotReference(ctx: Context, text: string): string {
   }
 
   return next
+    .replace(/\(\s*\)|\[\s*\]|\{\s*\}/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/^(?:hey|hi|hello)\s+/i, "")
-    .replace(/^\s*[,.:;!?]\s*/, "")
+    .replace(/^(?:hey|hi|hello)(?:\s+|\s*[,.:;!?]+\s*|$)/i, "")
+    .replace(/^\s*[()[\]{}<>,.:;!?—–-]+\s*/, "")
     .trim();
+}
+
+function stripBotMentionEntities(ctx: Context, text: string, bot: BotInfo | undefined): string {
+  const botEntities = (ctx.message?.entities ?? [])
+    .filter((entity) => {
+      if (entity.type === "text_mention") return Boolean(bot?.id && entity.user.id === bot.id);
+      if (entity.type !== "mention" || !bot?.username) return false;
+      return sameUsername(text.slice(entity.offset, entity.offset + entity.length), bot.username);
+    })
+    .sort((a, b) => b.offset - a.offset);
+
+  let next = text;
+  for (const entity of botEntities) {
+    next = `${next.slice(0, entity.offset)} ${next.slice(entity.offset + entity.length)}`;
+  }
+  return next;
 }
 
 function startsWithBotName(ctx: Context, text: string): boolean {

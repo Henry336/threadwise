@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule } from "@prisma/client";
-import { formatDateTimeForUser, isWithinQuietHours, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, splitReminderText, stripRecurrenceText } from "./dates";
+import { carryRecurrenceToTaskText, formatDateTimeForUser, isWithinQuietHours, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, splitReminderText, stripRecurrenceText } from "./dates";
 
 describe("date utilities", () => {
   it("parses relative durations", () => {
@@ -149,20 +149,27 @@ describe("date utilities", () => {
   it.each([
     ["remind me to have dinner at 7pm every day", RecurrenceRule.DAILY, 1],
     ["set a reminder to take a walk at 5 pm daily", RecurrenceRule.DAILY, 1],
-    ["remind me to clean the fridge at 9am every week", RecurrenceRule.WEEKLY, 7]
+    ["remind me to sleep at 12 am nightly", RecurrenceRule.DAILY, 1],
+    ["remind me to clean the fridge at 9am every week", RecurrenceRule.WEEKLY, 7],
+    ["remind me to take out the trash every Friday at 7pm", RecurrenceRule.WEEKLY, 7],
+    ["remind me to call Mum on Fridays at 8pm", RecurrenceRule.WEEKLY, 7],
+    ["remind me of Mum's birthday on 26 July every year", RecurrenceRule.YEARLY, 365],
+    ["remind me of our anniversary annually on 3 March", RecurrenceRule.YEARLY, 365]
   ])("parses recurrence patterns: %s", (text, rule, intervalDays) => {
     expect(parseRecurrencePattern(text)).toEqual({ rule, intervalDays });
   });
 
   it("strips recurrence words before task title extraction", () => {
     expect(stripRecurrenceText("take my dog out for a walk every day at 5 pm")).toBe("take my dog out for a walk at 5 pm");
+    expect(stripRecurrenceText("take out the trash every Friday at 7 pm")).toBe("take out the trash at 7 pm");
+    expect(stripRecurrenceText("Mum's birthday on 26 July every year")).toBe("Mum's birthday on 26 July");
   });
 
   it("advances recurring due dates to the next future occurrence", () => {
     expect(
       nextRecurringDueAt(
         new Date("2026-07-05T11:00:00.000Z"),
-        1,
+        RecurrenceRule.DAILY,
         "Asia/Singapore",
         new Date("2026-07-05T11:01:00.000Z")
       ).toISOString()
@@ -204,6 +211,27 @@ describe("date utilities", () => {
       whenText: "school at 9 am",
       taskText: "school at 9 am"
     });
+    expect(splitReminderText("me of my mom's birthday on 26 July every year")).toEqual({
+      whenText: "my mom's birthday on 26 July every year",
+      taskText: "my mom's birthday on 26 July every year"
+    });
+
+    expect(splitReminderText("us of Mum's birthday on 26 July every year")).toEqual({
+      whenText: "Mum's birthday on 26 July every year",
+      taskText: "Mum's birthday on 26 July every year"
+    });
+  });
+
+  it("keeps a same-day weekday occurrence when its time is still ahead", () => {
+    const now = new Date("2026-07-10T08:00:00.000Z"); // Friday, 4pm Singapore
+    expect(parseDueDate("take out the trash every Friday at 7pm", "Asia/Singapore", now)?.toISOString())
+      .toBe("2026-07-10T11:00:00.000Z");
+  });
+
+  it("carries recurrence from the schedule side of pipe commands", () => {
+    expect(carryRecurrenceToTaskText("take out the trash", "every Friday at 7pm")).toBe("take out the trash every week");
+    expect(carryRecurrenceToTaskText("Mum's birthday", "26 July every year")).toBe("Mum's birthday every year");
+    expect(carryRecurrenceToTaskText("sleep every day", "at 12am daily")).toBe("sleep every day");
   });
 
   it("accepts compact reminder text with the task before the time", () => {
@@ -211,6 +239,27 @@ describe("date utilities", () => {
       whenText: "do this at 4 pm",
       taskText: "do this at 4 pm"
     });
+  });
+
+  it.each([
+    [RecurrenceRule.WEEKLY, "2026-07-12T11:00:00.000Z"],
+    [RecurrenceRule.YEARLY, "2027-07-05T11:00:00.000Z"]
+  ])("advances %s recurrence by calendar units", (rule, expected) => {
+    expect(nextRecurringDueAt(
+      new Date("2026-07-05T11:00:00.000Z"),
+      rule,
+      "Asia/Singapore",
+      new Date("2026-07-05T11:01:00.000Z")
+    ).toISOString()).toBe(expected);
+  });
+
+  it.each([
+    ["remind me to sleep at 12 am daily", "2026-07-05T16:00:00.000Z"],
+    ["remind me to take out the trash every Friday at 7 pm", "2026-07-10T11:00:00.000Z"],
+    ["remind me of my mom's birthday on 26 July every year", "2026-07-26T01:00:00.000Z"]
+  ])("parses the first occurrence for recurring natural language: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
   });
 
   it.each([

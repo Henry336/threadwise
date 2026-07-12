@@ -7,7 +7,7 @@ import { createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parse
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, h, replyHtml } from "../utils/html";
-import { prepareNaturalLanguageText } from "./groupRouting";
+import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { expenseConfirmationKeyboard, imageTextActionsKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
@@ -23,7 +23,8 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
 
 async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): Promise<void> {
   const caption = ctx.message?.caption ?? "";
-  const preparedCaption = prepareNaturalLanguageText(ctx, caption);
+  const addressedGroupImage = isGroupChat(ctx) && messageTargetsBot(ctx, caption);
+  const preparedCaption = prepareNaturalLanguageText(ctx, caption) ?? (addressedGroupImage ? "" : undefined);
   if (preparedCaption === undefined) return;
 
   const target = imageTarget(ctx);

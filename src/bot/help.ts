@@ -83,6 +83,8 @@ const HELP_SECTIONS: HelpSection[] = [
       "remind me to check the washer after 5 mins",
       "could you remind me to call Mum day after tomorrow at noon?",
       "remind me to have dinner at 7pm every day",
+      "remind me to take out the trash every Friday at 7pm",
+      "remind me of Mum's birthday on 26 July every year",
       "assign task 2 to @henry_derek",
       "show task 2",
       "complete task 1",
@@ -95,7 +97,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "add task 2 to my calendar",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/assign 2 @henry_derek", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 3"]
+    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @henry_derek", "/task 2", "/done 1", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 3"]
   },
   {
     topic: "notes",

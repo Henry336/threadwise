@@ -64,6 +64,27 @@ describe("group routing", () => {
   });
 
   it.each([
+    ["Hello, @threadwise_1_bot", undefined],
+    ["(@threadwise_1_bot) show me the tasks", "show me the tasks"],
+    ["Hi,@threadwise_1_bot: remind us tomorrow at 9", "remind us tomorrow at 9"]
+  ])("uses Telegram entities to strip mentions beside real-world punctuation: %s", (input, expected) => {
+    const mentionOffset = input.indexOf("@threadwise_1_bot");
+    const ctx = context({
+      from: { id: 456, is_bot: false, first_name: "Parent" },
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: {
+        message_id: 20,
+        date: 0,
+        chat: { id: -100456, type: "supergroup", title: "Family" },
+        text: input,
+        entities: [{ type: "mention", offset: mentionOffset, length: 17 }]
+      }
+    });
+
+    expect(prepareNaturalLanguageText(ctx, input)).toBe(expected);
+  });
+
+  it.each([
     ["@threadwise_1_bot how do i set reminders?", "how do i set reminders?"],
     ["@threadwise_1_bot show me the notes", "show me the notes"],
     ["@threadwise_1_bot show me the tasks", "show me the tasks"],
@@ -80,7 +101,10 @@ describe("group routing", () => {
     ["@threadwise_1_bot undo", "undo"],
     ["@threadwise_1_bot note DATABASE_URL is in Render", "note DATABASE_URL is in Render"],
     ["@threadwise_1_bot idea build a family task bot", "idea build a family task bot"],
-    ["@threadwise_1_bot add buy groceries tomorrow at 9am", "add buy groceries tomorrow at 9am"]
+    ["@threadwise_1_bot add buy groceries tomorrow at 9am", "add buy groceries tomorrow at 9am"],
+    ["@threadwise_1_bot remind us to sleep at 12 am daily", "remind us to sleep at 12 am daily"],
+    ["@threadwise_1_bot remind us to take out the trash every Friday at 7 pm", "remind us to take out the trash every Friday at 7 pm"],
+    ["@threadwise_1_bot remind us of Mum's birthday on 26 July every year", "remind us of Mum's birthday on 26 July every year"]
   ])("passes addressed group natural command through unchanged: %s", (input, expected) => {
     const ctx = context({
       from: { id: 456, is_bot: false, first_name: "Parent" },

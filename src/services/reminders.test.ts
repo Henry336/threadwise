@@ -77,18 +77,15 @@ describe("reminder policy", () => {
     ).toBe("2026-07-05T00:05:00.000Z");
   });
 
-  it("advances recurring reminders to the next occurrence after delivery", () => {
+  it("keeps recurring reminders on the current occurrence until completion", () => {
     const result = nextTaskScheduleAfterDelivery({
       now: new Date("2026-07-05T11:01:00.000Z"),
       dueAt: new Date("2026-07-05T11:00:00.000Z"),
-      timezone: "Asia/Singapore",
       dueNudgeMinutes: 3,
-      intervalMinutes: 180,
-      recurrenceIntervalDays: 1
+      intervalMinutes: 180
     });
 
-    expect(result.dueAt?.toISOString()).toBe("2026-07-06T11:00:00.000Z");
-    expect(result.nextReminderAt.toISOString()).toBe("2026-07-06T10:57:00.000Z");
+    expect(result.nextReminderAt.toISOString()).toBe("2026-07-05T11:04:00.000Z");
   });
 
   it("makes important task reminders hard to miss", () => {
@@ -113,6 +110,21 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Assigned To:</b> @henry_derek");
     expect(message).toContain("<b>Repeats:</b> Daily");
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
+  });
+
+  it("labels yearly reminders clearly", () => {
+    const message = formatReminderMessage(
+      {
+        publicId: "TASK-2",
+        title: "Mum's birthday",
+        dueAt: new Date("2026-07-26T01:00:00.000Z"),
+        timezone: "Asia/Singapore",
+        recurrenceRule: RecurrenceRule.YEARLY
+      },
+      { timezone: "Asia/Singapore", reminderMode: ReminderMode.INDIVIDUAL }
+    );
+
+    expect(message).toContain("<b>Repeats:</b> Yearly");
   });
 
   it("starts with empty reminder diagnostics before the first loop run", () => {

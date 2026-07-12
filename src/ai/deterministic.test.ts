@@ -5,6 +5,7 @@ import {
   structureNoteDeterministically,
   structureTaskDeterministically
 } from "./deterministic";
+import { stripRecurrenceText } from "../utils/dates";
 
 describe("deterministic AI helpers", () => {
   it("recognizes natural timed tasks without needing the model", () => {
@@ -27,6 +28,14 @@ describe("deterministic AI helpers", () => {
     expect(structureTaskDeterministically("add pay invoice tomorrow at 9am")).toMatchObject({
       title: "Pay invoice"
     });
+  });
+
+  it.each([
+    ["sleep at 12 am daily", "Sleep"],
+    ["take out the trash every Friday at 7 pm", "Take out the trash"],
+    ["my mom's birthday on 26 July every year", "My mom's birthday"]
+  ])("keeps recurring task titles clean: %s", (input, title) => {
+    expect(structureTaskDeterministically(stripRecurrenceText(input)).title).toBe(title);
   });
 
   it.each([

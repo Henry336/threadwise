@@ -2,7 +2,7 @@ import { Prisma, RecurrenceRule, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
-import { formatDateTimeForUser, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, stripRecurrenceText } from "../utils/dates";
+import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, stripRecurrenceText } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
@@ -63,9 +63,9 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const dueAt = structured.dueDateText
-    ? parseDueDate(structured.dueDateText, settings.timezone) ?? parseDueDate(recurrenceCleanedText, settings.timezone)
-    : parseDueDate(recurrenceCleanedText, settings.timezone);
+  const dueAt = parseDueDate(prepared.text, settings.timezone)
+    ?? (structured.dueDateText ? parseDueDate(structured.dueDateText, settings.timezone) : undefined)
+    ?? parseDueDate(recurrenceCleanedText, settings.timezone);
   const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const intervalReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
@@ -167,8 +167,8 @@ export async function completeTask(userId: string, reference: string) {
   if (task.status === TaskStatus.DONE) {
     return { task, alreadyCompleted: true as const };
   }
-  if (task.recurrenceRule && task.recurrenceIntervalDays && task.dueAt) {
-    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceIntervalDays, task.timezone ?? "UTC");
+  if (task.recurrenceRule && task.dueAt) {
+    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceRule, task.timezone ?? "UTC");
     const updated = await prisma.$transaction(async (tx) => {
       await recordTaskStateUndo(tx, userId, task, "complete-task");
       return tx.task.update({
@@ -498,7 +498,7 @@ export function formatAssignee(task: { assignedUsername?: string | null; assigne
 }
 
 export function formatRecurrence(rule: RecurrenceRule): string {
-  return rule === RecurrenceRule.WEEKLY ? "Weekly" : "Daily";
+  return formatRecurrenceRule(rule);
 }
 
 function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignee?: ParsedAssignee } {

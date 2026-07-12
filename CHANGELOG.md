@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.12.0 - 2026-07-12
+
+### Added
+- Added calendar-aware yearly recurrence and natural phrases such as `every Friday`, `on Fridays`, `every year`, `yearly`, and `annually`, alongside expanded daily wording such as `nightly`.
+- Added deterministic recurring-reminder coverage for `remind me to sleep at 12 am daily`, `remind me to take out the trash every Friday at 7 pm`, and `remind me of my mom's birthday on 26 July every year`.
+- Added addressed group examples for daily, weekday-weekly, and yearly recurrence, using the same natural-language parser as private chats.
+
+### Fixed
+- Fixed bot mentions beside punctuation by stripping the actual Telegram mention entity instead of relying only on surrounding whitespace.
+- Addressed group greetings and unclear requests now receive a useful response instead of silently disappearing.
+- Fixed recurring tasks advancing once on reminder delivery and again on completion; delivery now keeps the current occurrence active, and completion alone advances the schedule.
+- Recurring schedules now advance by local calendar day, week, or year instead of fixed day counts, preserving the intended local time through calendar changes.
+- Fixed same-day weekday reminders unnecessarily jumping to the following week when the requested time was still ahead.
+
 ## v0.11.2 - 2026-07-12
 
 ### Fixed
