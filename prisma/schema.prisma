@@ -50,20 +50,22 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  settings          UserSettings?
-  ideas             Idea[]
-  tasks             Task[]
-  notes             Note[]
-  reflections       Reflection[]
-  pendingCaptures   PendingCapture[]
-  pendingNoteMerges PendingNoteMerge[]
-  pendingItemEdits  PendingItemEdit[]
-  pendingSearches   PendingSearch[]
-  pendingGmailOAuth PendingGmailOAuth[]
-  gmailConnection   GmailConnection?
-  gmailSummaries    GmailMessageSummary[]
-  reminderHistory   ReminderDelivery[]
-  auditLogs         AuditLog[]
+  settings             UserSettings?
+  ideas                Idea[]
+  tasks                Task[]
+  notes                Note[]
+  reflections          Reflection[]
+  pendingCaptures      PendingCapture[]
+  pendingNoteMerges    PendingNoteMerge[]
+  pendingItemEdits     PendingItemEdit[]
+  pendingSearches      PendingSearch[]
+  pendingGmailOAuth    PendingGmailOAuth[]
+  gmailConnection      GmailConnection?
+  gmailSummaries       GmailMessageSummary[]
+  pendingCalendarOAuth PendingCalendarOAuth[]
+  calendarConnection   CalendarConnection?
+  reminderHistory      ReminderDelivery[]
+  auditLogs            AuditLog[]
 }
 
 model UserSettings {
@@ -115,12 +117,12 @@ model Idea {
 }
 
 model Task {
-  id                      String     @id @default(uuid())
+  id                      String          @id @default(uuid())
   userId                  String
   publicId                String
   title                   String
   description             String?
-  status                  TaskStatus @default(OPEN)
+  status                  TaskStatus      @default(OPEN)
   sourceText              String
   dueAt                   DateTime?
   timezone                String?
@@ -129,9 +131,12 @@ model Task {
   snoozedUntil            DateTime?
   completedAt             DateTime?
   lastRemindedAt          DateTime?
-  reminderCount           Int        @default(0)
+  reminderCount           Int             @default(0)
   embedding               Json?
   calendarUrl             String?
+  calendarEventId         String?
+  calendarEventUrl        String?
+  calendarSyncedAt        DateTime?
   assignedTelegramId      String?
   assignedUsername        String?
   assignedDisplayName     String?
@@ -140,8 +145,8 @@ model Task {
   pinnedAt                DateTime?
   archivedAt              DateTime?
   archivedReason          String?
-  createdAt               DateTime   @default(now())
-  updatedAt               DateTime   @updatedAt
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
 
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   reminderHistory ReminderDelivery[]
@@ -303,7 +308,7 @@ model GmailConnection {
 }
 
 model GmailMessageSummary {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   userId           String
   gmailMessageId   String
   gmailThreadId    String?
@@ -311,18 +316,44 @@ model GmailMessageSummary {
   subject          String
   snippet          String
   summary          String
-  important        Boolean  @default(false)
+  important        Boolean   @default(false)
   importanceReason String?
   suggestedAction  String?
   receivedAt       DateTime?
   reminderTaskId   String?
-  scannedAt        DateTime @default(now())
+  scannedAt        DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, gmailMessageId])
   @@index([userId, scannedAt])
   @@index([userId, important])
+}
+
+model PendingCalendarOAuth {
+  id        String   @id @default(uuid())
+  userId    String
+  state     String   @unique
+  chatId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model CalendarConnection {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  calendarEmail        String?
+  accessToken          String?
+  refreshToken         String
+  accessTokenExpiresAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ReminderDelivery {

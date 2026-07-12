@@ -5,6 +5,7 @@ import { webhookCallback } from "grammy";
 import type { AiProvider } from "./ai/types";
 import { logger } from "./logger";
 import { handleGmailOAuthCallback } from "./services/gmail";
+import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 
 export async function startServer(bot: Bot, ai: AiProvider, options: { port: number; webhookPath: string; adminStatusToken?: string }) {
@@ -87,6 +88,12 @@ export async function startServer(bot: Bot, ai: AiProvider, options: { port: num
   server.get("/gmail/oauth/callback", async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string };
     const message = await handleGmailOAuthCallback(bot, query);
+    return reply.type("text/html").send(`<html><body><p>${escapeHtml(message)}</p></body></html>`);
+  });
+
+  server.get("/calendar/oauth/callback", async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string };
+    const message = await handleCalendarOAuthCallback(bot, query);
     return reply.type("text/html").send(`<html><body><p>${escapeHtml(message)}</p></body></html>`);
   });
 

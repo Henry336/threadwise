@@ -3,6 +3,8 @@
 ## v0.10.0 - 2026-07-12
 
 ### Added
+- Added Google Calendar OAuth with encrypted per-user tokens, connection status/disconnect commands, and idempotent task event creation/update in the user's primary calendar.
+- Added automatic fallback from Calendar API sync to the existing no-login template link and `.ics` export.
 - Expanded deterministic natural-language coverage across the full command surface, including status/version, Gmail, calendar, search, lists, task actions, pins, archives, restore, edits, settings, ideas, and note analysis.
 - Added natural capture phrases such as `write this down`, `remember that`, `I need to`, and `I have an idea for`, keeping common captures useful without an OpenAI token.
 - Added polite and indirect reminder phrasing such as `could you remind me`, `don't let me forget`, `nudge me`, and `send me a reminder`.

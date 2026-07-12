@@ -55,6 +55,7 @@ import { undoLastAction } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
+import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
@@ -619,6 +620,29 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/googlecal") ? "googlecal" : "calendar";
   const id = commandBody(ctx.message?.text ?? "", command);
+  const action = id.toLowerCase();
+
+  if (command === "calendar" && (!id || action === "status")) {
+    await replyHtml(ctx, await formatCalendarStatus(user.id));
+    return;
+  }
+
+  if (command === "calendar" && action === "connect") {
+    if (!calendarConfigured()) {
+      await ctx.reply("Google Calendar OAuth is not configured on the server yet. Add the Google OAuth redirect and token encryption settings first.");
+      return;
+    }
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createCalendarConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [bold("Connect Google Calendar"), "Open this Google OAuth link and approve Calendar event access.", "", h(url)].join("\n"));
+    return;
+  }
+
+  if (command === "calendar" && action === "disconnect") {
+    await replyHtml(ctx, await disconnectCalendar(user.id));
+    return;
+  }
+
   if (!id) {
     await ctx.reply(`Send it like this: /${command} TASK-1 or /${command} 1`);
     return;
@@ -671,6 +695,7 @@ async function handleVersion(ctx: Context, ai: AiProvider) {
   await replyHtml(ctx, formatVersionStatus({
     ai: ai.getStatus(),
     gmailConfigured: gmailConfigured(),
+    calendarConfigured: calendarConfigured(),
     reminders: getReminderDiagnostics()
   }));
 }

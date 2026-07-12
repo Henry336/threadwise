@@ -300,7 +300,7 @@ describe("bot formatters", () => {
     expect(message).toContain("<code>remind me again every 3 hours</code>");
     expect(message).toContain("<code>/commands</code>");
     expect(message).not.toContain("Page 1/");
-    expect(message).not.toContain("Google Calendar");
+    expect(message).toContain("Google Calendar");
     expect(message).not.toContain("Gmail");
   });
 

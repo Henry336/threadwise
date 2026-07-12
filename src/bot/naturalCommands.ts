@@ -25,6 +25,7 @@ import { undoLastAction } from "../services/undo";
 import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
+import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
@@ -393,6 +394,27 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
+  if (/^(?:calendar|google calendar|calendar status|google calendar status|is (?:my )?google calendar connected|show (?:me )?(?:my )?calendar(?: status)?)$/.test(lower)) {
+    await replyHtml(ctx, await formatCalendarStatus(user.id));
+    return true;
+  }
+
+  if (/^(?:connect|link|set up) (?:my )?(?:google )?calendar$/.test(lower)) {
+    if (!calendarConfigured()) {
+      await ctx.reply("Google Calendar OAuth is not configured on the server yet.");
+      return true;
+    }
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const url = await createCalendarConnectUrl(user.id, chatId);
+    await replyHtml(ctx, [bold("Connect Google Calendar"), "Open this Google OAuth link and approve Calendar event access.", "", h(url)].join("\n"));
+    return true;
+  }
+
+  if (/^(?:disconnect|unlink) (?:my )?(?:google )?calendar$/.test(lower)) {
+    await replyHtml(ctx, await disconnectCalendar(user.id));
+    return true;
+  }
+
   const calendarLinkMatch = trimmed.match(/^(?:(?:send|give|get)(?:\s+me)?(?:\s+the)?\s+)?google\s+calendar\s+link\s+(?:for\s+)?(?:task\s+)?(\S+)$/i);
   if (calendarLinkMatch?.[1]) {
     await replyWithTaskCalendar(ctx, {
@@ -439,6 +461,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     await replyHtml(ctx, formatVersionStatus({
       ai: ai.getStatus(),
       gmailConfigured: gmailConfigured(),
+      calendarConfigured: calendarConfigured(),
       reminders: getReminderDiagnostics()
     }));
     return true;

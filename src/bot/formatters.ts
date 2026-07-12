@@ -52,6 +52,7 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
     task.assignedUsername || task.assignedDisplayName ? field("Assigned To", formatAssignee(task)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
+    task.calendarEventId ? field("Google Calendar", task.calendarSyncedAt ? `Synced ${formatDateTimeForUser(task.calendarSyncedAt, timezone)}` : "Synced") : undefined,
     task.pinnedAt ? field("Important", "Yes") : undefined,
     field("Reminders Sent", task.reminderCount)
   ].filter(Boolean).join("\n");

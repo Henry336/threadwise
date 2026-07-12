@@ -46,7 +46,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
-- Creates calendar-ready tasks without showing long calendar links in normal task cards; `/googlecal` retrieves the stored Google Calendar link on demand, and `/calendar` also sends an `.ics` export.
+- Connects Google Calendar with OAuth and uses `/calendar <task>` to create or update one durable event in the primary calendar. Without a connection, the same command falls back to a template link and `.ics` export; `/googlecal` always provides the no-login template link.
 - Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
 - Shows release, AI, Gmail, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
@@ -112,6 +112,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /brief IDEA-1
 /calendar TASK-1
 /calendar 1
+/calendar connect
+/calendar status
+/calendar disconnect
 /googlecal TASK-1
 /googlecal 1
 /gmail
@@ -172,7 +175,9 @@ GET /admin/reminders/status
 
 Send the token as `Authorization: Bearer <ADMIN_STATUS_TOKEN>` or `x-threadwise-admin-token`. The run endpoint performs one due-reminder pass and returns delivery diagnostics.
 
-Calendar links are stored on each dated task row. That means `TASK-1` already maps to its Google Calendar URL through the database; Threadwise does not need an in-memory hashtable that would be lost on restart or split across deployments.
+Calendar links and synced Google event IDs are stored on each dated task row. That means `TASK-1` maps to one durable Google Calendar event across restarts and deployments; asking for `/calendar TASK-1` again updates that event instead of creating a duplicate.
+
+Connect with `/calendar connect`, then use `/calendar 1` or natural text such as `add task 1 to my calendar`. `/calendar status` shows the connected account and `/calendar disconnect` removes Threadwise's stored Calendar tokens while leaving existing events alone. Enable the Google Calendar API in the same Google Cloud project and add `https://threadwise-90du.onrender.com/calendar/oauth/callback` as an authorized redirect URI. `GOOGLE_CALENDAR_REDIRECT_URI` can override that URL; otherwise Threadwise derives it from `WEBHOOK_URL`.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
 
@@ -241,7 +246,7 @@ Threadwise stores:
 - Pin and archive timestamps, archive reasons, and note merge links for durable undo and priority/archive views
 - Embeddings/search vectors as JSON for personal-scale semantic search
 
-The schema is designed so future work can add full Google Calendar OAuth, external search-backed market research, a dashboard, and richer semantic search without replacing the core tables.
+The schema is designed so future work can add external search-backed market research, a dashboard, and richer semantic search without replacing the core tables.
 
 ## Local Setup
 

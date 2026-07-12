@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import { createGoogleCalendarUrl, createIcs } from "../services/calendar";
+import { syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { findTaskReference } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
@@ -30,6 +31,26 @@ export async function replyWithTaskCalendar(
   }
 
   const timezone = task.timezone ?? input.timezone ?? "UTC";
+  if (input.includeIcs) {
+    try {
+      const synced = await syncTaskToGoogleCalendar(input.userId, task);
+      if (synced) {
+        await replyHtml(ctx, joinBlocks([
+          bold(synced.created ? "Added to Google Calendar" : "Updated in Google Calendar"),
+          h(task.title),
+          [
+            fieldHtml("Task ID", code(task.publicId)),
+            field("Due Date", formatDateTimeForUser(task.dueAt, timezone))
+          ].join("\n"),
+          h(synced.eventUrl)
+        ]));
+        return;
+      }
+    } catch (error) {
+      await ctx.reply(`${error instanceof Error ? error.message : "Google Calendar sync failed."} I'll send the no-login fallback instead.`);
+    }
+  }
+
   const googleCalendarUrl = task.calendarUrl ?? createGoogleCalendarUrl({
     title: task.title,
     details: task.description ?? task.sourceText,

@@ -141,4 +141,4 @@ Normal task cards do not display the long Google Calendar URL. Users can ask for
 - `/googlecal TASK-1` or natural text like `give me the google calendar link for TASK-1` returns the stored Google Calendar template link.
 - `/calendar TASK-1` returns the link and sends a `.ics` file.
 
-Full OAuth sync should be added as a provider module later, with token storage scoped per user.
+Google Calendar OAuth now stores encrypted per-user tokens and durable event IDs. `/calendar <task>` creates the event once and patches the same primary-calendar event on later calls; template links and `.ics` files remain the fallback when Calendar is not connected or the API is unavailable.

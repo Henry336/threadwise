@@ -20,6 +20,9 @@ export type TaskListItem = {
   dueAt?: Date | null;
   timezone?: string | null;
   calendarUrl?: string | null;
+  calendarEventId?: string | null;
+  calendarEventUrl?: string | null;
+  calendarSyncedAt?: Date | null;
   assignedTelegramId?: string | null;
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
