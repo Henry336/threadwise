@@ -7,6 +7,7 @@ import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { formatDateTimeForUser } from "../utils/dates";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import type { ListPageInfo } from "./listPagination";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
@@ -33,7 +34,7 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
-export async function listRecentIdeas(userId: string, take = 15) {
+export async function listRecentIdeas(userId: string, take?: number) {
   const ideas = await prisma.idea.findMany({
     where: { userId, archivedAt: null },
     orderBy: { createdAt: "desc" },
@@ -217,18 +218,18 @@ export function formatIdeaCreated(idea: { publicId: string; title: string; conce
   ]);
 }
 
-export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>): string {
+export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (ideas.length === 0) {
     return "No saved ideas yet. Send /idea when something starts to sparkle.";
   }
 
   return [
-    bold("Recent ideas"),
+    page && page.totalPages > 1 ? `${bold("Recent ideas")} · Page ${page.page}/${page.totalPages}` : bold("Recent ideas"),
     "",
     ...ideas.map((idea, index) => {
       const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";
       return [
-        `${index + 1}. ${pin}${bold(idea.title)}`,
+        `${(page?.offset ?? 0) + index + 1}. ${pin}${bold(idea.title)}`,
         fieldHtml("Idea ID", code(idea.publicId)),
         h(truncate(idea.concept, 220))
       ].join("\n");

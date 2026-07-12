@@ -165,7 +165,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
   });
 }
 
-export async function listOpenTasks(userId: string, take = 50): Promise<TaskListItem[]> {
+export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {
   const tasks = await prisma.task.findMany({
     where: { userId, status: TaskStatus.OPEN, archivedAt: null },
     orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],

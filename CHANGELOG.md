@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.15.1 - 2026-07-12
+
+### Fixed
+- Restored 10-row pagination with Prev/Next buttons for active tasks, saved notes, and saved ideas across both slash commands and natural-language list requests.
+- Later pages now retain global list numbers, so the displayed number and commands such as `/task 11`, `/note 11`, or `/ideas 11` refer to the same item.
+- Removed the old 15-item notes/ideas and 50-item tasks retrieval ceilings so older active items remain reachable through pagination.
+
 ## v0.15.0 - 2026-07-12
 
 ### Added

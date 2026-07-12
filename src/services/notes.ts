@@ -7,6 +7,7 @@ import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { formatDateTimeForUser } from "../utils/dates";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import type { ListPageInfo } from "./listPagination";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -33,11 +34,11 @@ export async function createNote(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
-export async function listRecentNotes(userId: string) {
+export async function listRecentNotes(userId: string, take?: number) {
   const notes = await prisma.note.findMany({
     where: { userId, archivedAt: null },
     orderBy: { createdAt: "desc" },
-    take: 15
+    take
   });
 
   return sortPinnedFirst(notes);
@@ -193,18 +194,18 @@ export function formatNoteCreated(note: { publicId: string; title: string; summa
   ]);
 }
 
-export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>): string {
+export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (notes.length === 0) {
     return "No saved notes yet. Send /note when something is worth keeping.";
   }
 
   return [
-    bold("Recent notes"),
+    page && page.totalPages > 1 ? `${bold("Recent notes")} · Page ${page.page}/${page.totalPages}` : bold("Recent notes"),
     "",
     ...notes.map((note, index) => {
       const pin = note.pinnedAt ? `${bold("Pinned")} ` : "";
       return [
-        `${index + 1}. ${pin}${bold(note.title)}`,
+        `${(page?.offset ?? 0) + index + 1}. ${pin}${bold(note.title)}`,
         fieldHtml("Note ID", code(note.publicId)),
         h(note.summary)
       ].join("\n");

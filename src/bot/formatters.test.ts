@@ -5,8 +5,8 @@ import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergeP
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
-import { formatNoteDetail } from "../services/notes";
-import { formatIdeaDetail } from "../services/ideas";
+import { formatNoteDetail, formatRecentNotes } from "../services/notes";
+import { formatIdeaDetail, formatRecentIdeas } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
 
 describe("bot formatters", () => {
@@ -134,6 +134,22 @@ describe("bot formatters", () => {
     expect(keyboard?.inline_keyboard).toHaveLength(1);
   });
 
+  it("keeps global numbering and navigation on later task pages", () => {
+    const page = { page: 2, totalPages: 3, offset: 10 };
+    const item = task({ id: "task-uuid-11", title: "Later task" });
+    const message = formatOpenTasks([item], "Asia/Singapore", page);
+    const keyboard = taskListKeyboard([item], 10, { kind: "tasks", numberOffset: 10, page: 2, totalPages: 3 });
+
+    expect(message).toContain("Page 2/3");
+    expect(message).toContain("11. <b>Later task</b>");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Complete 11");
+    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+      { text: "Prev", callback_data: "list:tasks:1" },
+      { text: "Page 2/3", callback_data: "list:tasks:2" },
+      { text: "Next", callback_data: "list:tasks:3" }
+    ]);
+  });
+
   it("shows star or unstar on individual task action buttons", () => {
     const unpinned = taskActionsKeyboard(task({ id: "task-uuid-1" }));
     const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
@@ -198,6 +214,21 @@ describe("bot formatters", () => {
       text: "Archive 1",
       callback_data: "item:note:archive:note-uuid-1"
     });
+  });
+
+  it("numbers notes and ideas globally across ten-row pages", () => {
+    const page = { page: 2, totalPages: 2, offset: 10 };
+    const noteMessage = formatRecentNotes([{ publicId: "NOTE-11", title: "Note eleven", summary: "Saved" }], page);
+    const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-11", title: "Idea eleven", concept: "Saved" }], page);
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-11" }], 10, { kind: "notes", numberOffset: 10, page: 2, totalPages: 2 });
+
+    expect(noteMessage).toContain("11. <b>Note eleven</b>");
+    expect(ideaMessage).toContain("11. <b>Idea eleven</b>");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Star 11");
+    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+      { text: "Prev", callback_data: "list:notes:1" },
+      { text: "Page 2/2", callback_data: "list:notes:2" }
+    ]);
   });
 
   it("formats note saved dates in the user's timezone", () => {

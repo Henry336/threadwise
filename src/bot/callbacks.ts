@@ -18,6 +18,7 @@ import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
+import { isActiveListKind, replyActiveList } from "./activeLists";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -49,6 +50,18 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^bulk:(confirm|cancel):(.+)$/, async (ctx) => {
     await handleBulkAction(ctx, ctx.match[1], ctx.match[2]);
   });
+  bot.callbackQuery(/^list:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
+    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2]);
+  });
+}
+
+async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
+  if (!isActiveListKind(kindText) || !pageText) return;
+  const requestedPage = Number(pageText);
+  if (!Number.isInteger(requestedPage) || requestedPage < 1) return;
+  const user = await ensureUser(ctx);
+  const page = await replyActiveList(ctx, user, kindText, requestedPage);
+  await ctx.answerCallbackQuery({ text: `Page ${page}` });
 }
 
 async function handleBulkAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {

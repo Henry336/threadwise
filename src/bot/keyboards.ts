@@ -4,6 +4,12 @@ import type { TaskListItem } from "../services/tasks";
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
 type ItemKind = "task" | "note" | "idea";
 type ItemActionTarget = { id: string; pinnedAt?: Date | null };
+export type ActiveListNavigation = {
+  kind: "tasks" | "notes" | "ideas";
+  page: number;
+  totalPages: number;
+  numberOffset: number;
+};
 
 export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
@@ -26,7 +32,7 @@ export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("Undo save", "undo:last");
 }
 
-export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): InlineKeyboard | undefined {
+export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (tasks.length === 0) {
     return undefined;
   }
@@ -34,7 +40,7 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): Inline
   const keyboard = new InlineKeyboard();
   const visibleTasks = tasks.slice(0, maxButtons);
   for (const [index, task] of visibleTasks.entries()) {
-    const number = index + 1;
+    const number = (navigation?.numberOffset ?? 0) + index + 1;
     keyboard
       .text(`Complete ${number}`, `task:done:${task.id}`)
       .text(`Snooze ${number}`, `task:snooze:${task.id}`)
@@ -45,6 +51,8 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10): Inline
       keyboard.row();
     }
   }
+
+  appendActiveListNavigation(keyboard, navigation);
 
   return keyboard;
 }
@@ -84,7 +92,7 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
   return keyboard;
 }
 
-export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 10): InlineKeyboard | undefined {
+export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 10, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (items.length === 0) {
     return undefined;
   }
@@ -92,7 +100,7 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   const keyboard = new InlineKeyboard();
   const visibleItems = items.slice(0, maxButtons);
   for (const [index, item] of visibleItems.entries()) {
-    const number = index + 1;
+    const number = (navigation?.numberOffset ?? 0) + index + 1;
     keyboard
       .text(`${item.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
       .text(`Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
@@ -106,7 +114,17 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
     }
   }
 
+  appendActiveListNavigation(keyboard, navigation);
+
   return keyboard;
+}
+
+function appendActiveListNavigation(keyboard: InlineKeyboard, navigation?: ActiveListNavigation): void {
+  if (!navigation || navigation.totalPages <= 1) return;
+  keyboard.row();
+  if (navigation.page > 1) keyboard.text("Prev", `list:${navigation.kind}:${navigation.page - 1}`);
+  keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
+  if (navigation.page < navigation.totalPages) keyboard.text("Next", `list:${navigation.kind}:${navigation.page + 1}`);
 }
 
 export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {

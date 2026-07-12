@@ -12,8 +12,8 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
-- Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; searches notes with `/notes <query>`.
-- Lists and opens saved ideas with `/ideas` and `/ideas <1 or IDEA-1>`.
+- Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays 10 notes per page with Prev/Next controls, while `/notes <query>` searches notes.
+- Lists saved ideas 10 per page with `/ideas` and opens one with `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
@@ -27,7 +27,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to finish all tasks by 9 pm", "don't let me forget to submit the form at 5pm", and "nudge me to check the oven in half an hour" without requiring OpenAI.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
-- Lists open tasks with active list numbers, while keeping stable task IDs for durable references.
+- Lists open tasks 10 per page with Prev/Next controls and global active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`. Pressing Complete again reports that the task is already completed and offers a safe Restore button.
 - Supports bulk task completion and bulk task/note/idea removal with an itemized preview, requester-only Confirm/Cancel buttons, a 25-item limit, and no changes before confirmation.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.

@@ -9,15 +9,13 @@ import {
   findIdeaReference,
   formatIdeaCreated,
   formatIdeaDetail,
-  formatRecentIdeas,
-  listRecentIdeas,
   renameIdeaTitle,
   scoreIdea,
   updateIdeaConcept
 } from "../services/ideas";
-import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, listRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
+import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -29,8 +27,8 @@ import { formatVersionStatus } from "../services/version";
 import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
-import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
+import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -43,6 +41,7 @@ import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskK
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 import { isGroupChat } from "./groupRouting";
+import { replyActiveList } from "./activeLists";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = text.trim();
@@ -99,23 +98,17 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const listKind = parseListRequest(lower);
   if (listKind === "tasks") {
-    const tasks = await listOpenTasks(user.id);
-    const keyboard = taskListKeyboard(tasks);
-    await replyHtml(ctx, formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
+    await replyActiveList(ctx, user, "tasks");
     return true;
   }
 
   if (listKind === "notes") {
-    const notes = await listRecentNotes(user.id);
-    const keyboard = itemListKeyboard("note", notes);
-    await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+    await replyActiveList(ctx, user, "notes");
     return true;
   }
 
   if (listKind === "ideas") {
-    const ideas = await listRecentIdeas(user.id);
-    const keyboard = itemListKeyboard("idea", ideas);
-    await replyHtml(ctx, formatRecentIdeas(ideas), keyboard ? { reply_markup: keyboard } : undefined);
+    await replyActiveList(ctx, user, "ideas");
     return true;
   }
 

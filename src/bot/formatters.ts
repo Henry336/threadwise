@@ -6,16 +6,18 @@ import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, italic } from "../utils/html";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
+import type { ListPageInfo } from "../services/listPagination";
 
 export function formatOpenTasks(
   tasks: TaskListItem[],
-  fallbackTimezone = "UTC"
+  fallbackTimezone = "UTC",
+  page?: ListPageInfo
 ): string {
   if (tasks.length === 0) {
     return "No open tasks. Nice and quiet.";
   }
 
-  const numbered = tasks.map((task, index) => ({ task, number: index + 1 }));
+  const numbered = tasks.map((task, index) => ({ task, number: (page?.offset ?? 0) + index + 1 }));
   const groups = [
     { title: "Important", items: numbered.filter(({ task }) => task.pinnedAt) },
     { title: "Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
@@ -25,7 +27,7 @@ export function formatOpenTasks(
   ].filter((group) => group.items.length > 0);
 
   return [
-    bold("Open tasks"),
+    page && page.totalPages > 1 ? `${bold("Open tasks")} · Page ${page.page}/${page.totalPages}` : bold("Open tasks"),
     "",
     ...groups.flatMap((group) => [
       bold(group.title),

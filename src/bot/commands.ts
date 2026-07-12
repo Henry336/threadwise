@@ -10,8 +10,6 @@ import {
   findIdeaReference,
   formatIdeaCreated,
   formatIdeaDetail,
-  formatRecentIdeas,
-  listRecentIdeas,
   renameIdeaTitle,
   scoreIdea,
   updateIdeaConcept
@@ -27,7 +25,6 @@ import {
   formatTaskAlreadyCompleted,
   formatTaskCompleted,
   formatTaskCreated,
-  listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
   snoozeTask,
@@ -44,7 +41,6 @@ import {
   formatNoteCreated,
   formatNoteDetail,
   formatRecentNotes,
-  listRecentNotes,
   renameNoteTitle,
   searchNotes,
   updateNoteBody
@@ -60,9 +56,9 @@ import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigu
 import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
-import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
+import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -74,6 +70,7 @@ import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
+import { replyActiveList } from "./activeLists";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -174,7 +171,11 @@ async function handleNote(ctx: Context, ai: AiProvider) {
 async function handleNotes(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "notes");
-  const notes = query ? await searchNotes(user.id, query) : await listRecentNotes(user.id);
+  if (!query) {
+    await replyActiveList(ctx, user, "notes");
+    return;
+  }
+  const notes = await searchNotes(user.id, query);
   const keyboard = itemListKeyboard("note", notes);
   await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
 }
@@ -182,10 +183,8 @@ async function handleNotes(ctx: Context) {
 async function handleIdeas(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "ideas");
-  const ideas = await listRecentIdeas(user.id);
   if (!body) {
-    const keyboard = itemListKeyboard("idea", ideas);
-    await replyHtml(ctx, formatRecentIdeas(ideas), keyboard ? { reply_markup: keyboard } : undefined);
+    await replyActiveList(ctx, user, "ideas");
     return;
   }
 
@@ -291,9 +290,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 
 async function handleTasks(ctx: Context) {
   const user = await ensureUser(ctx);
-  const tasks = await listOpenTasks(user.id);
-  const keyboard = taskListKeyboard(tasks);
-  await replyHtml(ctx, formatOpenTasks(tasks, user.settings?.timezone), keyboard ? { reply_markup: keyboard } : undefined);
+  await replyActiveList(ctx, user, "tasks");
 }
 
 async function handleTaskDetail(ctx: Context) {
