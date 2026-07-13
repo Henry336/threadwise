@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -71,10 +71,13 @@ import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } fr
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
+import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
+import { showMainMenu } from "./menu";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
+  bot.command("menu", async (ctx) => handleStart(ctx));
   bot.command("help", async (ctx) => handleHelp(ctx));
   bot.command("commands", async (ctx) => replyHtml(ctx, formatCommandReference()));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
@@ -185,6 +188,12 @@ async function handleNotes(ctx: Context) {
 
 async function handleImages(ctx: Context) {
   const user = await ensureUser(ctx);
+  const query = commandBody(ctx.message?.text ?? "", "images");
+  if (query) {
+    const scoped = query.match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? query, user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    return;
+  }
   await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
 }
 
@@ -192,10 +201,22 @@ async function handleImage(ctx: Context) {
   const user = await ensureUser(ctx);
   const reference = commandBody(ctx.message?.text ?? "", "image");
   if (!reference) {
-    await ctx.reply("Send it like this: /image 1 or /image IMG-1. Use /images to browse saved images.");
+    await ctx.reply("Try /image IMG-1, /image caption IMG-1 July electricity bill, /image delete IMG-1, or /images passport.");
     return;
   }
   try {
+    const captionMatch = reference.match(/^(?:caption|label|rename)\s+(\d+|IMG-\d+)\s+(?:as\s+|to\s+)?(.+)$/i);
+    if (captionMatch?.[1] && captionMatch[2]) {
+      const image = await updateStoredImageCaption(user.id, normalizePublicId(captionMatch[1]), captionMatch[2]);
+      await replyHtml(ctx, `${bold("✅ Caption updated")} ${code(image.publicId)} ${h(image.caption ?? captionMatch[2])}\n${code("/undo")} restores the previous caption.`, { reply_markup: undoKeyboard("↩️ Undo caption") });
+      return;
+    }
+    const deleteMatch = reference.match(/^(?:delete|remove|forget)\s+(\d+|IMG-\d+)$/i);
+    if (deleteMatch?.[1]) {
+      const image = await findStoredImageReference(user.id, normalizePublicId(deleteMatch[1]));
+      await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
+      return;
+    }
     await replyStoredImage(ctx, user.id, normalizePublicId(reference));
   } catch {
     await ctx.reply("I couldn't find that saved image. Use /images to see the current list.");
@@ -635,6 +656,13 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
     return;
   }
 
+  const imageSearch = query.match(/^(?:images?|photos?|pictures?|screenshots?)\s+(.+)$/i);
+  if (imageSearch?.[1]) {
+    const scoped = imageSearch[1].match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? imageSearch[1], user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    return;
+  }
+
   const parsed = parseSearchRequest(query);
   if (!parsed.query) {
     await ctx.reply("Add a query after the filter, like /search notes deployment or /search tasks invoice.");
@@ -764,7 +792,7 @@ async function handleStart(ctx: Context) {
     await ctx.reply(result.message);
     return;
   }
-  await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), { reply_markup: startMenuKeyboard() });
+  await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore");
 }
 
 async function handleGroupCheck(ctx: Context) {

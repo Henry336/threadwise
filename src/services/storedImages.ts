@@ -2,6 +2,7 @@ import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
 import { nextPublicId } from "./publicIds";
+import { recordImageCaptionUndo } from "./undo";
 
 const IMAGE_PAGE_SIZE = 10;
 
@@ -80,6 +81,43 @@ export async function listStoredImages(userId: string, requestedPage = 1) {
   return { images, page, totalPages, totalItems, offset };
 }
 
+export type StoredImageSearchScope = "all" | "caption" | "text";
+
+export async function createStoredImageSearch(userId: string, query: string, scope: StoredImageSearchScope = "all") {
+  return prisma.pendingSearch.create({
+    data: { userId, query: query.trim(), kinds: ["image", scope], label: `images:${scope}`, expiresAt: new Date(Date.now() + 30 * 60_000) }
+  });
+}
+
+export async function findStoredImageSearch(userId: string, id: string) {
+  return prisma.pendingSearch.findFirstOrThrow({
+    where: { id, userId, kinds: { has: "image" }, expiresAt: { gt: new Date() } }
+  });
+}
+
+export async function searchStoredImages(userId: string, query: string, requestedPage = 1, scope: StoredImageSearchScope = "all") {
+  const normalized = query.trim();
+  const fields = scope === "caption"
+    ? [{ caption: { contains: normalized, mode: "insensitive" as const } }]
+    : scope === "text"
+      ? [{ ocrText: { contains: normalized, mode: "insensitive" as const } }]
+      : [
+          { caption: { contains: normalized, mode: "insensitive" as const } },
+          { fileName: { contains: normalized, mode: "insensitive" as const } },
+          { ocrText: { contains: normalized, mode: "insensitive" as const } }
+        ];
+  const where = {
+    userId,
+    OR: fields
+  };
+  const totalItems = await prisma.storedImage.count({ where });
+  const totalPages = Math.max(1, Math.ceil(totalItems / IMAGE_PAGE_SIZE));
+  const page = Math.min(Math.max(1, Math.trunc(requestedPage) || 1), totalPages);
+  const offset = (page - 1) * IMAGE_PAGE_SIZE;
+  const images = await prisma.storedImage.findMany({ where, orderBy: { createdAt: "desc" }, skip: offset, take: IMAGE_PAGE_SIZE });
+  return { images, page, totalPages, totalItems, offset, query: normalized, scope };
+}
+
 export async function findStoredImageReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
@@ -97,19 +135,42 @@ export async function findStoredImageById(userId: string, id: string) {
   return prisma.storedImage.findFirstOrThrow({ where: { id, userId } });
 }
 
+export async function updateStoredImageCaption(userId: string, reference: string, caption: string) {
+  const image = await findStoredImageReference(userId, reference);
+  const nextCaption = caption.trim();
+  if (!nextCaption) throw new Error("The caption cannot be empty.");
+  return prisma.$transaction(async (tx) => {
+    await recordImageCaptionUndo(tx, userId, image, image.caption);
+    return tx.storedImage.update({ where: { id: image.id }, data: { caption: nextCaption } });
+  });
+}
+
+export async function updateStoredImageOcr(userId: string, id: string, text: string, confidence: number) {
+  return prisma.storedImage.updateMany({ where: { id, userId }, data: { ocrText: text, ocrConfidence: confidence } });
+}
+
+export async function deleteStoredImage(userId: string, id: string) {
+  const image = await findStoredImageById(userId, id);
+  await prisma.storedImage.delete({ where: { id: image.id } });
+  return image;
+}
+
 export function formatStoredImageSaved(image: { publicId: string; caption?: string | null }, duplicate = false): string {
   return [
-    bold(duplicate ? "Image already saved" : "Image saved"),
+    bold(duplicate ? "🖼️ Image already saved" : "✅ Image saved"),
     image.caption ? h(image.caption) : "Stored through Telegram's reusable file reference.",
     `${bold("Image ID:")} ${code(image.publicId)}`,
     `Open it later with ${code(`/image ${image.publicId}`)} or browse ${code("/images")}.`
   ].join("\n");
 }
 
-export function formatStoredImageList(page: Awaited<ReturnType<typeof listStoredImages>>, timezone = "UTC"): string {
-  if (!page.images.length) return "No saved images yet. Send a photo and tap Save image.";
+export function formatStoredImageList(page: Awaited<ReturnType<typeof listStoredImages>> | Awaited<ReturnType<typeof searchStoredImages>>, timezone = "UTC"): string {
+  const query = "query" in page ? page.query : undefined;
+  if (!page.images.length) return query ? `No saved images match “${query}”. Try a shorter caption or OCR phrase.` : "No saved images yet. Send a photo and tap Save image.";
   return [
-    page.totalPages > 1 ? `${bold("Saved images")} · Page ${page.page}/${page.totalPages}` : bold("Saved images"),
+    page.totalPages > 1
+      ? `${bold(query ? `🔎 Images matching “${query}”` : "🖼️ Saved images")} · Page ${page.page}/${page.totalPages}`
+      : bold(query ? `🔎 Images matching “${query}”` : "🖼️ Saved images"),
     "",
     ...page.images.map((image, index) => [
       `${page.offset + index + 1}. ${bold(image.caption || image.fileName || "Saved image")}`,

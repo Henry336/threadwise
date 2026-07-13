@@ -28,7 +28,7 @@ import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, forma
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -42,7 +42,9 @@ import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 import { isGroupChat } from "./groupRouting";
 import { replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
+import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
+import { hidePrivateMenu, showMainMenu } from "./menu";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -82,8 +84,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (/^(?:start|get started|show (?:me )?(?:the )?(?:setup|onboarding)|take me through (?:the )?setup)$/.test(lower)) {
-    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), { reply_markup: startMenuKeyboard() });
+  if (/^(?:start|get started|menu|show (?:me )?(?:the )?(?:menu|setup|onboarding)|open (?:the )?menu|take me through (?:the )?setup)$/.test(lower)) {
+    await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore");
+    return true;
+  }
+
+  if (/^(?:hide|close|remove) (?:the )?menu$/.test(lower)) {
+    await hidePrivateMenu(ctx);
     return true;
   }
 
@@ -123,6 +130,28 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (storedImageMatch?.[1]) {
     try {
       await replyStoredImage(ctx, user.id, normalizePublicId(storedImageMatch[1]));
+    } catch {
+      await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
+    }
+    return true;
+  }
+
+  const imageCaptionMatch = trimmed.match(/^(?:caption|label|name|rename|change\s+(?:the\s+)?caption\s+(?:of|for))\s+(?:image\s+)?(\d+|IMG-\d+)\s+(?:as|to|with)?\s*(.+)$/i);
+  if (imageCaptionMatch?.[1] && imageCaptionMatch[2]) {
+    try {
+      const image = await updateStoredImageCaption(user.id, normalizePublicId(imageCaptionMatch[1]), imageCaptionMatch[2]);
+      await replyHtml(ctx, `${bold("✅ Caption updated")} ${code(image.publicId)} ${h(image.caption ?? imageCaptionMatch[2])}\n${code("/undo")} restores the previous caption.`, { reply_markup: undoKeyboard("↩️ Undo caption") });
+    } catch {
+      await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
+    }
+    return true;
+  }
+
+  const imageDeleteMatch = trimmed.match(/^(?:delete|remove|forget)\s+(?:saved\s+)?(?:image|photo|picture)\s+(\d+|IMG-\d+)$/i);
+  if (imageDeleteMatch?.[1]) {
+    try {
+      const image = await findStoredImageReference(user.id, normalizePublicId(imageDeleteMatch[1]));
+      await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
     } catch {
       await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
     }
@@ -305,6 +334,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const searchMatch = trimmed.match(/^(?:search(?:\s+for)?|look\s+for|find\s+(?:anything\s+)?(?:about\s+)?)\s*(.+)$/i);
   if (searchMatch?.[1]) {
+    const imageSearch = searchMatch[1].match(/^(?:saved\s+)?(?:images?|photos?|pictures?|screenshots?)(?:\s+(?:captioned|named|called|for|about|containing|with(?:\s+(?:caption|text))?))?\s+(.+)$/i);
+    if (imageSearch?.[1]) {
+      const captionOnly = /\b(?:captioned|named|called|with\s+(?:the\s+)?caption)\b/i.test(searchMatch[1]);
+      const textOnly = /\b(?:ocr|with\s+(?:the\s+)?text|containing\s+text)\b/i.test(searchMatch[1]);
+      await replyStoredImageSearch(ctx, user.id, imageSearch[1], user.settings?.timezone ?? "UTC", 1, undefined, captionOnly ? "caption" : textOnly ? "text" : "all");
+      return true;
+    }
     const parsed = parseSearchRequest(searchMatch[1]);
     if (!parsed.query) {
       await ctx.reply("Add a query after the filter, like search notes deployment or search tasks invoice.");

@@ -3,9 +3,10 @@ import { bold, code, h } from "../utils/html";
 import { renameIdeaTitle, updateIdeaConcept } from "./ideas";
 import { renameNoteTitle, updateNoteBody } from "./notes";
 import { renameTaskTitle, updateTaskDescription } from "./tasks";
+import { updateStoredImageCaption } from "./storedImages";
 
-export type EditableItemKind = "task" | "note" | "idea";
-export type EditableItemField = "title" | "description" | "body" | "concept";
+export type EditableItemKind = "task" | "note" | "idea" | "image";
+export type EditableItemField = "title" | "description" | "body" | "concept" | "caption";
 
 type EditableItem = {
   kind: EditableItemKind;
@@ -95,6 +96,11 @@ export async function applyPendingItemEdit(userId: string, value: string): Promi
     return renamedMessage(idea.publicId, idea.title);
   }
 
+  if (pending.itemKind === "image") {
+    const image = await updateStoredImageCaption(userId, pending.itemPublicId, nextValue);
+    return `${bold("✅ Caption updated")} ${code(image.publicId)} ${h(image.caption ?? nextValue)}\n${code("/undo")} restores the previous caption.`;
+  }
+
   return undefined;
 }
 
@@ -126,6 +132,11 @@ async function findEditableItem(userId: string, kind: EditableItemKind, itemId: 
     return { kind, id: note.id, publicId: note.publicId, title: note.title, field: field === "body" ? "body" : "title" };
   }
 
+  if (kind === "image") {
+    const image = await prisma.storedImage.findFirstOrThrow({ where: { userId, id: itemId } });
+    return { kind, id: image.id, publicId: image.publicId, title: image.caption || image.fileName || "Saved image", field: "caption" };
+  }
+
   const idea = await prisma.idea.findFirstOrThrow({ where: { userId, id: itemId, archivedAt: null } });
   return { kind, id: idea.id, publicId: idea.publicId, title: idea.title, field: field === "concept" ? "concept" : "title" };
 }
@@ -139,6 +150,11 @@ async function previousValueForItem(kind: EditableItemKind, itemId: string, fiel
   if (kind === "note") {
     const note = await prisma.note.findUniqueOrThrow({ where: { id: itemId } });
     return field === "body" ? note.body : note.title;
+  }
+
+  if (kind === "image") {
+    const image = await prisma.storedImage.findUniqueOrThrow({ where: { id: itemId } });
+    return image.caption;
   }
 
   const idea = await prisma.idea.findUniqueOrThrow({ where: { id: itemId } });

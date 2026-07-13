@@ -1,4 +1,4 @@
-import { InlineKeyboard } from "grammy";
+import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
 
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
@@ -13,11 +13,36 @@ export type ActiveListNavigation = {
 
 export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Tasks", "menu:tasks").text("Reminders", "menu:reminders").row()
-    .text("Notes", "menu:notes").text("Ideas", "menu:ideas").row()
-    .text("Images", "menu:images").text("Expenses", "menu:expenses").row()
-    .text("Calendar + Excel", "menu:integrations").text("Settings", "menu:settings").row()
-    .text("Search + cleanup", "menu:search").text("All help", "menu:help");
+    .text("📋 Tasks", "menu:tasks").text("⏰ Reminders", "menu:reminders").row()
+    .text("📝 Notes", "menu:notes").text("💡 Ideas", "menu:ideas").row()
+    .text("🖼️ Images", "menu:images").text("💰 Expenses", "menu:expenses").row()
+    .text("📅 Calendar + 📊 Excel", "menu:integrations").text("⚙️ Settings", "menu:settings").row()
+    .text("🔎 Search + cleanup", "menu:search").text("❓ All help", "menu:help");
+}
+
+export const PRIVATE_MENU_LABELS = {
+  tasks: "📋 Tasks",
+  reminders: "⏰ Reminders",
+  notes: "📝 Notes",
+  ideas: "💡 Ideas",
+  images: "🖼️ Images",
+  expenses: "💰 Expenses",
+  search: "🔎 Search",
+  settings: "⚙️ Settings",
+  help: "❓ Help",
+  hide: "Hide menu"
+} as const;
+
+export function privateMenuKeyboard(): Keyboard {
+  return new Keyboard()
+    .text(PRIVATE_MENU_LABELS.tasks).text(PRIVATE_MENU_LABELS.reminders).row()
+    .text(PRIVATE_MENU_LABELS.notes).text(PRIVATE_MENU_LABELS.ideas).row()
+    .text(PRIVATE_MENU_LABELS.images).text(PRIVATE_MENU_LABELS.expenses).row()
+    .text(PRIVATE_MENU_LABELS.search).text(PRIVATE_MENU_LABELS.settings).row()
+    .text(PRIVATE_MENU_LABELS.help).text(PRIVATE_MENU_LABELS.hide)
+    .resized()
+    .persistent()
+    .placeholder("Tell Threadwise what you need…");
 }
 
 export function helpTopicsKeyboard(): InlineKeyboard {
@@ -220,10 +245,12 @@ export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
 
 export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Save image", `image-upload:save:${pendingId}`)
-    .text("Extract text", `image-upload:extract:${pendingId}`)
+    .text("🖼️ Save image", `image-upload:save:${pendingId}`)
+    .text("✏️ Save with caption", `image-upload:caption:${pendingId}`).row()
+    .text("🔎 Extract text", `image-upload:extract:${pendingId}`)
+    .text("✅ Save + extract", `image-upload:save-extract:${pendingId}`)
     .row()
-    .text("Read as receipt", `image-upload:expense:${pendingId}`)
+    .text("🧾 Read as receipt", `image-upload:expense:${pendingId}`)
     .text("Discard", `image-upload:discard:${pendingId}`);
 }
 
@@ -231,7 +258,8 @@ export function storedImageListKeyboard(
   images: Array<{ id: string }>,
   page: number,
   totalPages: number,
-  numberOffset: number
+  numberOffset: number,
+  searchId?: string
 ): InlineKeyboard | undefined {
   if (!images.length) return undefined;
   const keyboard = new InlineKeyboard();
@@ -241,11 +269,24 @@ export function storedImageListKeyboard(
   });
   if (totalPages > 1) {
     keyboard.row();
-    if (page > 1) keyboard.text("Prev", `stored-image:page:${page - 1}`);
-    keyboard.text(`Page ${page}/${totalPages}`, `stored-image:page:${page}`);
-    if (page < totalPages) keyboard.text("Next", `stored-image:page:${page + 1}`);
+    const pagePrefix = searchId ? `stored-image:search:${searchId}` : "stored-image:page";
+    if (page > 1) keyboard.text("← Prev", `${pagePrefix}:${page - 1}`);
+    keyboard.text(`Page ${page}/${totalPages}`, `${pagePrefix}:${page}`);
+    if (page < totalPages) keyboard.text("Next →", `${pagePrefix}:${page + 1}`);
   }
   return keyboard;
+}
+
+export function storedImageActionsKeyboard(imageId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✏️ Edit caption", `stored-image:caption:${imageId}`)
+    .text("🗑️ Delete", `stored-image:delete:${imageId}`);
+}
+
+export function storedImageDeleteKeyboard(imageId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🗑️ Yes, delete", `stored-image:delete-confirm:${imageId}`)
+    .text("Keep image", `stored-image:delete-cancel:${imageId}`);
 }
 
 export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {

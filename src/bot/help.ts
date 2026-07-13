@@ -20,6 +20,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
   { command: "/commands", description: "Show the full slash-command reference.", example: "/commands" },
   { command: "/start", description: "Show first-run onboarding and timezone examples.", example: "/start" },
+  { command: "/menu", description: "Restore the private-chat menu beneath the reply box.", example: "/menu" },
   { command: "/add", description: "Add a task and keep it on your radar until done.", example: "/add pay invoice tomorrow at 9am" },
   { command: "/remind", description: "Schedule a reminder for a specific time.", example: "/remind tomorrow at 9am | submit the form" },
   { command: "/tasks", description: "List open tasks with active numbers and buttons.", example: "/tasks" },
@@ -29,8 +30,8 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
   { command: "/assign", description: "Add one or more people to a group task.", example: "/assign 1 @alex and @sam" },
   { command: "/unassign", description: "Remove one assignee, or everyone when no name is given.", example: "/unassign 1 @alex" },
-  { command: "/images", description: "Browse images you asked Threadwise to keep.", example: "/images" },
-  { command: "/image", description: "Open one saved image by number or ID.", example: "/image IMG-2" },
+  { command: "/images", description: "Browse or search saved images by caption, OCR text, or filename.", example: "/images passport" },
+  { command: "/image", description: "Open, caption, or request deletion of one saved image.", example: "/image caption IMG-2 Mum's passport" },
   { command: "/cancel", description: "Cancel one task, or preview and confirm several.", example: "/cancel 1 2 3" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
@@ -64,7 +65,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
 const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "general",
-    title: "Quick Start",
+    title: "👋 Quick Start",
     description: "Type normal messages. Clear requests become tasks, reminders, notes, ideas, searches, or settings changes.",
     natural: [
       "remind me to call mom tomorrow at 9",
@@ -79,7 +80,7 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "reminders",
-    title: "Reminders And Tasks",
+    title: "⏰ Reminders And Tasks",
     description: "Create, move, finish, snooze, cancel, or repeat reminders daily, weekly, monthly, or yearly.",
     natural: [
       "add pay invoice tomorrow at 9am",
@@ -109,7 +110,7 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "notes",
-    title: "Notes",
+    title: "📝 Notes",
     description: "Save, open, search, merge, archive, or restore notes.",
     natural: [
       "note DATABASE_URL is stored in Render",
@@ -127,7 +128,7 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "ideas",
-    title: "Ideas",
+    title: "💡 Ideas",
     description: "Capture ideas, open them later, score them, or create implementation briefs.",
     natural: [
       "idea build a Telegram bot for life admin",
@@ -141,25 +142,30 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "images",
-    title: "Images And OCR",
-    description: "Send a photo, receipt, or screenshot. Choose to keep the original image, extract its text locally, or read it as a receipt.",
+    title: "🖼️ Images And OCR",
+    description: "Keep the original, add an editable caption, extract searchable text locally, or read a receipt.",
     natural: [
       "send any image, then tap Save image or Extract text",
-      "send an image with: keep this image",
+      "send an image with: save this as Mum's passport scan",
+      "send an image with: save this image and extract the text",
       "send an image with: extract the text",
       "send a receipt with: save this as an expense",
       "send a Burmese receipt with: read this in Burmese and save as expense",
       "send a screenshot with: turn this into a task",
       "send an image with: remind me about this tomorrow at 9",
       "show my saved images",
+      "find images captioned passport",
+      "search images electricity bill",
       "open image 2",
+      "caption image 2 as July electricity bill",
+      "delete image 2",
       "read images in English and Burmese"
     ],
-    commands: ["No command needed: attach an image and choose a button.", "/images", "/image IMG-2", "/settings ocr English and Burmese", "/help images"]
+    commands: ["No command needed: attach an image and choose a button.", "/images passport", "/search images electricity bill", "/image IMG-2", "/image caption IMG-2 July bill", "/image delete IMG-2", "/settings ocr English and Burmese"]
   },
   {
     topic: "expenses",
-    title: "Expenses",
+    title: "💰 Expenses",
     description: "Save manual spending or receipt results in Threadwise, confirm/edit fields, and browse 10 newest-first rows per page.",
     natural: [
       "spent $18.40 on lunch at Toast Box today using Visa",
@@ -174,7 +180,7 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "excel",
-    title: "Excel",
+    title: "📊 Excel",
     description: "Threadwise always keeps the expense record. Excel is an optional export or synchronized OneDrive workbook.",
     natural: [
       "connect my Microsoft Excel",
@@ -187,20 +193,21 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "search",
-    title: "Find And Review",
+    title: "🔎 Find And Review",
     description: "Search saved items, review open loops, and see pinned or archived items.",
     natural: [
       "search reminder bot ideas",
       "search done curriculum paper",
+      "find images captioned passport",
       "show review",
       "show pins",
       "show archived notes"
     ],
-    commands: ["/search reminder bot ideas", "/search done curriculum paper", "/review", "/pins", "/archived notes"]
+    commands: ["/search reminder bot ideas", "/search done curriculum paper", "/search images passport", "/review", "/pins", "/archived notes"]
   },
   {
     topic: "settings",
-    title: "Settings",
+    title: "⚙️ Settings",
     description: "Change reminder behavior without scheduler jargon.",
     natural: [
       "change timezone to Singapore",
@@ -217,7 +224,7 @@ const HELP_SECTIONS: HelpSection[] = [
   },
   {
     topic: "cleanup",
-    title: "Undo And Cleanup",
+    title: "↩️ Undo And Cleanup",
     description: "Reverse recent saves, edits, pins, and archive changes.",
     natural: [
       "undo",
@@ -233,7 +240,8 @@ const HELP_SECTIONS: HelpSection[] = [
 
 export function formatStartText(timezone = "Asia/Singapore"): string {
   return [
-    bold("Welcome to Threadwise"),
+    bold("👋 Welcome to Threadwise"),
+    "I can keep track of the small stuff so it does not keep taking up space in your head.",
     "Just tell me what you want to remember, do, find, change, or schedule.",
     "In groups, mention me or reply to me so I know the message is for Threadwise.",
     "",
@@ -252,6 +260,7 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     code("change timezone to Myanmar"),
     code("change timezone to Malaysia"),
     "",
+    `${code("/menu")} restores the private-chat buttons if you hide them.`,
     `${code("/help")} shows what I can do with natural examples.`,
     `${code("/commands")} shows the compact slash-command reference.`
   ].join("\n");
@@ -261,8 +270,8 @@ export const HELP_TEXT = formatHelpGuide();
 
 export function formatHelpGuide(): string {
   return [
-    bold("Threadwise help"),
-    "Type naturally. Pick a topic below for detailed examples.",
+    bold("❓ Threadwise help"),
+    "Type naturally—I will do my best to understand. Pick a topic below for detailed examples.",
     "",
     ...HELP_SECTIONS.map(formatHelpSectionSummary),
     "",

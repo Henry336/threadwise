@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
@@ -337,13 +337,13 @@ describe("bot formatters", () => {
   it("shows natural-language capability help without pagination", () => {
     const message = formatHelpPage(1);
 
-    expect(message).toContain("<b>Threadwise help</b>");
-    expect(message).toContain("<b>Reminders And Tasks</b>");
+    expect(message).toContain("<b>❓ Threadwise help</b>");
+    expect(message).toContain("<b>⏰ Reminders And Tasks</b>");
     expect(message).toContain("<code>/help reminders</code>");
-    expect(message).toContain("<b>Settings</b>");
-    expect(message).toContain("<b>Images And OCR</b>");
-    expect(message).toContain("<b>Expenses</b>");
-    expect(message).toContain("<b>Excel</b>");
+    expect(message).toContain("<b>⚙️ Settings</b>");
+    expect(message).toContain("<b>🖼️ Images And OCR</b>");
+    expect(message).toContain("<b>💰 Expenses</b>");
+    expect(message).toContain("<b>📊 Excel</b>");
     expect(message).toContain("<code>/commands</code>");
     expect(message).not.toContain("Page 1/");
     expect(message.length).toBeLessThan(4_096);
@@ -363,10 +363,10 @@ describe("bot formatters", () => {
     const notes = formatHelpTopic("notes");
     const commands = formatHelpTopic("commands");
 
-    expect(reminders).toContain("<b>Help: Reminders And Tasks</b>");
+    expect(reminders).toContain("<b>Help: ⏰ Reminders And Tasks</b>");
     expect(reminders).toContain("<code>remind me to check the washer after 5 mins</code>");
-    expect(reminders).not.toContain("<b>Help: Notes</b>");
-    expect(notes).toContain("<b>Help: Notes</b>");
+    expect(reminders).not.toContain("<b>Help: 📝 Notes</b>");
+    expect(notes).toContain("<b>Help: 📝 Notes</b>");
     expect(notes).toContain("<code>show note 3</code>");
     expect(commands).toContain("<b>Threadwise commands</b>");
   });
@@ -384,18 +384,30 @@ describe("bot formatters", () => {
   });
 
   it("provides concise start navigation and image-choice buttons", () => {
-    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "Reminders", callback_data: "menu:reminders" });
-    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "Images", callback_data: "menu:images" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "⏰ Reminders", callback_data: "menu:reminders" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🖼️ Images", callback_data: "menu:images" });
     expect(incomingImageKeyboard("pending-1").inline_keyboard).toEqual([
       [
-        { text: "Save image", callback_data: "image-upload:save:pending-1" },
-        { text: "Extract text", callback_data: "image-upload:extract:pending-1" }
+        { text: "🖼️ Save image", callback_data: "image-upload:save:pending-1" },
+        { text: "✏️ Save with caption", callback_data: "image-upload:caption:pending-1" }
       ],
       [
-        { text: "Read as receipt", callback_data: "image-upload:expense:pending-1" },
+        { text: "🔎 Extract text", callback_data: "image-upload:extract:pending-1" },
+        { text: "✅ Save + extract", callback_data: "image-upload:save-extract:pending-1" }
+      ],
+      [
+        { text: "🧾 Read as receipt", callback_data: "image-upload:expense:pending-1" },
         { text: "Discard", callback_data: "image-upload:discard:pending-1" }
       ]
     ]);
+  });
+
+  it("provides a persistent private-chat menu beneath the composer", () => {
+    const menu = privateMenuKeyboard();
+    expect(menu.is_persistent).toBe(true);
+    expect(menu.resize_keyboard).toBe(true);
+    expect(menu.keyboard.flat()).toContainEqual({ text: "📋 Tasks" });
+    expect(menu.keyboard.flat()).toContainEqual({ text: "Hide menu" });
   });
 
   it("shows natural-first onboarding after start", () => {

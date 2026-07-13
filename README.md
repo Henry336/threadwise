@@ -17,7 +17,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- Accepts photos and image documents, then offers clean buttons to keep the original through Telegram, extract text locally, or read a receipt. Extracted text can become a note, task, reminder, or expense; no OCR or OpenAI API key is required.
+- Accepts photos and image documents, then offers clean buttons to keep the original, save it with an editable caption, save and extract in one step, extract text locally, or read a receipt. Extracted text can become a note, task, reminder, or expense; no OCR or OpenAI API key is required.
+- Searches saved images by caption, locally extracted OCR text, or filename with `/images <query>`, `/search images <query>`, and natural requests such as `find images captioned passport`.
+- Opens saved images with edit-caption and confirmed-delete controls. Deletion removes Threadwise's reusable file reference and search metadata, not the original Telegram message.
 - Stores confirmed expenses in Threadwise, supports manual text and receipt photos, and lists 10 newest-first rows per page with day, month, and year filters.
 - Gives each user a regional expense-currency default, accepts an explicit currency per expense, detects common currency codes/symbols/words on receipts, and lets saved expenses be corrected later.
 - Exports expenses as a standalone `.xlsx` file, or optionally creates and synchronizes a private workbook in the user's OneDrive through Microsoft OAuth.
@@ -58,6 +60,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 - Supports group chats with shared chat-scoped tasks, notes, ideas, settings, expenses, and reminders. In groups, slash commands work directly, while addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
+- Shows a persistent, compact command menu beneath the Telegram reply box in private chats; `/menu` restores it and `Hide menu` removes it. Groups continue using message-attached inline navigation so the shared composer stays uncluttered.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
 
@@ -65,6 +68,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 ```text
 /start
+/menu
 /help
 /commands
 /idea build a Telegram bot that...
@@ -148,8 +152,11 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /excel use https://onedrive.live.com/...
 /excel disconnect
 /images
+/images passport
 /image 1
 /image IMG-1
+/image caption IMG-1 July electricity bill
+/image delete IMG-1
 /version
 /groupcheck
 /settings

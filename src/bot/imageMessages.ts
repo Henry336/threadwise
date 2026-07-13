@@ -3,13 +3,14 @@ import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
 import { createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
-import { createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
-import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload } from "../services/storedImages";
+import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
+import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
+import { beginPendingItemEdit, formatEditStarted } from "../services/itemEdits";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { expenseConfirmationKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { editCancelKeyboard, expenseConfirmationKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
@@ -21,7 +22,7 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     }
     await handleImageMessage(ctx, ai, token);
   });
-  bot.callbackQuery(/^image-upload:(save|extract|expense|discard):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^image-upload:(save|caption|save-extract|extract|expense|discard):(.+)$/, async (ctx) => {
     try {
       await handleIncomingImageAction(ctx, ai, token, ctx.match[1], ctx.match[2]);
     } catch (error) {
@@ -45,16 +46,23 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
 
   const user = await ensureUser(ctx);
   const intent = parseImageCaptionIntent(preparedCaption);
-  if (intent === "choose" || intent === "store") {
-    const pending = await createPendingImageUpload({ userId: user.id, ...target, caption: preparedCaption || undefined });
+  if (intent === "choose" || intent === "store" || intent === "store-extract") {
+    const storedCaption = captionForStoredImage(preparedCaption) ?? (intent === "choose" && preparedCaption ? preparedCaption : undefined);
+    const pending = await createPendingImageUpload({ userId: user.id, ...target, caption: storedCaption });
     if (intent === "store") {
       const saved = await savePendingImageUpload(user.id, pending.id);
       await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
       return;
     }
+    if (intent === "store-extract") {
+      const saved = await savePendingImageUpload(user.id, pending.id);
+      await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+      await processImageOcr(ctx, ai, token, target, preparedCaption, "extract", user, saved.image.id);
+      return;
+    }
     await replyHtml(ctx, [
       bold("Image received"),
-      "Would you like to keep the original image, extract its text locally, or read it as a receipt?",
+      "Would you like to keep the original, add a caption, extract its text locally, save and extract, or read it as a receipt?",
       "Nothing is saved until you choose."
     ].join("\n"), { reply_markup: incomingImageKeyboard(pending.id) });
     return;
@@ -84,6 +92,38 @@ async function handleIncomingImageAction(
     await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
     return;
   }
+  if (action === "caption") {
+    const saved = await savePendingImageUpload(user.id, pendingId);
+    const edit = await beginPendingItemEdit(user.id, "image", saved.image.id, "caption");
+    await ctx.answerCallbackQuery({ text: saved.duplicate ? "Update its caption" : "Add a caption" });
+    await replyHtml(ctx, `${formatStoredImageSaved(saved.image, saved.duplicate)}\n\n${formatEditStarted(edit)}`, { reply_markup: editCancelKeyboard() });
+    return;
+  }
+  if (action === "save-extract") {
+    const pending = await consumePendingImageUpload(user.id, pendingId);
+    const savedPending = await createPendingImageUpload({
+      userId: user.id,
+      telegramFileId: pending.telegramFileId,
+      telegramUniqueId: pending.telegramUniqueId ?? undefined,
+      mediaKind: pending.mediaKind as "photo" | "document",
+      mimeType: pending.mimeType ?? undefined,
+      fileName: pending.fileName ?? undefined,
+      caption: pending.caption ?? undefined,
+      fileSize: pending.fileSize ?? undefined
+    });
+    const saved = await savePendingImageUpload(user.id, savedPending.id);
+    await ctx.answerCallbackQuery({ text: "Saved — now extracting" });
+    await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+    await processImageOcr(ctx, ai, token, {
+      telegramFileId: pending.telegramFileId,
+      telegramUniqueId: pending.telegramUniqueId ?? undefined,
+      mediaKind: pending.mediaKind as "photo" | "document",
+      mimeType: pending.mimeType ?? undefined,
+      fileName: pending.fileName ?? undefined,
+      fileSize: pending.fileSize ?? undefined
+    }, pending.caption ?? "", "extract", user, saved.image.id);
+    return;
+  }
   const pending = await consumePendingImageUpload(user.id, pendingId);
   await ctx.answerCallbackQuery({ text: action === "expense" ? "Reading receipt" : "Extracting text" });
   await processImageOcr(ctx, ai, token, {
@@ -102,14 +142,16 @@ async function processImageOcr(
   token: string,
   target: ImageTarget,
   preparedCaption: string,
-  intent: Exclude<ImageIntent, "choose" | "store">,
-  user: Awaited<ReturnType<typeof ensureUser>>
+  intent: Exclude<ImageIntent, "choose" | "store" | "store-extract">,
+  user: Awaited<ReturnType<typeof ensureUser>>,
+  storedImageId?: string
 ): Promise<void> {
   const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
   const progress = await ctx.reply(`Reading the image locally (${formatOcrLanguages(ocrLanguages)})... This can take a little while on the first image.`);
   try {
     const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
+    if (storedImageId) await updateStoredImageOcr(user.id, storedImageId, extracted.text, extracted.confidence);
 
     if (intent === "expense") {
       const pendingExpense = await createPendingExpenseFromText(user.id, extracted.text, user.settings?.timezone ?? "UTC", {
@@ -152,7 +194,7 @@ async function processImageOcr(
       telegramFileId: target.telegramFileId,
       telegramUniqueId: target.telegramUniqueId,
       confidence: extracted.confidence,
-      awaitingAction: intent === "reminder" ? "reminder-time" : undefined
+      awaitingAction: intent === "reminder" ? "reminder-time" : storedImageId ? "stored-image-saved" : undefined
     });
 
     if (intent === "reminder") {
@@ -160,11 +202,12 @@ async function processImageOcr(
       return;
     }
 
-    await replyHtml(ctx, formatImagePreview(extracted.text, extracted.confidence), {
+    await replyHtml(ctx, formatImagePreview(extracted.text, extracted.confidence, Boolean(storedImageId)), {
       reply_markup: imageTextActionsKeyboard(pending.id)
     });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't read that image. Try a clearer photo or screenshot.");
+    const detail = error instanceof Error ? error.message : "I couldn't read that image. Try a clearer photo or screenshot.";
+    await ctx.reply(storedImageId ? `The original image is safely saved, but I couldn't extract its text. ${detail}` : detail);
   } finally {
     try {
       await ctx.api.deleteMessage(ctx.chat?.id ?? 0, progress.message_id);
@@ -205,12 +248,12 @@ async function downloadTelegramFile(ctx: Context, token: string, fileId: string)
   return buffer;
 }
 
-function formatImagePreview(text: string, confidence: number): string {
+function formatImagePreview(text: string, confidence: number, saved = false): string {
   const preview = text.length > 1400 ? `${text.slice(0, 1397)}…` : text;
   return [
-    bold("Text extracted locally"),
+    bold("🔎 Text extracted locally"),
     `OCR confidence: ${Math.round(confidence)}%`,
-    "Nothing is saved yet. Choose what to do with it.",
+    saved ? "The original image and searchable OCR text are saved. You can also turn the text into another item." : "Nothing is saved yet. Choose what to do with it.",
     "",
     h(preview)
   ].join("\n");

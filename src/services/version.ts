@@ -3,7 +3,7 @@ import { bold, code, h } from "../utils/html";
 import type { ReminderDiagnostics } from "./reminders";
 
 const startedAt = new Date();
-const fallbackVersion = "0.16.0";
+const fallbackVersion = "0.17.0";
 
 export type VersionStatus = {
   ai: AiProviderStatus;

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.17.0 - 2026-07-14
+
+### Added
+- Added a persistent private-chat menu beneath Telegram's reply box, with `/menu` to restore it and a `Hide menu` control. Group navigation remains inline and mention/reply-gated.
+- Added editable image captions, caption prompts, duplicate-caption updates, and undo for caption changes.
+- Added saved-image search across captions, local OCR text, and filenames through `/images <query>`, `/search images <query>`, and broad natural-language requests.
+- Added `Save + extract`, which preserves the original image and saves searchable OCR text without an API key even when no note, task, reminder, or expense is created.
+- Added confirmed image deletion and edit/delete controls beneath reopened images.
+
+### Changed
+- Refreshed primary menus, image flows, onboarding, and help with restrained semantic emoji and warmer wording while keeping button text explicit.
+- Expanded image natural language for phrases such as `save this as Mum's passport scan`, `keep this image with caption July electricity bill`, `caption image 2 as July bill`, and `find images captioned passport`.
+- Expanded image help with recurring reminder examples, caption/search/delete examples, and API-key-free OCR behavior.
+
 ## v0.16.0 - 2026-07-14
 
 ### Added

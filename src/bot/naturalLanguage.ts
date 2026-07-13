@@ -14,6 +14,8 @@ import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { PRIVATE_MENU_LABELS } from "./keyboards";
+import { hidePrivateMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
@@ -38,6 +40,18 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const user = await ensureUser(ctx);
+
+      if (!isGroupChat(ctx)) {
+        if (text === PRIVATE_MENU_LABELS.hide) {
+          await hidePrivateMenu(ctx);
+          return;
+        }
+        const menuAction = privateMenuAction(text);
+        if (menuAction) {
+          await handleNaturalCommand(ctx, ai, menuAction);
+          return;
+        }
+      }
 
       const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
       if (expenseEdit) {
@@ -151,6 +165,21 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't handle that request. Try /help for examples.");
     }
   });
+}
+
+function privateMenuAction(text: string): string | undefined {
+  const actions: Record<string, string> = {
+    [PRIVATE_MENU_LABELS.tasks]: "show my tasks",
+    [PRIVATE_MENU_LABELS.reminders]: "help reminders",
+    [PRIVATE_MENU_LABELS.notes]: "show my notes",
+    [PRIVATE_MENU_LABELS.ideas]: "show my ideas",
+    [PRIVATE_MENU_LABELS.images]: "show my images",
+    [PRIVATE_MENU_LABELS.expenses]: "show my expenses",
+    [PRIVATE_MENU_LABELS.search]: "help search",
+    [PRIVATE_MENU_LABELS.settings]: "settings",
+    [PRIVATE_MENU_LABELS.help]: "help"
+  };
+  return actions[text];
 }
 
 function shouldAutoSave(kind: string, confidence: number): boolean {

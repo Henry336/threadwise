@@ -110,6 +110,20 @@ export async function recordFieldEditUndo(
   });
 }
 
+export async function recordImageCaptionUndo(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  image: { id: string; publicId: string; caption?: string | null },
+  previousCaption: string | null
+): Promise<void> {
+  await recordUndo(tx, userId, "image-caption", {
+    type: "image-caption",
+    targetId: image.id,
+    publicId: image.publicId,
+    previousCaption
+  });
+}
+
 export async function recordRescheduleUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -244,6 +258,10 @@ export async function undoLastAction(userId: string): Promise<string> {
 
     if (type === "field-edit") {
       return await undoFieldEdit(entry.id, payload);
+    }
+
+    if (type === "image-caption") {
+      return await undoImageCaption(entry.id, payload);
     }
 
     if (type === "reschedule-task") {
@@ -390,6 +408,18 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
   });
 
   return `${bold("Undone")} Restored the previous ${h(field ?? "field")} for ${code(target.publicId)}.`;
+}
+
+async function undoImageCaption(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const id = stringValue(payload.targetId);
+  const publicId = stringValue(payload.publicId);
+  if (!id || !publicId) throw new Error("Invalid image caption undo payload.");
+  const previousCaption = nullableStringValue(payload.previousCaption);
+  await prisma.$transaction(async (tx) => {
+    await tx.storedImage.update({ where: { id }, data: { caption: previousCaption } });
+    await consumeUndo(tx, entryId, "image-caption");
+  });
+  return `${bold("↩️ Undone")} Restored the previous caption for ${code(publicId)}.`;
 }
 
 async function undoReschedule(entryId: string, payload: Record<string, unknown>): Promise<string> {

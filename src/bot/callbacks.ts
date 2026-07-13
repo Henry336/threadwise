@@ -16,10 +16,11 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
+import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
 import { formatHelpGuide, formatHelpTopic } from "./help";
 import { formatSettings } from "../services/settings";
 
@@ -61,10 +62,40 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]));
     await ctx.answerCallbackQuery({ text: `Page ${page}` });
   });
+  bot.callbackQuery(/^stored-image:search:([^:]+):(\d+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1]);
+    await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
+  });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     await ctx.answerCallbackQuery({ text: "Opening image" });
     await replyStoredImage(ctx, user.id, ctx.match[1] ?? "", true);
+  });
+  bot.callbackQuery(/^stored-image:caption:(.+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const item = await beginPendingItemEdit(user.id, "image", ctx.match[1] ?? "", "caption");
+    await ctx.answerCallbackQuery({ text: "Send the new caption" });
+    await replyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
+  });
+  bot.callbackQuery(/^stored-image:delete:(.+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const image = await findStoredImageById(user.id, ctx.match[1] ?? "");
+    await ctx.answerCallbackQuery({ text: "Please confirm" });
+    await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
+      reply_markup: storedImageDeleteKeyboard(image.id)
+    });
+  });
+  bot.callbackQuery(/^stored-image:delete-(confirm|cancel):(.+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    if (ctx.match[1] === "cancel") {
+      await ctx.answerCallbackQuery({ text: "Image kept" });
+      await ctx.reply("Kept it. Nothing changed.");
+      return;
+    }
+    const image = await deleteStoredImage(user.id, ctx.match[2] ?? "");
+    await ctx.answerCallbackQuery({ text: "Image deleted" });
+    await replyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`);
   });
   bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
 }
@@ -139,13 +170,13 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
   if (!action || !pendingId) return;
   const user = await ensureUser(ctx);
   try {
+    const pending = await findPendingImageCapture(user.id, pendingId);
     if (action === "discard") {
       await discardPendingImageCapture(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Discarded" });
-      await ctx.reply("Discarded. Nothing was saved.");
+      await ctx.reply(pending.awaitingAction === "stored-image-saved" ? "Discarded the extracted-text preview. Your original image and its searchable OCR text are still saved." : "Discarded. Nothing was saved.");
       return;
     }
-    const pending = await findPendingImageCapture(user.id, pendingId);
     if (action === "text") {
       await ctx.answerCallbackQuery({ text: "Full text" });
       await replyInChunks(ctx, pending.extractedText);
@@ -401,11 +432,11 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
 }
 
 function isEditableItemKind(kind: string | undefined): kind is EditableItemKind {
-  return kind === "task" || kind === "note" || kind === "idea";
+  return kind === "task" || kind === "note" || kind === "idea" || kind === "image";
 }
 
 function isEditableItemField(field: string | undefined): field is EditableItemField {
-  return field === "title" || field === "description" || field === "body" || field === "concept";
+  return field === "title" || field === "description" || field === "body" || field === "concept" || field === "caption";
 }
 
 async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {

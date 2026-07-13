@@ -19,7 +19,7 @@ let workerLanguages: OcrLanguages | undefined;
 let queue: Promise<void> = Promise.resolve();
 let languageDirectoryPromise: Promise<string> | undefined;
 
-export type ImageIntent = "note" | "task" | "reminder" | "expense" | "extract" | "store" | "choose";
+export type ImageIntent = "note" | "task" | "reminder" | "expense" | "extract" | "store" | "store-extract" | "choose";
 
 export async function extractTextFromImage(input: Buffer, languages: OcrLanguages = "eng"): Promise<{ text: string; confidence: number }> {
   if (input.length > MAX_IMAGE_BYTES) {
@@ -65,14 +65,36 @@ export function normalizeExtractedText(text: string): string {
 
 export function parseImageCaptionIntent(caption: string): ImageIntent {
   const text = caption.toLowerCase().trim();
+  if (/\b(?:save|store|keep|archive)\b.*\b(?:and|\+)\s*(?:extract|scan|read|ocr)\b/.test(text)
+    || /\b(?:extract|scan|read|ocr)\b.*\b(?:and|\+)\s*(?:save|store|keep)\b/.test(text)) return "store-extract";
   if (/\b(?:save|store|keep|archive)\b.*\b(?:image|photo|picture|screenshot)\b/.test(text)
     || /^(?:please\s+)?(?:save|store|keep)\s+(?:this|it)$/.test(text)) return "store";
   if (/\b(?:expense|receipt|purchase|spending|spent|paid|reimburse)\b/.test(text)) return "expense";
   if (/\b(?:remind|reminder|nudge|don't forget|do not forget)\b/.test(text)) return "reminder";
   if (/\b(?:task|todo|to-do|action item|something to do)\b/.test(text)) return "task";
+  if (/\b(?:as|into)\s+(?:a\s+)?notes?\b/.test(text)) return "note";
+  if (captionForStoredImage(caption)) return "store";
   if (/\b(?:note|notes|remember this|save this|keep this|store this)\b/.test(text)) return "note";
   if (/\b(?:extract|scan|read|recognize|recognise|ocr|copy)\b.*\b(?:text|words?|writing)?\b/.test(text)) return "extract";
   return "choose";
+}
+
+export function captionForStoredImage(caption: string): string | undefined {
+  const trimmed = caption.trim();
+  const patterns = [
+    /^(?:please\s+)?(?:save|store|keep|archive)(?:\s+(?:this|the))?(?:\s+(?:image|photo|picture|screenshot))?\s+(?:as|with\s+(?:the\s+)?caption|captioned)\s+(.+)$/i,
+    /^(?:caption|label|name)(?:\s+(?:this|the))?(?:\s+(?:image|photo|picture))?\s+(?:as\s+)?(.+)$/i
+  ];
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) {
+      return match[1]
+        .replace(/\s+(?:and|then|\+)\s*(?:extract|scan|read|ocr)(?:\s+(?:the\s+)?text)?.*$/i, "")
+        .trim()
+        .replace(/^["“]|["”]$/g, "");
+    }
+  }
+  return undefined;
 }
 
 export async function createPendingImageCapture(input: {
