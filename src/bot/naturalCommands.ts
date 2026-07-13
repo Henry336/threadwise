@@ -28,11 +28,11 @@ import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, forma
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
-import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
+import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
@@ -42,9 +42,10 @@ import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 import { isGroupChat } from "./groupRouting";
 import { replyActiveList } from "./activeLists";
+import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
-  const trimmed = text.trim();
+  const trimmed = normalizeNaturalCommandText(text);
   const lower = trimmed.toLowerCase();
   const user = await ensureUser(ctx);
 
@@ -66,7 +67,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (lower === "help") {
-    await replyHtml(ctx, formatHelpGuide());
+    await replyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
     return true;
   }
 
@@ -82,7 +83,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:start|get started|show (?:me )?(?:the )?(?:setup|onboarding)|take me through (?:the )?setup)$/.test(lower)) {
-    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
+    await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), { reply_markup: startMenuKeyboard() });
     return true;
   }
 
@@ -109,6 +110,22 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (listKind === "ideas") {
     await replyActiveList(ctx, user, "ideas");
+    return true;
+  }
+
+  if (/^(?:(?:show|list|view|open|browse|pull up)(?:\s+me)?(?:\s+all)?(?:\s+my)?\s+)?(?:saved\s+)?(?:images|photos|pictures|screenshots)$/.test(lower)
+    || /^(?:what|which)\s+(?:images|photos|pictures)\s+(?:have\s+i|did\s+i)\s+(?:save|store|keep)(?:d)?$/.test(lower)) {
+    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+    return true;
+  }
+
+  const storedImageMatch = trimmed.match(/^(?:(?:show|view|open|send|get|retrieve)\s+(?:me\s+)?(?:the\s+)?)?(?:saved\s+)?(?:image|photo|picture)\s+(\d+|IMG-\d+)$/i);
+  if (storedImageMatch?.[1]) {
+    try {
+      await replyStoredImage(ctx, user.id, normalizePublicId(storedImageMatch[1]));
+    } catch {
+      await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
+    }
     return true;
   }
 
@@ -375,9 +392,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const doneMatch = trimmed.match(/^(?:done|complete|finish)\s+(?:task\s+)?(\S+)$/i)
-    ?? trimmed.match(/^mark\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|finished)$/i)
-    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|finished)$/i);
+  const doneMatch = trimmed.match(/^(?:done|complete|finish|check off|tick off)\s+(?:task\s+)?(\S+)$/i)
+    ?? trimmed.match(/^(?:mark|set)\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|completed|finished)$/i)
+    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|completed|finished)$/i);
   if (doneMatch?.[1]) {
     const completion = await completeTask(user.id, normalizePublicId(doneMatch[1]));
     if (completion.alreadyCompleted) {
@@ -388,14 +405,16 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const snoozeMatch = trimmed.match(/^(?:snooze|delay)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i);
+  const snoozeMatch = trimmed.match(/^(?:snooze|delay|pause)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i)
+    ?? trimmed.match(/^(?:remind|nudge)\s+me\s+(?:about\s+)?(?:task\s+)?(\S+)\s+(?:again\s+)?(?:in|after)\s+(.+)$/i);
   if (snoozeMatch?.[1]) {
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
     await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("Undo snooze") });
     return true;
   }
 
-  const rescheduleMatch = trimmed.match(/^(?:reschedule|move|postpone|push)\s+(?:task\s+)?(\S+)\s+(?:to|until|for|by)?\s*(.+)$/i);
+  const rescheduleMatch = trimmed.match(/^(?:reschedule|move|postpone|push|shift|change\s+the\s+time\s+of)\s+(?:task\s+)?(\S+)\s+(?:to|until|for|by)?\s*(.+)$/i)
+    ?? trimmed.match(/^(?:change|set|update)\s+(?:the\s+)?(?:due\s+date|deadline|time)\s+(?:of|for)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
@@ -423,7 +442,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const cancelMatch = trimmed.match(/^(?:cancel|delete|drop)\s+(?:task\s+)?(\S+)$/i);
+  const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
     await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`, { reply_markup: undoKeyboard("Undo cancel") });
@@ -507,7 +526,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const scoreMatch = trimmed.match(/^(?:score|rate|evaluate)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i);
+  const scoreMatch = trimmed.match(/^(?:score|rate|evaluate|assess|review)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i)
+    ?? trimmed.match(/^(?:how\s+good|how\s+viable)\s+is\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i);
   if (scoreMatch?.[1]) {
     const result = await scoreIdea(user.id, normalizePublicId(scoreMatch[1]), ai);
     await replyHtml(ctx, formatIdeaScore(result.publicId, result.score));
@@ -621,7 +641,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 }
 
 function naturalExpenseText(text: string): string | undefined {
-  const trimmed = text.trim();
+  const trimmed = normalizeNaturalCommandText(text);
   if (/^(?:i\s+)?(?:spent|paid)\s+.+/i.test(trimmed)) return trimmed;
   const explicit = trimmed.match(/^(?:please\s+)?(?:log|record|add|save|track)\s+(?:this\s+)?(?:as\s+)?(?:an?\s+)?expense(?:\s+(?:of|for))?\s+(.+)$/i)
     ?? trimmed.match(/^expense\s*[:,-]?\s+(.+)$/i);

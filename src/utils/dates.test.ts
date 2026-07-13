@@ -100,6 +100,17 @@ describe("date utilities", () => {
   });
 
   it.each([
+    ["Remind me to buy snacks in about 1 hour 15 mins", "2026-07-05T05:15:00.000Z"],
+    ["nudge me in roughly 2 hours and 30 minutes", "2026-07-05T06:30:00.000Z"],
+    ["alert me 90 minutes from now", "2026-07-05T05:30:00.000Z"],
+    ["buy groceries in town in 2 hours", "2026-07-05T06:00:00.000Z"],
+    ["remind me in half an hour from now", "2026-07-05T04:30:00.000Z"]
+  ])("parses hedged and compound relative reminders: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
     ["remind me to finish all tasks by 9 pm", "2026-07-05T13:00:00.000Z"],
     ["remind me to finish all tasks before 9pm", "2026-07-05T13:00:00.000Z"],
     ["please nudge me around 9:30 pm", "2026-07-05T13:30:00.000Z"],
@@ -153,6 +164,8 @@ describe("date utilities", () => {
     ["remind me to clean the fridge at 9am every week", RecurrenceRule.WEEKLY, 7],
     ["remind me to take out the trash every Friday at 7pm", RecurrenceRule.WEEKLY, 7],
     ["remind me to call Mum on Fridays at 8pm", RecurrenceRule.WEEKLY, 7],
+    ["remind me to pay rent on the 1st of every month at 9am", RecurrenceRule.MONTHLY, 30],
+    ["schedule a budget review once a month at 6pm", RecurrenceRule.MONTHLY, 30],
     ["remind me of Mum's birthday on 26 July every year", RecurrenceRule.YEARLY, 365],
     ["remind me of our anniversary annually on 3 March", RecurrenceRule.YEARLY, 365]
   ])("parses recurrence patterns: %s", (text, rule, intervalDays) => {
@@ -220,6 +233,13 @@ describe("date utilities", () => {
       whenText: "Mum's birthday on 26 July every year",
       taskText: "Mum's birthday on 26 July every year"
     });
+  });
+
+  it("parses and advances calendar-month reminders without losing the intended day", () => {
+    const now = new Date("2026-07-12T04:00:00.000Z");
+    expect(parseDueDate("pay rent on the 1st of every month at 9am", "Asia/Singapore", now)?.toISOString()).toBe("2026-08-01T01:00:00.000Z");
+    expect(nextRecurringDueAt(new Date("2026-01-31T01:00:00.000Z"), RecurrenceRule.MONTHLY, "Asia/Singapore", new Date("2026-02-01T00:00:00.000Z"), 31).toISOString()).toBe("2026-02-28T01:00:00.000Z");
+    expect(nextRecurringDueAt(new Date("2026-02-28T01:00:00.000Z"), RecurrenceRule.MONTHLY, "Asia/Singapore", new Date("2026-03-01T00:00:00.000Z"), 31).toISOString()).toBe("2026-03-31T01:00:00.000Z");
   });
 
   it("keeps several assignees while parsing the reminder time from the task", () => {

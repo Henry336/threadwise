@@ -2,7 +2,7 @@ import { Prisma, RecurrenceRule, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
-import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, stripRecurrenceText } from "../utils/dates";
+import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, recurrenceDayOfMonth, stripRecurrenceText } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
@@ -29,6 +29,7 @@ export type TaskListItem = {
   assignees?: TaskAssigneeInfo[];
   recurrenceRule?: RecurrenceRule | null;
   recurrenceIntervalDays?: number | null;
+  recurrenceDayOfMonth?: number | null;
   reminderIntervalMinutes?: number | null;
   nextReminderAt?: Date | null;
   snoozedUntil?: Date | null;
@@ -107,7 +108,8 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         assignedDisplayName: primaryAssignee?.displayName,
         assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
         recurrenceRule: recurrence?.rule,
-        recurrenceIntervalDays: recurrence?.intervalDays
+        recurrenceIntervalDays: recurrence?.intervalDays,
+        recurrenceDayOfMonth: recurrenceDayOfMonth(dueAt, recurrence?.rule, settings.timezone)
       },
       include: { assignees: true }
     });
@@ -156,7 +158,8 @@ export async function createScheduledReminder(userId: string, sourceText: string
         assignedDisplayName: primaryAssignee?.displayName,
         assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
         recurrenceRule: recurrence?.rule,
-        recurrenceIntervalDays: recurrence?.intervalDays
+        recurrenceIntervalDays: recurrence?.intervalDays,
+        recurrenceDayOfMonth: recurrenceDayOfMonth(scheduledAt, recurrence?.rule, settings.timezone)
       },
       include: { assignees: true }
     });
@@ -182,7 +185,7 @@ export async function completeTask(userId: string, reference: string) {
     return { task, alreadyCompleted: true as const };
   }
   if (task.recurrenceRule && task.dueAt) {
-    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceRule, task.timezone ?? "UTC");
+    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceRule, task.timezone ?? "UTC", new Date(), task.recurrenceDayOfMonth);
     const updated = await prisma.$transaction(async (tx) => {
       await recordTaskStateUndo(tx, userId, task, "complete-task");
       return tx.task.update({
@@ -436,7 +439,8 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
         timezone: dueAt ? settings.timezone : task.timezone,
         calendarUrl,
         nextReminderAt,
-        snoozedUntil: null
+        snoozedUntil: null,
+        recurrenceDayOfMonth: recurrenceDayOfMonth(dueAt ?? undefined, task.recurrenceRule ?? undefined, settings.timezone) ?? null
       }
     });
   });

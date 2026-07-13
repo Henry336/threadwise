@@ -30,6 +30,12 @@ describe("deterministic AI helpers", () => {
     });
   });
 
+  it("handles hedged compound timing without losing a long task description", () => {
+    const input = "Remind me to buy snacks, sth from Breadtalk, a detergent, possibly a water bottle asw in about 1 hour 15 mins";
+    expect(classifyMessageDeterministically(input, "Asia/Singapore")?.kind).toBe("task");
+    expect(structureTaskDeterministically(input).title).toBe("Buy snacks, something from Breadtalk, a detergent, possibly a water bottle as well");
+  });
+
   it.each([
     ["sleep at 12 am daily", "Sleep"],
     ["take out the trash every Friday at 7 pm", "Take out the trash"],

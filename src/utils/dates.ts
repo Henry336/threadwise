@@ -11,16 +11,8 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   const text = input.toLowerCase();
   const base = DateTime.fromJSDate(now).setZone(timezone);
 
-  const inMatch = text.match(/\b(?:in|after)\s+(?:(\d+)|(a|an|one|two|three|four|five|six|seven|eight|nine|ten|half)(?:\s+an?)?)\s*(minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/);
-  if ((inMatch?.[1] || inMatch?.[2]) && inMatch[3]) {
-    const amount = inMatch[1] ? Number(inMatch[1]) : relativeAmount(inMatch[2] ?? "");
-    const unit = inMatch[3].startsWith("min")
-      ? "minutes"
-      : inMatch[3].startsWith("h")
-        ? "hours"
-        : "days";
-    return base.plus({ [unit]: amount }).toJSDate();
-  }
+  const relativeMinutes = parseRelativeDurationMinutes(text);
+  if (relativeMinutes) return base.plus({ minutes: relativeMinutes }).toJSDate();
 
   const dayAfterTomorrowMatch = text.match(/\bday\s+after\s+tomorrow(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
   if (dayAfterTomorrowMatch) {
@@ -67,6 +59,9 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   if (monthDay) {
     return monthDay.toJSDate();
   }
+
+  const monthlyDay = parseMonthlyDay(text, base);
+  if (monthlyDay) return monthlyDay.toJSDate();
 
   const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}):(\d{2}))?\b/);
   if (isoMatch?.[1]) {
@@ -179,7 +174,7 @@ export type RecurrencePattern = {
 
 export function parseRecurrencePattern(input: string): RecurrencePattern | undefined {
   const text = input.toLowerCase();
-  if (/\b(?:every\s+(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening))\b/.test(text)) {
+  if (/\b(?:every\s+(?:single\s+)?(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening)|once\s+a\s+day|every\s+24\s+hours)\b/.test(text)) {
     return { rule: RecurrenceRule.DAILY, intervalDays: 1 };
   }
 
@@ -187,7 +182,11 @@ export function parseRecurrencePattern(input: string): RecurrencePattern | undef
     return { rule: RecurrenceRule.YEARLY, intervalDays: 365 };
   }
 
-  if (/\b(?:every\s+week|weekly|each\s+week|(?:every|each)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays))\b/.test(text)) {
+  if (/\b(?:every\s+month|monthly|each\s+month|once\s+a\s+month)\b/.test(text)) {
+    return { rule: RecurrenceRule.MONTHLY, intervalDays: 30 };
+  }
+
+  if (/\b(?:every\s+(?:single\s+)?week|weekly|each\s+week|once\s+a\s+week|(?:every|each)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays))\b/.test(text)) {
     return { rule: RecurrenceRule.WEEKLY, intervalDays: 7 };
   }
 
@@ -196,19 +195,29 @@ export function parseRecurrencePattern(input: string): RecurrencePattern | undef
 
 export function stripRecurrenceText(input: string): string {
   return input
-    .replace(/\b(?:every\s+(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening))\b/ig, "")
+    .replace(/\b(?:every\s+(?:single\s+)?(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening)|once\s+a\s+day|every\s+24\s+hours)\b/ig, "")
     .replace(/\b(?:every\s+year|yearly|annually|annual|each\s+year|once\s+a\s+year)\b/ig, "")
+    .replace(/\b(?:every\s+month|monthly|each\s+month|once\s+a\s+month)\b/ig, "")
     .replace(/\b(?:every|each)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/ig, "")
     .replace(/\b(?:on\s+)?(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays)\b/ig, "")
-    .replace(/\b(?:every\s+week|weekly|each\s+week)\b/ig, "")
+    .replace(/\b(?:every\s+(?:single\s+)?week|weekly|each\s+week|once\s+a\s+week)\b/ig, "")
     .replace(/\s+/g, " ")
     .replace(/[.,;:| -]+$/g, "")
     .trim();
 }
 
-export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, timezone: string, now: Date = new Date()): Date {
+export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, timezone: string, now: Date = new Date(), monthlyDayOfMonth?: number | null): Date {
   let next = DateTime.fromJSDate(previousDueAt).setZone(timezone);
   const current = DateTime.fromJSDate(now).setZone(timezone);
+  if (rule === RecurrenceRule.MONTHLY) {
+    const intendedDay = Math.min(31, Math.max(1, monthlyDayOfMonth ?? next.day));
+    const clock = { hour: next.hour, minute: next.minute, second: next.second, millisecond: next.millisecond };
+    do {
+      const nextMonth = next.plus({ months: 1 }).startOf("month");
+      next = nextMonth.set({ day: Math.min(intendedDay, nextMonth.daysInMonth ?? intendedDay), ...clock });
+    } while (next <= current);
+    return next.toJSDate();
+  }
   const step = rule === RecurrenceRule.DAILY
     ? { days: 1 }
     : rule === RecurrenceRule.WEEKLY
@@ -222,6 +231,41 @@ export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, ti
   return next.toJSDate();
 }
 
+export function recurrenceDayOfMonth(dueAt: Date | undefined, rule: RecurrenceRule | undefined, timezone: string): number | undefined {
+  if (!dueAt || rule !== RecurrenceRule.MONTHLY) return undefined;
+  return DateTime.fromJSDate(dueAt).setZone(timezone).day;
+}
+
+export function parseRelativeDurationMinutes(input: string): number | undefined {
+  const text = input.toLowerCase();
+  const candidates = [...text.matchAll(/\b(?:in|after)\s+(?:(?:about|around|roughly|approximately|approx\.?|nearly)\s+)?/g)]
+    .map((prefix) => text.slice((prefix.index ?? 0) + prefix[0].length));
+  const fromNow = text.match(/\b((?:(?:\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|forty-five|sixty|half(?:\s+an?)?|quarter|couple(?:\s+of)?)\s*(?:minutes?|mins?|m|hours?|hrs?|h|days?|d)\s*(?:and\s+)?)+)from\s+now\b/);
+  if (fromNow?.[1]) candidates.push(fromNow[1]);
+
+  for (const rawCandidate of candidates) {
+    const candidate = rawCandidate
+    .replace(/\bhalf\s+an?\s+(hour|hr)\b/g, "0.5 $1")
+    .replace(/\b(?:a\s+)?quarter\s+of\s+an?\s+(hour|hr)\b/g, "0.25 $1")
+    .replace(/\band\b/g, ",");
+
+    const token = /(\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|forty-five|sixty|half|quarter|couple(?:\s+of)?)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\b/g;
+    let total = 0;
+    let consumedUntil = 0;
+    for (const match of candidate.matchAll(token)) {
+      if (match.index === undefined) continue;
+      const between = candidate.slice(consumedUntil, match.index).replace(/^(?:\s|,)+/i, "");
+      if (between) break;
+      const amount = relativeAmount(match[1] ?? "");
+      const unit = match[2] ?? "";
+      total += unit.startsWith("d") ? amount * 24 * 60 : unit.startsWith("h") ? amount * 60 : amount;
+      consumedUntil = match.index + match[0].length;
+    }
+    if (total > 0) return total;
+  }
+  return undefined;
+}
+
 export function carryRecurrenceToTaskText(taskText: string, scheduleText: string): string {
   if (parseRecurrencePattern(taskText)) return taskText;
   const recurrence = parseRecurrencePattern(scheduleText);
@@ -230,21 +274,27 @@ export function carryRecurrenceToTaskText(taskText: string, scheduleText: string
     ? "every day"
     : recurrence.rule === RecurrenceRule.WEEKLY
       ? "every week"
-      : "every year";
+      : recurrence.rule === RecurrenceRule.MONTHLY
+        ? "every month"
+        : "every year";
   return `${taskText.trim()} ${suffix}`.trim();
 }
 
 export function formatRecurrenceRule(rule: RecurrenceRule): string {
   if (rule === RecurrenceRule.WEEKLY) return "Weekly";
+  if (rule === RecurrenceRule.MONTHLY) return "Monthly";
   if (rule === RecurrenceRule.YEARLY) return "Yearly";
   return "Daily";
 }
 
 function hasReminderTimeText(input: string): boolean {
+  if (parseRelativeDurationMinutes(input)) return true;
   return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|tonight|next\s+\w+)(?:\s+(?:at|by|before|around)\s+\d{1,2})?|noon|midnight|(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{4}-\d{2}-\d{2})\b/i.test(input);
 }
 
 function relativeAmount(value: string): number {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
   const values: Record<string, number> = {
     a: 1,
     an: 1,
@@ -258,7 +308,18 @@ function relativeAmount(value: string): number {
     eight: 8,
     nine: 9,
     ten: 10,
-    half: 0.5
+    eleven: 11,
+    twelve: 12,
+    fifteen: 15,
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    "forty-five": 45,
+    sixty: 60,
+    half: 0.5,
+    quarter: 0.25,
+    couple: 2,
+    "couple of": 2
   };
   return values[value.toLowerCase()] ?? 1;
 }
@@ -383,6 +444,24 @@ function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
     minuteText: match[4],
     meridiem: match[5]
   });
+}
+
+function parseMonthlyDay(text: string, base: DateTime): DateTime | undefined {
+  if (!/\b(?:every\s+month|monthly|each\s+month|once\s+a\s+month)\b/.test(text)) return undefined;
+  const dayMatch = text.match(/\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+(?:every|each)\s+month\b/)
+    ?? text.match(/\b(?:every|each)\s+month\s+(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b/)
+    ?? text.match(/\bmonthly\s+(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b/);
+  const day = Number(dayMatch?.[1]);
+  if (!Number.isInteger(day) || day < 1 || day > 31) return undefined;
+  const clock = parseClockOnly(text, base);
+  for (let monthsToAdd = 0; monthsToAdd < 24; monthsToAdd += 1) {
+    const month = base.plus({ months: monthsToAdd });
+    let scheduled = withOptionalTime(month.set({ day }), clock?.hour, clock?.minute, clock?.meridiem);
+    if (!scheduled.isValid || scheduled.day !== day) continue;
+    if (scheduled <= base) continue;
+    return scheduled;
+  }
+  return undefined;
 }
 
 function monthDayDateTime(input: {

@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -71,6 +71,7 @@ import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } fr
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { replyActiveList } from "./activeLists";
+import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -111,6 +112,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("expense", async (ctx) => handleExpense(ctx));
   bot.command("expenses", async (ctx) => handleExpenses(ctx));
   bot.command("excel", async (ctx) => handleExcel(ctx));
+  bot.command("images", async (ctx) => handleImages(ctx));
+  bot.command("image", async (ctx) => handleImage(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
   bot.command("groupcheck", async (ctx) => handleGroupCheck(ctx));
 }
@@ -118,7 +121,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
 async function handleHelp(ctx: Context) {
   const topicText = commandBody(ctx.message?.text ?? "", "help");
   const topic = topicText ? parseNaturalHelpRequest(`help ${topicText}`) : undefined;
-  await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide());
+  await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide(), topic ? {} : { reply_markup: helpTopicsKeyboard() });
 }
 
 async function handleIdea(ctx: Context, ai: AiProvider) {
@@ -178,6 +181,25 @@ async function handleNotes(ctx: Context) {
   const notes = await searchNotes(user.id, query);
   const keyboard = itemListKeyboard("note", notes);
   await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+}
+
+async function handleImages(ctx: Context) {
+  const user = await ensureUser(ctx);
+  await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+}
+
+async function handleImage(ctx: Context) {
+  const user = await ensureUser(ctx);
+  const reference = commandBody(ctx.message?.text ?? "", "image");
+  if (!reference) {
+    await ctx.reply("Send it like this: /image 1 or /image IMG-1. Use /images to browse saved images.");
+    return;
+  }
+  try {
+    await replyStoredImage(ctx, user.id, normalizePublicId(reference));
+  } catch {
+    await ctx.reply("I couldn't find that saved image. Use /images to see the current list.");
+  }
 }
 
 async function handleIdeas(ctx: Context) {
@@ -742,7 +764,7 @@ async function handleStart(ctx: Context) {
     await ctx.reply(result.message);
     return;
   }
-  await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"));
+  await replyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), { reply_markup: startMenuKeyboard() });
 }
 
 async function handleGroupCheck(ctx: Context) {

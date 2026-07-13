@@ -11,6 +11,24 @@ export type ActiveListNavigation = {
   numberOffset: number;
 };
 
+export function startMenuKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Tasks", "menu:tasks").text("Reminders", "menu:reminders").row()
+    .text("Notes", "menu:notes").text("Ideas", "menu:ideas").row()
+    .text("Images", "menu:images").text("Expenses", "menu:expenses").row()
+    .text("Calendar + Excel", "menu:integrations").text("Settings", "menu:settings").row()
+    .text("Search + cleanup", "menu:search").text("All help", "menu:help");
+}
+
+export function helpTopicsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Reminders", "menu:reminders").text("Notes", "menu:notes-help").row()
+    .text("Ideas", "menu:ideas-help").text("Images", "menu:images-help").row()
+    .text("Expenses", "menu:expenses").text("Excel", "menu:excel").row()
+    .text("Search", "menu:search").text("Settings", "menu:settings").row()
+    .text("Commands", "menu:commands");
+}
+
 export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
@@ -198,6 +216,36 @@ export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
     .row()
     .text("Show full text", `image:text:${pendingId}`)
     .text("Discard", `image:discard:${pendingId}`);
+}
+
+export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Save image", `image-upload:save:${pendingId}`)
+    .text("Extract text", `image-upload:extract:${pendingId}`)
+    .row()
+    .text("Read as receipt", `image-upload:expense:${pendingId}`)
+    .text("Discard", `image-upload:discard:${pendingId}`);
+}
+
+export function storedImageListKeyboard(
+  images: Array<{ id: string }>,
+  page: number,
+  totalPages: number,
+  numberOffset: number
+): InlineKeyboard | undefined {
+  if (!images.length) return undefined;
+  const keyboard = new InlineKeyboard();
+  images.forEach((item, index) => {
+    keyboard.text(`Open ${numberOffset + index + 1}`, `stored-image:open:${item.id}`);
+    if (index < images.length - 1) keyboard.row();
+  });
+  if (totalPages > 1) {
+    keyboard.row();
+    if (page > 1) keyboard.text("Prev", `stored-image:page:${page - 1}`);
+    keyboard.text(`Page ${page}/${totalPages}`, `stored-image:page:${page}`);
+    if (page < totalPages) keyboard.text("Next", `stored-image:page:${page + 1}`);
+  }
+  return keyboard;
 }
 
 export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {

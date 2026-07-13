@@ -11,7 +11,9 @@ describe("local image OCR helpers", () => {
     ["remind me about this tomorrow", "reminder"],
     ["turn this into a task", "task"],
     ["save this as a note", "note"],
-    ["extract the text", "extract"]
+    ["extract the text", "extract"],
+    ["store this image", "store"],
+    ["", "choose"]
   ])("routes image captions: %s", (caption, expected) => {
     expect(parseImageCaptionIntent(caption)).toBe(expected);
   });

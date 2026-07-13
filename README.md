@@ -17,14 +17,14 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- Reads clear English, Burmese, or mixed English/Burmese images and receipts locally with Tesseract OCR, then offers buttons to save the result as a note, task, reminder, or expense. No OCR or OpenAI API key is required.
+- Accepts photos and image documents, then offers clean buttons to keep the original through Telegram, extract text locally, or read a receipt. Extracted text can become a note, task, reminder, or expense; no OCR or OpenAI API key is required.
 - Stores confirmed expenses in Threadwise, supports manual text and receipt photos, and lists 10 newest-first rows per page with day, month, and year filters.
 - Gives each user a regional expense-currency default, accepts an explicit currency per expense, detects common currency codes/symbols/words on receipts, and lets saved expenses be corrected later.
 - Exports expenses as a standalone `.xlsx` file, or optionally creates and synchronizes a private workbook in the user's OneDrive through Microsoft OAuth.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
-- Schedules calendar-aware daily, weekly-on-a-weekday, and yearly reminders with natural phrases such as "remind me to sleep at 12am daily", "remind me to take out the trash every Friday at 7pm", and "remind me of Mum's birthday on 26 July every year".
+- Schedules calendar-aware daily, weekly-on-a-weekday, monthly, and yearly reminders with natural phrases such as "remind me to sleep at 12am daily", "remind me to take out the trash every Friday at 7pm", "remind me to pay rent on the 1st of every month at 9am", and "remind me of Mum's birthday on 26 July every year".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
-- Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to finish all tasks by 9 pm", "don't let me forget to submit the form at 5pm", and "nudge me to check the oven in half an hour" without requiring OpenAI.
+- Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to finish all tasks by 9 pm", "don't let me forget to submit the form at 5pm", "nudge me to check the oven in half an hour", and compound timing such as "in about 1 hour 15 mins" without requiring OpenAI.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
 - Lists open tasks 10 per page with Prev/Next controls and global active list numbers, while keeping stable task IDs for durable references.
@@ -147,6 +147,9 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /excel sync
 /excel use https://onedrive.live.com/...
 /excel disconnect
+/images
+/image 1
+/image IMG-1
 /version
 /groupcheck
 /settings
@@ -166,7 +169,7 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 /settings due-nudge 3
 ```
 
-`/start` introduces Threadwise as a natural-language bot first. `/help` shows a full capability guide with natural examples and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
+`/start` introduces Threadwise as a natural-language bot first and displays a compact button menu for common areas. `/help` shows a full capability guide with topic buttons, natural examples, and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
 Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI classification. It understands broad variations including "what notes do I have?", "write this down: ...", "remember that ...", "I need to submit the report by Friday", "could you remind me ...?", "don't let me forget ...", "mark task 1 as done", "remove important from task 2", "bring back NOTE-2", "check my unread email", "add task 1 to my calendar", "what version are you running?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, day-after-tomorrow, noon/midnight, weekday dates, month-first dates, and ordinals. If a message is not a recognized command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
 
@@ -193,7 +196,8 @@ Undoing a newly saved capture archives it out of active lists and search instead
 Reminders are database-driven. Each open task has a `nextReminderAt`, and the reminder loop polls due tasks instead of relying on in-memory timers.
 
 - The first reminder for a scheduled task fires at its explicit due time, even during quiet hours.
-- Daily, weekday-weekly, and yearly recurring reminders keep nudging the current occurrence until it is completed. Completion advances the same task row to the next calendar occurrence, preserving local wall-clock time across timezone and daylight-saving changes.
+- Daily, weekday-weekly, monthly, and yearly recurring reminders keep nudging the current occurrence until it is completed. Completion advances the same task row to the next calendar occurrence, preserving local wall-clock time across timezone and daylight-saving changes.
+- When a repeat nudge is successfully sent, Threadwise tries to delete its previous reminder message for that same task. Telegram may refuse deletion of an unavailable or too-old message; that never blocks the new reminder.
 - Repeat nudges use the current "remind me again every..." value. Changing it also updates open tasks so old task snapshots do not stay stuck on the previous cadence.
 - `/settings timezone <zone>` or natural text such as `change timezone to Myanmar` changes how new dates are parsed, how dates are displayed, how quiet hours are evaluated, and when daily safety limits reset. Existing due instants are not moved, but open tasks are rechecked and shown in the current timezone.
 - Telegram does not expose a user's exact device timezone to bots on `/start`. Threadwise makes a best-effort default from Telegram language code when it is clear, then lets users correct it naturally.
@@ -240,10 +244,13 @@ GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
 
 ## Image Text Extraction
 
-Send Threadwise a photo or an image document. It will extract printed English, Burmese, or mixed text locally and show a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform the action immediately:
+Send Threadwise a photo or an image document without a caption and it first offers `Save image`, `Extract text`, `Read as receipt`, and `Discard`. Saving keeps a reusable Telegram file reference rather than copying the image bytes into PostgreSQL. Browse saved images 10 per page with `/images`, say `show my saved images`, or reopen one with `/image IMG-1`.
+
+Choosing extraction reads printed English, Burmese, or mixed text locally and shows a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform an action immediately:
 
 ```text
 extract the text
+keep this image
 save this as a note
 turn this into a task
 remind me about this tomorrow at 9
@@ -340,6 +347,7 @@ Threadwise stores:
 - Ideas
 - Notes
 - Tasks
+- Saved image references and pending image choices
 - Pending natural-language captures
 - Pending note merge previews
 - Processed Telegram update IDs for webhook de-duplication

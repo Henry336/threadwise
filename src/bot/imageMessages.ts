@@ -3,12 +3,13 @@ import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
 import { createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
-import { createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent } from "../services/imageOcr";
+import { createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
+import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload } from "../services/storedImages";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { expenseConfirmationKeyboard, imageTextActionsKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { expenseConfirmationKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
@@ -19,6 +20,13 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
       return;
     }
     await handleImageMessage(ctx, ai, token);
+  });
+  bot.callbackQuery(/^image-upload:(save|extract|expense|discard):(.+)$/, async (ctx) => {
+    try {
+      await handleIncomingImageAction(ctx, ai, token, ctx.match[1], ctx.match[2]);
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: "This image choice expired or is no longer available.", show_alert: true });
+    }
   });
 }
 
@@ -36,17 +44,77 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
   }
 
   const user = await ensureUser(ctx);
+  const intent = parseImageCaptionIntent(preparedCaption);
+  if (intent === "choose" || intent === "store") {
+    const pending = await createPendingImageUpload({ userId: user.id, ...target, caption: preparedCaption || undefined });
+    if (intent === "store") {
+      const saved = await savePendingImageUpload(user.id, pending.id);
+      await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+      return;
+    }
+    await replyHtml(ctx, [
+      bold("Image received"),
+      "Would you like to keep the original image, extract its text locally, or read it as a receipt?",
+      "Nothing is saved until you choose."
+    ].join("\n"), { reply_markup: incomingImageKeyboard(pending.id) });
+    return;
+  }
+
+  await processImageOcr(ctx, ai, token, target, preparedCaption, intent, user);
+}
+
+async function handleIncomingImageAction(
+  ctx: Context,
+  ai: AiProvider,
+  token: string,
+  action: string | undefined,
+  pendingId: string | undefined
+): Promise<void> {
+  if (!action || !pendingId) return;
+  const user = await ensureUser(ctx);
+  if (action === "discard") {
+    await discardPendingImageUpload(user.id, pendingId);
+    await ctx.answerCallbackQuery({ text: "Discarded" });
+    await ctx.reply("Discarded. Nothing was saved or extracted.");
+    return;
+  }
+  if (action === "save") {
+    const saved = await savePendingImageUpload(user.id, pendingId);
+    await ctx.answerCallbackQuery({ text: saved.duplicate ? "Already saved" : "Image saved" });
+    await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+    return;
+  }
+  const pending = await consumePendingImageUpload(user.id, pendingId);
+  await ctx.answerCallbackQuery({ text: action === "expense" ? "Reading receipt" : "Extracting text" });
+  await processImageOcr(ctx, ai, token, {
+    telegramFileId: pending.telegramFileId,
+    telegramUniqueId: pending.telegramUniqueId ?? undefined,
+    mediaKind: pending.mediaKind as "photo" | "document",
+    mimeType: pending.mimeType ?? undefined,
+    fileName: pending.fileName ?? undefined,
+    fileSize: pending.fileSize ?? undefined
+  }, pending.caption ?? "", action === "expense" ? "expense" : "extract", user);
+}
+
+async function processImageOcr(
+  ctx: Context,
+  ai: AiProvider,
+  token: string,
+  target: ImageTarget,
+  preparedCaption: string,
+  intent: Exclude<ImageIntent, "choose" | "store">,
+  user: Awaited<ReturnType<typeof ensureUser>>
+): Promise<void> {
   const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
   const progress = await ctx.reply(`Reading the image locally (${formatOcrLanguages(ocrLanguages)})... This can take a little while on the first image.`);
   try {
-    const buffer = await downloadTelegramFile(ctx, token, target.fileId);
+    const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
-    const intent = parseImageCaptionIntent(preparedCaption);
 
     if (intent === "expense") {
       const pendingExpense = await createPendingExpenseFromText(user.id, extracted.text, user.settings?.timezone ?? "UTC", {
         sourceType: "receipt",
-        receiptFileUniqueId: target.uniqueId,
+        receiptFileUniqueId: target.telegramUniqueId,
         ocrConfidence: extracted.confidence,
         defaultCurrency: user.settings?.expenseCurrency
       });
@@ -81,8 +149,8 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
       userId: user.id,
       extractedText: extracted.text,
       caption: preparedCaption,
-      telegramFileId: target.fileId,
-      telegramUniqueId: target.uniqueId,
+      telegramFileId: target.telegramFileId,
+      telegramUniqueId: target.telegramUniqueId,
       confidence: extracted.confidence,
       awaitingAction: intent === "reminder" ? "reminder-time" : undefined
     });
@@ -106,12 +174,21 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
   }
 }
 
-function imageTarget(ctx: Context): { fileId: string; uniqueId?: string; fileSize?: number } | undefined {
+type ImageTarget = {
+  telegramFileId: string;
+  telegramUniqueId?: string;
+  mediaKind: "photo" | "document";
+  mimeType?: string;
+  fileName?: string;
+  fileSize?: number;
+};
+
+function imageTarget(ctx: Context): ImageTarget | undefined {
   const photo = ctx.message?.photo?.at(-1);
-  if (photo) return { fileId: photo.file_id, uniqueId: photo.file_unique_id, fileSize: photo.file_size };
+  if (photo) return { telegramFileId: photo.file_id, telegramUniqueId: photo.file_unique_id, mediaKind: "photo", mimeType: "image/jpeg", fileSize: photo.file_size };
   const document = ctx.message?.document;
   if (document?.mime_type?.startsWith("image/")) {
-    return { fileId: document.file_id, uniqueId: document.file_unique_id, fileSize: document.file_size };
+    return { telegramFileId: document.file_id, telegramUniqueId: document.file_unique_id, mediaKind: "document", mimeType: document.mime_type, fileName: document.file_name, fileSize: document.file_size };
   }
   return undefined;
 }

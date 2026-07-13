@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
@@ -378,7 +378,24 @@ describe("bot formatters", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expense");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expenses");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/excel");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/images");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/image");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
+  });
+
+  it("provides concise start navigation and image-choice buttons", () => {
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "Reminders", callback_data: "menu:reminders" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "Images", callback_data: "menu:images" });
+    expect(incomingImageKeyboard("pending-1").inline_keyboard).toEqual([
+      [
+        { text: "Save image", callback_data: "image-upload:save:pending-1" },
+        { text: "Extract text", callback_data: "image-upload:extract:pending-1" }
+      ],
+      [
+        { text: "Read as receipt", callback_data: "image-upload:expense:pending-1" },
+        { text: "Discard", callback_data: "image-upload:discard:pending-1" }
+      ]
+    ]);
   });
 
   it("shows natural-first onboarding after start", () => {
@@ -386,6 +403,7 @@ describe("bot formatters", () => {
 
     expect(message).toContain("<b>Try typing</b>");
     expect(message).toContain("<code>remind me to call mom tomorrow at 9</code>");
+    expect(message).toContain("<code>remind me to stretch every day at 6pm</code>");
     expect(message).toContain("<code>show me my tasks</code>");
     expect(message).toContain("Telegram does not share an exact device timezone with bots");
     expect(message).toContain("<code>/commands</code> shows the compact slash-command reference.");

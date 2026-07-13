@@ -31,6 +31,7 @@ enum ReminderMode {
 enum RecurrenceRule {
   DAILY
   WEEKLY
+  MONTHLY
   YEARLY
 }
 
@@ -67,6 +68,8 @@ model User {
   pendingCalendarOAuth  PendingCalendarOAuth[]
   calendarConnection    CalendarConnection?
   pendingImageCaptures  PendingImageCapture[]
+  pendingImageUploads   PendingImageUpload[]
+  storedImages          StoredImage[]
   pendingExpenses       PendingExpense[]
   expenses              Expense[]
   pendingMicrosoftOAuth PendingMicrosoftOAuth[]
@@ -152,6 +155,7 @@ model Task {
   assignedDisplayName     String?
   recurrenceRule          RecurrenceRule?
   recurrenceIntervalDays  Int?
+  recurrenceDayOfMonth    Int?
   pinnedAt                DateTime?
   archivedAt              DateTime?
   archivedReason          String?
@@ -415,6 +419,43 @@ model PendingImageCapture {
 
   @@index([userId, expiresAt])
   @@index([userId, awaitingAction, expiresAt])
+}
+
+model PendingImageUpload {
+  id               String   @id @default(uuid())
+  userId           String
+  telegramFileId   String
+  telegramUniqueId String?
+  mediaKind        String
+  mimeType         String?
+  fileName         String?
+  caption          String?
+  fileSize         Int?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model StoredImage {
+  id               String   @id @default(uuid())
+  userId           String
+  publicId         String
+  telegramFileId   String
+  telegramUniqueId String?
+  mediaKind        String
+  mimeType         String?
+  fileName         String?
+  caption          String?
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, publicId])
+  @@index([userId, createdAt])
+  @@index([userId, telegramUniqueId])
 }
 
 model PendingExpense {

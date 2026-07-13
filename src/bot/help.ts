@@ -29,6 +29,8 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
   { command: "/assign", description: "Add one or more people to a group task.", example: "/assign 1 @alex and @sam" },
   { command: "/unassign", description: "Remove one assignee, or everyone when no name is given.", example: "/unassign 1 @alex" },
+  { command: "/images", description: "Browse images you asked Threadwise to keep.", example: "/images" },
+  { command: "/image", description: "Open one saved image by number or ID.", example: "/image IMG-2" },
   { command: "/cancel", description: "Cancel one task, or preview and confirm several.", example: "/cancel 1 2 3" },
   { command: "/idea", description: "Save and structure an idea.", example: "/idea build a Telegram bot for life admin" },
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
@@ -78,13 +80,14 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "reminders",
     title: "Reminders And Tasks",
-    description: "Create, move, finish, snooze, cancel, or mark tasks important.",
+    description: "Create, move, finish, snooze, cancel, or repeat reminders daily, weekly, monthly, or yearly.",
     natural: [
       "add pay invoice tomorrow at 9am",
       "remind me to check the washer after 5 mins",
       "could you remind me to call Mum day after tomorrow at noon?",
       "remind me to have dinner at 7pm every day",
       "remind me to take out the trash every Friday at 7pm",
+      "remind me to pay rent on the 1st of every month at 9am",
       "remind me of Mum's birthday on 26 July every year",
       "remind Dad and @alex to check the bot at 10pm",
       "assign task 2 to @alex and @sam",
@@ -139,16 +142,20 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "images",
     title: "Images And OCR",
-    description: "Send a clear photo or screenshot. Threadwise reads it locally, then lets you save the text as a note, task, reminder, or expense.",
+    description: "Send a photo, receipt, or screenshot. Choose to keep the original image, extract its text locally, or read it as a receipt.",
     natural: [
+      "send any image, then tap Save image or Extract text",
+      "send an image with: keep this image",
       "send an image with: extract the text",
       "send a receipt with: save this as an expense",
       "send a Burmese receipt with: read this in Burmese and save as expense",
       "send a screenshot with: turn this into a task",
       "send an image with: remind me about this tomorrow at 9",
+      "show my saved images",
+      "open image 2",
       "read images in English and Burmese"
     ],
-    commands: ["No command needed: attach an image and optionally add a caption.", "/settings ocr English and Burmese", "/help images"]
+    commands: ["No command needed: attach an image and choose a button.", "/images", "/image IMG-2", "/settings ocr English and Burmese", "/help images"]
   },
   {
     topic: "expenses",
@@ -232,7 +239,9 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     "",
     bold("Try typing"),
     code("remind me to call mom tomorrow at 9"),
+    code("remind me to stretch every day at 6pm"),
     code("save note passport expires in May"),
+    code("send a photo, then choose Save image or Extract text"),
     code("show me my tasks"),
     code("change timezone to Myanmar"),
     "",

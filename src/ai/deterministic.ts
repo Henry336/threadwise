@@ -220,7 +220,7 @@ function removeSchedulePhrases(text: string): string {
     .replace(/\b(?:on\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\bon\s+\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+at\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?)?\b/ig, "")
     .replace(/\b\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?\b/g, "")
-    .replace(/\b(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)\b/ig, "")
+    .replace(/\b(?:in|after)\s+(?:(?:about|around|roughly|approximately|approx\.?)\s+)?(?:(?:\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|forty-five|sixty|half|quarter|couple(?:\s+of)?)\s*(?:minutes?|mins?|m|hours?|hrs?|h|days?|d)\s*(?:and\s+)?)+/ig, "")
     .replace(/\b(?:at\s+)?(?:noon|midnight)(?:\s+(?:today|tomorrow))?\b/ig, "")
     .replace(/\b(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::(\d{2}))?\s*(?:am|pm)?\b/ig, "")
     .replace(/\b\d{1,2}(?::(\d{2}))?\s*(?:am|pm)\b/ig, "");
@@ -230,6 +230,7 @@ function cleanTaskTitle(text: string): string {
   return text
     .replace(/^(?:a|an|the)\s+/i, "")
     .replace(/\bsth\b/gi, "something")
+    .replace(/\basw\b/gi, "as well")
     .replace(/\brly\b/gi, "really")
     .trim();
 }
@@ -239,6 +240,7 @@ function cleanNoteText(text: string): string {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/\bsth\b/gi, "something")
+    .replace(/\basw\b/gi, "as well")
     .replace(/\brly\b/gi, "really")
     .replace(/\s*->\s*/g, " -> ");
 }

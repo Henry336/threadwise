@@ -122,6 +122,7 @@ export async function recordRescheduleUndo(
     calendarUrl?: string | null;
     nextReminderAt?: Date | null;
     snoozedUntil?: Date | null;
+    recurrenceDayOfMonth?: number | null;
   }
 ): Promise<void> {
   await recordUndo(tx, userId, "reschedule-task", {
@@ -134,7 +135,8 @@ export async function recordRescheduleUndo(
     timezone: task.timezone ?? null,
     calendarUrl: task.calendarUrl ?? null,
     nextReminderAt: toIso(task.nextReminderAt),
-    snoozedUntil: toIso(task.snoozedUntil)
+    snoozedUntil: toIso(task.snoozedUntil),
+    recurrenceDayOfMonth: task.recurrenceDayOfMonth ?? null
   });
 }
 
@@ -404,7 +406,8 @@ async function undoReschedule(entryId: string, payload: Record<string, unknown>)
         timezone: nullableStringValue(payload.timezone),
         calendarUrl: nullableStringValue(payload.calendarUrl),
         nextReminderAt: dateValue(payload.nextReminderAt),
-        snoozedUntil: dateValue(payload.snoozedUntil)
+        snoozedUntil: dateValue(payload.snoozedUntil),
+        recurrenceDayOfMonth: nullableIntegerValue(payload.recurrenceDayOfMonth)
       }
     });
     await consumeUndo(tx, entryId, "reschedule-task");
@@ -547,6 +550,10 @@ function stringValue(value: unknown): string | undefined {
 
 function nullableStringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function nullableIntegerValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 function summarizeManualText(value: string): string {

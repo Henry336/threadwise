@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody, parseNaturalTimezoneChange } from "./naturalCommandParsing";
+import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody, parseNaturalTimezoneChange } from "./naturalCommandParsing";
 
 describe("natural command parsing", () => {
+  it.each([
+    ["Hey Threadwise, could you please show me my tasks?", "show me my tasks"],
+    ["I want you to list my notes for me", "list my notes"],
+    ["Would you mind opening idea 2 please", "open idea 2"],
+    ["Would you mind reminding me to call Mum at 8pm?", "remind me to call Mum at 8pm"],
+    ["Please could you maybe archive note 2, thanks", "archive note 2"]
+  ])("normalizes conversational command wrappers: %s", (input, expected) => {
+    expect(normalizeNaturalCommandText(input)).toBe(expected);
+  });
   it.each([
     ["show me the notes", "notes"],
     ["show me the tasks", "tasks"],
@@ -10,7 +19,9 @@ describe("natural command parsing", () => {
     ["what notes do I have", "notes"],
     ["let me see my ideas", "ideas"],
     ["show recent notes", "notes"],
-    ["what are my open tasks", "tasks"]
+    ["what are my open tasks", "tasks"],
+    ["pull up my saved notes", "notes"],
+    ["do I have any tasks", "tasks"]
   ])("parses list requests: %s", (input, expected) => {
     expect(parseListRequest(input)).toBe(expected);
   });
@@ -84,14 +95,16 @@ describe("natural command parsing", () => {
     ["create reminder to leave in 20 min", "to leave in 20 min"],
     ["could you remind me to call Mum tomorrow at 9?", "me to call Mum tomorrow at 9"],
     ["don't let me forget to submit the form at 5pm", "me to submit the form at 5pm"],
-    ["nudge me to check the oven in 20 minutes", "me to check the oven in 20 minutes"],
+    ["nudge me to check the oven in 20 minutes", "check the oven in 20 minutes"],
     ["send me a reminder about rent on 10 July at 8am", "me about rent on 10 July at 8am"],
     ["remind me to finish all tasks by 9 pm", "me to finish all tasks by 9 pm"],
-    ["notify me to leave before 8:30am", "me to leave before 8:30am"],
+    ["notify me to leave before 8:30am", "leave before 8:30am"],
     ["I need a reminder to pay rent by 9pm", "to pay rent by 9pm"],
     ["make sure I remember to call Mum around 7pm", "me to call Mum around 7pm"],
     ["don't forget to lock the door at 11pm", "me to lock the door at 11pm"],
-    ["reminder: submit the form tomorrow", "submit the form tomorrow"]
+    ["reminder: submit the form tomorrow", "submit the form tomorrow"],
+    ["schedule a reminder for me to stretch in 20 minutes", "stretch in 20 minutes"],
+    ["wake me up to check the oven at 7am", "check the oven at 7am"]
   ])("parses reminder starter bodies: %s", (input, expected) => {
     expect(parseNaturalReminderBody(input)).toBe(expected);
   });
@@ -101,7 +114,9 @@ describe("natural command parsing", () => {
     ["write this down: DATABASE_URL lives in Render", "DATABASE_URL lives in Render"],
     ["make a note about the book Alex recommended", "the book Alex recommended"],
     ["note to self: renew the passport after the trip", "renew the passport after the trip"],
-    ["remember that Wi-Fi password is on the router", "Wi-Fi password is on the router"]
+    ["remember that Wi-Fi password is on the router", "Wi-Fi password is on the router"],
+    ["add the hotel address to my notes", "the hotel address"],
+    ["file this as a note: call reference 123", "call reference 123"]
   ])("parses natural note capture: %s", (input, expected) => {
     expect(parseNaturalNoteBody(input)).toBe(expected);
   });
@@ -109,14 +124,18 @@ describe("natural command parsing", () => {
   it.each([
     ["create a task to buy batteries tomorrow", "buy batteries tomorrow"],
     ["I need to submit the report by Friday", "submit the report by Friday"],
-    ["put book dentist on my todo list", "book dentist"]
+    ["put book dentist on my todo list", "book dentist"],
+    ["I must renew my passport next month", "renew my passport next month"],
+    ["remember to buy milk tomorrow", "buy milk tomorrow"]
   ])("parses natural task capture: %s", (input, expected) => {
     expect(parseNaturalTaskBody(input)).toBe(expected);
   });
 
   it.each([
     ["save this as an idea: a receipt scanner for Telegram", "a receipt scanner for Telegram"],
-    ["I have an idea for a quiet-hours dashboard", "a quiet-hours dashboard"]
+    ["I have an idea for a quiet-hours dashboard", "a quiet-hours dashboard"],
+    ["here's an idea: shared grocery reminders", "shared grocery reminders"],
+    ["put receipt categorization in my ideas", "receipt categorization"]
   ])("parses natural idea capture: %s", (input, expected) => {
     expect(parseNaturalIdeaBody(input)).toBe(expected);
   });

@@ -145,6 +145,15 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
 
       const chatId = settings.reminderChatId ?? task.user.telegramId;
       const message = formatReminderMessage(task, settings);
+      const previousReminder = await prisma.reminderDelivery.findFirst({
+        where: {
+          taskId: task.id,
+          chatId,
+          messageId: { not: null }
+        },
+        orderBy: { sentAt: "desc" },
+        select: { chatId: true, messageId: true }
+      });
 
       try {
         const sentMessage = await bot.api.sendMessage(chatId, message, {
@@ -180,6 +189,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         ]);
 
         run.remindersSent += 1;
+        await deleteSupersededReminderMessage(bot, previousReminder, sentMessage.message_id, task.publicId);
         try {
           const direct = await sendDirectAssigneeNudges(bot, task);
           run.directNudgesSent += direct.sent;
@@ -207,6 +217,31 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     run.lastError = String(error);
     reminderDiagnostics = run;
     throw error;
+  }
+}
+
+async function deleteSupersededReminderMessage(
+  bot: Bot,
+  previous: { chatId: string; messageId: string | null } | null,
+  currentMessageId: number,
+  taskPublicId: string
+): Promise<void> {
+  const previousMessageId = Number(previous?.messageId);
+  if (!previous || !Number.isSafeInteger(previousMessageId) || previousMessageId <= 0 || previousMessageId === currentMessageId) {
+    return;
+  }
+
+  try {
+    await bot.api.deleteMessage(previous.chatId, previousMessageId);
+  } catch (error) {
+    // Reminder delivery must stay successful even when Telegram no longer allows
+    // an older bot message to be removed.
+    logger.info("Could not remove the superseded reminder message.", {
+      taskId: taskPublicId,
+      chatId: previous.chatId,
+      messageId: previousMessageId,
+      error: String(error)
+    });
   }
 }
 

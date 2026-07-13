@@ -16,9 +16,12 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
+import { replyStoredImage, replyStoredImageList } from "./storedImageReplies";
+import { formatHelpGuide, formatHelpTopic } from "./help";
+import { formatSettings } from "../services/settings";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -53,6 +56,55 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^list:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
     await handleActiveListPage(ctx, ctx.match[1], ctx.match[2]);
   });
+  bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]));
+    await ctx.answerCallbackQuery({ text: `Page ${page}` });
+  });
+  bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    await ctx.answerCallbackQuery({ text: "Opening image" });
+    await replyStoredImage(ctx, user.id, ctx.match[1] ?? "", true);
+  });
+  bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
+}
+
+async function handleMenu(ctx: Context, action: string | undefined) {
+  if (!action) return;
+  const user = await ensureUser(ctx);
+  await ctx.answerCallbackQuery();
+  if (action === "tasks" || action === "notes" || action === "ideas") {
+    await replyActiveList(ctx, user, action);
+    return;
+  }
+  if (action === "images") {
+    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+    return;
+  }
+  if (action === "settings") {
+    await replyHtml(ctx, await formatSettings(user.id));
+    return;
+  }
+  if (action === "help") {
+    await replyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
+    return;
+  }
+  if (action === "integrations") {
+    await replyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`);
+    return;
+  }
+  const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
+    reminders: "reminders",
+    "notes-help": "notes",
+    "ideas-help": "ideas",
+    "images-help": "images",
+    expenses: "expenses",
+    excel: "excel",
+    search: "search",
+    commands: "commands"
+  };
+  const topic = topics[action];
+  if (topic) await replyHtml(ctx, formatHelpTopic(topic));
 }
 
 async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {

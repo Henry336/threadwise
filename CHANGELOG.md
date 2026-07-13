@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.16.0 - 2026-07-14
+
+### Added
+- Added optional original-image storage through Telegram file references. Uncaptioned images now offer Save image, Extract text, Read as receipt, and Discard buttons; saved images can be browsed 10 per page with `/images` and reopened with `/image IMG-1`.
+- Added calendar-aware monthly recurring reminders, including natural phrasing such as `remind me to pay rent on the 1st of every month at 9am`.
+- Added compact inline navigation menus to `/start` and `/help` for tasks, reminders, notes, ideas, images, expenses, integrations, settings, search, and cleanup.
+
+### Changed
+- Expanded local natural-language routing with polite wrappers, more verbs and list phrases, informal task/idea/note capture, completion/snooze/reschedule/cancel variants, and common shorthand cleanup.
+- Expanded relative-time parsing to support hedged compound durations such as `in about 1 hour 15 mins`, `in roughly 2 hours and 30 minutes`, and `90 minutes from now` without an API token.
+- Image help now explains original-image storage, local OCR, receipt extraction, saved-image browsing, and English/Burmese settings.
+
+### Fixed
+- New reminder nudges now replace the bot's previous reminder message for the same task when Telegram permits deletion, reducing repeated-message clutter without risking delivery.
+- Compound duration parsing now ignores unrelated earlier uses of words such as `in`, so phrasing such as `buy groceries in town in 2 hours` remains schedulable.
+
 ## v0.15.1 - 2026-07-12
 
 ### Fixed
