@@ -36,7 +36,7 @@ describe("task assignees", () => {
       title: "Check the bot",
       assignees: [{ username: "alex", displayName: "Alex" }]
     });
-    expect(message).toContain("each assignee must open Threadwise privately");
+    expect(message).toContain("Each assignee can open Threadwise privately");
     expect(message).toContain("/settings dm on");
   });
 

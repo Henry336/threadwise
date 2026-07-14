@@ -383,7 +383,7 @@ async function handleDone(ctx: Context) {
       await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
       return;
     }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -400,7 +400,7 @@ async function handleSnooze(ctx: Context) {
 
   try {
     const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("Undo snooze") });
+    await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -418,7 +418,7 @@ async function handleReschedule(ctx: Context) {
 
   try {
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
-    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
+    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
   }
@@ -435,7 +435,7 @@ async function handleAssign(ctx: Context) {
 
   try {
     const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
-    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}${assigneeDmSetupLine(ctx)}`);
+    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${assigneeDmSetupLine(ctx)}`);
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
   }
@@ -452,7 +452,7 @@ async function handleUnassign(ctx: Context) {
 
   try {
     const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
-    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
+    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -485,14 +485,14 @@ async function handleRename(ctx: Context) {
     if (parsed?.field === "description") {
       const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
       const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), title);
-      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+      await replyHtml(ctx, `${bold("✅ Task details updated")} ${code(task.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
       return;
     }
 
     if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-") || reference.toLowerCase().startsWith("task ")) {
       const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
       const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+      await replyHtml(ctx, `${bold("✅ Task renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return;
     }
 
@@ -501,12 +501,12 @@ async function handleRename(ctx: Context) {
       const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
       if (parsed?.field === "body") {
         const note = await updateNoteBody(user.id, noteTarget.publicId, title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+        await replyHtml(ctx, `${bold("✅ Note updated")} ${code(note.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
         return;
       }
 
       const note = await renameNoteTitle(user.id, noteTarget.publicId, title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+      await replyHtml(ctx, `${bold("✅ Note renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return;
     }
 
@@ -515,12 +515,12 @@ async function handleRename(ctx: Context) {
       const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
       if (parsed?.field === "concept") {
         const idea = await updateIdeaConcept(user.id, ideaTarget.publicId, title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+        await replyHtml(ctx, `${bold("✅ Idea updated")} ${code(idea.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
         return;
       }
 
       const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+      await replyHtml(ctx, `${bold("✅ Idea renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return;
     }
 
@@ -589,8 +589,8 @@ async function handleArchive(ctx: Context) {
 
   try {
     const note = await archiveNote(user.id, normalizePublicId(reference));
-    await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
-      reply_markup: undoKeyboard("Undo archive")
+    await replyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
+      reply_markup: undoKeyboard("↩️ Undo archive")
     });
   } catch {
     await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
@@ -630,7 +630,7 @@ async function handleCancel(ctx: Context) {
 
   try {
     const task = await cancelTask(user.id, normalizePublicId(id));
-    await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`, { reply_markup: undoKeyboard("Undo cancel") });
+  await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -880,7 +880,7 @@ async function handleExcel(ctx: Context) {
   if (lower === "create" || lower === "setup" || lower === "set up") {
     try {
       const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, [bold("Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
+      await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
     } catch (error) {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
     }
@@ -889,7 +889,7 @@ async function handleExcel(ctx: Context) {
   if (lower.startsWith("use ")) {
     try {
       const item = await linkExpenseWorkbook(user.id, body.slice(4).trim());
-      await replyHtml(ctx, `${bold("Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}`);
+      await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
     } catch (error) {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
     }

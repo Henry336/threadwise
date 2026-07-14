@@ -235,7 +235,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (/^(?:create|make|set up) (?:my )?(?:threadwise )?(?:expense )?(?:excel )?(?:workbook|spreadsheet)$/.test(lower)) {
     try {
       const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, [bold("Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined].filter(Boolean).join("\n"));
+    await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined].filter(Boolean).join("\n"));
     } catch (error) {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
     }
@@ -246,7 +246,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (excelLinkMatch?.[1]) {
     try {
       const item = await linkExpenseWorkbook(user.id, excelLinkMatch[1]);
-      await replyHtml(ctx, `${bold("Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}`);
+    await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
     } catch (error) {
       await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
     }
@@ -437,7 +437,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
       return true;
     }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
     return true;
   }
 
@@ -445,7 +445,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^(?:remind|nudge)\s+me\s+(?:about\s+)?(?:task\s+)?(\S+)\s+(?:again\s+)?(?:in|after)\s+(.+)$/i);
   if (snoozeMatch?.[1]) {
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
-    await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("Undo snooze") });
+    await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
     return true;
   }
 
@@ -453,7 +453,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^(?:change|set|update)\s+(?:the\s+)?(?:due\s+date|deadline|time)\s+(?:of|for)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
-    await replyHtml(ctx, `${bold("Rescheduled")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("Undo reschedule") });
+    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
     return true;
   }
 
@@ -461,7 +461,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (assignMatch?.[1] && assignMatch[2]) {
     const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2], taskCreationOptionsFromContext(ctx, assignMatch[2]));
     const dmSetup = isGroupChat(ctx) && ctx.me.username ? `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm` : "";
-    await replyHtml(ctx, `${bold("Assigned")} ${code(task.publicId)} to ${h(formatAssignee(task))}${dmSetup}`);
+    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${dmSetup}`);
     return true;
   }
 
@@ -469,19 +469,19 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignees? (?:from|on))\s+(?:task\s+)?(\S+)$/i);
   if (removeOneAssignee?.[1] && removeOneAssignee[2]) {
     const task = await unassignTask(user.id, normalizePublicId(removeOneAssignee[2]), removeOneAssignee[1], taskCreationOptionsFromContext(ctx, removeOneAssignee[1]));
-    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
+    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
     return true;
   }
   if (unassignMatch?.[1]) {
     const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
-    await replyHtml(ctx, `${bold("Updated assignees")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
+    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
     return true;
   }
 
   const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
-    await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} if you still need it.`, { reply_markup: undoKeyboard("Undo cancel") });
+    await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
     return true;
   }
 
@@ -506,8 +506,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^move\s+(?:my\s+)?note\s+(\S+)\s+to\s+(?:the\s+)?archive$/i);
   if (archiveNoteMatch?.[1]) {
     const note = await archiveNote(user.id, normalizePublicId(archiveNoteMatch[1]));
-    await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
-      reply_markup: undoKeyboard("Undo archive")
+    await replyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
+      reply_markup: undoKeyboard("↩️ Undo archive")
     });
     return true;
   }
@@ -526,7 +526,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (renameParsed.field === "description") {
       const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
       const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), renameParsed.title);
-      await replyHtml(ctx, `${bold("Updated")} ${code(task.publicId)} details\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+    await replyHtml(ctx, `${bold("✅ Task details updated")} ${code(task.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
       return true;
     }
 
@@ -535,11 +535,11 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const noteTarget = await findNoteReference(user.id, normalizePublicId(noteReference));
       if (renameParsed.field === "body") {
         const note = await updateNoteBody(user.id, noteTarget.publicId, renameParsed.title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(note.publicId)} body\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+      await replyHtml(ctx, `${bold("✅ Note updated")} ${code(note.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
         return true;
       }
       const note = await renameNoteTitle(user.id, noteTarget.publicId, renameParsed.title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+    await replyHtml(ctx, `${bold("✅ Note renamed")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return true;
     }
 
@@ -548,17 +548,17 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const ideaTarget = await findIdeaReference(user.id, normalizePublicId(ideaReference));
       if (renameParsed.field === "concept") {
         const idea = await updateIdeaConcept(user.id, ideaTarget.publicId, renameParsed.title);
-        await replyHtml(ctx, `${bold("Updated")} ${code(idea.publicId)} concept\n${code("/undo")} will restore the previous version.`, { reply_markup: undoKeyboard("Undo edit") });
+      await replyHtml(ctx, `${bold("✅ Idea updated")} ${code(idea.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
         return true;
       }
       const idea = await renameIdeaTitle(user.id, ideaTarget.publicId, renameParsed.title);
-      await replyHtml(ctx, `${bold("Renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+    await replyHtml(ctx, `${bold("✅ Idea renamed")} ${code(idea.publicId)} ${h(idea.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return true;
     }
 
     const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
     const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), renameParsed.title);
-    await replyHtml(ctx, `${bold("Renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} will put the old title back.`, { reply_markup: undoKeyboard("Undo rename") });
+    await replyHtml(ctx, `${bold("✅ Task renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
     return true;
   }
 

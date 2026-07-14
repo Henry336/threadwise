@@ -47,11 +47,11 @@ export function privateMenuKeyboard(): Keyboard {
 
 export function helpTopicsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Reminders", "menu:reminders").text("Notes", "menu:notes-help").row()
-    .text("Ideas", "menu:ideas-help").text("Images", "menu:images-help").row()
-    .text("Expenses", "menu:expenses").text("Excel", "menu:excel").row()
-    .text("Search", "menu:search").text("Settings", "menu:settings").row()
-    .text("Commands", "menu:commands");
+    .text("⏰ Reminders", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
+    .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
+    .text("💰 Expenses", "menu:expenses").text("📊 Excel", "menu:excel").row()
+    .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
+    .text("⌨️ Commands", "menu:commands");
 }
 
 export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -59,20 +59,20 @@ export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
   const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
 
   return new InlineKeyboard()
-    .text("Complete task", `task:done:${taskId}`)
-    .text("Snooze 1h", `task:snooze:${taskId}`)
+    .text("✅ Complete task", `task:done:${taskId}`)
+    .text("⏰ Snooze 1h", `task:snooze:${taskId}`)
     .row()
-    .text(isPinned ? "Unstar" : "Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
-    .text("Edit title", `item:task:edit:title:${taskId}`)
+    .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
+    .text("✏️ Edit title", `item:task:edit:title:${taskId}`)
     .row()
-    .text("Edit details", `item:task:edit:description:${taskId}`)
-    .text("Cancel task", `task:cancel:${taskId}`);
+    .text("📝 Edit details", `item:task:edit:description:${taskId}`)
+    .text("🗑️ Cancel task", `task:cancel:${taskId}`);
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
   return taskActionsKeyboard(task)
     .row()
-    .text("Undo save", "undo:last");
+    .text("↩️ Undo save", "undo:last");
 }
 
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
@@ -85,10 +85,10 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigat
   for (const [index, task] of visibleTasks.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
     keyboard
-      .text(`Complete ${number}`, `task:done:${task.id}`)
-      .text(`Snooze ${number}`, `task:snooze:${task.id}`)
-      .text(`${task.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:task:${task.pinnedAt ? "unpin" : "pin"}:${task.id}`)
-      .text(`Edit ${number}`, `item:task:edit:title:${task.id}`);
+      .text(`✅ Complete ${number}`, `task:done:${task.id}`)
+      .text(`⏰ Snooze ${number}`, `task:snooze:${task.id}`)
+      .text(`${task.pinnedAt ? "☆ Unstar" : "⭐ Star"} ${number}`, `item:task:${task.pinnedAt ? "unpin" : "pin"}:${task.id}`)
+      .text(`✏️ Edit ${number}`, `item:task:edit:title:${task.id}`);
 
     if (index < visibleTasks.length - 1) {
       keyboard.row();
@@ -103,19 +103,19 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigat
 export function itemCreatedKeyboard(kind: Exclude<ItemKind, "task">, item: ItemActionTarget): InlineKeyboard {
   return itemActionsKeyboard(kind, item)
     .row()
-    .text("Undo save", "undo:last");
+    .text("↩️ Undo save", "undo:last");
 }
 
-export function undoKeyboard(label = "Undo"): InlineKeyboard {
+export function undoKeyboard(label = "↩️ Undo"): InlineKeyboard {
   return new InlineKeyboard().text(label, "undo:last");
 }
 
 export function restoreCompletedTaskKeyboard(taskId: string): InlineKeyboard {
-  return new InlineKeyboard().text("Restore task", `task:restore:${taskId}`);
+  return new InlineKeyboard().text("↩️ Restore task", `task:restore:${taskId}`);
 }
 
 export function editCancelKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("Cancel edit", "edit:cancel");
+  return new InlineKeyboard().text("✕ Cancel edit", "edit:cancel");
 }
 
 export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): InlineKeyboard {
@@ -123,13 +123,13 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
   const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
   const bodyLabel = kind === "task" ? "details" : bodyField;
   const keyboard = new InlineKeyboard()
-    .text(item.pinnedAt ? "Unstar" : "Star", `item:${kind}:${action}:${item.id}`)
-    .text("Edit title", `item:${kind}:edit:title:${item.id}`)
+    .text(item.pinnedAt ? "☆ Unstar" : "⭐ Star", `item:${kind}:${action}:${item.id}`)
+    .text("✏️ Edit title", `item:${kind}:edit:title:${item.id}`)
     .row()
-    .text(`Edit ${bodyLabel}`, `item:${kind}:edit:${bodyField}:${item.id}`);
+    .text(`📝 Edit ${bodyLabel}`, `item:${kind}:edit:${bodyField}:${item.id}`);
 
   if (kind === "note") {
-    keyboard.row().text("Archive note", `item:note:archive:${item.id}`);
+    keyboard.row().text("🗃️ Archive note", `item:note:archive:${item.id}`);
   }
 
   return keyboard;
@@ -145,11 +145,11 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   for (const [index, item] of visibleItems.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
     keyboard
-      .text(`${item.pinnedAt ? "Unstar" : "Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
-      .text(`Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
+      .text(`${item.pinnedAt ? "☆ Unstar" : "⭐ Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
+      .text(`✏️ Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
 
     if (kind === "note") {
-      keyboard.text(`Archive ${number}`, `item:note:archive:${item.id}`);
+      keyboard.text(`🗃️ Archive ${number}`, `item:note:archive:${item.id}`);
     }
 
     if (index < visibleItems.length - 1) {
@@ -165,26 +165,26 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
 function appendActiveListNavigation(keyboard: InlineKeyboard, navigation?: ActiveListNavigation): void {
   if (!navigation || navigation.totalPages <= 1) return;
   keyboard.row();
-  if (navigation.page > 1) keyboard.text("Prev", `list:${navigation.kind}:${navigation.page - 1}`);
+  if (navigation.page > 1) keyboard.text("← Prev", `list:${navigation.kind}:${navigation.page - 1}`);
   keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
-  if (navigation.page < navigation.totalPages) keyboard.text("Next", `list:${navigation.kind}:${navigation.page + 1}`);
+  if (navigation.page < navigation.totalPages) keyboard.text("Next →", `list:${navigation.kind}:${navigation.page + 1}`);
 }
 
 export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Save task", `capture:task:${pendingId}`)
-    .text("Save idea", `capture:idea:${pendingId}`)
+    .text("📋 Save task", `capture:task:${pendingId}`)
+    .text("💡 Save idea", `capture:idea:${pendingId}`)
     .row()
-    .text("Save note", `capture:note:${pendingId}`)
-    .text("Ignore", `capture:ignore:${pendingId}`);
+    .text("📝 Save note", `capture:note:${pendingId}`)
+    .text("✕ Ignore", `capture:ignore:${pendingId}`);
 }
 
 export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Merge", `merge:confirm:${pendingId}`)
-    .text("Try again", `merge:retry:${pendingId}`)
+    .text("✅ Merge", `merge:confirm:${pendingId}`)
+    .text("↻ Try again", `merge:retry:${pendingId}`)
     .row()
-    .text("Cancel", `merge:cancel:${pendingId}`);
+    .text("✕ Cancel", `merge:cancel:${pendingId}`);
 }
 
 export function searchPageKeyboard(pendingId: string, page: number, totalPages: number): InlineKeyboard | undefined {
@@ -227,20 +227,20 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
 
 export function bulkActionConfirmationKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Confirm", `bulk:confirm:${pendingId}`)
-    .text("Cancel", `bulk:cancel:${pendingId}`);
+    .text("✅ Confirm", `bulk:confirm:${pendingId}`)
+    .text("✕ Cancel", `bulk:cancel:${pendingId}`);
 }
 
 export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Save note", `image:note:${pendingId}`)
-    .text("Create task", `image:task:${pendingId}`)
+    .text("📝 Save note", `image:note:${pendingId}`)
+    .text("📋 Create task", `image:task:${pendingId}`)
     .row()
-    .text("Set reminder", `image:reminder:${pendingId}`)
-    .text("Save expense", `image:expense:${pendingId}`)
+    .text("⏰ Set reminder", `image:reminder:${pendingId}`)
+    .text("💰 Save expense", `image:expense:${pendingId}`)
     .row()
-    .text("Show full text", `image:text:${pendingId}`)
-    .text("Discard", `image:discard:${pendingId}`);
+    .text("🔎 Show full text", `image:text:${pendingId}`)
+    .text("✕ Discard", `image:discard:${pendingId}`);
 }
 
 export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
@@ -251,7 +251,7 @@ export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
     .text("✅ Save + extract", `image-upload:save-extract:${pendingId}`)
     .row()
     .text("🧾 Read as receipt", `image-upload:expense:${pendingId}`)
-    .text("Discard", `image-upload:discard:${pendingId}`);
+    .text("✕ Discard", `image-upload:discard:${pendingId}`);
 }
 
 export function storedImageListKeyboard(
@@ -264,7 +264,7 @@ export function storedImageListKeyboard(
   if (!images.length) return undefined;
   const keyboard = new InlineKeyboard();
   images.forEach((item, index) => {
-    keyboard.text(`Open ${numberOffset + index + 1}`, `stored-image:open:${item.id}`);
+    keyboard.text(`🖼️ Open ${numberOffset + index + 1}`, `stored-image:open:${item.id}`);
     if (index < images.length - 1) keyboard.row();
   });
   if (totalPages > 1) {
@@ -291,12 +291,12 @@ export function storedImageDeleteKeyboard(imageId: string): InlineKeyboard {
 
 export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Save in Threadwise", `expense:save:${pendingId}`)
+    .text("✅ Save in Threadwise", `expense:save:${pendingId}`)
     .row()
-    .text("Save + sync Excel", `expense:excel:${pendingId}`)
+    .text("📊 Save + sync Excel", `expense:excel:${pendingId}`)
     .row()
-    .text("Edit fields", `expense:edit:${pendingId}`)
-    .text("Discard", `expense:discard:${pendingId}`);
+    .text("✏️ Edit fields", `expense:edit:${pendingId}`)
+    .text("✕ Discard", `expense:discard:${pendingId}`);
 }
 
 export function expensePageKeyboard(encodedFilter: string, page: number, totalPages: number): InlineKeyboard | undefined {

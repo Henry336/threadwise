@@ -107,18 +107,18 @@ export async function applyPendingItemEdit(userId: string, value: string): Promi
 export function formatEditStarted(item: EditableItem): string {
   const label = fieldLabel(item.field);
   return [
-    `${bold("Editing")} ${code(item.publicId)} ${h(label)}`,
+    `${bold("✏️ Ready to edit")} ${code(item.publicId)} ${h(label)}`,
     `Send the new ${label} as your next message.`,
-    "Tap Cancel edit if you changed your mind."
+    "Changed your mind? Tap Cancel edit and I’ll leave it untouched."
   ].join("\n");
 }
 
 function renamedMessage(publicId: string, title: string): string {
-  return `${bold("Renamed")} ${code(publicId)} ${h(title)}\n${code("/undo")} will put the old title back.`;
+  return `${bold("✅ Renamed")} ${code(publicId)} ${h(title)}\n${code("/undo")} puts the old title back.`;
 }
 
 function editedMessage(publicId: string, field: string): string {
-  return `${bold("Updated")} ${code(publicId)} ${h(field)}\n${code("/undo")} will restore the previous version.`;
+  return `${bold("✅ Updated")} ${code(publicId)} ${h(field)}\n${code("/undo")} restores the previous version.`;
 }
 
 async function findEditableItem(userId: string, kind: EditableItemKind, itemId: string, field: EditableItemField): Promise<EditableItem> {

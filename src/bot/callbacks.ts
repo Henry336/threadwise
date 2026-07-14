@@ -121,7 +121,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "integrations") {
-    await replyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`);
+    await replyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`);
     return;
   }
   const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
@@ -154,7 +154,7 @@ async function handleBulkAction(ctx: Context, action: string | undefined, pendin
     if (action === "cancel") {
       await cancelBulkAction(user.id, pendingId, String(ctx.from.id));
       await ctx.answerCallbackQuery({ text: "Canceled" });
-      await ctx.reply("Bulk action canceled. Nothing changed.");
+      await ctx.reply("Canceled. Everything is still where you left it.");
       return;
     }
     const result = await confirmBulkAction(user.id, pendingId, String(ctx.from.id));
@@ -224,7 +224,7 @@ async function handleExpenseAction(ctx: Context, action: string | undefined, pen
     if (action === "discard") {
       await cancelPendingExpense(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Discarded" });
-      await ctx.reply("Expense discarded. Nothing was saved.");
+      await ctx.reply("Got it—I left that expense unsaved.");
       return;
     }
     if (action === "edit") {
@@ -283,7 +283,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
   await replyHtml(ctx, formatTaskCompleted(completion.task, user.settings?.timezone), {
-    reply_markup: undoKeyboard("Undo complete")
+    reply_markup: undoKeyboard("↩️ Undo complete")
   });
 }
 
@@ -299,8 +299,8 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  await replyHtml(ctx, `${bold("Restored task")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} if that was a mistake.`, {
-    reply_markup: taskActionsKeyboard(result.task).row().text("Undo restore", "undo:last")
+  await replyHtml(ctx, `${bold("↩️ Task restored")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} puts it back if needed.`, {
+    reply_markup: taskActionsKeyboard(result.task).row().text("↩️ Undo restore", "undo:last")
   });
 }
 
@@ -309,8 +309,8 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  await replyHtml(ctx, `${bold("Snoozed")} ${code(task.publicId)} ${h(task.title)}`, {
-    reply_markup: undoKeyboard("Undo snooze")
+  await replyHtml(ctx, `${bold("⏰ Snoozed for an hour")} ${code(task.publicId)} ${h(task.title)}`, {
+    reply_markup: undoKeyboard("↩️ Undo snooze")
   });
 }
 
@@ -319,8 +319,8 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await cancelTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Canceled task" });
-  await replyHtml(ctx, `${bold("Canceled task")} ${code(task.publicId)} ${h(task.title)}`, {
-    reply_markup: undoKeyboard("Undo cancel")
+  await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}`, {
+    reply_markup: undoKeyboard("↩️ Undo cancel")
   });
 }
 
@@ -330,7 +330,7 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
-    reply_markup: undoKeyboard("Undo")
+    reply_markup: undoKeyboard("↩️ Undo")
   } : undefined);
 }
 
@@ -344,7 +344,7 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       : shouldPin ? "Starred" : "Unstarred"
   });
   await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
-    reply_markup: undoKeyboard("Undo")
+    reply_markup: undoKeyboard("↩️ Undo")
   } : undefined);
 }
 
@@ -361,8 +361,8 @@ async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
   const user = await ensureUser(ctx);
   const note = await archiveNote(user.id, noteId);
   await ctx.answerCallbackQuery({ text: "Archived note" });
-  await replyHtml(ctx, `${bold("Archived note")} ${code(note.publicId)} ${h(note.title)}\n${code("/undo")} restores it if that was a mistake.`, {
-    reply_markup: undoKeyboard("Undo archive")
+  await replyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
+    reply_markup: undoKeyboard("↩️ Undo archive")
   });
 }
 
@@ -376,7 +376,7 @@ async function handleEditCancel(ctx: Context) {
   const user = await ensureUser(ctx);
   const canceled = await cancelPendingItemEdit(user.id);
   await ctx.answerCallbackQuery({ text: canceled ? "Edit canceled" : "No edit pending" });
-  await ctx.reply(canceled ? "Edit canceled. Nothing changed." : "There is no edit waiting right now.");
+  await ctx.reply(canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.");
 }
 
 async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
@@ -399,7 +399,7 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
     });
   } catch {
     await ctx.answerCallbackQuery({ text: "Search expired" });
-    await ctx.reply("That search expired. Run /search again when you need it.");
+    await ctx.reply("That search has gone stale. Run /search again and I’ll fetch a fresh page.");
   }
 }
 
@@ -411,7 +411,7 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
     if (action === "cancel") {
       await cancelNoteMerge(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Canceled" });
-      await ctx.reply("Merge canceled. Your notes are unchanged.");
+      await ctx.reply("Merge canceled. Your original notes are untouched.");
       return;
     }
 
@@ -459,7 +459,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   if (action === "ignore") {
     await ignorePendingCapture(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Ignored" });
-    await ctx.reply("Got it. I won't save that one.");
+    await ctx.reply("Got it—I’ll leave that one alone.");
     return;
   }
 

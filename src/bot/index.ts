@@ -31,7 +31,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
       return;
     }
 
-    await ctx.reply("This Threadwise bot is private.");
+    await ctx.reply("This Threadwise bot is private, so I can’t respond from this account.");
   });
 
   bot.use(async (ctx, next) => {

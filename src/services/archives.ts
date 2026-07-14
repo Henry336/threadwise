@@ -133,11 +133,11 @@ export async function restoreArchivedItem(userId: string, reference: string) {
 
 export function formatArchivedPage(page: ArchivedPage, timezone = "UTC"): string {
   if (page.totalItems === 0) {
-    return `No archived ${page.kind} yet.`;
+    return `Nothing archived in ${page.kind} yet.`;
   }
 
   return [
-    bold(`Archived ${page.kind}`),
+    bold(`🗃️ Archived ${page.kind}`),
     `${italic(`Page ${page.page} of ${page.totalPages}`)} ${code(`${page.totalItems} total`)}`,
     "",
     ...page.items.map((item) => formatArchivedItem(item, timezone)),

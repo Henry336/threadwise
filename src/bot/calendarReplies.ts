@@ -21,12 +21,12 @@ export async function replyWithTaskCalendar(
   try {
     task = await findTaskReference(input.userId, normalizePublicId(input.reference));
   } catch {
-    await ctx.reply("I couldn't find that task. /tasks will show the current list.");
+    await ctx.reply("I couldn’t find that task. Open /tasks and try its current number or Task ID.");
     return;
   }
 
   if (!task.dueAt) {
-    await ctx.reply(`${task.publicId} does not have a due date yet, so there is nothing calendar-shaped to export.`);
+    await ctx.reply(`${task.publicId} needs a due date before I can put it on a calendar. Add a time, then try again.`);
     return;
   }
 
@@ -36,7 +36,7 @@ export async function replyWithTaskCalendar(
       const synced = await syncTaskToGoogleCalendar(input.userId, task);
       if (synced) {
         await replyHtml(ctx, joinBlocks([
-          bold(synced.created ? "Added to Google Calendar" : "Updated in Google Calendar"),
+          bold(synced.created ? "✅ Added to Google Calendar" : "✅ Google Calendar updated"),
           h(task.title),
           [
             fieldHtml("Task ID", code(task.publicId)),
@@ -59,7 +59,7 @@ export async function replyWithTaskCalendar(
   });
 
   await replyHtml(ctx, joinBlocks([
-    bold("Google Calendar link"),
+    bold("📅 Google Calendar link"),
     h(task.title),
     [
       fieldHtml("Task ID", code(task.publicId)),

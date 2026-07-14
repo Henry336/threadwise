@@ -61,7 +61,7 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
       return;
     }
     await replyHtml(ctx, [
-      bold("Image received"),
+      bold("🖼️ Image received"),
       "Would you like to keep the original, add a caption, extract its text locally, save and extract, or read it as a receipt?",
       "Nothing is saved until you choose."
     ].join("\n"), { reply_markup: incomingImageKeyboard(pending.id) });
@@ -83,7 +83,7 @@ async function handleIncomingImageAction(
   if (action === "discard") {
     await discardPendingImageUpload(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Discarded" });
-    await ctx.reply("Discarded. Nothing was saved or extracted.");
+    await ctx.reply("Got it—I left the image unsaved and did not extract anything.");
     return;
   }
   if (action === "save") {
@@ -147,7 +147,7 @@ async function processImageOcr(
   storedImageId?: string
 ): Promise<void> {
   const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
-  const progress = await ctx.reply(`Reading the image locally (${formatOcrLanguages(ocrLanguages)})... This can take a little while on the first image.`);
+  const progress = await ctx.reply(`Reading the image locally in ${formatOcrLanguages(ocrLanguages)}. The first scan can take a little longer.`);
   try {
     const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
@@ -198,7 +198,7 @@ async function processImageOcr(
     });
 
     if (intent === "reminder") {
-      await ctx.reply("I extracted the text. When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.");
+      await ctx.reply("The text is ready. When should I bring it back? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.");
       return;
     }
 

@@ -197,7 +197,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 export async function formatSettings(userId: string): Promise<string> {
   const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
   return [
-    bold("Threadwise settings"),
+    bold("⚙️ Threadwise settings"),
     `${bold("Remind me again every")} ${settings.reminderIntervalMinutes} minutes`,
     `${bold("Timezone")} ${h(settings.timezone)}`,
     `${bold("Default expense currency")} ${h(settings.expenseCurrency)}`,

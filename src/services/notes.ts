@@ -188,7 +188,7 @@ export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
 
 export function formatNoteCreated(note: { publicId: string; title: string; summary: string }): string {
   return joinBlocks([
-    bold("Saved note"),
+    bold("✅ Note saved"),
     [bold(note.title), h(note.summary)].join("\n"),
     fieldHtml("Note ID", code(note.publicId))
   ]);
@@ -196,11 +196,11 @@ export function formatNoteCreated(note: { publicId: string; title: string; summa
 
 export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (notes.length === 0) {
-    return "No saved notes yet. Send /note when something is worth keeping.";
+    return "Nothing saved here yet—send a note when something is worth keeping.";
   }
 
   return [
-    page && page.totalPages > 1 ? `${bold("Recent notes")} · Page ${page.page}/${page.totalPages}` : bold("Recent notes"),
+    page && page.totalPages > 1 ? `${bold("📝 Recent notes")} · Page ${page.page}/${page.totalPages}` : bold("📝 Recent notes"),
     "",
     ...notes.map((note, index) => {
       const pin = note.pinnedAt ? `${bold("Pinned")} ` : "";
@@ -245,7 +245,7 @@ export function formatNoteAnalysis(analysis: {
   experiments: string[];
 }): string {
   return [
-    bold("Notekeeping analysis"),
+    bold("📝 Your notekeeping patterns"),
     "",
     h(analysis.overview),
     "",

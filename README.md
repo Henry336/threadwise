@@ -8,6 +8,8 @@ Current deployment: https://threadwise-90du.onrender.com
 
 Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
+Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE.md)
+
 ## What It Does
 
 - Captures ideas with `/idea <text>`.

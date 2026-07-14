@@ -14,20 +14,20 @@ export function formatOpenTasks(
   page?: ListPageInfo
 ): string {
   if (tasks.length === 0) {
-    return "No open tasks. Nice and quiet.";
+    return "Nothing needs doing right now. Nice and quiet.";
   }
 
   const numbered = tasks.map((task, index) => ({ task, number: (page?.offset ?? 0) + index + 1 }));
   const groups = [
-    { title: "Important", items: numbered.filter(({ task }) => task.pinnedAt) },
-    { title: "Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
-    { title: "Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
-    { title: "Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
-    { title: "No due date", items: numbered.filter(({ task }) => !task.pinnedAt && !task.dueAt) }
+    { title: "⭐ Important", items: numbered.filter(({ task }) => task.pinnedAt) },
+    { title: "⚠️ Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
+    { title: "📅 Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
+    { title: "🗓️ Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
+    { title: "○ No due date", items: numbered.filter(({ task }) => !task.pinnedAt && !task.dueAt) }
   ].filter((group) => group.items.length > 0);
 
   return [
-    page && page.totalPages > 1 ? `${bold("Open tasks")} · Page ${page.page}/${page.totalPages}` : bold("Open tasks"),
+    page && page.totalPages > 1 ? `${bold("📋 Open tasks")} · Page ${page.page}/${page.totalPages}` : bold("📋 Open tasks"),
     "",
     ...groups.flatMap((group) => [
       bold(group.title),
@@ -85,11 +85,11 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
 
 export function formatSearchResults(results: SearchResult[], label?: string): string {
   if (results.length === 0) {
-    return label ? `No close ${label} matches yet.` : "No close matches yet.";
+    return label ? `Nothing close in ${label} yet—try another phrase.` : "Nothing close yet—try another phrase.";
   }
 
   return [
-    bold(label ? `Search results: ${label}` : "Search results"),
+    bold(label ? `🔎 Search results: ${label}` : "🔎 Search results"),
     "",
     ...results.map((result) => {
       const percent = Math.round(result.score * 100);
@@ -100,7 +100,7 @@ export function formatSearchResults(results: SearchResult[], label?: string): st
 
 export function formatSearchResultsPage(results: SearchResult[], page: number, pageSize: number, label?: string): string {
   if (results.length === 0) {
-    return label ? `No close ${label} matches yet.` : "No close matches yet.";
+    return label ? `Nothing close in ${label} yet—try another phrase.` : "Nothing close yet—try another phrase.";
   }
 
   const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
@@ -109,7 +109,7 @@ export function formatSearchResultsPage(results: SearchResult[], page: number, p
   const visible = results.slice(start, start + pageSize);
 
   return [
-    bold(label ? `Search results: ${label}` : "Search results"),
+    bold(label ? `🔎 Search results: ${label}` : "🔎 Search results"),
     totalPages > 1 ? italic(`Page ${currentPage}/${totalPages}`) : undefined,
     "",
     ...visible.map((result) => {

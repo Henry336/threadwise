@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.17.1 - 2026-07-14
+
+### Changed
+- Completed the full Threadwise personality pass across tasks, notes, ideas, reminders, images, expenses, search, settings, archives, integrations, confirmations, empty states, errors, and undo flows.
+- Added consistent semantic emoji to headings and buttons while keeping normal sentences and group reminders restrained.
+- Reworked routine copy to lead with the outcome, use warmer plain language, and always explain the safest next step after an error or reversible change.
+- Added a durable voice-and-tone guide for future features so new wording stays recognizably Threadwise.
+
 ## v0.17.0 - 2026-07-14
 
 ### Added

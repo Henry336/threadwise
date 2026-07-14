@@ -34,7 +34,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       const text = prepareNaturalLanguageText(ctx, rawText);
       if (!text) {
         if (addressedGroupMessage) {
-          await ctx.reply("I'm here. Tell me what to save, find, change, or remind the group about. Try: remind us to take out the trash every Friday at 7pm.");
+          await ctx.reply("I’m here. Tell me what to save, find, change, or remind the group about. For example: remind us to take out the trash every Friday at 7pm.");
         }
         return;
       }
@@ -56,7 +56,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
       if (expenseEdit) {
         if (expenseEdit.canceled) {
-          await ctx.reply("Expense edit canceled. The preview is unchanged.");
+          await ctx.reply("Expense edit canceled. The preview is still exactly as it was.");
         } else if (expenseEdit.message) {
           await ctx.reply(expenseEdit.message);
         } else {
@@ -71,7 +71,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       if (pendingImageReminder) {
         if (/^(?:cancel|stop|discard)(?:\s+(?:image\s+)?reminder)?$/i.test(text.trim())) {
           await discardPendingImageCapture(user.id, pendingImageReminder.id);
-          await ctx.reply("Image reminder canceled. Nothing was saved.");
+          await ctx.reply("Image reminder canceled. I left it unsaved.");
           return;
         }
         const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
@@ -88,7 +88,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       if (/^(cancel|stop)\s+edit$/i.test(text.trim())) {
         const canceled = await cancelPendingItemEdit(user.id);
         if (canceled) {
-          await ctx.reply("Edit canceled. Nothing changed.");
+          await ctx.reply("Edit canceled. Everything is unchanged.");
           return;
         }
       }
@@ -114,7 +114,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (classification.kind === "noise" || classification.confidence < 0.45) {
         if (addressedGroupMessage) {
-          await ctx.reply("I saw your mention, but I'm not sure what you want me to do. Try a full request, or send /help for examples.");
+          await ctx.reply("I saw your mention, but I’m not sure what you need yet. Try a full request, or send /help for examples.");
         }
         return;
       }
@@ -158,7 +158,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
               ? "an idea"
               : "a note";
 
-      await replyHtml(ctx, `This sounds like ${bold(label)}.\n${h("Save it?")}`, {
+      await replyHtml(ctx, `${bold("Just checking")}\nThis sounds like ${bold(label)}. ${h("Would you like me to save it?")}`, {
         reply_markup: captureConfirmationKeyboard(pending.id)
       });
     } catch (error) {

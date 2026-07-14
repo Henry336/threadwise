@@ -12,10 +12,10 @@ export async function showMainMenu(ctx: Context, timezone = "Asia/Singapore"): P
 
 export async function hidePrivateMenu(ctx: Context): Promise<void> {
   if (isGroupChat(ctx)) {
-    await ctx.reply("Group menus stay attached to Threadwise messages, so there is nothing beneath your reply box to hide.");
+    await ctx.reply("In groups, Threadwise buttons stay attached to my messages instead of sitting beneath everyone’s reply box.");
     return;
   }
-  await ctx.reply("Menu hidden. Type /menu whenever you want it back.", {
+  await ctx.reply("Menu tucked away. Type /menu whenever you want it back.", {
     reply_markup: { remove_keyboard: true }
   });
 }

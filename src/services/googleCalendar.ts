@@ -146,10 +146,10 @@ export async function formatCalendarStatus(userId: string): Promise<string> {
   const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
   if (!connection) {
     return [
-      bold("Google Calendar"),
+      bold("📅 Google Calendar"),
       calendarConfigured()
         ? `${code("/calendar connect")} to add dated tasks directly to your primary calendar.`
-        : "Google Calendar OAuth is not configured on the server yet.",
+        : "Google Calendar connection setup is not available on this deployment yet.",
       "",
       `${code("/calendar connect")} - connect Google Calendar`,
       `${code("/calendar 1")} - add or update a dated task`,
@@ -159,7 +159,7 @@ export async function formatCalendarStatus(userId: string): Promise<string> {
   }
 
   return [
-    bold("Google Calendar"),
+    bold("📅 Google Calendar"),
     `${bold("Account")} ${h(connection.calendarEmail ?? "connected")}`,
     `${bold("Target")} primary calendar`,
     "",

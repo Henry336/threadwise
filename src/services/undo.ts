@@ -228,7 +228,7 @@ export async function undoLastAction(userId: string): Promise<string> {
   });
 
   if (!entry) {
-    return "Nothing to undo right now. I'll keep the next change reversible when I can.";
+    return "Nothing to undo right now. When a change can be reversed, I’ll keep that option close by.";
   }
 
   const payload = asRecord(entry.metadata);
@@ -236,7 +236,7 @@ export async function undoLastAction(userId: string): Promise<string> {
 
   if (!type) {
     await markUndoConsumed(entry.id, "unknown");
-    return "I found an old undo entry, but it no longer has enough detail to restore safely.";
+    return "I found an older change, but there is not enough detail to restore it safely—so I left everything untouched.";
   }
 
   try {
@@ -281,7 +281,7 @@ export async function undoLastAction(userId: string): Promise<string> {
     }
   } catch {
     await markUndoConsumed(entry.id, type);
-    return "I couldn't undo that cleanly, so I left your data as-is.";
+    return "I couldn’t undo that cleanly, so I left your data exactly as it was.";
   }
 
   await markUndoConsumed(entry.id, type);

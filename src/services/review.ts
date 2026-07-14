@@ -23,11 +23,11 @@ export async function buildReview(userId: string, timezone: string): Promise<str
   const noDate = tasks.filter((task) => !task.dueAt);
 
   return [
-    bold("Threadwise review"),
+    bold("🧭 Your Threadwise review"),
     "",
     bold("Tasks"),
     `${bold("Open")} ${tasks.length} ${italic(`${overdue.length} overdue, ${today.length} today, ${noDate.length} no date`)}`,
-    tasks.length ? formatTaskFocus(tasks, timezone) : "No open tasks.",
+    tasks.length ? formatTaskFocus(tasks, timezone) : "Nothing is waiting on you right now.",
     "",
     formatRecentNotes(notes),
     "",
@@ -55,10 +55,10 @@ function formatTaskFocus(tasks: TaskListItem[], timezone: string): string {
 
 function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string }>): string {
   if (notes.length === 0) {
-    return [bold("Recent notes"), "None yet."].join("\n");
+    return [bold("📝 Recent notes"), "Nothing here yet."].join("\n");
   }
 
-  return [bold("Recent notes"), ...notes.map((note) => [
+  return [bold("📝 Recent notes"), ...notes.map((note) => [
     bold(note.title),
     fieldHtml("Note ID", code(note.publicId)),
     h(truncate(note.summary, 120))
@@ -67,10 +67,10 @@ function formatRecentNotes(notes: Array<{ publicId: string; title: string; summa
 
 function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string }>): string {
   if (ideas.length === 0) {
-    return [bold("Recent ideas"), "None yet."].join("\n");
+    return [bold("💡 Recent ideas"), "Nothing here yet."].join("\n");
   }
 
-  return [bold("Recent ideas"), ...ideas.map((idea) => [
+  return [bold("💡 Recent ideas"), ...ideas.map((idea) => [
     bold(idea.title),
     fieldHtml("Idea ID", code(idea.publicId)),
     h(truncate(idea.concept, 120))

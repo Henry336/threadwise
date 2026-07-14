@@ -212,7 +212,7 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
 
 export function formatIdeaCreated(idea: { publicId: string; title: string; concept: string }): string {
   return joinBlocks([
-    bold("Saved idea"),
+    bold("✅ Idea saved"),
     [bold(idea.title), h(idea.concept)].join("\n"),
     fieldHtml("Idea ID", code(idea.publicId))
   ]);
@@ -220,11 +220,11 @@ export function formatIdeaCreated(idea: { publicId: string; title: string; conce
 
 export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (ideas.length === 0) {
-    return "No saved ideas yet. Send /idea when something starts to sparkle.";
+    return "No ideas saved yet—send one over when something starts to take shape.";
   }
 
   return [
-    page && page.totalPages > 1 ? `${bold("Recent ideas")} · Page ${page.page}/${page.totalPages}` : bold("Recent ideas"),
+    page && page.totalPages > 1 ? `${bold("💡 Recent ideas")} · Page ${page.page}/${page.totalPages}` : bold("💡 Recent ideas"),
     "",
     ...ideas.map((idea, index) => {
       const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";

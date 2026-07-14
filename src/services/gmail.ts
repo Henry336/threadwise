@@ -178,10 +178,10 @@ export async function formatGmailStatus(userId: string): Promise<string> {
   const connection = await prisma.gmailConnection.findUnique({ where: { userId } });
   if (!connection) {
     return [
-      bold("Gmail"),
+      bold("✉️ Gmail"),
       gmailConfigured()
         ? `${code("/gmail connect")} to scan unread Gmail summaries each day.`
-        : "Gmail is not configured on the server yet.",
+        : "Gmail connection setup is not available on this deployment yet.",
       "",
       bold("Commands"),
       `${code("/gmail connect")} - connect Gmail with Google OAuth`,
@@ -191,7 +191,7 @@ export async function formatGmailStatus(userId: string): Promise<string> {
   }
 
   return [
-    bold("Gmail"),
+    bold("✉️ Gmail"),
     `${bold("Account")} ${h(connection.gmailEmail ?? "connected")}`,
     `${bold("Daily scan")} ${connection.scanEnabled ? `around ${connection.scanHourLocal}:00` : "off"}`,
     `${bold("Last scan")} ${connection.lastScanAt ? h(formatDateTimeForUser(connection.lastScanAt, "UTC")) : "never"}`,
@@ -341,13 +341,13 @@ async function createImportantEmailTask(
 
 function formatGmailDigest(overview: string, items: EmailSummaryItem[]): string {
   if (items.length === 0) {
-    return "No unread Gmail messages found.";
+    return "Your unread Gmail queue is clear for now.";
   }
 
   const important = items.filter((item) => item.important);
   const normal = items.filter((item) => !item.important);
   return [
-    bold("Gmail scan"),
+    bold("✉️ Gmail scan"),
     h(overview),
     important.length ? ["", bold("Important"), ...important.map(formatEmailItem)].join("\n") : undefined,
     normal.length ? ["", bold("Other unread"), ...normal.slice(0, 5).map(formatEmailItem)].join("\n") : undefined,

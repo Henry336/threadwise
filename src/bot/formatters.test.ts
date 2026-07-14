@@ -87,7 +87,7 @@ describe("bot formatters", () => {
       dueAt: new Date("2026-07-06T11:00:00.000Z")
     }), "Asia/Singapore");
 
-    expect(message).toContain("Completed this occurrence");
+    expect(message).toContain("This occurrence is done");
     expect(message).toContain("<b>Next Occurrence:</b>");
     expect(message).toContain("<b>Repeats:</b> Daily");
   });
@@ -97,10 +97,10 @@ describe("bot formatters", () => {
     const message = formatTaskAlreadyCompleted(completed);
     const keyboard = restoreCompletedTaskKeyboard(completed.id);
 
-    expect(message).toContain("Task already completed");
-    expect(message).toContain("Restore it?");
+    expect(message).toContain("Already complete");
+    expect(message).toContain("restore it below");
     expect(keyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "Restore task",
+      text: "↩️ Restore task",
       callback_data: `task:restore:${completed.id}`
     });
   });
@@ -116,19 +116,19 @@ describe("bot formatters", () => {
     const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "Complete 1",
+      text: "✅ Complete 1",
       callback_data: "task:done:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
-      text: "Snooze 1",
+      text: "⏰ Snooze 1",
       callback_data: "task:snooze:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
-      text: "Star 1",
+      text: "⭐ Star 1",
       callback_data: "item:task:pin:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[3]).toEqual({
-      text: "Edit 1",
+      text: "✏️ Edit 1",
       callback_data: "item:task:edit:title:task-uuid-1"
     });
     expect(keyboard?.inline_keyboard).toHaveLength(1);
@@ -142,11 +142,11 @@ describe("bot formatters", () => {
 
     expect(message).toContain("Page 2/3");
     expect(message).toContain("11. <b>Later task</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Complete 11");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("✅ Complete 11");
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "Prev", callback_data: "list:tasks:1" },
+      { text: "← Prev", callback_data: "list:tasks:1" },
       { text: "Page 2/3", callback_data: "list:tasks:2" },
-      { text: "Next", callback_data: "list:tasks:3" }
+      { text: "Next →", callback_data: "list:tasks:3" }
     ]);
   });
 
@@ -155,19 +155,19 @@ describe("bot formatters", () => {
     const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
 
     expect(unpinned.inline_keyboard[1]?.[0]).toEqual({
-      text: "Star",
+      text: "⭐ Star",
       callback_data: "item:task:pin:task-uuid-1"
     });
     expect(unpinned.inline_keyboard[1]?.[1]).toEqual({
-      text: "Edit title",
+      text: "✏️ Edit title",
       callback_data: "item:task:edit:title:task-uuid-1"
     });
     expect(unpinned.inline_keyboard[2]?.[0]).toEqual({
-      text: "Edit details",
+      text: "📝 Edit details",
       callback_data: "item:task:edit:description:task-uuid-1"
     });
     expect(pinned.inline_keyboard[1]?.[0]).toEqual({
-      text: "Unstar",
+      text: "☆ Unstar",
       callback_data: "item:task:unpin:task-uuid-1"
     });
   });
@@ -177,23 +177,23 @@ describe("bot formatters", () => {
     const ideaKeyboard = itemActionsKeyboard("idea", { id: "idea-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") });
 
     expect(noteKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "Star",
+      text: "⭐ Star",
       callback_data: "item:note:pin:note-uuid-1"
     });
     expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "Edit title",
+      text: "✏️ Edit title",
       callback_data: "item:note:edit:title:note-uuid-1"
     });
     expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
-      text: "Edit body",
+      text: "📝 Edit body",
       callback_data: "item:note:edit:body:note-uuid-1"
     });
     expect(noteKeyboard.inline_keyboard[2]?.[0]).toEqual({
-      text: "Archive note",
+      text: "🗃️ Archive note",
       callback_data: "item:note:archive:note-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "Unstar",
+      text: "☆ Unstar",
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[2]).toBeUndefined();
@@ -203,15 +203,15 @@ describe("bot formatters", () => {
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "Star 1",
+      text: "⭐ Star 1",
       callback_data: "item:note:pin:note-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
-      text: "Edit 1",
+      text: "✏️ Edit 1",
       callback_data: "item:note:edit:title:note-uuid-1"
     });
     expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
-      text: "Archive 1",
+      text: "🗃️ Archive 1",
       callback_data: "item:note:archive:note-uuid-1"
     });
   });
@@ -224,9 +224,9 @@ describe("bot formatters", () => {
 
     expect(noteMessage).toContain("11. <b>Note eleven</b>");
     expect(ideaMessage).toContain("11. <b>Idea eleven</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Star 11");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("⭐ Star 11");
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "Prev", callback_data: "list:notes:1" },
+      { text: "← Prev", callback_data: "list:notes:1" },
       { text: "Page 2/2", callback_data: "list:notes:2" }
     ]);
   });
@@ -304,15 +304,15 @@ describe("bot formatters", () => {
     const keyboard = noteMergePreviewKeyboard("pending-merge-1");
 
     expect(keyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "Merge",
+      text: "✅ Merge",
       callback_data: "merge:confirm:pending-merge-1"
     });
     expect(keyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "Try again",
+      text: "↻ Try again",
       callback_data: "merge:retry:pending-merge-1"
     });
     expect(keyboard.inline_keyboard[1]?.[0]).toEqual({
-      text: "Cancel",
+      text: "✕ Cancel",
       callback_data: "merge:cancel:pending-merge-1"
     });
   });
@@ -397,7 +397,7 @@ describe("bot formatters", () => {
       ],
       [
         { text: "🧾 Read as receipt", callback_data: "image-upload:expense:pending-1" },
-        { text: "Discard", callback_data: "image-upload:discard:pending-1" }
+        { text: "✕ Discard", callback_data: "image-upload:discard:pending-1" }
       ]
     ]);
   });

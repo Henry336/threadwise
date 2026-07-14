@@ -296,8 +296,8 @@ export function formatPendingExpense(pending: {
   ocrConfidence?: number | null;
 }, timezone: string): string {
   return [
-    bold("Check this expense"),
-    "Nothing is saved until you confirm.",
+    bold("💰 Does this expense look right?"),
+    "Nothing is saved until you confirm, so take a quick look.",
     "",
     `${bold("Merchant")} ${h(pending.merchant ?? "Not found")}`,
     `${bold("Date")} ${h(formatDateTimeForUser(pending.transactionAt, timezone))}`,
@@ -323,7 +323,7 @@ export function formatExpenseCreated(expense: {
   transactionAt: Date;
 }, timezone: string): string {
   return [
-    bold("Expense saved in Threadwise"),
+    bold("✅ Expense saved"),
     `${code(expense.publicId)} ${h(expense.merchant ?? "Expense")}`,
     `${bold("Total")} ${h(formatMoney(expense.total, expense.currency))}`,
     `${bold("Date")} ${h(formatDateTimeForUser(expense.transactionAt, timezone))}`
@@ -332,10 +332,10 @@ export function formatExpenseCreated(expense: {
 
 export function formatExpensePage(result: Awaited<ReturnType<typeof listExpenses>>, timezone: string): string {
   if (result.expenses.length === 0) {
-    return `No ${result.filter.label} found.`;
+    return `No expenses for ${result.filter.label} yet.`;
   }
   return [
-    bold(`Expenses: ${result.filter.label}`),
+    bold(`💰 Expenses: ${result.filter.label}`),
     `Page ${result.page}/${result.totalPages} · ${result.total} total`,
     "",
     ...result.expenses.map((expense) => [

@@ -114,10 +114,10 @@ export async function formatExcelStatus(userId: string): Promise<string> {
   const connection = await prisma.microsoftConnection.findUnique({ where: { userId } });
   if (!connection) {
     return [
-      bold("Excel"),
+      bold("📊 Excel"),
       microsoftExcelConfigured()
         ? `${code("/excel connect")} to connect Microsoft, then ${code("/excel create")} to let Threadwise make your workbook.`
-        : "Microsoft Excel OAuth is not configured on the server yet.",
+        : "Excel connection setup is not available on this deployment yet.",
       "",
       `${code("/expenses")} always works because Threadwise stores expenses itself.`,
       `${code("/excel export")} downloads a standalone workbook without Microsoft sign-in.`
@@ -125,7 +125,7 @@ export async function formatExcelStatus(userId: string): Promise<string> {
   }
 
   return [
-    bold("Excel"),
+    bold("📊 Excel"),
     `${bold("Microsoft account")} ${h(connection.microsoftEmail ?? "connected")}`,
     `${bold("Workbook")} ${connection.workbookName ? h(connection.workbookName) : "not selected"}`,
     connection.workbookWebUrl ? h(connection.workbookWebUrl) : undefined,

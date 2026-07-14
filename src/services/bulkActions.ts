@@ -139,12 +139,12 @@ export function formatBulkActionPreview(preview: Awaited<ReturnType<typeof creat
     : "Archive";
   const noun = `${preview.request.itemKind}${preview.items.length === 1 ? "" : "s"}`;
   return [
-    bold("Confirm bulk action"),
-    `${verb} ${preview.items.length} ${noun}?`,
+    bold("⚠️ Ready to make these changes?"),
+    `${verb} ${preview.items.length} ${noun}? Take a quick look first.`,
     "",
     ...preview.items.map((item) => `${code(item.publicId)} ${h(truncate(item.title, 100))}`),
     "",
-    "Nothing changes until you press Confirm. Only the person who requested this action can confirm it."
+    "Nothing changes until you press Confirm. Only the person who requested this can approve it."
   ].join("\n");
 }
 
@@ -153,7 +153,7 @@ export function formatBulkActionResult(result: Awaited<ReturnType<typeof confirm
     ? "Completed"
     : "Archived";
   return [
-    bold(`${verb} ${result.changed} ${result.itemKind}${result.changed === 1 ? "" : "s"}`),
+    bold(`✅ ${verb} ${result.changed} ${result.itemKind}${result.changed === 1 ? "" : "s"}`),
     ...result.items.map((item) => `${code(item.publicId)} ${h(truncate(item.title, 100))}`),
     result.skipped ? `${result.skipped} item${result.skipped === 1 ? " was" : "s were"} skipped because it had already changed or was unavailable.` : undefined
   ].filter(Boolean).join("\n");

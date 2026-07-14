@@ -104,33 +104,33 @@ export function formatPinResult(item: PinnableItem & { changed: boolean }, shoul
   if (!item.changed) {
     if (item.kind === "task") {
       return shouldPin
-        ? `${code(item.publicId)} is already marked important.`
-        : `${code(item.publicId)} is not marked important right now.`;
+        ? `${code(item.publicId)} is already on your important list.`
+        : `${code(item.publicId)} is already off your important list.`;
     }
 
     return shouldPin
-      ? `${code(item.publicId)} is already pinned.`
-      : `${code(item.publicId)} is not pinned right now.`;
+      ? `${code(item.publicId)} is already close at hand.`
+      : `${code(item.publicId)} is already unpinned.`;
   }
 
   if (item.kind === "task") {
     return shouldPin
-      ? `${bold("Marked important")} ${code(item.publicId)} ${h(item.title)}`
-      : `${bold("No longer important")} ${code(item.publicId)} ${h(item.title)}`;
+      ? `${bold("⭐ Marked important")} ${code(item.publicId)} ${h(item.title)}`
+      : `${bold("☆ Removed from important")} ${code(item.publicId)} ${h(item.title)}`;
   }
 
   return shouldPin
-    ? `${bold("Pinned")} ${code(item.publicId)} ${h(item.title)}`
-    : `${bold("Unpinned")} ${code(item.publicId)} ${h(item.title)}`;
+    ? `${bold("⭐ Pinned")} ${code(item.publicId)} ${h(item.title)}`
+    : `${bold("☆ Unpinned")} ${code(item.publicId)} ${h(item.title)}`;
 }
 
 export function formatPinnedItems(items: PinnableItem[]): string {
   if (items.length === 0) {
-    return "No pinned items yet. Use /pin 1, /pin NOTE-1, or /star IDEA-1 to keep something close.";
+    return "Nothing pinned yet—star anything you want to keep close at hand.";
   }
 
   return [
-    bold("Pinned items"),
+    bold("⭐ Pinned items"),
     "",
     ...items.map((item) => [
       bold(item.title),
