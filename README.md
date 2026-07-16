@@ -474,7 +474,7 @@ Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find t
 
 `GET /api/v1/dashboard` is a server-to-server endpoint for the separate Threadwise dashboard. It does not enable browser database access and never returns OAuth tokens, original capture text, embeddings, Telegram file identifiers, receipt identifiers, or expense raw text.
 
-Set `DASHBOARD_API_PUBLIC_KEY` on the bot service to the Ed25519 SPKI public key PEM. The value may contain real newlines or literal `\n` sequences. Keep the matching private key only in the dashboard service; do not add it to this repository or Render.
+The first-party dashboard verification key is bundled as a public-only default. Set `DASHBOARD_API_PUBLIC_KEY` on the bot service only when rotating to a replacement Ed25519 SPKI public key. The value may contain real newlines or literal `\n` sequences. Keep the matching private key only in the dashboard service; do not add it to this repository or Render.
 
 The dashboard sends `Authorization: Bearer <token>`. Tokens must use `alg=EdDSA` and `typ=JWT`, and contain all of these claims:
 
@@ -496,7 +496,7 @@ openssl genpkey -algorithm Ed25519 -out dashboard-private.pem
 openssl pkey -in dashboard-private.pem -pubout -out dashboard-public.pem
 ```
 
-Store `dashboard-private.pem` as the dashboard's private environment secret and the contents of `dashboard-public.pem` as `DASHBOARD_API_PUBLIC_KEY` on Render. Delete the local key files after both deployment secrets are configured.
+Store `dashboard-private.pem` as the dashboard's private environment secret. Either update the bundled public-only verification key or store `dashboard-public.pem` as `DASHBOARD_API_PUBLIC_KEY` on Render. Delete the local key files after deployment secrets are configured.
 
 ## Private Admin Endpoints
 

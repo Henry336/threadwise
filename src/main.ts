@@ -1,6 +1,7 @@
 import { env } from "./config/env";
 import { createAiProvider } from "./ai";
 import { createThreadwiseBot } from "./bot";
+import { defaultDashboardPublicKey } from "./dashboard/publicKey";
 import { prisma } from "./db/prisma";
 import { logger } from "./logger";
 import { startGmailScanLoop } from "./services/gmail";
@@ -36,7 +37,7 @@ async function main() {
       port: env.PORT,
       webhookPath: env.WEBHOOK_SECRET_PATH,
       adminStatusToken: env.ADMIN_STATUS_TOKEN,
-      dashboardPublicKey: env.DASHBOARD_API_PUBLIC_KEY
+      dashboardPublicKey: env.DASHBOARD_API_PUBLIC_KEY ?? defaultDashboardPublicKey
     });
     logger.info("Threadwise is running with Telegram webhooks.", {
       webhookUrl,
