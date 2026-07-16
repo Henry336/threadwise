@@ -32,7 +32,12 @@ async function main() {
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
     await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member"] });
     const webhookInfo = await bot.api.getWebhookInfo();
-    server = await startServer(bot, ai, { port: env.PORT, webhookPath: env.WEBHOOK_SECRET_PATH, adminStatusToken: env.ADMIN_STATUS_TOKEN });
+    server = await startServer(bot, ai, {
+      port: env.PORT,
+      webhookPath: env.WEBHOOK_SECRET_PATH,
+      adminStatusToken: env.ADMIN_STATUS_TOKEN,
+      dashboardPublicKey: env.DASHBOARD_API_PUBLIC_KEY
+    });
     logger.info("Threadwise is running with Telegram webhooks.", {
       webhookUrl,
       botUsername: bot.botInfo.username,

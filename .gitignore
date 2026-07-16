@@ -6,6 +6,8 @@ dist/
 coverage/
 .turbo/
 *.log
+backups/
+.playwright-cli/
 prisma/dev.db
 prisma/dev.db-journal
 

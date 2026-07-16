@@ -12,9 +12,7 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: DATABASE_URL
-        fromDatabase:
-          name: threadwise-db
-          property: connectionString
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
@@ -22,6 +20,8 @@ services:
       - key: OPENAI_MODEL_FALLBACKS
         value: gpt-5.5,gpt-5.4,gpt-5.4-nano
       - key: ADMIN_STATUS_TOKEN
+        sync: false
+      - key: DASHBOARD_API_PUBLIC_KEY
         sync: false
       - key: WEBHOOK_URL
         sync: false
@@ -55,7 +55,3 @@ services:
         value: "180"
       - key: BOT_ALLOWED_TELEGRAM_IDS
         sync: false
-
-databases:
-  - name: threadwise-db
-    plan: starter

@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Bot } from "grammy";
 import { webhookCallback } from "grammy";
 import type { AiProvider } from "./ai/types";
+import { registerDashboardRoute } from "./dashboard/route";
 import { logger } from "./logger";
 import { handleGmailOAuthCallback } from "./services/gmail";
 import { handleCalendarOAuthCallback } from "./services/googleCalendar";
@@ -10,7 +11,11 @@ import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 import { appVersion } from "./services/version";
 
-export async function startServer(bot: Bot, ai: AiProvider, options: { port: number; webhookPath: string; adminStatusToken?: string }) {
+export async function startServer(
+  bot: Bot,
+  ai: AiProvider,
+  options: { port: number; webhookPath: string; adminStatusToken?: string; dashboardPublicKey?: string }
+) {
   const server = Fastify({ logger: false });
 
   server.get("/health", async () => ({
@@ -20,6 +25,8 @@ export async function startServer(bot: Bot, ai: AiProvider, options: { port: num
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 12) ?? process.env.GIT_COMMIT?.slice(0, 12) ?? "unknown",
     timestamp: new Date().toISOString()
   }));
+
+  registerDashboardRoute(server, { publicKey: options.dashboardPublicKey });
 
   server.get("/admin/ai/status", async (request, reply) => {
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-admin-token"], options.adminStatusToken)) {

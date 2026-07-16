@@ -419,7 +419,7 @@ Run `npm run smoke:ocr` to verify that both bundled English and Burmese OCR data
 
 ## Render Deployment
 
-This repo includes `render.yaml` for a Render web service plus PostgreSQL database.
+This repo includes `render.yaml` for a Render web service. PostgreSQL can be hosted separately; set the service's `DATABASE_URL` to the external provider's SSL-enabled connection string.
 
 Set these Render environment variables:
 
@@ -429,6 +429,7 @@ OPENAI_API_KEY
 OPENAI_MODEL
 OPENAI_MODEL_FALLBACKS
 ADMIN_STATUS_TOKEN
+DASHBOARD_API_PUBLIC_KEY
 WEBHOOK_URL
 BOT_ALLOWED_TELEGRAM_IDS
 MICROSOFT_CLIENT_ID
@@ -437,7 +438,7 @@ MICROSOFT_REDIRECT_URI
 MICROSOFT_TOKEN_ENCRYPTION_KEY
 ```
 
-`DATABASE_URL` is wired from the Render database in `render.yaml`.
+`DATABASE_URL` is a secret configured in the Render dashboard. Threadwise only requires a PostgreSQL-compatible database, so the database does not need to be hosted by Render. For Supabase on an IPv4 Render service, use the Supavisor session-pooler connection string on port `5432`.
 
 `WEBHOOK_URL` should be the public Render service URL, for example:
 
@@ -468,6 +469,34 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 You can also allow a whole group by adding its chat id, either as `-1001234567890` or `chat:-1001234567890`. If a group is allowlisted, any member of that group can use the shared group scope. If only individual Telegram ids are allowlisted, group messages from non-allowlisted people are ignored silently so the bot does not clutter the chat.
 
 Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
+
+## Read-only Dashboard API
+
+`GET /api/v1/dashboard` is a server-to-server endpoint for the separate Threadwise dashboard. It does not enable browser database access and never returns OAuth tokens, original capture text, embeddings, Telegram file identifiers, receipt identifiers, or expense raw text.
+
+Set `DASHBOARD_API_PUBLIC_KEY` on the bot service to the Ed25519 SPKI public key PEM. The value may contain real newlines or literal `\n` sequences. Keep the matching private key only in the dashboard service; do not add it to this repository or Render.
+
+The dashboard sends `Authorization: Bearer <token>`. Tokens must use `alg=EdDSA` and `typ=JWT`, and contain all of these claims:
+
+```text
+iss=threadwise-dashboard
+aud=threadwise-api
+sub=<positive personal Telegram user id>
+iat=<issued-at Unix timestamp>
+exp=<expiry Unix timestamp, no more than 120 seconds after iat>
+jti=<unique non-empty request id>
+```
+
+The API derives the database owner only from the verified `sub` claim. Synthetic group owners such as `chat:-100123...` are rejected. Every Prisma query is then scoped to that resolved user's internal id with explicit field selects. The endpoint is read-only, sends `Cache-Control: private, no-store`, and intentionally has no browser CORS policy.
+
+One way to create the key pair locally is:
+
+```bash
+openssl genpkey -algorithm Ed25519 -out dashboard-private.pem
+openssl pkey -in dashboard-private.pem -pubout -out dashboard-public.pem
+```
+
+Store `dashboard-private.pem` as the dashboard's private environment secret and the contents of `dashboard-public.pem` as `DASHBOARD_API_PUBLIC_KEY` on Render. Delete the local key files after both deployment secrets are configured.
 
 ## Private Admin Endpoints
 
