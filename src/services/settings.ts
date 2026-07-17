@@ -5,6 +5,7 @@ import { nextReminderAfterSettingChange } from "./reminders";
 import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
 import { COMMON_CURRENCIES, defaultCurrencyForTimezone, normalizeCurrency } from "../utils/currencies";
 import { formatOcrLanguages, normalizeOcrLanguages } from "../utils/ocrLanguages";
+import { normalizeClock } from "../utils/clock";
 
 export type SettingsUpdateResult = {
   message: string;
@@ -132,8 +133,9 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return { message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
     }
 
-    const [start, end] = rest;
-    if (!start || !end || !isValidClock(start) || !isValidClock(end)) {
+    const start = normalizeClock(rest[0]);
+    const end = normalizeClock(rest[1]);
+    if (!start || !end) {
       return { message: "Send it like this: /settings quiet 22:00 08:00 or /settings quiet off" };
     }
 
@@ -278,15 +280,4 @@ function recommendedMaxForInterval(intervalMinutes: number): number | undefined 
   }
 
   return Math.ceil((12 * 60) / intervalMinutes);
-}
-
-function isValidClock(value: string): boolean {
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match?.[1] || !match[2]) {
-    return false;
-  }
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  return Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }

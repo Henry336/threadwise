@@ -38,8 +38,8 @@ describe("dashboard snapshot", () => {
       settings: {
         timezone: "Asia/Singapore",
         reminderIntervalMinutes: 180,
-        quietHoursStart: "22:00",
-        quietHoursEnd: "08:00",
+        quietHoursStart: "3:00",
+        quietHoursEnd: "6:00",
         maxRemindersPerDay: 200,
         dueNudgeMinutes: 3,
         reminderMode: "INDIVIDUAL",
@@ -125,6 +125,7 @@ describe("dashboard snapshot", () => {
     });
     expect(snapshot.tasks[0]).toMatchObject({ publicId: "TASK-1", title: "Ship dashboard", pinned: true });
     expect(snapshot.expenses[0]?.total).toBe(14.9);
+    expect(snapshot.settings).toMatchObject({ quietHoursStart: "03:00", quietHoursEnd: "06:00" });
     expect(snapshot.activity.reduce((total, day) => total + day.captures, 0)).toBe(5);
     expect(snapshot.activity.reduce((total, day) => total + day.completed, 0)).toBe(1);
     expect(snapshot.integrations).toEqual([

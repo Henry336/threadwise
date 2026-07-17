@@ -9,6 +9,7 @@ import {
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { nextRecurringDueAt, recurrenceDayOfMonth } from "../utils/dates";
+import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
 import { nextPublicId } from "../services/publicIds";
 import { nextDueReminderAt } from "../services/reminders";
@@ -299,11 +300,13 @@ export function imageView(image: {
 }
 
 export function settingsView(settings: UserSettings): DashboardSettings {
+  const quietHoursStart = normalizeClock(settings.quietHoursStart);
+  const quietHoursEnd = normalizeClock(settings.quietHoursEnd);
   return {
     timezone: settings.timezone,
     reminderIntervalMinutes: settings.reminderIntervalMinutes,
-    ...(settings.quietHoursStart ? { quietHoursStart: settings.quietHoursStart } : {}),
-    ...(settings.quietHoursEnd ? { quietHoursEnd: settings.quietHoursEnd } : {}),
+    ...(quietHoursStart ? { quietHoursStart } : {}),
+    ...(quietHoursEnd ? { quietHoursEnd } : {}),
     maxRemindersPerDay: settings.maxRemindersPerDay,
     dueNudgeMinutes: settings.dueNudgeMinutes,
     reminderMode: settings.reminderMode,

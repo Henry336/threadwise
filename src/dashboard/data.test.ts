@@ -1,4 +1,4 @@
-import { RecurrenceRule, TaskStatus, type PrismaClient } from "@prisma/client";
+import { RecurrenceRule, TaskStatus, type PrismaClient, type UserSettings } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   DashboardUnsupportedMediaError,
@@ -8,6 +8,7 @@ import {
   disconnectDashboardIntegration,
   exportDashboardData,
   loadDashboardImageContent,
+  settingsView,
   syncDashboardExcelExpenses,
   updateDashboardImage,
   updateDashboardSettings,
@@ -55,6 +56,13 @@ function storedImage(mimeType = "image/png") {
 }
 
 describe("dashboard data security", () => {
+  it("canonicalizes legacy one-digit quiet hours at the API boundary", () => {
+    expect(settingsView({ ...settings, quietHoursStart: "3:00", quietHoursEnd: "6:00" } as UserSettings)).toMatchObject({
+      quietHoursStart: "03:00",
+      quietHoursEnd: "06:00"
+    });
+  });
+
   it("retries a raced public id allocation and records creation undo in the successful transaction", async () => {
     const publicIds = vi.fn()
       .mockResolvedValueOnce([])

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
+import { normalizeClock } from "../utils/clock";
 
 const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
 const DASHBOARD_LIST_LIMIT = 50;
@@ -299,6 +300,9 @@ export async function getDashboardSnapshot(
   const firstName = user.firstName?.trim() || user.username?.trim() || "Threadwise user";
   const fullName = [user.firstName, user.lastName].filter((part): part is string => Boolean(part?.trim())).join(" ") || firstName;
 
+  const quietHoursStart = normalizeClock(user.settings?.quietHoursStart);
+  const quietHoursEnd = normalizeClock(user.settings?.quietHoursEnd);
+
   return {
     user: {
       telegramId: user.telegramId,
@@ -380,8 +384,8 @@ export async function getDashboardSnapshot(
     settings: {
       timezone,
       reminderIntervalMinutes: user.settings?.reminderIntervalMinutes ?? 180,
-      ...(user.settings?.quietHoursStart ? { quietHoursStart: user.settings.quietHoursStart } : {}),
-      ...(user.settings?.quietHoursEnd ? { quietHoursEnd: user.settings.quietHoursEnd } : {}),
+      ...(quietHoursStart ? { quietHoursStart } : {}),
+      ...(quietHoursEnd ? { quietHoursEnd } : {}),
       maxRemindersPerDay: user.settings?.maxRemindersPerDay ?? 200,
       dueNudgeMinutes: user.settings?.dueNudgeMinutes ?? 3,
       reminderMode: user.settings?.reminderMode ?? "INDIVIDUAL",

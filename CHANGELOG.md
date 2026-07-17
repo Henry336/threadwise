@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.19.4 - 2026-07-17
+
+### Fixed
+- Normalized legacy and new quiet-hour settings to canonical `HH:mm` values so one-digit hours cannot break the authenticated dashboard snapshot.
+- Added a guarded database backfill and constraints for existing quiet-hour values.
+- Made dashboard API serializers tolerate legacy clock values during rolling deployments.
+
 ## v0.19.3 - 2026-07-17
 
 ### Added

@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { RecurrenceRule } from "@prisma/client";
+import { normalizeClock } from "./clock";
 
 export type QuietHours = {
   start?: string | null;
@@ -672,14 +673,13 @@ export function startOfUserDay(now: Date, timezone: string): Date {
 }
 
 function parseClock(value: string, base: DateTime): DateTime | undefined {
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match?.[1] || !match[2]) {
-    return undefined;
-  }
+  const normalized = normalizeClock(value);
+  if (!normalized) return undefined;
+  const [hour, minute] = normalized.split(":");
 
   return base.set({
-    hour: Number(match[1]),
-    minute: Number(match[2]),
+    hour: Number(hour),
+    minute: Number(minute),
     second: 0,
     millisecond: 0
   });
