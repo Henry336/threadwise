@@ -3,10 +3,12 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.region-migration.example
 coverage/
 .turbo/
 *.log
 backups/
+migration-reports/
 .playwright-cli/
 prisma/dev.db
 prisma/dev.db-journal

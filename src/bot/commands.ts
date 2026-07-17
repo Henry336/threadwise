@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -643,7 +643,7 @@ async function handleSettings(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "settings");
   if (!body) {
-    await replyHtml(ctx, await formatSettings(user.id));
+    await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
     return;
   }
 
@@ -693,7 +693,9 @@ async function handleScore(ctx: Context, ai: AiProvider) {
   }
 
   const result = await scoreIdea(user.id, normalizePublicId(id), ai);
-  await replyHtml(ctx, formatIdeaScore(result.publicId, result.score));
+  await replyControlCardHtml(ctx, formatIdeaScore(result.publicId, result.score), {
+    reply_markup: ideaBriefKeyboard(result.publicId)
+  });
 }
 
 async function handleBrief(ctx: Context) {

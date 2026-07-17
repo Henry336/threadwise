@@ -56,7 +56,8 @@ export function notesModeKeyboard(): InlineKeyboard {
 export function ideasModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("＋ Add idea", "menu:ideas-add").text("💡 Recent ideas", "menu:ideas-list").row()
-    .text("🔎 Search ideas", "menu:ideas-search").text("🗃️ Archived", "menu:ideas-archived").row()
+    .text("✨ Idea brief", "menu:ideas-brief").text("🔎 Search ideas", "menu:ideas-search").row()
+    .text("🗃️ Archived", "menu:ideas-archived").row()
     .text("‹ Main menu", "menu:home");
 }
 
@@ -90,9 +91,81 @@ export function archivedKindsKeyboard(): InlineKeyboard {
 
 export function settingsModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("⚙️ Preferences", "menu:preferences").text("🔌 Integrations", "menu:integrations").row()
-    .text("🔐 Data & privacy", "menu:privacy").url("🌐 Dashboard", `${DASHBOARD_URL}/dashboard?view=settings`).row()
+    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
+    .text("🔌 Integrations", "menu:integrations").text("🔐 Data & privacy", "menu:privacy").row()
+    .webApp("🌐 Dashboard settings", `${DASHBOARD_URL}/dashboard?view=settings`).row()
     .text("‹ Main menu", "menu:home");
+}
+
+export type SettingChoiceField = "interval" | "mode" | "quiet" | "due-nudge" | "max" | "timezone" | "currency" | "ocr" | "dm";
+
+export function reminderSettingsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🔁 Repeat interval", "setting:pick:interval").text("📝 Message style", "setting:pick:mode").row()
+    .text("🌙 Quiet hours", "setting:pick:quiet").text("⏱ Early warning", "setting:pick:due-nudge").row()
+    .text("🛡 Daily limit", "setting:pick:max").row()
+    .text("‹ Settings", "menu:settings");
+}
+
+export function regionSettingsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🌍 Timezone", "setting:pick:timezone").text("💱 Currency", "setting:pick:currency").row()
+    .text("🖼 Image language", "setting:pick:ocr").text("📩 Private nudges", "setting:pick:dm").row()
+    .text("‹ Settings", "menu:settings");
+}
+
+export function settingChoicesKeyboard(field: SettingChoiceField): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (field === "interval") {
+    keyboard.text("1 hour", "setting:apply:interval:60").text("3 hours", "setting:apply:interval:180").text("6 hours", "setting:apply:interval:360").row()
+      .text("12 hours", "setting:apply:interval:720").text("✎ Custom", "setting:custom:interval");
+  } else if (field === "mode") {
+    keyboard.text("Compact", "setting:apply:mode:compact").text("Detailed", "setting:apply:mode:detailed");
+  } else if (field === "quiet") {
+    keyboard.text("22:00–08:00", "setting:apply:quiet:22-08").text("23:00–07:00", "setting:apply:quiet:23-07").row()
+      .text("Off", "setting:apply:quiet:off").text("✎ Custom", "setting:custom:quiet");
+  } else if (field === "due-nudge") {
+    keyboard.text("3 min", "setting:apply:due-nudge:3").text("10 min", "setting:apply:due-nudge:10").text("30 min", "setting:apply:due-nudge:30").row()
+      .text("Off", "setting:apply:due-nudge:off").text("✎ Custom", "setting:custom:due-nudge");
+  } else if (field === "max") {
+    keyboard.text("24/day", "setting:apply:max:24").text("100/day", "setting:apply:max:100").text("200/day", "setting:apply:max:200").row()
+      .text("✎ Custom", "setting:custom:max");
+  } else if (field === "timezone") {
+    keyboard.text("Singapore", "setting:apply:timezone:Asia/Singapore").text("Yangon", "setting:apply:timezone:Asia/Yangon").row()
+      .text("Kuala Lumpur", "setting:apply:timezone:Asia/Kuala_Lumpur").text("London", "setting:apply:timezone:Europe/London").row()
+      .text("✎ Other city", "setting:custom:timezone");
+  } else if (field === "currency") {
+    keyboard.text("SGD", "setting:apply:currency:SGD").text("USD", "setting:apply:currency:USD").text("MMK", "setting:apply:currency:MMK").text("MYR", "setting:apply:currency:MYR").row()
+      .text("✎ Other currency", "setting:custom:currency");
+  } else if (field === "ocr") {
+    keyboard.text("English", "setting:apply:ocr:eng").text("Burmese", "setting:apply:ocr:mya").row()
+      .text("English + Burmese", "setting:apply:ocr:eng+mya");
+  } else {
+    keyboard.text("On", "setting:apply:dm:on").text("Off", "setting:apply:dm:off");
+  }
+
+  const parent = ["timezone", "currency", "ocr", "dm"].includes(field) ? "region" : "reminders";
+  return keyboard.row().text(`‹ ${parent === "region" ? "Region & language" : "Reminders"}`, `setting:${parent}`);
+}
+
+export function settingInputKeyboard(parent: "reminders" | "region"): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✕ Cancel", `setting:cancel:${parent}`)
+    .text(`‹ ${parent === "region" ? "Region & language" : "Reminders"}`, `setting:${parent}`);
+}
+
+export function integrationsSettingsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📊 Excel", "menu:excel").text("📅 Calendar", "menu:calendar-settings").row()
+    .text("✉️ Gmail", "menu:gmail-settings").row()
+    .text("‹ Settings", "menu:settings");
+}
+
+export function privacySettingsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .webApp("Privacy explained", `${DASHBOARD_URL}/privacy`)
+    .webApp("Data controls", `${DASHBOARD_URL}/dashboard?view=settings`).row()
+    .text("‹ Settings", "menu:settings");
 }
 
 export function menuInputCancelKeyboard(backAction: string): InlineKeyboard {
@@ -107,7 +180,7 @@ export function helpTopicsKeyboard(): InlineKeyboard {
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
     .text("💰 Expenses", "menu:expenses").text("📊 Excel", "menu:excel").row()
     .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
-    .text("🔐 Privacy", "menu:privacy").url("🌐 Dashboard", DASHBOARD_URL).row()
+    .text("🔐 Privacy", "menu:privacy").webApp("🌐 Dashboard", DASHBOARD_URL).row()
     .text("⌨️ Commands", "menu:commands")
     .row()
     .text("‹ Main menu", "menu:home");
@@ -204,6 +277,10 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
     keyboard.row().text("🗃️ Archive note", `item:note:archive:${item.id}`);
   }
 
+  if (kind === "idea") {
+    keyboard.row().text("✨ Idea brief", `item:idea:brief:${item.id}`);
+  }
+
   keyboard.row().text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);
 
   return keyboard;
@@ -228,6 +305,12 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   appendActiveListNavigation(keyboard, navigation, kind === "note" ? "notes" : "ideas");
 
   return keyboard;
+}
+
+export function ideaBriefKeyboard(ideaReference: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("💡 Open idea", `item:idea:open:${ideaReference}`)
+    .text("‹ Ideas", "menu:ideas");
 }
 
 function appendActiveListNavigation(

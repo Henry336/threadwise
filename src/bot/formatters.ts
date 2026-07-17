@@ -119,22 +119,21 @@ export function formatSearchResultsPage(results: SearchResult[], page: number, p
 
 export function formatIdeaScore(publicId: string, score: IdeaScore): string {
   return [
-    `${code(publicId)} ${bold("score")}`,
-    "",
-    `${bold("Buildability")} ${score.buildability}/10`,
-    `${bold("Usefulness")} ${score.usefulness}/10`,
-    `${bold("Novelty")} ${score.novelty}/10`,
-    `${bold("Portfolio value")} ${score.portfolioValue}/10`,
-    `${bold("Monetization")} ${score.monetization}/10`,
-    `${bold("Difficulty")} ${score.difficulty}/10`,
-    `${bold("Risk")} ${score.risk}/10`,
+    `${bold("✨ Idea brief")} · ${code(publicId)}`,
     "",
     h(score.summary),
     "",
-    `${bold("Market notes")} ${h(score.marketNotes)}`,
+    `${bold("Strength")} usefulness ${score.usefulness}/10 · buildability ${score.buildability}/10 · novelty ${score.novelty}/10`,
+    `${bold("Potential")} portfolio ${score.portfolioValue}/10 · monetization ${score.monetization}/10`,
+    `${bold("Trade-offs")} difficulty ${score.difficulty}/10 · risk ${score.risk}/10`,
     "",
-    `${bold("Do")} ${h(score.dos.join("; ") || "None listed.")}`,
-    `${bold("Don't")} ${h(score.donts.join("; ") || "None listed.")}`
+    `${bold("Market read")}`,
+    h(score.marketNotes),
+    "",
+    `${bold("Do next")} ${h(score.dos.join(" · ") || "Validate the smallest useful version.")}`,
+    `${bold("Avoid")} ${h(score.donts.join(" · ") || "Expanding the scope before validation.")}`,
+    "",
+    "AI assessment from the saved idea—not live market research."
   ].join("\n");
 }
 

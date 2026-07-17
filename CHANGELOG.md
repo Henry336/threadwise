@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.19.3 - 2026-07-17
+
+### Added
+- Added an AI-powered Idea Brief button to Ideas mode and every saved idea card.
+- Added a guarded Supabase Seoul-to-Singapore migration workflow with preflight, exact verification, retry safety, and rollback documentation.
+
+### Changed
+- Replaced the long settings manual with compact button-first reminder, region, language, integration, and privacy panels.
+
 ## v0.19.2 - 2026-07-17
 
 ### Fixed

@@ -1,0 +1,88 @@
+name: Migrate Supabase Seoul to Singapore
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run connectivity checks only, or perform the confirmed migration
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - migrate
+      confirmation:
+        description: For migrate only, type MIGRATE TO SINGAPORE
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: threadwise-supabase-region-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MIGRATION_MODE: ${{ inputs.mode }}
+      MIGRATION_CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate protected inputs
+        shell: pwsh
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_SUPABASE_DATABASE_URL }}
+          TARGET_DATABASE_URL: ${{ secrets.TARGET_SUPABASE_DATABASE_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SOURCE_DATABASE_URL)) { throw 'Missing SOURCE_SUPABASE_DATABASE_URL secret.' }
+          if ([string]::IsNullOrWhiteSpace($env:TARGET_DATABASE_URL)) { throw 'Missing TARGET_SUPABASE_DATABASE_URL secret.' }
+          if ($env:MIGRATION_MODE -eq 'migrate' -and $env:MIGRATION_CONFIRMATION -cne 'MIGRATE TO SINGAPORE') {
+            throw 'Migration confirmation did not match exactly.'
+          }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Run guarded migration
+        shell: pwsh
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_SUPABASE_DATABASE_URL }}
+          TARGET_DATABASE_URL: ${{ secrets.TARGET_SUPABASE_DATABASE_URL }}
+        run: |
+          $env:PATH = "/usr/lib/postgresql/17/bin:$env:PATH"
+          if ($env:MIGRATION_MODE -eq 'migrate') {
+            ./scripts/migrate-supabase-seoul-to-singapore.ps1 -Migrate -SourceQuiesced -Ci
+          } else {
+            ./scripts/migrate-supabase-seoul-to-singapore.ps1 -Ci
+          }
+
+      - name: Upload non-sensitive verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-region-${{ inputs.mode }}-${{ github.run_id }}
+          path: migration-reports/*.json
+          if-no-files-found: warn
+          retention-days: 14

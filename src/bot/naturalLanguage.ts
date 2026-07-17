@@ -4,7 +4,7 @@ import { classifyMessageDeterministically } from "../ai/deterministic";
 import { logger } from "../logger";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
-import { createIdea, formatIdeaCreated } from "../services/ideas";
+import { createIdea, findIdeaReference, formatIdeaCreated, scoreIdea } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
@@ -13,16 +13,18 @@ import { consumePendingImageCapture, discardPendingImageCapture, findPendingImag
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, italic } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, itemCreatedKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { clearMenuInput, pendingMenuInput } from "./menuInputs";
+import { clearMenuInput, pendingMenuInput, type MenuInputAction } from "./menuInputs";
 import { buildItemCard } from "./itemCards";
 import { replyStoredImage } from "./storedImageReplies";
 import { appendListOrigin } from "./navigationState";
 import { replyControlCardHtml } from "./controlCards";
+import { formatIdeaScore } from "./formatters";
+import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -232,6 +234,39 @@ async function handlePendingMenuInput(
     const idea = await createIdea(user.id, text, ai);
     clearMenuInput(user.id, actorId);
     await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    return true;
+  }
+
+  if (action === "idea-brief") {
+    const idea = await findIdeaReference(user.id, text);
+    const result = await scoreIdea(user.id, idea.publicId, ai);
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatIdeaScore(result.publicId, result.score), {
+      reply_markup: ideaBriefKeyboard(result.publicId)
+    });
+    return true;
+  }
+
+  const settingInputs: Partial<Record<MenuInputAction, { field: string; parent: "reminders" | "region" }>> = {
+    "setting-interval": { field: "interval", parent: "reminders" },
+    "setting-quiet": { field: "quiet", parent: "reminders" },
+    "setting-due-nudge": { field: "due-nudge", parent: "reminders" },
+    "setting-max": { field: "max", parent: "reminders" },
+    "setting-timezone": { field: "timezone", parent: "region" },
+    "setting-currency": { field: "currency", parent: "region" }
+  };
+  const settingInput = settingInputs[action];
+  if (settingInput) {
+    const args = settingInput.field === "quiet" ? [settingInput.field, ...text.trim().split(/\s+/)] : [settingInput.field, text];
+    const result = await updateSetting(user.id, args);
+    clearMenuInput(user.id, actorId);
+    const panel = settingInput.parent === "region"
+      ? await formatRegionSettings(user.id)
+      : await formatReminderSettings(user.id);
+    const invalid = /^(?:I don't|Choose|Pick|Send it|Try:)/i.test(result.message);
+    await replyControlCardHtml(ctx, invalid ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
+      reply_markup: settingInput.parent === "region" ? regionSettingsKeyboard() : reminderSettingsKeyboard()
+    });
     return true;
   }
 

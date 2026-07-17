@@ -28,7 +28,7 @@ import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, forma
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -171,7 +171,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:settings|preferences|show (?:me )?(?:my )?(?:settings|preferences)|what are my settings)$/.test(lower)) {
-    await replyHtml(ctx, await formatSettings(user.id));
+    await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
     return true;
   }
 
@@ -577,11 +577,14 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const scoreMatch = trimmed.match(/^(?:score|rate|evaluate|assess|review)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i)
+  const scoreMatch = trimmed.match(/^(?:score|rate|evaluate|assess|review|analy[sz]e)\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i)
+    ?? trimmed.match(/^(?:create\s+(?:an\s+)?|show\s+(?:me\s+)?(?:the\s+)?)?idea\s+brief\s+(?:for\s+)?(?:idea\s+)?(\d+|IDEA-\d+)$/i)
     ?? trimmed.match(/^(?:how\s+good|how\s+viable)\s+is\s+(?:idea\s+)?(\d+|IDEA-\d+)$/i);
   if (scoreMatch?.[1]) {
     const result = await scoreIdea(user.id, normalizePublicId(scoreMatch[1]), ai);
-    await replyHtml(ctx, formatIdeaScore(result.publicId, result.score));
+    await replyControlCardHtml(ctx, formatIdeaScore(result.publicId, result.score), {
+      reply_markup: ideaBriefKeyboard(result.publicId)
+    });
     return true;
   }
 

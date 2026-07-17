@@ -38,7 +38,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/ideas", description: "List or open saved ideas.", example: "/ideas 1" },
   { command: "/important", description: "Mark a task important.", example: "/important 1" },
   { command: "/archive", description: "Archive notes or ideas; multiple items require confirmation.", example: "/archive notes 1 2 3" },
-  { command: "/score", description: "Score an idea for usefulness, buildability, risk, and more.", example: "/score IDEA-1" },
+  { command: "/score", description: "Create an AI idea brief covering strengths, potential, difficulty, and risk.", example: "/score IDEA-1" },
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
   { command: "/note", description: "Save a cleaned searchable note, or open a note by number.", example: "/note 1" },
   { command: "/notes", description: "List or search saved notes.", example: "/notes deployment reliability" },
@@ -132,13 +132,13 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "ideas",
     title: "💡 Ideas",
-    description: "Capture ideas, open them later, score them, or create implementation briefs.",
+    description: "Capture ideas, open them later, create AI idea briefs, or generate implementation prompts.",
     natural: [
       "idea build a Telegram bot for life admin",
       "I have an idea for a quiet-hours dashboard",
       "show me my ideas",
       "show idea 1",
-      "score IDEA-1",
+      "analyze IDEA-1",
       "brief IDEA-1"
     ],
     commands: ["/idea build a Telegram bot for life admin", "/ideas", "/ideas 1", "/score IDEA-1", "/brief IDEA-1"]

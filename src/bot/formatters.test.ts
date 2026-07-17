@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
-import { formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters";
+import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
@@ -194,8 +194,41 @@ describe("bot formatters", () => {
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[2]).toEqual([
+      { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" }
+    ]);
+    expect(ideaKeyboard.inline_keyboard[3]).toEqual([
       { text: "‹ Ideas", callback_data: "menu:ideas" }
     ]);
+  });
+
+  it("makes settings and AI idea briefs discoverable through compact button flows", () => {
+    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "⏰ Reminders", callback_data: "setting:reminders" });
+    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Region & language", callback_data: "setting:region" });
+    expect(reminderSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🔁 Repeat interval", callback_data: "setting:pick:interval" });
+    expect(regionSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Timezone", callback_data: "setting:pick:timezone" });
+    expect(settingChoicesKeyboard("interval").inline_keyboard.flat()).toContainEqual({ text: "3 hours", callback_data: "setting:apply:interval:180" });
+    expect(ideasModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "✨ Idea brief", callback_data: "menu:ideas-brief" });
+  });
+
+  it("formats a useful AI idea brief instead of exposing a bare score dump", () => {
+    const message = formatIdeaScore("IDEA-7", {
+      buildability: 8,
+      usefulness: 9,
+      novelty: 6,
+      portfolioValue: 8,
+      monetization: 5,
+      difficulty: 4,
+      risk: 3,
+      summary: "A focused idea with a clear first user.",
+      marketNotes: "Validate willingness to switch from existing tools.",
+      dos: ["Test one workflow"],
+      donts: ["Build every integration first"]
+    });
+
+    expect(message).toContain("<b>✨ Idea brief</b> · <code>IDEA-7</code>");
+    expect(message).toContain("<b>Strength</b>");
+    expect(message).toContain("<b>Trade-offs</b>");
+    expect(message).toContain("not live market research");
   });
 
   it("keeps note and idea lists compact until an item is opened", () => {

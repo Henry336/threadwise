@@ -3,7 +3,7 @@ import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { cancelTask, completeTask, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
-import { createIdea, formatIdeaCreated } from "../services/ideas";
+import { createIdea, formatIdeaCreated, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
@@ -11,18 +11,18 @@ import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNote
 import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
 import { undoLastAction } from "../services/undo";
-import { formatSearchResultsPage } from "./formatters";
+import { formatIdeaScore, formatSearchResultsPage } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, helpTopicsKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard } from "./keyboards";
+import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
-import { formatHelpGuide, formatHelpTopic, formatMainMenuText, formatPrivacyText } from "./help";
-import { formatSettings } from "../services/settings";
+import { formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
+import { formatRegionSettings, formatReminderSettings, formatSettings, updateSetting } from "../services/settings";
 import { beginMenuInput, clearMenuInput, type MenuInputAction } from "./menuInputs";
 import { rememberCallbackControlCard } from "./controlCards";
 import { buildItemCard } from "./itemCards";
@@ -37,6 +37,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1], ctx.match[2], ctx.match[3]));
+  bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]));
   bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
@@ -103,7 +104,121 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     await ctx.answerCallbackQuery({ text: "Image deleted" });
     await editOrReplyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`, { reply_markup: menuBackKeyboard() });
   });
+  bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]));
   bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
+}
+
+const SETTING_FIELDS = new Set<SettingChoiceField>(["interval", "mode", "quiet", "due-nudge", "max", "timezone", "currency", "ocr", "dm"]);
+
+const SETTING_PICKER_COPY: Record<SettingChoiceField, { title: string; instruction: string }> = {
+  interval: { title: "🔁 Repeat interval", instruction: "How often should an unfinished task remind you again?" },
+  mode: { title: "📝 Reminder style", instruction: "Compact groups reminders together; detailed sends fuller cards." },
+  quiet: { title: "🌙 Quiet hours", instruction: "Threadwise holds reminder messages during this window." },
+  "due-nudge": { title: "⏱ Early warning", instruction: "How early should exact-time reminders begin?" },
+  max: { title: "🛡 Daily safety limit", instruction: "A guardrail against accidental reminder loops—not a task limit." },
+  timezone: { title: "🌍 Timezone", instruction: "This controls how Threadwise reads and displays times." },
+  currency: { title: "💱 Default currency", instruction: "Used when an expense does not name a currency." },
+  ocr: { title: "🖼 Image text language", instruction: "Choose the languages used for local OCR." },
+  dm: { title: "📩 Private nudges", instruction: "Also DM you when a group task assigned to you is due." }
+};
+
+async function handleSettingCallback(ctx: Context, action: string | undefined) {
+  if (!action) return;
+  const user = await ensureUser(ctx);
+  if (!ctx.from) return;
+  rememberCallbackControlCard(ctx);
+  clearMenuInput(user.id, ctx.from.id);
+
+  if (action === "reminders" || action === "region") {
+    await ctx.answerCallbackQuery();
+    await showSettingPanel(ctx, user.id, action);
+    return;
+  }
+
+  const picker = action.match(/^pick:([^:]+)$/)?.[1];
+  if (isSettingField(picker)) {
+    await ctx.answerCallbackQuery();
+    const copy = SETTING_PICKER_COPY[picker];
+    await editOrReplyHtml(ctx, `${bold(copy.title)}\n${h(copy.instruction)}`, { reply_markup: settingChoicesKeyboard(picker) });
+    return;
+  }
+
+  const custom = action.match(/^custom:([^:]+)$/)?.[1];
+  if (isSettingField(custom)) {
+    const setup = customSettingInput(custom);
+    if (!setup) {
+      await ctx.answerCallbackQuery({ text: "Choose one of the buttons." });
+      return;
+    }
+    beginMenuInput(user.id, ctx.from.id, setup.action);
+    await ctx.answerCallbackQuery({ text: "Send the custom value next" });
+    await editOrReplyHtml(ctx, `${bold(setup.title)}\n${h(setup.prompt)}`, { reply_markup: settingInputKeyboard(setup.parent) });
+    return;
+  }
+
+  const cancel = action.match(/^cancel:(reminders|region)$/)?.[1] as "reminders" | "region" | undefined;
+  if (cancel) {
+    clearMenuInput(user.id, ctx.from.id);
+    await ctx.answerCallbackQuery({ text: "Canceled" });
+    await showSettingPanel(ctx, user.id, cancel);
+    return;
+  }
+
+  const apply = action.match(/^apply:([^:]+):(.+)$/);
+  if (isSettingField(apply?.[1]) && apply?.[2]) {
+    await ctx.answerCallbackQuery({ text: "Saving…" });
+    await updateSetting(user.id, settingArguments(apply[1], apply[2]));
+    await showSettingPanel(ctx, user.id, settingParent(apply[1]));
+    return;
+  }
+
+  await ctx.answerCallbackQuery({ text: "That setting is no longer available." });
+}
+
+async function handleIdeaBrief(ctx: Context, ai: AiProvider, reference: string | undefined) {
+  if (!reference) return;
+  const user = await ensureUser(ctx);
+  rememberCallbackControlCard(ctx);
+  await ctx.answerCallbackQuery({ text: "Analyzing the idea…" });
+  const result = await scoreIdea(user.id, reference, ai);
+  await editOrReplyHtml(ctx, formatIdeaScore(result.publicId, result.score), {
+    reply_markup: ideaBriefKeyboard(result.publicId)
+  });
+}
+
+async function showSettingPanel(ctx: Context, userId: string, parent: "reminders" | "region") {
+  if (parent === "region") {
+    await editOrReplyHtml(ctx, await formatRegionSettings(userId), { reply_markup: regionSettingsKeyboard() });
+    return;
+  }
+  await editOrReplyHtml(ctx, await formatReminderSettings(userId), { reply_markup: reminderSettingsKeyboard() });
+}
+
+function isSettingField(value: string | undefined): value is SettingChoiceField {
+  return Boolean(value && SETTING_FIELDS.has(value as SettingChoiceField));
+}
+
+function settingParent(field: SettingChoiceField): "reminders" | "region" {
+  return ["timezone", "currency", "ocr", "dm"].includes(field) ? "region" : "reminders";
+}
+
+function settingArguments(field: SettingChoiceField, value: string): string[] {
+  if (field === "quiet" && value === "22-08") return ["quiet", "22:00", "08:00"];
+  if (field === "quiet" && value === "23-07") return ["quiet", "23:00", "07:00"];
+  return [field, value];
+}
+
+function customSettingInput(field: SettingChoiceField): { action: MenuInputAction; title: string; prompt: string; parent: "reminders" | "region" } | undefined {
+  const inputs: Partial<Record<SettingChoiceField, { action: MenuInputAction; title: string; prompt: string }>> = {
+    interval: { action: "setting-interval", title: "🔁 Custom repeat interval", prompt: "Send minutes, such as 90. Minimum: 15." },
+    quiet: { action: "setting-quiet", title: "🌙 Custom quiet hours", prompt: "Send two 24-hour times, such as 22:30 07:00, or send off." },
+    "due-nudge": { action: "setting-due-nudge", title: "⏱ Custom early warning", prompt: "Send minutes, such as 15, or send off." },
+    max: { action: "setting-max", title: "🛡 Custom daily limit", prompt: "Send the maximum reminder messages per day, such as 200." },
+    timezone: { action: "setting-timezone", title: "🌍 Other timezone", prompt: "Send a city or timezone, such as Bangkok or America/New_York." },
+    currency: { action: "setting-currency", title: "💱 Other currency", prompt: "Send an ISO code or currency name, such as EUR or kyat." }
+  };
+  const input = inputs[field];
+  return input ? { ...input, parent: settingParent(field) } : undefined;
 }
 
 async function handleMenu(ctx: Context, action: string | undefined) {
@@ -144,7 +259,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "settings") {
-    await editOrReplyHtml(ctx, `${bold("⚙️ Settings")}\nPreferences, integrations, and privacy controls live here.`, { reply_markup: settingsModeKeyboard() });
+    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
     return;
   }
   if (action === "tasks-list" || action === "notes-list" || action === "ideas-list") {
@@ -165,7 +280,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "preferences") {
-    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: menuBackKeyboard("‹ Settings", "menu:settings") });
+    await editOrReplyHtml(ctx, await formatReminderSettings(user.id), { reply_markup: reminderSettingsKeyboard() });
     return;
   }
   if (action === "help") {
@@ -173,11 +288,23 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "integrations") {
-    await editOrReplyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`, { reply_markup: menuBackKeyboard("‹ Settings", "menu:settings") });
+    await editOrReplyHtml(ctx, `${bold("🔌 Integrations")}\nChoose a service for its setup and status commands.`, { reply_markup: integrationsSettingsKeyboard() });
+    return;
+  }
+  if (action === "calendar-settings") {
+    await editOrReplyHtml(ctx, `${bold("📅 Google Calendar")}\n${code("/calendar")} status · ${code("/calendar connect")} connect\nUse ${code("/calendar 1")} to sync a dated task.`, { reply_markup: menuBackKeyboard("‹ Integrations", "menu:integrations") });
+    return;
+  }
+  if (action === "gmail-settings") {
+    await editOrReplyHtml(ctx, `${bold("✉️ Gmail")}\n${code("/gmail")} status · ${code("/gmail connect")} connect\nUse ${code("/gmail scan")} to check unread mail.`, { reply_markup: menuBackKeyboard("‹ Integrations", "menu:integrations") });
     return;
   }
   if (action === "privacy") {
-    await editOrReplyHtml(ctx, formatPrivacyText(), { reply_markup: settingsModeKeyboard() });
+    await editOrReplyHtml(ctx, [
+      bold("🔐 Data & privacy"),
+      "Telegram verifies who you are; database credentials never reach your browser.",
+      "Saved content is user-scoped and provider tokens are encrypted, but content is not end-to-end encrypted. Operational access remains possible for maintenance."
+    ].join("\n"), { reply_markup: privacySettingsKeyboard() });
     return;
   }
   if (action === "important") {
@@ -201,6 +328,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     "tasks-reminder": { action: "reminder", title: "⏰ Set reminder", prompt: "What should I remind you about, and when?", back: "tasks" },
     "notes-add": { action: "note", title: "＋ Add note", prompt: "Send the note you want to keep.", back: "notes" },
     "ideas-add": { action: "idea", title: "＋ Add idea", prompt: "Send the idea you want to capture.", back: "ideas" },
+    "ideas-brief": { action: "idea-brief", title: "✨ Idea brief", prompt: "Which idea should I analyze? Send its list number or ID, such as 2 or IDEA-2.", back: "ideas" },
     "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", back: "search" },
     "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for in your notes?", back: "notes" },
     "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for in your ideas?", back: "ideas" },

@@ -442,6 +442,8 @@ MICROSOFT_TOKEN_ENCRYPTION_KEY
 
 `DATABASE_URL` is a secret configured in the Render dashboard. Threadwise only requires a PostgreSQL-compatible database, so the database does not need to be hosted by Render. For Supabase on an IPv4 Render service, use the Supavisor session-pooler connection string on port `5432`.
 
+For the prepared Seoul-to-Singapore Supabase cutover, see [docs/SUPABASE_REGION_MIGRATION.md](docs/SUPABASE_REGION_MIGRATION.md). The guarded workflow copies only Threadwise's application database, verifies every table exactly, and keeps the old project as the rollback source.
+
 `WEBHOOK_URL` should be the public Render service URL, for example:
 
 ```text

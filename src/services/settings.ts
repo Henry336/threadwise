@@ -1,5 +1,5 @@
 import { Prisma, ReminderMode, TaskStatus } from "@prisma/client";
-import { bold, code, h } from "../utils/html";
+import { bold, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextReminderAfterSettingChange } from "./reminders";
 import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
@@ -194,51 +194,32 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
 }
 
-export async function formatSettings(userId: string): Promise<string> {
+export async function formatSettings(_userId: string): Promise<string> {
+  return [
+    bold("⚙️ Settings"),
+    "Choose a section below. Changes apply immediately."
+  ].join("\n");
+}
+
+export async function formatReminderSettings(userId: string): Promise<string> {
   const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
   return [
-    bold("⚙️ Threadwise settings"),
-    `${bold("Remind me again every")} ${settings.reminderIntervalMinutes} minutes`,
-    `${bold("Timezone")} ${h(settings.timezone)}`,
-    `${bold("Default expense currency")} ${h(settings.expenseCurrency)}`,
-    `${bold("Image OCR languages")} ${h(formatOcrLanguages(settings.ocrLanguages))}`,
-    `${bold("Reminder message style")} ${settings.reminderMode === ReminderMode.DIGEST ? "compact" : "detailed"}`,
-    `${bold("Private assignee nudges")} ${settings.directNudgesEnabled ? "on" : "off"}`,
-    `${bold("Do not disturb")} ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off")}`,
-    `${bold("Daily reminder safety limit")} ${settings.maxRemindersPerDay}`,
-    `${bold("Early warning for exact-time reminders")} ${settings.dueNudgeMinutes > 0 ? `${settings.dueNudgeMinutes} minutes before` : "off"}`,
-    reminderCapacityWarning(settings.reminderIntervalMinutes, settings.maxRemindersPerDay),
-    "",
-    bold("What these mean"),
-    "Remind me again every: how often open tasks repeat if you have not completed or snoozed them.",
-    "Early warning: for tasks with a due time, when I start warning you before that time.",
-    "Daily reminder safety limit: a high guardrail against accidental reminder loops. It does not limit normal commands.",
-    "",
-    bold("Try saying"),
-    code("change timezone to Myanmar"),
-    code("set my expense currency to MMK"),
-    code("read images in Burmese"),
-    code("use compact reminders"),
-    code("send me assigned task reminders in private"),
-    code("remind me again every 3 hours"),
-    code("warn me 10 mins before due tasks"),
-    code("set quiet hours to 22:00-08:00"),
-    code("quiet hours off"),
-    code("allow up to 200 reminders per day"),
-    "",
-    bold("Slash equivalents"),
-    code("/settings interval 180"),
-    code("/settings timezone Asia/Singapore"),
-    code("/settings timezone Asia/Yangon"),
-    code("/settings timezone America/New_York"),
-    code("/settings currency MMK"),
-    code("/settings ocr English and Burmese"),
-    code("/settings mode compact"),
-    code("/settings dm on"),
-    code("/settings quiet 22:00 08:00"),
-    code("/settings quiet off"),
-    code("/settings max 200"),
-    code("/settings due-nudge 10")
+    bold("⏰ Reminder settings"),
+    `Repeat ${bold(formatMinutes(settings.reminderIntervalMinutes))} · ${settings.reminderMode === ReminderMode.DIGEST ? "compact" : "detailed"} messages`,
+    `Quiet ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}–${settings.quietHoursEnd}` : "off")} · early warning ${settings.dueNudgeMinutes > 0 ? formatMinutes(settings.dueNudgeMinutes) : "off"}`,
+    `Safety limit ${settings.maxRemindersPerDay}/day`,
+    "Repeat controls how often unfinished tasks nudge you again."
+  ].join("\n");
+}
+
+export async function formatRegionSettings(userId: string): Promise<string> {
+  const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
+  return [
+    bold("🌍 Region & language"),
+    `${h(settings.timezone)} · ${bold(h(settings.expenseCurrency))}`,
+    `Image text: ${h(formatOcrLanguages(settings.ocrLanguages))}`,
+    `Private assignee nudges: ${settings.directNudgesEnabled ? "on" : "off"}`,
+    "Timezone controls how Threadwise reads dates and reminder times."
   ].join("\n");
 }
 
@@ -283,14 +264,12 @@ async function rescheduleOpenTasksForSettings(
   return tasks.length;
 }
 
-function reminderCapacityWarning(intervalMinutes: number, maxRemindersPerDay: number): string | undefined {
-  if (intervalMinutes > 30 || maxRemindersPerDay >= 200) {
-    return undefined;
+function formatMinutes(minutes: number): string {
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours}h`;
   }
-
-  const coveredMinutes = intervalMinutes * maxRemindersPerDay;
-  const coveredHours = Math.round((coveredMinutes / 60) * 10) / 10;
-  return `${bold("Safety limit note")} ${h(`${maxRemindersPerDay} reminders at ${intervalMinutes} minutes covers about ${coveredHours} hours/day. Raise the limit if you want very frequent nudges.`)}`;
+  return `${minutes}m`;
 }
 
 function recommendedMaxForInterval(intervalMinutes: number): number | undefined {

@@ -6,8 +6,15 @@ export type MenuInputAction =
   | "search"
   | "note-search"
   | "idea-search"
+  | "idea-brief"
   | "image-search"
-  | "expense";
+  | "expense"
+  | "setting-interval"
+  | "setting-quiet"
+  | "setting-due-nudge"
+  | "setting-max"
+  | "setting-timezone"
+  | "setting-currency";
 
 type PendingMenuInput = {
   action: MenuInputAction;
