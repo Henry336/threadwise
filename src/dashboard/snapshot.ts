@@ -2,6 +2,8 @@ import type { PrismaClient } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
+import type { IdeaScore } from "../ai/types";
+import { storedIdeaBrief } from "./ideaBrief";
 
 const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
 const DASHBOARD_LIST_LIMIT = 50;
@@ -26,7 +28,10 @@ export type DashboardSnapshot = {
     status: "OPEN" | "DONE" | "CANCELED";
     recurring?: boolean;
     pinned?: boolean;
+    reminderIntervalMinutes?: number;
+    nextReminderAt?: string;
     reminderCount?: number;
+    snoozedUntil?: string;
     assignee?: string;
     createdAt: string;
     updatedAt: string;
@@ -40,6 +45,7 @@ export type DashboardSnapshot = {
     tags: string[];
     createdAt: string;
     pinned?: boolean;
+    brief?: IdeaScore;
     updatedAt: string;
   }>;
   ideas: Array<{
@@ -77,6 +83,7 @@ export type DashboardSnapshot = {
     caption?: string;
     ocrText?: string;
     ocrConfidence?: number;
+    pinned?: boolean;
     contentUrl: string;
     createdAt: string;
     updatedAt: string;
@@ -181,13 +188,16 @@ export async function getDashboardSnapshot(
         status: true,
         recurrenceRule: true,
         pinnedAt: true,
+        reminderIntervalMinutes: true,
+        nextReminderAt: true,
         reminderCount: true,
+        snoozedUntil: true,
         assignedUsername: true,
         assignedDisplayName: true,
         createdAt: true,
         updatedAt: true
       },
-      orderBy: [{ pinnedAt: "desc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
     database.note.findMany({
@@ -198,7 +208,7 @@ export async function getDashboardSnapshot(
     }),
     database.idea.findMany({
       where: { userId: user.id, archivedAt: null },
-      select: { id: true, publicId: true, title: true, concept: true, status: true, tags: true, createdAt: true, updatedAt: true, pinnedAt: true },
+      select: { id: true, publicId: true, title: true, concept: true, status: true, tags: true, scores: true, createdAt: true, updatedAt: true, pinnedAt: true },
       orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
@@ -233,10 +243,11 @@ export async function getDashboardSnapshot(
         caption: true,
         ocrText: true,
         ocrConfidence: true,
+        pinnedAt: true,
         createdAt: true,
         updatedAt: true
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
     database.task.findMany({
@@ -322,7 +333,10 @@ export async function getDashboardSnapshot(
       status: task.status,
       ...(task.recurrenceRule ? { recurring: true } : {}),
       ...(task.pinnedAt ? { pinned: true } : {}),
+      ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
+      ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
       ...(task.reminderCount > 0 ? { reminderCount: task.reminderCount } : {}),
+      ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
       ...(task.assignedDisplayName
         ? { assignee: task.assignedDisplayName }
         : task.assignedUsername
@@ -351,6 +365,7 @@ export async function getDashboardSnapshot(
       tags: idea.tags,
       createdAt: idea.createdAt.toISOString(),
       ...(idea.pinnedAt ? { pinned: true } : {}),
+      ...(storedIdeaBrief(idea.scores) ? { brief: storedIdeaBrief(idea.scores) } : {}),
       updatedAt: idea.updatedAt.toISOString()
     })),
     expenses: expenses.map((expense) => ({
@@ -377,6 +392,7 @@ export async function getDashboardSnapshot(
       ...(image.caption ? { caption: image.caption } : {}),
       ...(image.ocrText ? { ocrText: image.ocrText } : {}),
       ...(typeof image.ocrConfidence === "number" ? { ocrConfidence: image.ocrConfidence } : {}),
+      ...(image.pinnedAt ? { pinned: true } : {}),
       contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(image.id)}/content`,
       createdAt: image.createdAt.toISOString(),
       updatedAt: image.updatedAt.toISOString()

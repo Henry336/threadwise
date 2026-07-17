@@ -28,7 +28,8 @@ export async function startServer(
 
   registerDashboardRoute(server, {
     publicKey: options.dashboardPublicKey,
-    telegramBotToken: options.telegramBotToken
+    telegramBotToken: options.telegramBotToken,
+    ai
   });
 
   server.get("/admin/ai/status", async (request, reply) => {

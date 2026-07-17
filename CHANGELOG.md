@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased - Dashboard Revamp Phase 2
+
+### Added
+- Added saved AI Idea Briefs to the authenticated dashboard, using the bot's configured server-side AI provider to score buildability, usefulness, novelty, portfolio value, monetization, difficulty, and risk.
+- Added durable image favourites with a guarded database migration, optimistic revision protection, and favourite-first ordering in both the dashboard gallery and Telegram image queries.
+- Added right-click and ellipsis action menus for notes, ideas, and images, including edit, pin or favourite, convert, archive, and confirmed deletion flows.
+
+### Changed
+- Dashboard note and idea snapshots now preserve pinned ordering and saved idea analysis across refreshes and Telegram-driven updates.
+- Image updates now support caption and favourite changes together without weakening the existing caption undo trail.
+- Idea analysis is scoped exclusively from the signed Telegram subject; AI credentials remain server-side and are never exposed to the browser.
+
+### Quality
+- Added regression coverage for authenticated Idea Brief generation and persistence, image favourite revision guards, the idea-analysis route, and the expanded dashboard snapshot contract.
+
+## Unreleased - Dashboard Revamp Phase 1
+
+### Added
+- Added one universal dashboard capture pipeline that reuses Threadwise's deterministic natural-language parser and AI structuring for tasks, notes, ideas, and expenses, including dotted clocks such as `1.30pm`.
+- Added authenticated server-sent dashboard change events backed by lightweight revision fingerprints across tasks, notes, ideas, images, expenses, settings, and integrations.
+- Added optimistic revision checks for dashboard task, note, and idea edits so a stale browser tab cannot silently overwrite a newer Telegram or dashboard change.
+- Added first-class dashboard task snoozing and exposed snooze and reminder schedule state in dashboard snapshots.
+
+### Changed
+- Dashboard task collections now default to newest-first ordering while retaining pin priority.
+- The dashboard API now exposes an explicit snapshot refresh route, capture preview route, and live event stream.
+
+### Quality
+- Added regression coverage for dotted-time capture, explicit capture modes, expense capture, live revision changes, and stale-edit conflict rejection.
+
 ## v0.19.4 - 2026-07-17
 
 ### Fixed

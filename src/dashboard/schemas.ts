@@ -37,8 +37,10 @@ export const taskUpdateSchema = z.object({
   description: optionalNullableText(5_000),
   dueAt: nullableDateTime.optional(),
   reminderIntervalMinutes: reminderIntervalMinutes.nullable().optional(),
+  snoozedUntil: nullableDateTime.optional(),
   status: z.nativeEnum(TaskStatus).optional(),
-  pinned: z.boolean().optional()
+  pinned: z.boolean().optional(),
+  expectedUpdatedAt: dateTime.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
 export const noteCreateSchema = z.object({
@@ -51,7 +53,8 @@ export const noteUpdateSchema = z.object({
   title: trimmed(500).optional(),
   body: trimmed(50_000).optional(),
   tags: tags.optional(),
-  pinned: z.boolean().optional()
+  pinned: z.boolean().optional(),
+  expectedUpdatedAt: dateTime.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
 export const ideaCreateSchema = z.object({
@@ -66,8 +69,14 @@ export const ideaUpdateSchema = z.object({
   concept: trimmed(20_000).optional(),
   tags: tags.optional(),
   status: z.nativeEnum(IdeaStatus).optional(),
-  pinned: z.boolean().optional()
+  pinned: z.boolean().optional(),
+  expectedUpdatedAt: dateTime.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
+
+export const capturePreviewSchema = z.object({
+  text: trimmed(20_000),
+  preferredKind: z.enum(["auto", "task", "note", "idea", "expense"]).default("auto")
+}).strict();
 
 export const ideaConvertSchema = z.object({
   dueAt: nullableDateTime.optional(),
@@ -90,8 +99,14 @@ export const expenseUpdateSchema = expenseCreateSchema.partial().strict().refine
   "At least one field is required."
 );
 
-export const imageUpdateSchema = z.object({ caption: optionalNullableText(2_000) }).strict()
-  .refine((value) => Object.prototype.hasOwnProperty.call(value, "caption"), "A caption field is required.");
+export const imageUpdateSchema = z.object({
+  caption: optionalNullableText(2_000),
+  pinned: z.boolean().optional(),
+  expectedUpdatedAt: dateTime.optional()
+}).strict().refine(
+  (value) => Object.prototype.hasOwnProperty.call(value, "caption") || value.pinned !== undefined,
+  "A caption or favourite field is required."
+);
 
 const clock = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 export const settingsUpdateSchema = z.object({
@@ -123,6 +138,7 @@ export const deleteAccountSchema = z.object({
 
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
+export type CapturePreviewInput = z.infer<typeof capturePreviewSchema>;
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>;
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>;
 export type IdeaCreateInput = z.infer<typeof ideaCreateSchema>;

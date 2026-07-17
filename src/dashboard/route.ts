@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
+import type { AiProvider } from "../ai/types";
 import { logger } from "../logger";
 import {
   DashboardAuthenticationError,
@@ -8,9 +9,11 @@ import {
 } from "./auth";
 import {
   DashboardItemNotFoundError,
+  DashboardConflictError,
   DashboardUpstreamError,
   DashboardUnsupportedMediaError,
   DashboardValidationError,
+  analyzeDashboardIdea,
   archiveDashboardIdea,
   archiveDashboardNote,
   archiveDashboardTask,
@@ -43,6 +46,7 @@ import {
 } from "./data";
 import {
   dashboardIdParamsSchema,
+  capturePreviewSchema,
   deleteAccountSchema,
   expenseCreateSchema,
   expenseListQuerySchema,
@@ -64,6 +68,8 @@ import {
   taskUpdateSchema
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
+import { previewDashboardCapture } from "./capture";
+import { subscribeDashboardChanges } from "./realtime";
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
@@ -78,6 +84,7 @@ export type DashboardRouteActions = {
   createIdea: typeof createDashboardIdea;
   updateIdea: typeof updateDashboardIdea;
   archiveIdea: typeof archiveDashboardIdea;
+  analyzeIdea: typeof analyzeDashboardIdea;
   convertIdeaToTask: typeof convertDashboardIdeaToTask;
   listExpenses: typeof listDashboardExpenses;
   createExpense: typeof createDashboardExpense;
@@ -99,6 +106,7 @@ export type DashboardRouteActions = {
 type DashboardRouteOptions = {
   publicKey?: string;
   telegramBotToken?: string;
+  ai?: AiProvider;
   loadSnapshot?: (telegramId: string) => Promise<DashboardSnapshot>;
   actions?: Partial<DashboardRouteActions>;
 };
@@ -116,6 +124,7 @@ const defaultActions: DashboardRouteActions = {
   createIdea: createDashboardIdea,
   updateIdea: updateDashboardIdea,
   archiveIdea: archiveDashboardIdea,
+  analyzeIdea: analyzeDashboardIdea,
   convertIdeaToTask: convertDashboardIdeaToTask,
   listExpenses: listDashboardExpenses,
   createExpense: createDashboardExpense,
@@ -151,6 +160,44 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   };
 
   server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadSnapshot, "snapshot"));
+
+  server.get("/api/v1/dashboard/snapshot", async (request, reply) => run(request, reply, loadSnapshot, "snapshot"));
+
+  server.get("/api/v1/dashboard/events", async (request, reply) => {
+    noStore(reply);
+    try {
+      const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+      });
+      reply.raw.write("retry: 2500\n\n");
+      const unsubscribe = subscribeDashboardChanges(principal.telegramId, (event) => {
+        if (!reply.raw.destroyed) reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      });
+      const heartbeat = setInterval(() => {
+        if (!reply.raw.destroyed) reply.raw.write(": threadwise heartbeat\n\n");
+      }, 15_000);
+      heartbeat.unref?.();
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      };
+      reply.raw.once("close", cleanup);
+      reply.raw.once("error", cleanup);
+      return reply;
+    } catch (error) {
+      return sendDashboardError(reply, error, "live_sync");
+    }
+  });
+
+  server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId) => {
+    if (!options.ai) throw new DashboardConfigurationError("Dashboard capture intelligence is not configured.");
+    return { preview: await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai) };
+  }, "capture_preview"));
 
   server.get("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = taskListQuerySchema.parse(request.query);
@@ -216,6 +263,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const { id } = dashboardIdParamsSchema.parse(request.params);
     return { task: await actions.convertIdeaToTask(telegramId, id, ideaConvertSchema.parse(request.body ?? {})) };
   }, "convert_idea"));
+
+  server.post("/api/v1/dashboard/ideas/:id/analyze", async (request, reply) => run(request, reply, async (telegramId) => {
+    if (!options.ai) throw new DashboardConfigurationError("Dashboard idea analysis is not configured.");
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return actions.analyzeIdea(telegramId, id, options.ai);
+  }, "analyze_idea"));
 
   server.post("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId) => ({
     expense: await actions.createExpense(telegramId, expenseCreateSchema.parse(request.body))
@@ -327,6 +380,9 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
   }
   if (error instanceof DashboardUserNotFoundError || error instanceof DashboardItemNotFoundError) {
     return reply.code(404).send({ error: error instanceof DashboardUserNotFoundError ? "user_not_found" : "not_found" });
+  }
+  if (error instanceof DashboardConflictError) {
+    return reply.code(409).send({ error: "revision_conflict", message: error.message });
   }
   if (error instanceof ZodError || error instanceof DashboardValidationError) {
     const message = error instanceof ZodError ? error.issues[0]?.message : error.message;

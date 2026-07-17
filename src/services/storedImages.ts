@@ -74,7 +74,7 @@ export async function listStoredImages(userId: string, requestedPage = 1) {
   const offset = (page - 1) * IMAGE_PAGE_SIZE;
   const images = await prisma.storedImage.findMany({
     where: { userId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
     skip: offset,
     take: IMAGE_PAGE_SIZE
   });
@@ -114,7 +114,7 @@ export async function searchStoredImages(userId: string, query: string, requeste
   const totalPages = Math.max(1, Math.ceil(totalItems / IMAGE_PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.trunc(requestedPage) || 1), totalPages);
   const offset = (page - 1) * IMAGE_PAGE_SIZE;
-  const images = await prisma.storedImage.findMany({ where, orderBy: { createdAt: "desc" }, skip: offset, take: IMAGE_PAGE_SIZE });
+  const images = await prisma.storedImage.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: offset, take: IMAGE_PAGE_SIZE });
   return { images, page, totalPages, totalItems, offset, query: normalized, scope };
 }
 
@@ -123,7 +123,7 @@ export async function findStoredImageReference(userId: string, reference: string
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
     const images = await prisma.storedImage.findMany({
-      where: { userId }, orderBy: { createdAt: "desc" }, skip: activeIndex - 1, take: 1
+      where: { userId }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: activeIndex - 1, take: 1
     });
     if (!images[0]) throw new Error(`No saved image numbered ${activeIndex}. Run /images to see your images.`);
     return images[0];

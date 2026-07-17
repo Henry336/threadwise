@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DASHBOARD_TOKEN_AUDIENCE, DASHBOARD_TOKEN_ISSUER } from "./auth";
 import { registerDashboardRoute } from "./route";
 import type { DashboardSnapshot } from "./snapshot";
+import type { AiProvider } from "../ai/types";
 
 vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -240,6 +241,33 @@ describe("dashboard API routes", () => {
     expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
     expect(response.headers["content-disposition"]).toContain("inline");
     expect(loadImageContent).toHaveBeenCalledWith("123456789", "IMG-1", "secret-token");
+    await server.close();
+  });
+
+  it("runs idea analysis with the configured server-side AI and signed Telegram owner", async () => {
+    const server = Fastify();
+    const ai = { scoreIdea: vi.fn() } as unknown as AiProvider;
+    const result = {
+      idea: { id: "idea-1", publicId: "IDEA-1", title: "A useful idea" },
+      brief: { buildability: 8, usefulness: 9 }
+    };
+    const analyzeIdea = vi.fn(async () => result);
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      ai,
+      actions: { analyzeIdea: analyzeIdea as never }
+    });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/ideas/IDEA-1/analyze",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(result);
+    expect(analyzeIdea).toHaveBeenCalledWith("123456789", "IDEA-1", ai);
     await server.close();
   });
 
