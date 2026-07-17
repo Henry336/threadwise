@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
 import {
   createIdea,
   createImplementationBrief,
@@ -28,7 +28,7 @@ import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, forma
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -44,7 +44,8 @@ import { isGroupChat } from "./groupRouting";
 import { replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
-import { hidePrivateMenu, showMainMenu } from "./menu";
+import { showDashboardLink, showMainMenu } from "./menu";
+import { replyControlCardHtml } from "./controlCards";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -85,12 +86,18 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:start|get started|menu|show (?:me )?(?:the )?(?:menu|setup|onboarding)|open (?:the )?menu|take me through (?:the )?setup)$/.test(lower)) {
-    await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore");
+    if (!ctx.from) return true;
+    await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
     return true;
   }
 
-  if (/^(?:hide|close|remove) (?:the )?menu$/.test(lower)) {
-    await hidePrivateMenu(ctx);
+  if (/^(?:(?:open|show|visit|take me to) (?:my |the )?)?(?:web )?dashboard$/.test(lower)) {
+    await showDashboardLink(ctx);
+    return true;
+  }
+
+  if (/^(?:privacy|data privacy|is my data safe|who can (?:see|access) my data|how (?:is|do you keep) my data safe)$/.test(lower)) {
+    await replyHtml(ctx, formatPrivacyText(), { reply_markup: dashboardLinkKeyboard() });
     return true;
   }
 
@@ -352,7 +359,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       doneOnly: parsed.doneOnly
     });
     const pending = await createPendingSearch(user.id, parsed);
-    const pageSize = 10;
+    const pageSize = 5;
     const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
     await replyHtml(ctx, formatSearchResultsPage(results, 1, pageSize, parsed.label), {
       reply_markup: searchPageKeyboard(pending.id, 1, totalPages)
@@ -371,7 +378,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
-      await replyHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
+      await replyControlCardHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       try {
         await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1])), user.settings?.timezone));
@@ -386,7 +393,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewIdeaMatch?.[1] && /^(\d+|IDEA-\d+)$/i.test(viewIdeaMatch[1])) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
-      await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -397,7 +404,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (noteSearchMatch?.[1]) {
     const notes = await searchNotes(user.id, noteSearchMatch[1]);
     const keyboard = itemListKeyboard("note", notes);
-    await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+    await replyControlCardHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
     return true;
   }
 
@@ -405,7 +412,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (ideaListMatch?.[1]) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
-      await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -417,7 +424,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (taskDetailMatch?.[1]) {
     try {
       const task = await findTaskReference(user.id, normalizePublicId(taskDetailMatch[1]));
-      await replyHtml(ctx, formatTaskDetail(task, user.settings?.timezone, user.settings
+      await replyControlCardHtml(ctx, formatTaskDetail(task, user.settings?.timezone, user.settings
         ? {
             reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
             maxRemindersPerDay: user.settings.maxRemindersPerDay,
@@ -645,7 +652,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       return true;
     }
     const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
 
@@ -663,21 +670,21 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const ideaBody = parseNaturalIdeaBody(trimmed);
   if (ideaBody) {
     const idea = await createIdea(user.id, ideaBody, ai);
-    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
     return true;
   }
 
   const taskBody = parseNaturalTaskBody(trimmed);
   if (taskBody) {
     const task = await createTask(user.id, taskBody, ai, taskCreationOptionsFromContext(ctx, taskBody));
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
     return true;
   }
 
   const noteBody = parseNaturalNoteBody(trimmed);
   if (noteBody) {
     const note = await createNote(user.id, noteBody, ai);
-    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
     return true;
   }
 

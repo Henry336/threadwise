@@ -9,7 +9,7 @@ vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }));
 
-describe("GET /api/v1/dashboard", () => {
+describe("dashboard API routes", () => {
   let privateKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
   let publicKeyPem: string;
 
@@ -26,6 +26,17 @@ describe("GET /api/v1/dashboard", () => {
     notes: [],
     ideas: [],
     expenses: [],
+    images: [],
+    settings: {
+      timezone: "Asia/Singapore",
+      reminderIntervalMinutes: 180,
+      maxRemindersPerDay: 200,
+      dueNudgeMinutes: 3,
+      reminderMode: "INDIVIDUAL",
+      expenseCurrency: "SGD",
+      ocrLanguages: "eng",
+      directNudgesEnabled: false
+    },
     activity: [],
     integrations: []
   } satisfies DashboardSnapshot;
@@ -100,6 +111,145 @@ describe("GET /api/v1/dashboard", () => {
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "dashboard_api_unavailable" });
     expect(loadSnapshot).not.toHaveBeenCalled();
+    await server.close();
+  });
+
+  it("derives list ownership solely from the signed subject and parses bounded pagination", async () => {
+    const server = Fastify();
+    const listTasks = vi.fn(async () => ({ items: [], page: 2, limit: 25, total: 0, totalPages: 1, hasMore: false }));
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { listTasks } });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard/tasks?page=2&limit=25&q=bank&status=DONE",
+      headers: { authorization: `Bearer ${await validToken()}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ tasks: { items: [], page: 2, limit: 25, total: 0, totalPages: 1, hasMore: false } });
+    expect(listTasks).toHaveBeenCalledWith("123456789", { page: 2, limit: 25, q: "bank", status: "DONE" });
+    await server.close();
+  });
+
+  it("rejects client-supplied ownership fields instead of trusting them", async () => {
+    const server = Fastify();
+    const createTask = vi.fn();
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: { title: "Private task", userId: "someone-else" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "invalid_request" });
+    expect(createTask).not.toHaveBeenCalled();
+    await server.close();
+  });
+
+  it("enforces the canonical 15-minute reminder floor for dashboard mutations", async () => {
+    const server = Fastify();
+    const createTask = vi.fn(async () => ({ id: "task-1" }));
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask: createTask as never } });
+    const authorization = `Bearer ${await validToken()}`;
+
+    const rejected = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization },
+      payload: { title: "Too frequent", reminderIntervalMinutes: 1 }
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(createTask).not.toHaveBeenCalled();
+
+    const accepted = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization },
+      payload: { title: "Reasonable cadence", reminderIntervalMinutes: 15 }
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(createTask).toHaveBeenCalledWith("123456789", { title: "Reasonable cadence", reminderIntervalMinutes: 15 });
+    await server.close();
+  });
+
+  it("derives Excel sync ownership solely from the signed Telegram subject", async () => {
+    const server = Fastify();
+    const syncExcelExpenses = vi.fn(async () => ({ provider: "excel" as const, synced: 4 }));
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { syncExcelExpenses } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/integrations/excel/sync",
+      headers: { authorization: `Bearer ${await validToken()}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ provider: "excel", synced: 4 });
+    expect(syncExcelExpenses).toHaveBeenCalledWith("123456789");
+    await server.close();
+  });
+
+  it("requires the exact destructive confirmation phrase before deleting an account", async () => {
+    const server = Fastify();
+    const deleteAccount = vi.fn(async () => undefined);
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { deleteAccount } });
+    const authorization = `Bearer ${await validToken()}`;
+
+    const rejected = await server.inject({
+      method: "DELETE",
+      url: "/api/v1/dashboard/privacy/account",
+      headers: { authorization },
+      payload: { confirmation: "delete" }
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(deleteAccount).not.toHaveBeenCalled();
+
+    const accepted = await server.inject({
+      method: "DELETE",
+      url: "/api/v1/dashboard/privacy/account",
+      headers: { authorization },
+      payload: { confirmation: "DELETE MY THREADWISE DATA" }
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toEqual({ deleted: true });
+    expect(deleteAccount).toHaveBeenCalledWith("123456789");
+    await server.close();
+  });
+
+  it("serves authenticated raster bytes with defensive browser headers", async () => {
+    const server = Fastify();
+    const loadImageContent = vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" }));
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      telegramBotToken: "secret-token",
+      actions: { loadImageContent }
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard/images/IMG-1/content",
+      headers: { authorization: `Bearer ${await validToken()}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/png");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
+    expect(response.headers["content-disposition"]).toContain("inline");
+    expect(loadImageContent).toHaveBeenCalledWith("123456789", "IMG-1", "secret-token");
+    await server.close();
+  });
+
+  it("does not run mutations without a valid bearer token", async () => {
+    const server = Fastify();
+    const archiveTask = vi.fn();
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { archiveTask } });
+    const response = await server.inject({ method: "DELETE", url: "/api/v1/dashboard/tasks/TASK-1" });
+    expect(response.statusCode).toBe(401);
+    expect(archiveTask).not.toHaveBeenCalled();
     await server.close();
   });
 });

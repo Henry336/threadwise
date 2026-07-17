@@ -1,11 +1,11 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
-import { formatPinResult, pinItem } from "../services/pins";
+import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
 import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
@@ -16,13 +16,18 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, imageReminderTimeKeyboard, itemActionsKeyboard, itemCreatedKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, helpTopicsKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
-import { formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
+import { formatHelpGuide, formatHelpTopic, formatMainMenuText, formatPrivacyText } from "./help";
 import { formatSettings } from "../services/settings";
+import { beginMenuInput, clearMenuInput, type MenuInputAction } from "./menuInputs";
+import { rememberCallbackControlCard } from "./controlCards";
+import { buildItemCard } from "./itemCards";
+import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationState";
+import { cancelTransientInteractions } from "./interactions";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -31,6 +36,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1], ctx.match[2], ctx.match[3]));
   bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
@@ -103,23 +109,63 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
 async function handleMenu(ctx: Context, action: string | undefined) {
   if (!action) return;
   const user = await ensureUser(ctx);
+  if (!ctx.from) return;
+  await cancelTransientInteractions(user.id, ctx.from.id);
   await ctx.answerCallbackQuery();
+  rememberCallbackControlCard(ctx);
   if (action === "home") {
-    await editOrReplyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), {
+    await editOrReplyHtml(ctx, formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
       reply_markup: startMenuKeyboard()
     });
     return;
   }
-  if (action === "tasks" || action === "notes" || action === "ideas") {
-    await replyActiveList(ctx, user, action, 1, true);
+  if (action === "tasks") {
+    await editOrReplyHtml(ctx, `${bold("📋 Tasks")}\nTasks are the things you want to do. Add a due time when you also want a reminder.`, { reply_markup: tasksModeKeyboard() });
+    return;
+  }
+  if (action === "notes") {
+    await editOrReplyHtml(ctx, `${bold("📝 Notes")}\nSave reference material, thoughts, and anything you want to find later.`, { reply_markup: notesModeKeyboard() });
+    return;
+  }
+  if (action === "ideas") {
+    await editOrReplyHtml(ctx, `${bold("💡 Ideas")}\nCapture an idea now; shape, score, or build it later.`, { reply_markup: ideasModeKeyboard() });
     return;
   }
   if (action === "images") {
-    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
+    await editOrReplyHtml(ctx, `${bold("🖼️ Images")}\nBrowse saved images here, or open the visual gallery on the dashboard.`, { reply_markup: imagesModeKeyboard() });
+    return;
+  }
+  if (action === "expenses") {
+    await editOrReplyHtml(ctx, `${bold("💰 Expenses")}\nRecord spending, review recent entries, or export to Excel.`, { reply_markup: expensesModeKeyboard() });
+    return;
+  }
+  if (action === "search") {
+    await editOrReplyHtml(ctx, `${bold("🔎 Search")}\nFind anything across tasks, notes, ideas, and saved images.`, { reply_markup: searchModeKeyboard() });
     return;
   }
   if (action === "settings") {
-    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: menuBackKeyboard() });
+    await editOrReplyHtml(ctx, `${bold("⚙️ Settings")}\nPreferences, integrations, and privacy controls live here.`, { reply_markup: settingsModeKeyboard() });
+    return;
+  }
+  if (action === "tasks-list" || action === "notes-list" || action === "ideas-list") {
+    await replyActiveList(ctx, user, action.slice(0, -5) as "tasks" | "notes" | "ideas", 1, true);
+    return;
+  }
+  if (action === "images-list") {
+    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
+    return;
+  }
+  if (action === "expenses-list") {
+    const filter = decodeExpenseFilter("all:all");
+    if (!filter) return;
+    const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
+    await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
+      reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
+    });
+    return;
+  }
+  if (action === "preferences") {
+    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: menuBackKeyboard("‹ Settings", "menu:settings") });
     return;
   }
   if (action === "help") {
@@ -127,7 +173,51 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "integrations") {
-    await editOrReplyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`, { reply_markup: menuBackKeyboard() });
+    await editOrReplyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`, { reply_markup: menuBackKeyboard("‹ Settings", "menu:settings") });
+    return;
+  }
+  if (action === "privacy") {
+    await editOrReplyHtml(ctx, formatPrivacyText(), { reply_markup: settingsModeKeyboard() });
+    return;
+  }
+  if (action === "important") {
+    await editOrReplyHtml(ctx, formatPinnedItems(await listPinnedItems(user.id)), { reply_markup: searchModeKeyboard() });
+    return;
+  }
+  if (action === "archived") {
+    await editOrReplyHtml(ctx, `${bold("🗃️ Archived")}\nChoose what you want to review.`, { reply_markup: archivedKindsKeyboard() });
+    return;
+  }
+  const archivedKind = action.match(/^(tasks|notes|ideas)-archived$/)?.[1] as "tasks" | "notes" | "ideas" | undefined;
+  if (archivedKind) {
+    const archived = await listArchivedItems(user.id, archivedKind, 1);
+    await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+      reply_markup: archivedPageKeyboard(archivedKind, archived.page, archived.totalPages)
+    });
+    return;
+  }
+  const inputs: Record<string, { action: MenuInputAction; title: string; prompt: string; back: string }> = {
+    "tasks-add": { action: "task", title: "＋ Add task", prompt: "What needs doing? A due date is optional.", back: "tasks" },
+    "tasks-reminder": { action: "reminder", title: "⏰ Set reminder", prompt: "What should I remind you about, and when?", back: "tasks" },
+    "notes-add": { action: "note", title: "＋ Add note", prompt: "Send the note you want to keep.", back: "notes" },
+    "ideas-add": { action: "idea", title: "＋ Add idea", prompt: "Send the idea you want to capture.", back: "ideas" },
+    "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", back: "search" },
+    "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for in your notes?", back: "notes" },
+    "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for in your ideas?", back: "ideas" },
+    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "Describe the caption, filename, or text inside it.", back: "images" },
+    "expenses-add": { action: "expense", title: "＋ Add expense", prompt: "Describe the expense, including the amount. You can add merchant, date, category, or payment method too.", back: "expenses" }
+  };
+  const input = inputs[action];
+  if (input) {
+    beginMenuInput(user.id, ctx.from.id, input.action);
+    await editOrReplyHtml(ctx, `${bold(input.title)}\n${h(input.prompt)}\n\nSend your answer as the next message.`, {
+      reply_markup: menuInputCancelKeyboard(input.back)
+    });
+    return;
+  }
+  if (action === "cancel-input") {
+    clearMenuInput(user.id, ctx.from.id);
+    await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: startMenuKeyboard() });
     return;
   }
   const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
@@ -135,13 +225,15 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     "notes-help": "notes",
     "ideas-help": "ideas",
     "images-help": "images",
-    expenses: "expenses",
     excel: "excel",
-    search: "search",
     commands: "commands"
   };
   const topic = topics[action];
-  if (topic) await editOrReplyHtml(ctx, formatHelpTopic(topic), { reply_markup: menuBackKeyboard() });
+  if (topic) {
+    const parentLabel = action === "excel" ? "‹ Expenses" : "‹ Help";
+    const parentCallback = action === "excel" ? "menu:expenses" : "menu:help";
+    await editOrReplyHtml(ctx, formatHelpTopic(topic), { reply_markup: menuBackKeyboard(parentLabel, parentCallback) });
+  }
 }
 
 async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
@@ -282,14 +374,13 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   const completion = await completeTask(user.id, taskId);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
-    await editOrReplyHtml(ctx, formatTaskAlreadyCompleted(completion.task), {
-      reply_markup: restoreCompletedTaskKeyboard(completion.task.id)
-    });
+    await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await editOrReplyHtml(ctx, formatTaskCompleted(completion.task, user.settings?.timezone), {
-    reply_markup: undoKeyboard("↩️ Undo complete")
+  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
+    label: "↩️ Undo complete",
+    callbackData: "undo:last"
   });
 }
 
@@ -299,15 +390,15 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
-    await editOrReplyHtml(ctx, `${bold("Task already open")} ${code(result.task.publicId)} ${h(result.task.title)}`, {
-      reply_markup: taskActionsKeyboard(result.task)
-    });
+    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "Task already open");
+    appendListOrigin(card.keyboard, user.id, "task");
+    await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  await editOrReplyHtml(ctx, `${bold("↩️ Task restored")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} puts it back if needed.`, {
-    reply_markup: taskActionsKeyboard(result.task).row().text("↩️ Undo restore", "undo:last")
-  });
+  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored");
+  appendListOrigin(card.keyboard, user.id, "task");
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo restore", "undo:last") });
 }
 
 async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
@@ -315,18 +406,19 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  await editOrReplyHtml(ctx, `${bold("⏰ Snoozed for an hour")} ${code(task.publicId)} ${h(task.title)}`, {
-    reply_markup: undoKeyboard("↩️ Undo snooze")
-  });
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour");
+  appendListOrigin(card.keyboard, user.id, "task");
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo snooze", "undo:last") });
 }
 
 async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const user = await ensureUser(ctx);
-  const task = await cancelTask(user.id, taskId);
+  await cancelTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Canceled task" });
-  await editOrReplyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}`, {
-    reply_markup: undoKeyboard("↩️ Undo cancel")
+  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
+    label: "↩️ Undo cancel",
+    callbackData: "undo:last"
   });
 }
 
@@ -335,13 +427,13 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  await editOrReplyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
-    reply_markup: undoKeyboard("↩️ Undo")
-  } : { reply_markup: menuBackKeyboard() });
+  const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important");
+  appendListOrigin(card.keyboard, user.id, "task");
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
 async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
-  if (!isEditableItemKind(kind) || !itemId) return;
+  if (!isEditableItemKind(kind) || kind === "image" || !itemId) return;
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, itemId, shouldPin);
   await ctx.answerCallbackQuery({
@@ -349,9 +441,9 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  await editOrReplyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
-    reply_markup: undoKeyboard("↩️ Undo")
-  } : { reply_markup: menuBackKeyboard() });
+  const card = await buildItemCard(user.id, kind, item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Starred" : "☆ Unstarred");
+  appendListOrigin(card.keyboard, user.id, kind);
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
 async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
@@ -365,10 +457,11 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
 async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
   if (!noteId) return;
   const user = await ensureUser(ctx);
-  const note = await archiveNote(user.id, noteId);
+  await archiveNote(user.id, noteId);
   await ctx.answerCallbackQuery({ text: "Archived note" });
-  await editOrReplyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
-    reply_markup: undoKeyboard("↩️ Undo archive")
+  await replyActiveList(ctx, user, "notes", listOrigin(user.id, "note") ?? 1, true, {
+    label: "↩️ Undo archive",
+    callbackData: "undo:last"
   });
 }
 
@@ -393,7 +486,7 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
   const user = await ensureUser(ctx);
   try {
     const parsed = await findPendingSearch(user.id, pendingId);
-    const pageSize = 10;
+    const pageSize = 5;
     const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
       includeDone: parsed.includeDone,
       doneOnly: parsed.doneOnly
@@ -439,6 +532,18 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
 
 function isEditableItemKind(kind: string | undefined): kind is EditableItemKind {
   return kind === "task" || kind === "note" || kind === "idea" || kind === "image";
+}
+
+async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: string | undefined, pageText: string | undefined) {
+  if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
+  const user = await ensureUser(ctx);
+  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC");
+  const page = Math.max(1, Number(pageText) || 1);
+  const listKind = kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas";
+  rememberListOrigin(user.id, kind, page);
+  card.keyboard.row().text(`‹ Back to page ${page}`, `list:${listKind}:${page}`);
+  await ctx.answerCallbackQuery({ text: "Opened" });
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
 function isEditableItemField(field: string | undefined): field is EditableItemField {

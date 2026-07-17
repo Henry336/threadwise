@@ -53,7 +53,9 @@ describe("natural command parsing", () => {
     ["how do i undo something?", "cleanup"],
     ["how do I extract text from an image?", "images"],
     ["help me save a receipt", "expenses"],
-    ["how do I sync expenses to Excel?", "excel"]
+    ["how do I sync expenses to Excel?", "excel"],
+    ["help me with privacy", "privacy"],
+    ["who can access my data?", "privacy"]
   ])("parses natural help requests: %s", (input, expected) => {
     expect(parseNaturalHelpRequest(input)).toBe(expected);
   });

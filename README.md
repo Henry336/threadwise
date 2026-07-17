@@ -62,7 +62,8 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 - Supports group chats with shared chat-scoped tasks, notes, ideas, settings, expenses, and reminders. In groups, slash commands work directly, while addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
-- Shows a persistent, compact command menu beneath the Telegram reply box in private chats; `/menu` restores it and `Hide menu` removes it. Groups continue using message-attached inline navigation so the shared composer stays uncluttered.
+- Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
+- Opens the live web workspace with `/dashboard` or natural requests such as `open my dashboard`, and explains the exact privacy boundary with `/privacy`.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
 
@@ -71,6 +72,8 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 ```text
 /start
 /menu
+/dashboard
+/privacy
 /help
 /commands
 /idea build a Telegram bot that...
@@ -470,9 +473,9 @@ You can also allow a whole group by adding its chat id, either as `-100123456789
 
 Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
 
-## Read-only Dashboard API
+## Authenticated Dashboard API
 
-`GET /api/v1/dashboard` is a server-to-server endpoint for the separate Threadwise dashboard. It does not enable browser database access and never returns OAuth tokens, original capture text, embeddings, Telegram file identifiers, receipt identifiers, or expense raw text.
+`GET /api/v1/dashboard` remains the fast server-to-server snapshot for the separate Threadwise dashboard. Authenticated routes beneath `/api/v1/dashboard/*` add paginated collections, CRUD actions, search, settings, image delivery, integration disconnects, privacy export, and confirmed account deletion. They do not enable browser database access and never return OAuth tokens, embeddings, Telegram file identifiers, receipt identifiers, expense raw text, or provider credentials.
 
 The first-party dashboard verification key is bundled as a public-only default. Set `DASHBOARD_API_PUBLIC_KEY` on the bot service only when rotating to a replacement Ed25519 SPKI public key. The value may contain real newlines or literal `\n` sequences. Keep the matching private key only in the dashboard service; do not add it to this repository or Render.
 
@@ -487,7 +490,7 @@ exp=<expiry Unix timestamp, no more than 120 seconds after iat>
 jti=<unique non-empty request id>
 ```
 
-The API derives the database owner only from the verified `sub` claim. Synthetic group owners such as `chat:-100123...` are rejected. Every Prisma query is then scoped to that resolved user's internal id with explicit field selects. The endpoint is read-only, sends `Cache-Control: private, no-store`, and intentionally has no browser CORS policy.
+The API derives the database owner only from the verified `sub` claim. Synthetic group owners such as `chat:-100123...` are rejected. Every read and mutation is scoped to that resolved user's internal id; request bodies never accept `userId`. Personalized responses send private/no-store caching headers and the API intentionally has no browser CORS policy. Saved-image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup; bot tokens and reusable Telegram file IDs never reach the browser.
 
 One way to create the key pair locally is:
 

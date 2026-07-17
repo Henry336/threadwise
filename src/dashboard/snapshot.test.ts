@@ -8,6 +8,7 @@ const mocks = {
   noteFindMany: vi.fn(),
   ideaFindMany: vi.fn(),
   expenseFindMany: vi.fn(),
+  imageFindMany: vi.fn(),
   reflectionFindMany: vi.fn()
 };
 
@@ -17,6 +18,7 @@ const database = {
   note: { findMany: mocks.noteFindMany },
   idea: { findMany: mocks.ideaFindMany },
   expense: { findMany: mocks.expenseFindMany },
+  storedImage: { findMany: mocks.imageFindMany },
   reflection: { findMany: mocks.reflectionFindMany }
 } as unknown as PrismaClient;
 
@@ -33,7 +35,18 @@ describe("dashboard snapshot", () => {
       username: "henry",
       firstName: "Henry",
       lastName: "Derek",
-      settings: { timezone: "Asia/Singapore" },
+      settings: {
+        timezone: "Asia/Singapore",
+        reminderIntervalMinutes: 180,
+        quietHoursStart: "22:00",
+        quietHoursEnd: "08:00",
+        maxRemindersPerDay: 200,
+        dueNudgeMinutes: 3,
+        reminderMode: "INDIVIDUAL",
+        expenseCurrency: "SGD",
+        ocrLanguages: "eng",
+        directNudgesEnabled: false
+      },
       gmailConnection: { scanEnabled: true, lastScanAt: new Date("2026-07-16T09:42:00.000Z") },
       calendarConnection: { createdAt: new Date("2026-07-01T00:00:00.000Z") },
       microsoftConnection: { workbookName: "Expenses.xlsx", createdAt: new Date("2026-07-01T00:00:00.000Z") }
@@ -51,7 +64,9 @@ describe("dashboard snapshot", () => {
           pinnedAt: new Date("2026-07-15T00:00:00.000Z"),
           reminderCount: 1,
           assignedUsername: null,
-          assignedDisplayName: null
+          assignedDisplayName: null,
+          createdAt: new Date("2026-07-16T08:00:00.000Z"),
+          updatedAt: new Date("2026-07-16T09:00:00.000Z")
         }
       ])
       .mockResolvedValueOnce([
@@ -66,9 +81,11 @@ describe("dashboard snapshot", () => {
           id: "note-uuid",
           publicId: "NOTE-1",
           title: "API plan",
+          body: "Only return fields the dashboard renders.",
           summary: "Only return fields the dashboard renders.",
           tags: ["dashboard"],
           createdAt: new Date("2026-07-16T07:00:00.000Z"),
+          updatedAt: new Date("2026-07-16T07:30:00.000Z"),
           pinnedAt: null
         }
       ])
@@ -86,10 +103,15 @@ describe("dashboard snapshot", () => {
           total: 14.9,
           currency: "SGD",
           category: "School",
-          transactionAt: new Date("2026-07-15T08:00:00.000Z")
+          transactionAt: new Date("2026-07-15T08:00:00.000Z"),
+          paymentMethod: null,
+          notes: null,
+          createdAt: new Date("2026-07-15T08:00:00.000Z"),
+          updatedAt: new Date("2026-07-15T08:00:00.000Z")
         }
       ])
       .mockResolvedValueOnce([{ createdAt: new Date("2026-07-15T08:00:00.000Z") }]);
+    mocks.imageFindMany.mockResolvedValue([]);
     mocks.reflectionFindMany.mockResolvedValue([{ createdAt: new Date("2026-07-14T08:00:00.000Z") }]);
 
     const snapshot = await getDashboardSnapshot("123456789", database, now);
@@ -117,6 +139,7 @@ describe("dashboard snapshot", () => {
       mocks.noteFindMany,
       mocks.ideaFindMany,
       mocks.expenseFindMany,
+      mocks.imageFindMany,
       mocks.reflectionFindMany
     ]) {
       for (const [query] of findMany.mock.calls) {
@@ -129,7 +152,8 @@ describe("dashboard snapshot", () => {
       tasks: mocks.taskFindMany.mock.calls[0]?.[0],
       notes: mocks.noteFindMany.mock.calls[0]?.[0],
       ideas: mocks.ideaFindMany.mock.calls[0]?.[0],
-      expenses: mocks.expenseFindMany.mock.calls[0]?.[0]
+      expenses: mocks.expenseFindMany.mock.calls[0]?.[0],
+      images: mocks.imageFindMany.mock.calls[0]?.[0]
     });
     expect(queryShape).not.toMatch(/accessToken|refreshToken|sourceText|embedding|telegramFileId|receiptFileUniqueId|rawText/);
     expect(JSON.stringify(snapshot)).not.toMatch(/accessToken|refreshToken|sourceText|embedding|telegramFileId|receiptFileUniqueId|rawText/);

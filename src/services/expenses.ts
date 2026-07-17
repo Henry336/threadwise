@@ -134,6 +134,14 @@ export async function cancelPendingExpense(userId: string, pendingId: string): P
   await prisma.pendingExpense.deleteMany({ where: { id: pendingId, userId } });
 }
 
+export async function cancelPendingExpenseEdits(userId: string): Promise<number> {
+  const result = await prisma.pendingExpense.updateMany({
+    where: { userId, awaitingEdit: true },
+    data: { awaitingEdit: false }
+  });
+  return result.count;
+}
+
 export async function applyPendingExpenseEdit(userId: string, text: string, timezone: string) {
   const pending = await prisma.pendingExpense.findFirst({
     where: { userId, awaitingEdit: true, expiresAt: { gt: new Date() } },

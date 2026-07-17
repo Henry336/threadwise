@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { helpTopicsKeyboard, menuBackKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 
 describe("interactive keyboard navigation", () => {
-  it("offers a main-menu route from nested help and task cards", () => {
+  it("offers contextual parent routes from nested help and task cards", () => {
     expect(callbackData(helpTopicsKeyboard())).toContain("menu:home");
-    expect(callbackData(taskActionsKeyboard("task-row-id"))).toContain("menu:home");
+    expect(callbackData(taskActionsKeyboard("task-row-id"))).toContain("menu:tasks");
   });
 
   it("keeps a back route even when a paged result has only one page", () => {
-    expect(callbackData(searchPageKeyboard("search-id", 1, 1))).toEqual(["menu:home"]);
+    expect(callbackData(searchPageKeyboard("search-id", 1, 1))).toEqual(["menu:search"]);
     expect(callbackData(menuBackKeyboard())).toEqual(["menu:home"]);
+  });
+
+  it("keeps only Menu and Dashboard in the persistent private composer", () => {
+    const keyboard = privateMenuKeyboard();
+    expect(keyboard.keyboard).toEqual([[
+      { text: "☰ Menu" },
+      {
+        text: "🌐 Dashboard",
+        web_app: { url: "https://threadwise-dashboard.vercel.app" }
+      }
+    ]]);
+    expect(keyboard.is_persistent).toBe(true);
   });
 });
 

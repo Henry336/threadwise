@@ -14,7 +14,7 @@ import { appVersion } from "./services/version";
 export async function startServer(
   bot: Bot,
   ai: AiProvider,
-  options: { port: number; webhookPath: string; adminStatusToken?: string; dashboardPublicKey?: string }
+  options: { port: number; webhookPath: string; adminStatusToken?: string; dashboardPublicKey?: string; telegramBotToken?: string }
 ) {
   const server = Fastify({ logger: false });
 
@@ -26,7 +26,10 @@ export async function startServer(
     timestamp: new Date().toISOString()
   }));
 
-  registerDashboardRoute(server, { publicKey: options.dashboardPublicKey });
+  registerDashboardRoute(server, {
+    publicKey: options.dashboardPublicKey,
+    telegramBotToken: options.telegramBotToken
+  });
 
   server.get("/admin/ai/status", async (request, reply) => {
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-admin-token"], options.adminStatusToken)) {

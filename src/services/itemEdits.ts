@@ -16,6 +16,11 @@ type EditableItem = {
   field: EditableItemField;
 };
 
+export type AppliedItemEdit = {
+  kind: EditableItemKind;
+  publicId: string;
+};
+
 const EDIT_TTL_MS = 15 * 60_000;
 
 export async function beginPendingItemEdit(userId: string, kind: EditableItemKind, itemId: string, field: EditableItemField = "title"): Promise<EditableItem> {
@@ -45,7 +50,7 @@ export async function cancelPendingItemEdit(userId: string): Promise<boolean> {
   return result.count > 0;
 }
 
-export async function applyPendingItemEdit(userId: string, value: string): Promise<string | undefined> {
+export async function applyPendingItemEdit(userId: string, value: string): Promise<AppliedItemEdit | undefined> {
   const nextValue = value.trim();
   if (!nextValue) {
     return undefined;
@@ -69,36 +74,36 @@ export async function applyPendingItemEdit(userId: string, value: string): Promi
   if (pending.itemKind === "task") {
     if (pending.editField === "description") {
       const task = await updateTaskDescription(userId, pending.itemPublicId, nextValue);
-      return editedMessage(task.publicId, "details");
+      return { kind: "task", publicId: task.publicId };
     }
 
     const task = await renameTaskTitle(userId, pending.itemPublicId, nextValue);
-    return renamedMessage(task.publicId, task.title);
+    return { kind: "task", publicId: task.publicId };
   }
 
   if (pending.itemKind === "note") {
     if (pending.editField === "body") {
       const note = await updateNoteBody(userId, pending.itemPublicId, nextValue);
-      return editedMessage(note.publicId, "body");
+      return { kind: "note", publicId: note.publicId };
     }
 
     const note = await renameNoteTitle(userId, pending.itemPublicId, nextValue);
-    return renamedMessage(note.publicId, note.title);
+    return { kind: "note", publicId: note.publicId };
   }
 
   if (pending.itemKind === "idea") {
     if (pending.editField === "concept") {
       const idea = await updateIdeaConcept(userId, pending.itemPublicId, nextValue);
-      return editedMessage(idea.publicId, "concept");
+      return { kind: "idea", publicId: idea.publicId };
     }
 
     const idea = await renameIdeaTitle(userId, pending.itemPublicId, nextValue);
-    return renamedMessage(idea.publicId, idea.title);
+    return { kind: "idea", publicId: idea.publicId };
   }
 
   if (pending.itemKind === "image") {
     const image = await updateStoredImageCaption(userId, pending.itemPublicId, nextValue);
-    return `${bold("✅ Caption updated")} ${code(image.publicId)} ${h(image.caption ?? nextValue)}\n${code("/undo")} restores the previous caption.`;
+    return { kind: "image", publicId: image.publicId };
   }
 
   return undefined;
@@ -111,14 +116,6 @@ export function formatEditStarted(item: EditableItem): string {
     `Send the new ${label} as your next message.`,
     "Changed your mind? Tap Cancel edit and I’ll leave it untouched."
   ].join("\n");
-}
-
-function renamedMessage(publicId: string, title: string): string {
-  return `${bold("✅ Renamed")} ${code(publicId)} ${h(title)}\n${code("/undo")} puts the old title back.`;
-}
-
-function editedMessage(publicId: string, field: string): string {
-  return `${bold("✅ Updated")} ${code(publicId)} ${h(field)}\n${code("/undo")} restores the previous version.`;
 }
 
 async function findEditableItem(userId: string, kind: EditableItemKind, itemId: string, field: EditableItemField): Promise<EditableItem> {

@@ -1,5 +1,5 @@
 export type ListKind = "tasks" | "notes" | "ideas";
-export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "commands";
+export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
@@ -107,6 +107,10 @@ export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefi
     return "commands";
   }
 
+  if (/^(?:privacy|who can (?:see|access) my data|is my data safe|how (?:is|do you keep) my data safe)$/.test(normalized)) {
+    return "privacy";
+  }
+
   const helpMatch = normalized.match(/^(?:help(?:\s+me)?(?:\s+with|\s+on)?|how\s+do\s+i|how\s+can\s+i|what\s+can\s+i\s+do\s+with|show\s+me\s+how\s+to|teach\s+me\s+to)\s+(.+)$/);
   const topicText = helpMatch?.[1]?.trim();
   if (!topicText) {
@@ -185,6 +189,10 @@ function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
 
   if (/(?:command|slash|command list)/.test(normalized)) {
     return "commands";
+  }
+
+  if (/(?:privacy|private|security|safe|data|access|operator|password|delete account|export)/.test(normalized)) {
+    return "privacy";
   }
 
   if (/(?:remind|reminder|reminders|task|tasks|todo|to do|snooze|complete|done|reschedule|move task|important)/.test(normalized)) {

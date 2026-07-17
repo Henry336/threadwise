@@ -1,5 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
+import { DASHBOARD_URL } from "./links";
 
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
 type ItemKind = "task" | "note" | "idea";
@@ -13,36 +14,91 @@ export type ActiveListNavigation = {
 
 export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📋 Tasks", "menu:tasks").text("⏰ Reminders", "menu:reminders").row()
-    .text("📝 Notes", "menu:notes").text("💡 Ideas", "menu:ideas").row()
-    .text("🖼️ Images", "menu:images").text("💰 Expenses", "menu:expenses").row()
-    .text("📅 Calendar + 📊 Excel", "menu:integrations").text("⚙️ Settings", "menu:settings").row()
-    .text("🔎 Search + cleanup", "menu:search").text("❓ All help", "menu:help");
+    .text("📋 Tasks", "menu:tasks").text("📝 Notes", "menu:notes").row()
+    .text("💡 Ideas", "menu:ideas").text("🖼️ Images", "menu:images").row()
+    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row()
+    .url("🌐 Dashboard", DASHBOARD_URL).text("⚙️ Settings", "menu:settings").row()
+    .text("❓ Help", "menu:help");
 }
 
 export const PRIVATE_MENU_LABELS = {
-  tasks: "📋 Tasks",
-  reminders: "⏰ Reminders",
-  notes: "📝 Notes",
-  ideas: "💡 Ideas",
-  images: "🖼️ Images",
-  expenses: "💰 Expenses",
-  search: "🔎 Search",
-  settings: "⚙️ Settings",
-  help: "❓ Help",
-  hide: "Hide menu"
+  menu: "☰ Menu",
+  dashboard: "🌐 Dashboard"
 } as const;
 
 export function privateMenuKeyboard(): Keyboard {
   return new Keyboard()
-    .text(PRIVATE_MENU_LABELS.tasks).text(PRIVATE_MENU_LABELS.reminders).row()
-    .text(PRIVATE_MENU_LABELS.notes).text(PRIVATE_MENU_LABELS.ideas).row()
-    .text(PRIVATE_MENU_LABELS.images).text(PRIVATE_MENU_LABELS.expenses).row()
-    .text(PRIVATE_MENU_LABELS.search).text(PRIVATE_MENU_LABELS.settings).row()
-    .text(PRIVATE_MENU_LABELS.help).text(PRIVATE_MENU_LABELS.hide)
+    .text(PRIVATE_MENU_LABELS.menu)
+    .webApp(PRIVATE_MENU_LABELS.dashboard, DASHBOARD_URL)
     .resized()
     .persistent()
     .placeholder("Tell Threadwise what you need…");
+}
+
+export function dashboardLinkKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().url("Open Threadwise Dashboard", DASHBOARD_URL);
+}
+
+export function tasksModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("＋ Add task", "menu:tasks-add").text("⏰ Set reminder", "menu:tasks-reminder").row()
+    .text("📋 Open tasks", "menu:tasks-list").text("⭐ Important", "menu:important").row()
+    .text("🗃️ Archived", "menu:tasks-archived").text("‹ Main menu", "menu:home");
+}
+
+export function notesModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("＋ Add note", "menu:notes-add").text("📝 Recent notes", "menu:notes-list").row()
+    .text("🔎 Search notes", "menu:notes-search").text("🗃️ Archived", "menu:notes-archived").row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function ideasModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("＋ Add idea", "menu:ideas-add").text("💡 Recent ideas", "menu:ideas-list").row()
+    .text("🔎 Search ideas", "menu:ideas-search").text("🗃️ Archived", "menu:ideas-archived").row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function imagesModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🖼️ Browse images", "menu:images-list").text("🔎 Find an image", "menu:images-search").row()
+    .url("Open gallery", `${DASHBOARD_URL}/dashboard?view=images`).text("‹ Main menu", "menu:home");
+}
+
+export function expensesModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("＋ Add expense", "menu:expenses-add").text("💰 Recent expenses", "menu:expenses-list").row()
+    .text("📊 Excel & export", "menu:excel").text("‹ Main menu", "menu:home");
+}
+
+export function searchModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🔎 Search everything", "menu:search-input").row()
+    .text("⭐ Important", "menu:important").text("🗃️ Archived", "menu:archived").row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function archivedKindsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📋 Tasks", "menu:tasks-archived")
+    .text("📝 Notes", "menu:notes-archived")
+    .text("💡 Ideas", "menu:ideas-archived")
+    .row()
+    .text("‹ Search", "menu:search");
+}
+
+export function settingsModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("⚙️ Preferences", "menu:preferences").text("🔌 Integrations", "menu:integrations").row()
+    .text("🔐 Data & privacy", "menu:privacy").url("🌐 Dashboard", `${DASHBOARD_URL}/dashboard?view=settings`).row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function menuInputCancelKeyboard(backAction: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✕ Cancel", "menu:cancel-input")
+    .text("‹ Back", `menu:${backAction}`);
 }
 
 export function helpTopicsKeyboard(): InlineKeyboard {
@@ -51,13 +107,19 @@ export function helpTopicsKeyboard(): InlineKeyboard {
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
     .text("💰 Expenses", "menu:expenses").text("📊 Excel", "menu:excel").row()
     .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
+    .text("🔐 Privacy", "menu:privacy").url("🌐 Dashboard", DASHBOARD_URL).row()
     .text("⌨️ Commands", "menu:commands")
     .row()
     .text("‹ Main menu", "menu:home");
 }
 
-export function menuBackKeyboard(label = "‹ Main menu"): InlineKeyboard {
-  return new InlineKeyboard().text(label, "menu:home");
+export function menuBackKeyboard(label = "‹ Main menu", callbackData = "menu:home"): InlineKeyboard {
+  return new InlineKeyboard().text(label, callbackData);
+}
+
+export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | "expenses" | "search", label?: string): InlineKeyboard {
+  const fallback = mode[0]?.toUpperCase() + mode.slice(1);
+  return new InlineKeyboard().text(label ?? `‹ ${fallback}`, `menu:${mode}`);
 }
 
 export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -74,7 +136,7 @@ export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("📝 Edit details", `item:task:edit:description:${taskId}`)
     .text("🗑️ Cancel task", `task:cancel:${taskId}`)
     .row()
-    .text("‹ Main menu", "menu:home");
+    .text("‹ Tasks", "menu:tasks");
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -83,7 +145,7 @@ export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("↩️ Undo save", "undo:last");
 }
 
-export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 5, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (tasks.length === 0) {
     return undefined;
   }
@@ -92,18 +154,14 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 10, navigat
   const visibleTasks = tasks.slice(0, maxButtons);
   for (const [index, task] of visibleTasks.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard
-      .text(`✅ Complete ${number}`, `task:done:${task.id}`)
-      .text(`⏰ Snooze ${number}`, `task:snooze:${task.id}`)
-      .text(`${task.pinnedAt ? "☆ Unstar" : "⭐ Star"} ${number}`, `item:task:${task.pinnedAt ? "unpin" : "pin"}:${task.id}`)
-      .text(`✏️ Edit ${number}`, `item:task:edit:title:${task.id}`);
+    keyboard.text(`Open task ${number}`, `item:task:open:${task.id}:${navigation?.page ?? 1}`);
 
     if (index < visibleTasks.length - 1) {
       keyboard.row();
     }
   }
 
-  appendActiveListNavigation(keyboard, navigation);
+  appendActiveListNavigation(keyboard, navigation, "tasks");
 
   return keyboard;
 }
@@ -125,7 +183,7 @@ export function restoreCompletedTaskKeyboard(taskId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("↩️ Restore task", `task:restore:${taskId}`)
     .row()
-    .text("‹ Main menu", "menu:home");
+    .text("‹ Tasks", "menu:tasks");
 }
 
 export function editCancelKeyboard(): InlineKeyboard {
@@ -146,12 +204,12 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
     keyboard.row().text("🗃️ Archive note", `item:note:archive:${item.id}`);
   }
 
-  keyboard.row().text("‹ Main menu", "menu:home");
+  keyboard.row().text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);
 
   return keyboard;
 }
 
-export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 10, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 5, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (items.length === 0) {
     return undefined;
   }
@@ -160,32 +218,34 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   const visibleItems = items.slice(0, maxButtons);
   for (const [index, item] of visibleItems.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard
-      .text(`${item.pinnedAt ? "☆ Unstar" : "⭐ Star"} ${number}`, `item:${kind}:${item.pinnedAt ? "unpin" : "pin"}:${item.id}`)
-      .text(`✏️ Edit ${number}`, `item:${kind}:edit:title:${item.id}`);
-
-    if (kind === "note") {
-      keyboard.text(`🗃️ Archive ${number}`, `item:note:archive:${item.id}`);
-    }
+    keyboard.text(`Open ${kind} ${number}`, `item:${kind}:open:${item.id}:${navigation?.page ?? 1}`);
 
     if (index < visibleItems.length - 1) {
       keyboard.row();
     }
   }
 
-  appendActiveListNavigation(keyboard, navigation);
+  appendActiveListNavigation(keyboard, navigation, kind === "note" ? "notes" : "ideas");
 
   return keyboard;
 }
 
-function appendActiveListNavigation(keyboard: InlineKeyboard, navigation?: ActiveListNavigation): void {
+function appendActiveListNavigation(
+  keyboard: InlineKeyboard,
+  navigation?: ActiveListNavigation,
+  fallbackKind?: ActiveListNavigation["kind"]
+): void {
   if (navigation && navigation.totalPages > 1) {
     keyboard.row();
     if (navigation.page > 1) keyboard.text("← Prev", `list:${navigation.kind}:${navigation.page - 1}`);
     keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
     if (navigation.page < navigation.totalPages) keyboard.text("Next →", `list:${navigation.kind}:${navigation.page + 1}`);
   }
-  keyboard.row().text("‹ Main menu", "menu:home");
+  const kind = navigation?.kind ?? fallbackKind;
+  keyboard.row().text(
+    `‹ ${kind === "tasks" ? "Tasks" : kind === "notes" ? "Notes" : kind === "ideas" ? "Ideas" : "Main menu"}`,
+    kind ? `menu:${kind}` : "menu:home"
+  );
 }
 
 export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
@@ -213,7 +273,7 @@ export function searchPageKeyboard(pendingId: string, page: number, totalPages: 
     if (page < totalPages) keyboard.text("Next", `search:${pendingId}:${page + 1}`);
     keyboard.row();
   }
-  keyboard.text("‹ Main menu", "menu:home");
+  keyboard.text("‹ Search", "menu:search");
   return keyboard;
 }
 
@@ -225,7 +285,7 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
     if (page < totalPages) keyboard.text("Next", `archived:${kind}:${page + 1}`);
     keyboard.row();
   }
-  keyboard.text("‹ Main menu", "menu:home");
+  keyboard.text("‹ Archived", "menu:archived");
   return keyboard;
 }
 
@@ -318,6 +378,6 @@ export function expensePageKeyboard(encodedFilter: string, page: number, totalPa
     if (page < totalPages) keyboard.text("Next", `expense:page:${encodedFilter}:${page + 1}`);
     keyboard.row();
   }
-  keyboard.text("‹ Main menu", "menu:home");
+  keyboard.text("‹ Expenses", "menu:expenses");
   return keyboard;
 }

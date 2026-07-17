@@ -10,7 +10,7 @@ import { formatIdeaDetail, formatRecentIdeas } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
 
 describe("bot formatters", () => {
-  it("uses active list numbers while keeping durable task IDs visible", () => {
+  it("uses active list numbers without exposing internal task metadata", () => {
     const message = formatOpenTasks(
       [
         task({
@@ -23,8 +23,9 @@ describe("bot formatters", () => {
     );
 
     expect(message).toContain("1. <b>Drink water</b>");
-    expect(message).toContain("<code>TASK-999</code>");
-    expect(message).toContain("<code>/done 1</code>");
+    expect(message).not.toContain("TASK-999");
+    expect(message).not.toContain("Reminders Sent");
+    expect(message).toContain("matching buttons");
   });
 
   it("groups active tasks by due state", () => {
@@ -59,6 +60,8 @@ describe("bot formatters", () => {
 
     expect(message).toContain("<b>Important task</b>");
     expect(message).toContain("<b>Important:</b> Yes");
+    expect(message).not.toContain("Task ID");
+    expect(message).not.toContain("Reminders Sent");
   });
 
   it("formats newly created tasks without noisy calendar links", () => {
@@ -75,7 +78,7 @@ describe("bot formatters", () => {
     expect(message).toContain("<b>Due Date:</b>");
     expect(message).toContain("<b>Assigned To:</b> @henry_derek");
     expect(message).toContain("<b>Repeats:</b> Daily");
-    expect(message).toContain("<b>Task ID:</b> <code>TASK-9</code>");
+    expect(message).not.toContain("Task ID");
     expect(message).not.toContain("calendar.google.com");
   });
 
@@ -116,24 +119,12 @@ describe("bot formatters", () => {
     const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "✅ Complete 1",
-      callback_data: "task:done:task-uuid-1"
-    });
-    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
-      text: "⏰ Snooze 1",
-      callback_data: "task:snooze:task-uuid-1"
-    });
-    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
-      text: "⭐ Star 1",
-      callback_data: "item:task:pin:task-uuid-1"
-    });
-    expect(keyboard?.inline_keyboard[0]?.[3]).toEqual({
-      text: "✏️ Edit 1",
-      callback_data: "item:task:edit:title:task-uuid-1"
+      text: "Open task 1",
+      callback_data: "item:task:open:task-uuid-1:1"
     });
     expect(keyboard?.inline_keyboard).toHaveLength(2);
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Main menu", callback_data: "menu:home" }
+      { text: "‹ Tasks", callback_data: "menu:tasks" }
     ]);
   });
 
@@ -145,14 +136,14 @@ describe("bot formatters", () => {
 
     expect(message).toContain("Page 2/3");
     expect(message).toContain("11. <b>Later task</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("✅ Complete 11");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Open task 11");
     expect(keyboard?.inline_keyboard.at(-2)).toEqual([
       { text: "← Prev", callback_data: "list:tasks:1" },
       { text: "Page 2/3", callback_data: "list:tasks:2" },
       { text: "Next →", callback_data: "list:tasks:3" }
     ]);
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Main menu", callback_data: "menu:home" }
+      { text: "‹ Tasks", callback_data: "menu:tasks" }
     ]);
   });
 
@@ -203,42 +194,34 @@ describe("bot formatters", () => {
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[2]).toEqual([
-      { text: "‹ Main menu", callback_data: "menu:home" }
+      { text: "‹ Ideas", callback_data: "menu:ideas" }
     ]);
   });
 
-  it("shows star and edit controls for note and idea lists", () => {
+  it("keeps note and idea lists compact until an item is opened", () => {
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "⭐ Star 1",
-      callback_data: "item:note:pin:note-uuid-1"
-    });
-    expect(keyboard?.inline_keyboard[0]?.[1]).toEqual({
-      text: "✏️ Edit 1",
-      callback_data: "item:note:edit:title:note-uuid-1"
-    });
-    expect(keyboard?.inline_keyboard[0]?.[2]).toEqual({
-      text: "🗃️ Archive 1",
-      callback_data: "item:note:archive:note-uuid-1"
+      text: "Open note 1",
+      callback_data: "item:note:open:note-uuid-1:1"
     });
   });
 
-  it("numbers notes and ideas globally across ten-row pages", () => {
-    const page = { page: 2, totalPages: 2, offset: 10 };
-    const noteMessage = formatRecentNotes([{ publicId: "NOTE-11", title: "Note eleven", summary: "Saved" }], page);
-    const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-11", title: "Idea eleven", concept: "Saved" }], page);
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-11" }], 10, { kind: "notes", numberOffset: 10, page: 2, totalPages: 2 });
+  it("numbers notes and ideas globally across five-row pages", () => {
+    const page = { page: 2, totalPages: 2, offset: 5 };
+    const noteMessage = formatRecentNotes([{ publicId: "NOTE-6", title: "Note six", summary: "Saved" }], page);
+    const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-6", title: "Idea six", concept: "Saved" }], page);
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 });
 
-    expect(noteMessage).toContain("11. <b>Note eleven</b>");
-    expect(ideaMessage).toContain("11. <b>Idea eleven</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("⭐ Star 11");
+    expect(noteMessage).toContain("6. <b>Note six</b>");
+    expect(ideaMessage).toContain("6. <b>Idea six</b>");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Open note 6");
     expect(keyboard?.inline_keyboard.at(-2)).toEqual([
       { text: "← Prev", callback_data: "list:notes:1" },
       { text: "Page 2/2", callback_data: "list:notes:2" }
     ]);
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Main menu", callback_data: "menu:home" }
+      { text: "‹ Notes", callback_data: "menu:notes" }
     ]);
   });
 
@@ -395,8 +378,9 @@ describe("bot formatters", () => {
   });
 
   it("provides concise start navigation and image-choice buttons", () => {
-    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "⏰ Reminders", callback_data: "menu:reminders" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📋 Tasks", callback_data: "menu:tasks" });
     expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🖼️ Images", callback_data: "menu:images" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌐 Dashboard", url: "https://threadwise-dashboard.vercel.app" });
     expect(incomingImageKeyboard("pending-1").inline_keyboard).toEqual([
       [
         { text: "🖼️ Save image", callback_data: "image-upload:save:pending-1" },
@@ -417,8 +401,12 @@ describe("bot formatters", () => {
     const menu = privateMenuKeyboard();
     expect(menu.is_persistent).toBe(true);
     expect(menu.resize_keyboard).toBe(true);
-    expect(menu.keyboard.flat()).toContainEqual({ text: "📋 Tasks" });
-    expect(menu.keyboard.flat()).toContainEqual({ text: "Hide menu" });
+    expect(menu.keyboard).toHaveLength(1);
+    expect(menu.keyboard.flat()).toContainEqual({ text: "☰ Menu" });
+    expect(menu.keyboard.flat()).toContainEqual({
+      text: "🌐 Dashboard",
+      web_app: { url: "https://threadwise-dashboard.vercel.app" }
+    });
   });
 
   it("shows natural-first onboarding after start", () => {
@@ -429,6 +417,9 @@ describe("bot formatters", () => {
     expect(message).toContain("<code>remind me to stretch every day at 6pm</code>");
     expect(message).toContain("<code>show me my tasks</code>");
     expect(message).toContain("Telegram does not share an exact device timezone with bots");
+    expect(message).toContain("Threadwise never receives your Telegram password");
+    expect(message).toContain("not end-to-end encrypted");
+    expect(message).toContain("<code>/privacy</code>");
     expect(message).toContain("<code>/commands</code> shows the compact slash-command reference.");
   });
 });

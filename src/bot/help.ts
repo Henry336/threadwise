@@ -1,4 +1,5 @@
 import { bold, code } from "../utils/html";
+import { DASHBOARD_URL } from "./links";
 
 export type HelpCommand = {
   command: string;
@@ -14,13 +15,13 @@ type HelpSection = {
   commands: string[];
 };
 
-export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "commands";
+export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
 export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
   { command: "/commands", description: "Show the full slash-command reference.", example: "/commands" },
   { command: "/start", description: "Show first-run onboarding and timezone examples.", example: "/start" },
-  { command: "/menu", description: "Restore the private-chat menu beneath the reply box.", example: "/menu" },
+  { command: "/menu", description: "Bring a fresh control card to the bottom of the chat.", example: "/menu" },
   { command: "/add", description: "Add a task and keep it on your radar until done.", example: "/add pay invoice tomorrow at 9am" },
   { command: "/remind", description: "Schedule a reminder for a specific time.", example: "/remind tomorrow at 9am | submit the form" },
   { command: "/tasks", description: "List open tasks with active numbers and buttons.", example: "/tasks" },
@@ -59,7 +60,9 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/settings", description: "Edit timezone, expense currency, OCR languages, quiet hours, and reminder behavior.", example: "/settings currency MMK" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" },
-  { command: "/groupcheck", description: "Diagnose bot identity and allowlist access inside a Telegram group.", example: "/groupcheck" }
+  { command: "/groupcheck", description: "Diagnose bot identity and allowlist access inside a Telegram group.", example: "/groupcheck" },
+  { command: "/dashboard", description: "Open your live Threadwise web dashboard.", example: "/dashboard" },
+  { command: "/privacy", description: "See exactly how Threadwise protects and processes your data.", example: "/privacy" }
 ];
 
 const HELP_SECTIONS: HelpSection[] = [
@@ -241,8 +244,8 @@ const HELP_SECTIONS: HelpSection[] = [
 export function formatStartText(timezone = "Asia/Singapore"): string {
   return [
     bold("👋 Welcome to Threadwise"),
-    "I can keep track of the small stuff so it does not keep taking up space in your head.",
-    "Just tell me what you want to remember, do, find, change, or schedule.",
+    "Keep tasks, reminders, notes, ideas, images, and spending in one calm place.",
+    "Type naturally, or use the permanent Menu button below when tapping is easier.",
     "In groups, mention me or reply to me so I know the message is for Threadwise.",
     "",
     bold("Try typing"),
@@ -260,9 +263,52 @@ export function formatStartText(timezone = "Asia/Singapore"): string {
     code("change timezone to Myanmar"),
     code("change timezone to Malaysia"),
     "",
-    `${code("/menu")} restores the private-chat buttons if you hide them.`,
+    bold("Your dashboard"),
+    `Everything stays in sync at ${DASHBOARD_URL}`,
+    "Sign in with the same Telegram account. Telegram handles authentication; Threadwise never receives your Telegram password.",
+    "",
+    bold("Your data"),
+    "Other users cannot browse your content: every request is scoped to your Telegram account.",
+    "Connected-service tokens are encrypted before storage. Your saved content is not end-to-end encrypted, so authorized production operators can technically access it when operating the service.",
+    "If you use an AI-powered feature, the relevant content may be sent to the configured AI provider to complete that request.",
+    `Use ${code("/privacy")} for the full plain-language explanation and export, disconnect, or delete controls.`,
+    "",
+    `${code("/menu")} brings a fresh control card to the bottom of the chat.`,
+    `${code("/dashboard")} opens the live web app.`,
     `${code("/help")} shows what I can do with natural examples.`,
     `${code("/commands")} shows the compact slash-command reference.`
+  ].join("\n");
+}
+
+export function formatMainMenuText(timezone = "Asia/Singapore"): string {
+  return [
+    bold("Threadwise"),
+    "What would you like to work with?",
+    `Timezone: ${code(timezone)}`,
+    "",
+    "You can also type any request naturally."
+  ].join("\n");
+}
+
+export function formatPrivacyText(): string {
+  return [
+    bold("🔐 Data & privacy"),
+    bold("Sign-in"),
+    "Telegram authenticates you. Threadwise never receives or stores your Telegram password.",
+    "",
+    bold("Who can see your data"),
+    "Other users cannot access your workspace. Bot and dashboard requests are scoped to your Telegram account.",
+    "Threadwise content is not end-to-end encrypted. Authorized production operators can technically access stored content when maintaining or securing the service.",
+    "",
+    bold("Connected accounts"),
+    "OAuth access and refresh tokens for connected services are encrypted before storage. Disconnect an integration anytime to remove its saved connection.",
+    "",
+    bold("AI features"),
+    "When you use an AI-powered feature, only the content relevant to that request may be sent to the configured AI provider for processing.",
+    "",
+    bold("Your controls"),
+    "Open Dashboard → Settings → Data & privacy to export your data, disconnect integrations, or permanently delete your Threadwise account and content.",
+    DASHBOARD_URL
   ].join("\n");
 }
 
@@ -295,6 +341,10 @@ export function formatHelpTopic(topic: HelpTopic): string {
 
   if (topic === "general") {
     return formatHelpGuide();
+  }
+
+  if (topic === "privacy") {
+    return formatPrivacyText();
   }
 
   const section = HELP_SECTIONS.find((item) => item.topic === topic);

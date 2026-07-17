@@ -34,7 +34,7 @@ export function formatOpenTasks(
       ...group.items.map(({ task, number }) => formatTaskListItem(task, number, fallbackTimezone)),
       ""
     ]),
-    `${italic("Use")} ${code("/done 1")}, ${code("/snooze 1 1h")}, ${code("/task 1")}, ${code("/pin 1")}, ${italic("or")} ${code("/cancel 1")}.`
+    italic("Use the matching buttons below, or keep typing naturally.")
   ].join("\n");
 }
 
@@ -48,15 +48,13 @@ export type ReminderSettingsView = {
 export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
   const timezone = task.timezone ?? fallbackTimezone;
   const metadata = [
-    fieldHtml("Task ID", code(task.publicId)),
     field("Status", task.status.toLowerCase()),
     field("Due Date", task.dueAt ? formatDateTimeForUser(task.dueAt, timezone) : "None"),
     field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
     hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
     task.calendarEventId ? field("Google Calendar", task.calendarSyncedAt ? `Synced ${formatDateTimeForUser(task.calendarSyncedAt, timezone)}` : "Synced") : undefined,
-    task.pinnedAt ? field("Important", "Yes") : undefined,
-    field("Reminders Sent", task.reminderCount)
+    task.pinnedAt ? field("Important", "Yes") : undefined
   ].filter(Boolean).join("\n");
 
   const reminderSettings = settings
@@ -143,7 +141,7 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
   const title = task.pinnedAt ? `${task.title} (important)` : task.title;
-  const lines = [`${number}. ${bold(title)}`, `   ${fieldHtml("Task ID", code(task.publicId))}`];
+  const lines = [`${number}. ${bold(title)}`];
 
   if (task.pinnedAt) {
     lines.push(`   ${bold("Important")} ${italic("starred task")}`);
@@ -159,10 +157,6 @@ function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone
 
   if (task.recurrenceRule) {
     lines.push(`   ${field("Repeats", formatRecurrence(task.recurrenceRule))}`);
-  }
-
-  if (task.reminderCount > 0) {
-    lines.push(`   ${field("Reminders Sent", task.reminderCount)}`);
   }
 
   return lines.join("\n");

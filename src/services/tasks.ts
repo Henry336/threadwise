@@ -517,8 +517,7 @@ export function formatTaskCreated(
     [
       task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
       hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
-      task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
-      fieldHtml("Task ID", code(task.publicId))
+      task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined
     ].filter(Boolean).join("\n"),
     taskAssistantLine(task.publicId, Boolean(task.dueAt)),
     hasAssignees(task)
@@ -530,7 +529,7 @@ export function formatTaskCreated(
 export function formatTaskCompleted(task: { publicId: string; title: string; status: TaskStatus; recurrenceRule?: RecurrenceRule | null; dueAt?: Date | null; timezone?: string | null }, fallbackTimezone = "UTC"): string {
   if (task.recurrenceRule && task.status === TaskStatus.OPEN && task.dueAt) {
     return joinBlocks([
-      `${bold("✅ This occurrence is done")} ${code(task.publicId)} ${h(task.title)}`,
+      `${bold("✅ This occurrence is done")} ${h(task.title)}`,
       [
         field("Next Occurrence", formatDateTimeForUser(task.dueAt, task.timezone ?? fallbackTimezone)),
         field("Repeats", formatRecurrence(task.recurrenceRule))
@@ -538,7 +537,7 @@ export function formatTaskCompleted(task: { publicId: string; title: string; sta
     ]);
   }
 
-  return `${bold("✅ Task complete")} ${code(task.publicId)} ${h(task.title)}`;
+  return `${bold("✅ Task complete")} ${h(task.title)}`;
 }
 
 export async function archiveTask(userId: string, reference: string) {
@@ -564,7 +563,7 @@ export async function archiveTask(userId: string, reference: string) {
 }
 
 export function formatTaskAlreadyCompleted(task: { publicId: string; title: string }): string {
-  return `${bold("Already complete")} ${code(task.publicId)} ${h(task.title)}\nNeed it back on your list? You can restore it below.`;
+  return `${bold("Already complete")} ${h(task.title)}\nNeed it back on your list? You can restore it below.`;
 }
 
 export function formatAssignee(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {

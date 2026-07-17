@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartText } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import {
@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -73,12 +73,15 @@ import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
-import { showMainMenu } from "./menu";
+import { showDashboardLink, showMainMenu } from "./menu";
+import { replyControlCardHtml } from "./controlCards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
-  bot.command("menu", async (ctx) => handleStart(ctx));
+  bot.command("menu", async (ctx) => handleMenuCommand(ctx));
   bot.command("help", async (ctx) => handleHelp(ctx));
+  bot.command("dashboard", async (ctx) => showDashboardLink(ctx));
+  bot.command("privacy", async (ctx) => replyHtml(ctx, formatPrivacyText(), { reply_markup: dashboardLinkKeyboard() }));
   bot.command("commands", async (ctx) => replyHtml(ctx, formatCommandReference()));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
   bot.command("ideas", async (ctx) => handleIdeas(ctx));
@@ -137,7 +140,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
 
   try {
     const idea = await createIdea(user.id, text, ai);
-    await replyHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that idea. Try again in a moment.");
   }
@@ -154,7 +157,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^(\d+|NOTE-\d+)$/i.test(text)) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
-      await replyHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
+      await replyControlCardHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
     } catch {
       try {
         const archivedNote = await findAnyNote(user.id, normalizePublicId(text));
@@ -168,7 +171,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
 
   try {
     const note = await createNote(user.id, text, ai);
-    await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that note. Try again in a moment.");
   }
@@ -183,7 +186,7 @@ async function handleNotes(ctx: Context) {
   }
   const notes = await searchNotes(user.id, query);
   const keyboard = itemListKeyboard("note", notes);
-  await replyHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+  await replyControlCardHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
 }
 
 async function handleImages(ctx: Context) {
@@ -233,7 +236,7 @@ async function handleIdeas(ctx: Context) {
 
   try {
     const idea = await findIdeaReference(user.id, normalizePublicId(body));
-    await replyHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+    await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
   } catch {
     await ctx.reply("I couldn't find that idea. /ideas will show the recent ones.");
   }
@@ -280,7 +283,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
 
   try {
     const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't add that task. Try again in a moment.");
   }
@@ -325,7 +328,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   try {
     const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
     const task = await createScheduledReminder(user.id, taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, taskText));
-    await replyHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");
   }
@@ -346,7 +349,7 @@ async function handleTaskDetail(ctx: Context) {
 
   try {
     const task = await findTaskReference(user.id, normalizePublicId(id));
-    await replyHtml(
+    await replyControlCardHtml(
       ctx,
       formatTaskDetail(task, user.settings?.timezone, user.settings
         ? {
@@ -674,7 +677,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
     doneOnly: parsed.doneOnly
   });
   const pending = await createPendingSearch(user.id, parsed);
-  const pageSize = 10;
+  const pageSize = 5;
   const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
   await replyHtml(ctx, formatSearchResultsPage(results, 1, pageSize, parsed.label), {
     reply_markup: searchPageKeyboard(pending.id, 1, totalPages)
@@ -792,7 +795,17 @@ async function handleStart(ctx: Context) {
     await ctx.reply(result.message);
     return;
   }
-  await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore");
+  const timezone = user.settings?.timezone ?? "Asia/Singapore";
+  await replyHtml(ctx, formatStartText(timezone), {
+    reply_markup: isGroupChat(ctx) ? startMenuKeyboard() : privateMenuKeyboard()
+  });
+  if (!isGroupChat(ctx) && ctx.from) await showMainMenu(ctx, timezone, user.id, ctx.from.id);
+}
+
+async function handleMenuCommand(ctx: Context) {
+  const user = await ensureUser(ctx);
+  if (!ctx.from) return;
+  await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
 }
 
 async function handleGroupCheck(ctx: Context) {

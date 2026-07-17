@@ -8,16 +8,21 @@ import { createIdea, formatIdeaCreated } from "../services/ideas";
 import { createNote, formatNoteCreated } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
-import { applyPendingExpenseEdit, formatPendingExpense } from "../services/expenses";
+import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
-import { bold, code, h, italic, replyHtml } from "../utils/html";
+import { bold, code, h, italic } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, expenseConfirmationKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
-import { hidePrivateMenu } from "./menu";
+import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
 import { taskCreationOptionsFromContext } from "./taskMentions";
+import { clearMenuInput, pendingMenuInput } from "./menuInputs";
+import { buildItemCard } from "./itemCards";
+import { replyStoredImage } from "./storedImageReplies";
+import { appendListOrigin } from "./navigationState";
+import { replyControlCardHtml } from "./controlCards";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -42,16 +47,17 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       const user = await ensureUser(ctx);
 
       if (!isGroupChat(ctx)) {
-        if (text === PRIVATE_MENU_LABELS.hide) {
-          await hidePrivateMenu(ctx);
+        if (text === PRIVATE_MENU_LABELS.menu) {
+          await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
           return;
         }
-        const menuAction = privateMenuAction(text);
-        if (menuAction) {
-          await handleNaturalCommand(ctx, ai, menuAction);
+        if (text === PRIVATE_MENU_LABELS.dashboard) {
+          await showDashboardLink(ctx);
           return;
         }
       }
+
+      if (await handlePendingMenuInput(ctx, ai, user, text)) return;
 
       const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
       if (expenseEdit) {
@@ -60,7 +66,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         } else if (expenseEdit.message) {
           await ctx.reply(expenseEdit.message);
         } else {
-          await replyHtml(ctx, formatPendingExpense(expenseEdit.pending, user.settings?.timezone ?? "UTC"), {
+          await replyControlCardHtml(ctx, formatPendingExpense(expenseEdit.pending, user.settings?.timezone ?? "UTC"), {
             reply_markup: expenseConfirmationKeyboard(expenseEdit.pending.id)
           });
         }
@@ -81,7 +87,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         }
         const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+        await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
         return;
       }
 
@@ -95,7 +101,19 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       const editResult = await applyPendingItemEdit(user.id, text);
       if (editResult) {
-        await replyHtml(ctx, editResult, { reply_markup: undoKeyboard("Undo edit") });
+        if (editResult.kind === "image") {
+          await replyStoredImage(ctx, user.id, editResult.publicId);
+          return;
+        }
+        const card = await buildItemCard(
+          user.id,
+          editResult.kind,
+          editResult.publicId,
+          user.settings?.timezone ?? "UTC",
+          "✅ Updated"
+        );
+        appendListOrigin(card.keyboard, user.id, editResult.kind);
+        await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
         return;
       }
 
@@ -122,7 +140,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       if (shouldAutoSave(classification.kind, classification.confidence)) {
         if (classification.kind === "task") {
           const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-          await replyHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
+          await replyControlCardHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
             reply_markup: taskCreatedKeyboard(task)
           });
           return;
@@ -130,7 +148,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
         if (classification.kind === "idea") {
           const idea = await createIdea(user.id, text, ai);
-          await replyHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
+          await replyControlCardHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
             reply_markup: itemCreatedKeyboard("idea", idea)
           });
           return;
@@ -138,7 +156,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
         if (classification.kind === "note") {
           const note = await createNote(user.id, text, ai);
-          await replyHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
+          await replyControlCardHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
             reply_markup: itemCreatedKeyboard("note", note)
           });
           return;
@@ -158,7 +176,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
               ? "an idea"
               : "a note";
 
-      await replyHtml(ctx, `${bold("Just checking")}\nThis sounds like ${bold(label)}. ${h("Would you like me to save it?")}`, {
+      await replyControlCardHtml(ctx, `${bold("Just checking")}\nThis sounds like ${bold(label)}. ${h("Would you like me to save it?")}`, {
         reply_markup: captureConfirmationKeyboard(pending.id)
       });
     } catch (error) {
@@ -167,19 +185,77 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   });
 }
 
-function privateMenuAction(text: string): string | undefined {
-  const actions: Record<string, string> = {
-    [PRIVATE_MENU_LABELS.tasks]: "show my tasks",
-    [PRIVATE_MENU_LABELS.reminders]: "help reminders",
-    [PRIVATE_MENU_LABELS.notes]: "show my notes",
-    [PRIVATE_MENU_LABELS.ideas]: "show my ideas",
-    [PRIVATE_MENU_LABELS.images]: "show my images",
-    [PRIVATE_MENU_LABELS.expenses]: "show my expenses",
-    [PRIVATE_MENU_LABELS.search]: "help search",
-    [PRIVATE_MENU_LABELS.settings]: "settings",
-    [PRIVATE_MENU_LABELS.help]: "help"
-  };
-  return actions[text];
+async function handlePendingMenuInput(
+  ctx: Context,
+  ai: AiProvider,
+  user: Awaited<ReturnType<typeof ensureUser>>,
+  text: string
+): Promise<boolean> {
+  const actorId = ctx.from?.id;
+  if (actorId === undefined) return false;
+  const action = pendingMenuInput(user.id, actorId);
+  if (!action) return false;
+
+  if (/^(?:cancel|never mind|nevermind|stop)$/i.test(text.trim())) {
+    clearMenuInput(user.id, actorId);
+    await ctx.reply("Canceled. Nothing was changed.");
+    return true;
+  }
+
+  if (action === "task") {
+    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    return true;
+  }
+
+  if (action === "reminder") {
+    const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+    if (!dueAt || dueAt.getTime() <= Date.now()) {
+      await ctx.reply("I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
+      return true;
+    }
+    const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    return true;
+  }
+
+  if (action === "note") {
+    const note = await createNote(user.id, text, ai);
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    return true;
+  }
+
+  if (action === "idea") {
+    const idea = await createIdea(user.id, text, ai);
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    return true;
+  }
+
+  if (action === "expense") {
+    const pending = await createPendingExpenseFromText(user.id, text, user.settings?.timezone ?? "UTC", {
+      sourceType: "manual",
+      defaultCurrency: user.settings?.expenseCurrency
+    });
+    clearMenuInput(user.id, actorId);
+    await replyControlCardHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
+      reply_markup: expenseConfirmationKeyboard(pending.id)
+    });
+    return true;
+  }
+
+  const prefix = action === "note-search"
+    ? "search notes "
+    : action === "idea-search"
+      ? "search ideas "
+      : action === "image-search"
+        ? "search images "
+        : "search ";
+  clearMenuInput(user.id, actorId);
+  return handleNaturalCommand(ctx, ai, `${prefix}${text}`);
 }
 
 function shouldAutoSave(kind: string, confidence: number): boolean {

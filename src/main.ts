@@ -37,7 +37,8 @@ async function main() {
       port: env.PORT,
       webhookPath: env.WEBHOOK_SECRET_PATH,
       adminStatusToken: env.ADMIN_STATUS_TOKEN,
-      dashboardPublicKey: env.DASHBOARD_API_PUBLIC_KEY ?? defaultDashboardPublicKey
+      dashboardPublicKey: env.DASHBOARD_API_PUBLIC_KEY ?? defaultDashboardPublicKey,
+      telegramBotToken: env.TELEGRAM_BOT_TOKEN
     });
     logger.info("Threadwise is running with Telegram webhooks.", {
       webhookUrl,

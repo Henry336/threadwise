@@ -27,15 +27,19 @@ export type DashboardSnapshot = {
     pinned?: boolean;
     reminderCount?: number;
     assignee?: string;
+    createdAt: string;
+    updatedAt: string;
   }>;
   notes: Array<{
     id: string;
     publicId: string;
     title: string;
+    body: string;
     summary: string;
     tags: string[];
     createdAt: string;
     pinned?: boolean;
+    updatedAt: string;
   }>;
   ideas: Array<{
     id: string;
@@ -45,6 +49,8 @@ export type DashboardSnapshot = {
     status: "RAW" | "CLARIFIED" | "SELECTED" | "PROTOTYPING" | "BUILT" | "PAUSED" | "REJECTED";
     tags: string[];
     createdAt: string;
+    pinned?: boolean;
+    updatedAt: string;
   }>;
   expenses: Array<{
     id: string;
@@ -55,7 +61,37 @@ export type DashboardSnapshot = {
     currency: string;
     category: string;
     transactionAt: string;
+    paymentMethod?: string;
+    notes?: string;
+    excelSyncedAt?: string;
+    createdAt: string;
+    updatedAt: string;
   }>;
+  images: Array<{
+    id: string;
+    publicId: string;
+    mediaKind: string;
+    mimeType?: string;
+    fileName?: string;
+    caption?: string;
+    ocrText?: string;
+    ocrConfidence?: number;
+    contentUrl: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  settings: {
+    timezone: string;
+    reminderIntervalMinutes: number;
+    quietHoursStart?: string;
+    quietHoursEnd?: string;
+    maxRemindersPerDay: number;
+    dueNudgeMinutes: number;
+    reminderMode: "INDIVIDUAL" | "DIGEST";
+    expenseCurrency: string;
+    ocrLanguages: string;
+    directNudgesEnabled: boolean;
+  };
   activity: Array<{ day: string; captures: number; completed: number }>;
   integrations: Array<{
     name: "Gmail" | "Calendar" | "Excel";
@@ -113,7 +149,7 @@ export async function getDashboardSnapshot(
       username: true,
       firstName: true,
       lastName: true,
-      settings: { select: { timezone: true } },
+      settings: true,
       gmailConnection: { select: { scanEnabled: true, lastScanAt: true } },
       calendarConnection: { select: { createdAt: true } },
       microsoftConnection: { select: { workbookName: true, createdAt: true } }
@@ -128,7 +164,7 @@ export async function getDashboardSnapshot(
   const today = DateTime.fromJSDate(now).setZone(timezone).startOf("day");
   const activityStart = today.minus({ days: 6 }).toUTC().toJSDate();
 
-  const [tasks, notes, ideas, expenses, taskEvents, noteEvents, ideaEvents, expenseEvents, reflectionEvents] = await Promise.all([
+  const [tasks, notes, ideas, expenses, images, taskEvents, noteEvents, ideaEvents, expenseEvents, reflectionEvents] = await Promise.all([
     database.task.findMany({
       where: {
         userId: user.id,
@@ -146,20 +182,22 @@ export async function getDashboardSnapshot(
         pinnedAt: true,
         reminderCount: true,
         assignedUsername: true,
-        assignedDisplayName: true
+        assignedDisplayName: true,
+        createdAt: true,
+        updatedAt: true
       },
       orderBy: [{ pinnedAt: "desc" }, { dueAt: "asc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
     database.note.findMany({
       where: { userId: user.id, archivedAt: null, mergedIntoNoteId: null },
-      select: { id: true, publicId: true, title: true, summary: true, tags: true, createdAt: true, pinnedAt: true },
+      select: { id: true, publicId: true, title: true, body: true, summary: true, tags: true, createdAt: true, updatedAt: true, pinnedAt: true },
       orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
     database.idea.findMany({
       where: { userId: user.id, archivedAt: null },
-      select: { id: true, publicId: true, title: true, concept: true, status: true, tags: true, createdAt: true },
+      select: { id: true, publicId: true, title: true, concept: true, status: true, tags: true, createdAt: true, updatedAt: true, pinnedAt: true },
       orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: DASHBOARD_LIST_LIMIT
     }),
@@ -173,9 +211,31 @@ export async function getDashboardSnapshot(
         total: true,
         currency: true,
         category: true,
-        transactionAt: true
+        transactionAt: true,
+        paymentMethod: true,
+        notes: true,
+        excelSyncedAt: true,
+        createdAt: true,
+        updatedAt: true
       },
       orderBy: [{ transactionAt: "desc" }, { createdAt: "desc" }],
+      take: DASHBOARD_LIST_LIMIT
+    }),
+    database.storedImage.findMany({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        publicId: true,
+        mediaKind: true,
+        mimeType: true,
+        fileName: true,
+        caption: true,
+        ocrText: true,
+        ocrConfidence: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { createdAt: "desc" },
       take: DASHBOARD_LIST_LIMIT
     }),
     database.task.findMany({
@@ -263,16 +323,20 @@ export async function getDashboardSnapshot(
         ? { assignee: task.assignedDisplayName }
         : task.assignedUsername
           ? { assignee: `@${task.assignedUsername}` }
-          : {})
+          : {}),
+      createdAt: task.createdAt.toISOString(),
+      updatedAt: task.updatedAt.toISOString()
     })),
     notes: notes.map((note) => ({
       id: note.id,
       publicId: note.publicId,
       title: note.title,
+      body: note.body,
       summary: note.summary,
       tags: note.tags,
       createdAt: note.createdAt.toISOString(),
-      ...(note.pinnedAt ? { pinned: true } : {})
+      ...(note.pinnedAt ? { pinned: true } : {}),
+      updatedAt: note.updatedAt.toISOString()
     })),
     ideas: ideas.map((idea) => ({
       id: idea.id,
@@ -281,7 +345,9 @@ export async function getDashboardSnapshot(
       concept: idea.concept,
       status: idea.status,
       tags: idea.tags,
-      createdAt: idea.createdAt.toISOString()
+      createdAt: idea.createdAt.toISOString(),
+      ...(idea.pinnedAt ? { pinned: true } : {}),
+      updatedAt: idea.updatedAt.toISOString()
     })),
     expenses: expenses.map((expense) => ({
       id: expense.id,
@@ -291,8 +357,38 @@ export async function getDashboardSnapshot(
       total: Number(expense.total),
       currency: expense.currency,
       category: expense.category?.trim() || "Other",
-      transactionAt: expense.transactionAt.toISOString()
+      transactionAt: expense.transactionAt.toISOString(),
+      ...(expense.paymentMethod ? { paymentMethod: expense.paymentMethod } : {}),
+      ...(expense.notes ? { notes: expense.notes } : {}),
+      ...(expense.excelSyncedAt ? { excelSyncedAt: expense.excelSyncedAt.toISOString() } : {}),
+      createdAt: expense.createdAt.toISOString(),
+      updatedAt: expense.updatedAt.toISOString()
     })),
+    images: images.map((image) => ({
+      id: image.id,
+      publicId: image.publicId,
+      mediaKind: image.mediaKind,
+      ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+      ...(image.fileName ? { fileName: image.fileName } : {}),
+      ...(image.caption ? { caption: image.caption } : {}),
+      ...(image.ocrText ? { ocrText: image.ocrText } : {}),
+      ...(typeof image.ocrConfidence === "number" ? { ocrConfidence: image.ocrConfidence } : {}),
+      contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(image.id)}/content`,
+      createdAt: image.createdAt.toISOString(),
+      updatedAt: image.updatedAt.toISOString()
+    })),
+    settings: {
+      timezone,
+      reminderIntervalMinutes: user.settings?.reminderIntervalMinutes ?? 180,
+      ...(user.settings?.quietHoursStart ? { quietHoursStart: user.settings.quietHoursStart } : {}),
+      ...(user.settings?.quietHoursEnd ? { quietHoursEnd: user.settings.quietHoursEnd } : {}),
+      maxRemindersPerDay: user.settings?.maxRemindersPerDay ?? 200,
+      dueNudgeMinutes: user.settings?.dueNudgeMinutes ?? 3,
+      reminderMode: user.settings?.reminderMode ?? "INDIVIDUAL",
+      expenseCurrency: user.settings?.expenseCurrency ?? "SGD",
+      ocrLanguages: user.settings?.ocrLanguages ?? "eng",
+      directNudgesEnabled: user.settings?.directNudgesEnabled ?? false
+    },
     activity: [...activityByDate.values()],
     integrations: [
       user.gmailConnection

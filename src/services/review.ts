@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser } from "../utils/dates";
-import { field, fieldHtml } from "../utils/messageFormat";
+import { field } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
 import { listOpenTasks, type TaskListItem } from "./tasks";
 
@@ -46,7 +46,6 @@ function formatTaskFocus(tasks: TaskListItem[], timezone: string): string {
     .map((task, index) => {
       return [
         `${index + 1}. ${bold(task.title)}`,
-        `   ${fieldHtml("Task ID", code(task.publicId))}`,
         task.dueAt ? `   ${field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? timezone))}` : undefined
       ].filter(Boolean).join("\n");
     })
@@ -60,7 +59,6 @@ function formatRecentNotes(notes: Array<{ publicId: string; title: string; summa
 
   return [bold("📝 Recent notes"), ...notes.map((note) => [
     bold(note.title),
-    fieldHtml("Note ID", code(note.publicId)),
     h(truncate(note.summary, 120))
   ].join("\n"))].join("\n\n");
 }
@@ -72,7 +70,6 @@ function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; conce
 
   return [bold("💡 Recent ideas"), ...ideas.map((idea) => [
     bold(idea.title),
-    fieldHtml("Idea ID", code(idea.publicId)),
     h(truncate(idea.concept, 120))
   ].join("\n"))].join("\n\n");
 }

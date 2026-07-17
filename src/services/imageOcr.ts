@@ -142,6 +142,14 @@ export async function findPendingImageReminder(userId: string) {
   });
 }
 
+export async function cancelPendingImageReminders(userId: string): Promise<number> {
+  const result = await prisma.pendingImageCapture.updateMany({
+    where: { userId, awaitingAction: "reminder-time" },
+    data: { awaitingAction: null }
+  });
+  return result.count;
+}
+
 async function getWorker(languages: OcrLanguages): Promise<Tesseract.Worker> {
   if (workerPromise && workerLanguages !== languages) {
     await resetWorker();

@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.19.0 - 2026-07-17
+
+### Added
+- Replaced the crowded Telegram reply keyboard with one persistent `Menu` control and one direct `Dashboard` Web App control.
+- Added compact, edit-in-place modes for tasks, notes, ideas, images, expenses, search, settings, help, and privacy, with five-item pagination and parent-aware navigation.
+- Added a fresh bottom-anchored control card whenever the persistent Menu button is pressed, while retiring the previous menu card's buttons when Telegram permits it.
+- Added `/dashboard`, `/privacy`, natural dashboard/privacy requests, production dashboard deep links, and plain-language privacy disclosures during onboarding.
+- Added a subject-scoped dashboard API for collection pagination, CRUD actions, settings, search, idea-to-task conversion, Excel synchronization, integration disconnects, data export, and confirmed account deletion.
+- Added an authenticated Telegram image proxy with bounded downloads, timeouts, safe raster MIME types, and defensive browser headers.
+
+### Changed
+- Tasks are now presented as the underlying object and reminders as their optional schedule, removing the previous task/reminder duplication from primary navigation.
+- Typed edits return a fresh, complete item card with contextual actions. Button-driven edits keep updating the current card in place.
+- Task IDs and reminder-delivery counts are hidden from normal cards and lists; durable IDs remain available to advanced slash-command workflows.
+- Public IDs advance from the highest existing suffix so deleting an image or expense cannot cause an older identifier to be reused.
+
+### Security
+- Dashboard mutations derive the canonical user only from a short-lived signed Telegram subject; browser requests never supply a database user ID or receive database, bot, file, or OAuth credentials.
+- Privacy exports omit provider tokens, Telegram file identifiers, embeddings, and raw provider credentials. Permanent deletion requires an exact confirmation phrase.
+
 ## v0.18.0 - 2026-07-17
 
 ### Added
