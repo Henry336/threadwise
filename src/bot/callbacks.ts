@@ -518,13 +518,13 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
-    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "Task already open");
+    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "Task already open", false);
     appendListOrigin(card.keyboard, user.id, "task");
     await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored");
+  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo restore", "undo:last") });
 }
@@ -534,7 +534,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour");
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo snooze", "undo:last") });
 }
@@ -555,7 +555,7 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important");
+  const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
@@ -569,7 +569,7 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  const card = await buildItemCard(user.id, kind, item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Starred" : "☆ Unstarred");
+  const card = await buildItemCard(user.id, kind, item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Starred" : "☆ Unstarred", false);
   appendListOrigin(card.keyboard, user.id, kind);
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
@@ -665,7 +665,7 @@ function isEditableItemKind(kind: string | undefined): kind is EditableItemKind 
 async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: string | undefined, pageText: string | undefined) {
   if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
   const user = await ensureUser(ctx);
-  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC");
+  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false);
   const page = Math.max(1, Number(pageText) || 1);
   const listKind = kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas";
   rememberListOrigin(user.id, kind, page);

@@ -9,6 +9,7 @@ import { itemListKeyboard, modeBackKeyboard, taskListKeyboard } from "./keyboard
 import { replyControlCardHtml } from "./controlCards";
 
 export type ActiveListKind = "tasks" | "notes" | "ideas";
+const ACTIVE_LIST_PAGE_SIZE = 3;
 
 export async function replyActiveList(
   ctx: Context,
@@ -20,26 +21,26 @@ export async function replyActiveList(
 ): Promise<number> {
   const send = replaceCurrent ? editOrReplyHtml : replyControlCardHtml;
   if (kind === "tasks") {
-    const page = paginateList(await listOpenTasks(user.id), requestedPage, 5);
+    const page = paginateList(await listOpenTasks(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
     const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-    const keyboard = taskListKeyboard(page.items, 5, navigation) ?? modeBackKeyboard("tasks");
+    const keyboard = taskListKeyboard(page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("tasks");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
     await send(ctx, formatOpenTasks(page.items, user.settings?.timezone ?? "UTC", page), { reply_markup: keyboard });
     return page.page;
   }
 
   if (kind === "notes") {
-    const page = paginateList(await listRecentNotes(user.id), requestedPage, 5);
+    const page = paginateList(await listRecentNotes(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
     const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-    const keyboard = itemListKeyboard("note", page.items, 5, navigation) ?? modeBackKeyboard("notes");
+    const keyboard = itemListKeyboard("note", page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("notes");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
     await send(ctx, formatRecentNotes(page.items, page), { reply_markup: keyboard });
     return page.page;
   }
 
-  const page = paginateList(await listRecentIdeas(user.id), requestedPage, 5);
+  const page = paginateList(await listRecentIdeas(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
   const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-  const keyboard = itemListKeyboard("idea", page.items, 5, navigation) ?? modeBackKeyboard("ideas");
+  const keyboard = itemListKeyboard("idea", page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("ideas");
   if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
   await send(ctx, formatRecentIdeas(page.items, page), { reply_markup: keyboard });
   return page.page;

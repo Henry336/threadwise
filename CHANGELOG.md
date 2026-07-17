@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased - Dashboard Revamp Phase 3
+
+### Changed
+- Reworked Telegram task, note, and idea lists into three-item pages with compact summaries, a single numbered button row, and shorter pagination controls for mobile chats.
+- Rebuilt opened task, note, and idea cards around a clear type, title, content, and essential context hierarchy; repeated titles, database IDs, captured-source blocks, and verbose settings metadata are no longer shown.
+- Consolidated item actions into fewer rows and removed duplicate back buttons while preserving edit, pin, snooze, complete, archive, cancel, and Idea Brief controls.
+- Updated post-edit and post-action cards in place with the same clean item layout and a single contextual return path.
+
+### Quality
+- Added regression coverage for compact page controls, de-duplicated task details, clean note and idea views, and the revised mobile button layout.
+
 ## Unreleased - Dashboard Revamp Phase 2
 
 ### Added

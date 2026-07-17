@@ -195,21 +195,21 @@ export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | 
   return new InlineKeyboard().text(label ?? `‹ ${fallback}`, `menu:${mode}`);
 }
 
-export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
+export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
 
-  return new InlineKeyboard()
-    .text("✅ Complete task", `task:done:${taskId}`)
-    .text("⏰ Snooze 1h", `task:snooze:${taskId}`)
+  const keyboard = new InlineKeyboard()
+    .text("✅ Done", `task:done:${taskId}`)
+    .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row()
     .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
-    .text("✏️ Edit title", `item:task:edit:title:${taskId}`)
+    .text("✏️ Title", `item:task:edit:title:${taskId}`)
+    .text("📝 Details", `item:task:edit:description:${taskId}`)
     .row()
-    .text("📝 Edit details", `item:task:edit:description:${taskId}`)
-    .text("🗑️ Cancel task", `task:cancel:${taskId}`)
-    .row()
-    .text("‹ Tasks", "menu:tasks");
+    .text("🗑 Cancel", `task:cancel:${taskId}`);
+  if (includeBack) keyboard.text("‹ Tasks", "menu:tasks");
+  return keyboard;
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -218,7 +218,7 @@ export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("↩️ Undo save", "undo:last");
 }
 
-export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 5, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (tasks.length === 0) {
     return undefined;
   }
@@ -227,11 +227,7 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 5, navigati
   const visibleTasks = tasks.slice(0, maxButtons);
   for (const [index, task] of visibleTasks.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard.text(`Open task ${number}`, `item:task:open:${task.id}:${navigation?.page ?? 1}`);
-
-    if (index < visibleTasks.length - 1) {
-      keyboard.row();
-    }
+    keyboard.text(String(number), `item:task:open:${task.id}:${navigation?.page ?? 1}`);
   }
 
   appendActiveListNavigation(keyboard, navigation, "tasks");
@@ -263,30 +259,29 @@ export function editCancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("✕ Cancel edit", "edit:cancel");
 }
 
-export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): InlineKeyboard {
+export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget, includeBack = true): InlineKeyboard {
   const action = item.pinnedAt ? "unpin" : "pin";
   const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
   const bodyLabel = kind === "task" ? "details" : bodyField;
   const keyboard = new InlineKeyboard()
     .text(item.pinnedAt ? "☆ Unstar" : "⭐ Star", `item:${kind}:${action}:${item.id}`)
-    .text("✏️ Edit title", `item:${kind}:edit:title:${item.id}`)
-    .row()
-    .text(`📝 Edit ${bodyLabel}`, `item:${kind}:edit:${bodyField}:${item.id}`);
+    .text("✏️ Title", `item:${kind}:edit:title:${item.id}`)
+    .text(`📝 ${bodyLabel.charAt(0).toUpperCase()}${bodyLabel.slice(1)}`, `item:${kind}:edit:${bodyField}:${item.id}`);
 
   if (kind === "note") {
-    keyboard.row().text("🗃️ Archive note", `item:note:archive:${item.id}`);
+    keyboard.row().text("🗃 Archive", `item:note:archive:${item.id}`);
   }
 
   if (kind === "idea") {
     keyboard.row().text("✨ Idea brief", `item:idea:brief:${item.id}`);
   }
 
-  keyboard.row().text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);
+  if (includeBack) keyboard.text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);
 
   return keyboard;
 }
 
-export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 5, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 3, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
   if (items.length === 0) {
     return undefined;
   }
@@ -295,11 +290,7 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   const visibleItems = items.slice(0, maxButtons);
   for (const [index, item] of visibleItems.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard.text(`Open ${kind} ${number}`, `item:${kind}:open:${item.id}:${navigation?.page ?? 1}`);
-
-    if (index < visibleItems.length - 1) {
-      keyboard.row();
-    }
+    keyboard.text(String(number), `item:${kind}:open:${item.id}:${navigation?.page ?? 1}`);
   }
 
   appendActiveListNavigation(keyboard, navigation, kind === "note" ? "notes" : "ideas");
@@ -320,9 +311,9 @@ function appendActiveListNavigation(
 ): void {
   if (navigation && navigation.totalPages > 1) {
     keyboard.row();
-    if (navigation.page > 1) keyboard.text("← Prev", `list:${navigation.kind}:${navigation.page - 1}`);
-    keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
-    if (navigation.page < navigation.totalPages) keyboard.text("Next →", `list:${navigation.kind}:${navigation.page + 1}`);
+    if (navigation.page > 1) keyboard.text("←", `list:${navigation.kind}:${navigation.page - 1}`);
+    keyboard.text(`${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
+    if (navigation.page < navigation.totalPages) keyboard.text("→", `list:${navigation.kind}:${navigation.page + 1}`);
   }
   const kind = navigation?.kind ?? fallbackKind;
   keyboard.row().text(

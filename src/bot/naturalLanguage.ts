@@ -112,7 +112,8 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           editResult.kind,
           editResult.publicId,
           user.settings?.timezone ?? "UTC",
-          "✅ Updated"
+          "✅ Updated",
+          false
         );
         appendListOrigin(card.keyboard, user.id, editResult.kind);
         await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });

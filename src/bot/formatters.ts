@@ -4,7 +4,7 @@ import type { SearchResult } from "../services/search";
 import { formatAssigneeHtml, formatRecurrence, hasAssignees, type TaskListItem } from "../services/tasks";
 import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, italic } from "../utils/html";
-import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import { joinBlocks } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
 import type { ListPageInfo } from "../services/listPagination";
 
@@ -17,25 +17,13 @@ export function formatOpenTasks(
     return "Nothing needs doing right now. Nice and quiet.";
   }
 
-  const numbered = tasks.map((task, index) => ({ task, number: (page?.offset ?? 0) + index + 1 }));
-  const groups = [
-    { title: "⭐ Important", items: numbered.filter(({ task }) => task.pinnedAt) },
-    { title: "⚠️ Overdue", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "overdue") },
-    { title: "📅 Today", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "today") },
-    { title: "🗓️ Later", items: numbered.filter(({ task }) => !task.pinnedAt && task.dueAt && dueBucket(task.dueAt, task.timezone ?? fallbackTimezone) === "later") },
-    { title: "○ No due date", items: numbered.filter(({ task }) => !task.pinnedAt && !task.dueAt) }
-  ].filter((group) => group.items.length > 0);
-
   return [
-    page && page.totalPages > 1 ? `${bold("📋 Open tasks")} · Page ${page.page}/${page.totalPages}` : bold("📋 Open tasks"),
+    page && page.totalPages > 1 ? `${bold("📋 Tasks")} · ${page.page}/${page.totalPages}` : bold("📋 Tasks"),
     "",
-    ...groups.flatMap((group) => [
-      bold(group.title),
-      ...group.items.map(({ task, number }) => formatTaskListItem(task, number, fallbackTimezone)),
-      ""
-    ]),
-    italic("Use the matching buttons below, or keep typing naturally.")
-  ].join("\n");
+    ...tasks.map((task, index) => formatTaskListItem(task, (page?.offset ?? 0) + index + 1, fallbackTimezone)),
+    "",
+    italic("Tap a number to open it.")
+  ].join("\n\n");
 }
 
 export type ReminderSettingsView = {
@@ -47,37 +35,22 @@ export type ReminderSettingsView = {
 
 export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
   const timezone = task.timezone ?? fallbackTimezone;
+  void settings;
+  const description = withoutRepeatedTitle(task.title, task.description);
   const metadata = [
-    field("Status", task.status.toLowerCase()),
-    field("Due Date", task.dueAt ? formatDateTimeForUser(task.dueAt, timezone) : "None"),
-    field("Next Reminder", task.nextReminderAt ? formatDateTimeForUser(task.nextReminderAt, timezone) : "None"),
-    hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
-    task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
-    task.calendarEventId ? field("Google Calendar", task.calendarSyncedAt ? `Synced ${formatDateTimeForUser(task.calendarSyncedAt, timezone)}` : "Synced") : undefined,
-    task.pinnedAt ? field("Important", "Yes") : undefined
+    task.status === "DONE" ? "✅ Completed" : task.status === "CANCELED" ? "🗑 Cancelled" : undefined,
+    task.dueAt ? `⏰ ${h(formatDateTimeForUser(task.dueAt, timezone))}` : "○ No due date",
+    task.recurrenceRule ? `↻ ${h(formatRecurrence(task.recurrenceRule))}` : undefined,
+    hasAssignees(task) ? `👤 ${formatAssigneeHtml(task)}` : undefined,
+    task.calendarEventId ? "☁️ In Google Calendar" : undefined,
+    task.pinnedAt ? "⭐ Important" : undefined
   ].filter(Boolean).join("\n");
 
-  const reminderSettings = settings
-    ? [
-        field("Current Interval", `${settings.reminderIntervalMinutes} minutes`),
-        task.reminderIntervalMinutes && task.reminderIntervalMinutes !== settings.reminderIntervalMinutes
-          ? field("Stored Task Interval", `${task.reminderIntervalMinutes} minutes`)
-          : undefined,
-        field("Daily Reminder Safety Limit", `${settings.maxRemindersPerDay} reminders/day`),
-        field("Quiet Hours", settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}-${settings.quietHoursEnd}` : "off"),
-        settings.reminderIntervalMinutes <= 30 && settings.maxRemindersPerDay <= 10
-          ? field("Safety Limit Note", `At this interval, the daily safety limit covers about ${Math.round(((settings.reminderIntervalMinutes * settings.maxRemindersPerDay) / 60) * 10) / 10} hours.`)
-          : undefined
-      ].filter(Boolean).join("\n")
-    : undefined;
-
   return joinBlocks([
-    task.pinnedAt ? bold("Important task") : undefined,
+    bold("📋 Task"),
     bold(task.title),
-    task.description ? h(task.description) : undefined,
-    metadata,
-    reminderSettings ? [bold("Reminder Settings"), reminderSettings].join("\n") : undefined,
-    [bold("Captured Text"), h(truncate(task.sourceText, 500))].join("\n")
+    description ? h(truncate(description, 700)) : undefined,
+    metadata
   ]);
 }
 
@@ -139,26 +112,36 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
 
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  const title = task.pinnedAt ? `${task.title} (important)` : task.title;
-  const lines = [`${number}. ${bold(title)}`];
+  const marker = task.pinnedAt ? "⭐" : task.dueAt && dueBucket(task.dueAt, timezone) === "overdue" ? "⚠️" : "·";
+  const context = [
+    task.dueAt ? formatCompactDue(task.dueAt, timezone) : "No due date",
+    task.recurrenceRule ? `↻ ${formatRecurrence(task.recurrenceRule)}` : undefined,
+    hasAssignees(task) ? `👤 ${formatAssigneeHtml(task)}` : undefined
+  ].filter(Boolean).join(" · ");
+  return `${number} ${marker} ${bold(truncate(task.title, 72))}\n${context}`;
+}
 
-  if (task.pinnedAt) {
-    lines.push(`   ${bold("Important")} ${italic("starred task")}`);
+function formatCompactDue(dueAt: Date, timezone: string): string {
+  const due = DateTime.fromJSDate(dueAt).setZone(timezone);
+  const bucket = dueBucket(dueAt, timezone);
+  if (bucket === "overdue") return `Overdue · ${due.toFormat("d LLL, h:mm a")}`;
+  if (bucket === "today") return `Today · ${due.toFormat("h:mm a")}`;
+  const tomorrow = DateTime.now().setZone(timezone).plus({ days: 1 });
+  if (due.hasSame(tomorrow, "day")) return `Tomorrow · ${due.toFormat("h:mm a")}`;
+  return due.toFormat("d LLL · h:mm a");
+}
+
+function withoutRepeatedTitle(title: string, body?: string | null): string | undefined {
+  if (!body?.trim()) return undefined;
+  const clean = body.trim();
+  const normalizedTitle = title.trim().replace(/\s+/g, " ").toLowerCase();
+  const normalizedBody = clean.replace(/\s+/g, " ").toLowerCase();
+  if (normalizedBody === normalizedTitle) return undefined;
+  if (normalizedBody.startsWith(normalizedTitle)) {
+    const remainder = clean.slice(title.trim().length).replace(/^[\s:–—|,.\-]+/, "").trim();
+    return remainder || undefined;
   }
-
-  if (task.dueAt) {
-    lines.push(`   ${field("Due Date", formatDateTimeForUser(task.dueAt, timezone))}`);
-  }
-
-  if (hasAssignees(task)) {
-    lines.push(`   ${fieldHtml("Assigned To", formatAssigneeHtml(task))}`);
-  }
-
-  if (task.recurrenceRule) {
-    lines.push(`   ${field("Repeats", formatRecurrence(task.recurrenceRule))}`);
-  }
-
-  return lines.join("\n");
+  return clean;
 }
 
 function dueBucket(dueAt: Date, timezone: string): "overdue" | "today" | "later" {

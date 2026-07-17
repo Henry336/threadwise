@@ -22,13 +22,13 @@ describe("bot formatters", () => {
       "Asia/Singapore"
     );
 
-    expect(message).toContain("1. <b>Drink water</b>");
+    expect(message).toContain("<b>Drink water</b>");
     expect(message).not.toContain("TASK-999");
     expect(message).not.toContain("Reminders Sent");
-    expect(message).toContain("matching buttons");
+    expect(message).toContain("Tap a number");
   });
 
-  it("groups active tasks by due state", () => {
+  it("keeps due state visible without separate heading blocks", () => {
     const message = formatOpenTasks(
       [
         task({ publicId: "TASK-1", title: "Overdue task", dueAt: new Date("2020-01-01T00:00:00.000Z") }),
@@ -41,7 +41,7 @@ describe("bot formatters", () => {
     expect(message).toContain("No due date");
   });
 
-  it("shows starred tasks as important in their own group", () => {
+  it("marks starred tasks inline without adding another section", () => {
     const message = formatOpenTasks(
       [
         task({ publicId: "TASK-2", title: "Important task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }),
@@ -50,18 +50,30 @@ describe("bot formatters", () => {
       "Asia/Singapore"
     );
 
-    expect(message).toContain("<b>Important</b>");
-    expect(message).toContain("<b>Important</b> <i>starred task</i>");
+    expect(message).toContain("1 ⭐ <b>Important task</b>");
+    expect(message).not.toContain("starred task");
     expect(message.indexOf("Important task")).toBeLessThan(message.indexOf("Regular task"));
   });
 
   it("marks starred task details as important", () => {
     const message = formatTaskDetail(task({ title: "Reply to bank", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
 
-    expect(message).toContain("<b>Important task</b>");
-    expect(message).toContain("<b>Important:</b> Yes");
+    expect(message).toContain("<b>📋 Task</b>");
+    expect(message).toContain("⭐ Important");
     expect(message).not.toContain("Task ID");
     expect(message).not.toContain("Reminders Sent");
+    expect(message).not.toContain("Captured Text");
+  });
+
+  it("removes a repeated title from task details", () => {
+    const message = formatTaskDetail(task({
+      title: "Plan the launch",
+      description: "Plan the launch — confirm the venue and invite the team."
+    }));
+
+    expect(message).toContain("<b>Plan the launch</b>");
+    expect(message).toContain("confirm the venue and invite the team.");
+    expect(message).not.toContain("Plan the launch — confirm");
   });
 
   it("formats newly created tasks without noisy calendar links", () => {
@@ -119,7 +131,7 @@ describe("bot formatters", () => {
     const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "Open task 1",
+      text: "1",
       callback_data: "item:task:open:task-uuid-1:1"
     });
     expect(keyboard?.inline_keyboard).toHaveLength(2);
@@ -128,19 +140,28 @@ describe("bot formatters", () => {
     ]);
   });
 
+  it("fits three list choices into one mobile-friendly button row", () => {
+    const keyboard = taskListKeyboard([
+      task({ id: "task-1" }), task({ id: "task-2" }), task({ id: "task-3" })
+    ]);
+
+    expect(keyboard?.inline_keyboard[0]?.map((button) => button.text)).toEqual(["1", "2", "3"]);
+    expect(keyboard?.inline_keyboard).toHaveLength(2);
+  });
+
   it("keeps global numbering and navigation on later task pages", () => {
     const page = { page: 2, totalPages: 3, offset: 10 };
     const item = task({ id: "task-uuid-11", title: "Later task" });
     const message = formatOpenTasks([item], "Asia/Singapore", page);
     const keyboard = taskListKeyboard([item], 10, { kind: "tasks", numberOffset: 10, page: 2, totalPages: 3 });
 
-    expect(message).toContain("Page 2/3");
-    expect(message).toContain("11. <b>Later task</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Open task 11");
+    expect(message).toContain("· 2/3");
+    expect(message).toContain("11 · <b>Later task</b>");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("11");
     expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "← Prev", callback_data: "list:tasks:1" },
-      { text: "Page 2/3", callback_data: "list:tasks:2" },
-      { text: "Next →", callback_data: "list:tasks:3" }
+      { text: "←", callback_data: "list:tasks:1" },
+      { text: "2/3", callback_data: "list:tasks:2" },
+      { text: "→", callback_data: "list:tasks:3" }
     ]);
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
       { text: "‹ Tasks", callback_data: "menu:tasks" }
@@ -156,11 +177,11 @@ describe("bot formatters", () => {
       callback_data: "item:task:pin:task-uuid-1"
     });
     expect(unpinned.inline_keyboard[1]?.[1]).toEqual({
-      text: "✏️ Edit title",
+      text: "✏️ Title",
       callback_data: "item:task:edit:title:task-uuid-1"
     });
-    expect(unpinned.inline_keyboard[2]?.[0]).toEqual({
-      text: "📝 Edit details",
+    expect(unpinned.inline_keyboard[1]?.[2]).toEqual({
+      text: "📝 Details",
       callback_data: "item:task:edit:description:task-uuid-1"
     });
     expect(pinned.inline_keyboard[1]?.[0]).toEqual({
@@ -178,25 +199,23 @@ describe("bot formatters", () => {
       callback_data: "item:note:pin:note-uuid-1"
     });
     expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "✏️ Edit title",
+      text: "✏️ Title",
       callback_data: "item:note:edit:title:note-uuid-1"
     });
-    expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
-      text: "📝 Edit body",
+    expect(noteKeyboard.inline_keyboard[0]?.[2]).toEqual({
+      text: "📝 Body",
       callback_data: "item:note:edit:body:note-uuid-1"
     });
-    expect(noteKeyboard.inline_keyboard[2]?.[0]).toEqual({
-      text: "🗃️ Archive note",
+    expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
+      text: "🗃 Archive",
       callback_data: "item:note:archive:note-uuid-1"
     });
     expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
       text: "☆ Unstar",
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
-    expect(ideaKeyboard.inline_keyboard[2]).toEqual([
-      { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" }
-    ]);
-    expect(ideaKeyboard.inline_keyboard[3]).toEqual([
+    expect(ideaKeyboard.inline_keyboard[1]).toEqual([
+      { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" },
       { text: "‹ Ideas", callback_data: "menu:ideas" }
     ]);
   });
@@ -235,30 +254,30 @@ describe("bot formatters", () => {
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "Open note 1",
+      text: "1",
       callback_data: "item:note:open:note-uuid-1:1"
     });
   });
 
-  it("numbers notes and ideas globally across five-row pages", () => {
+  it("numbers notes and ideas globally across compact pages", () => {
     const page = { page: 2, totalPages: 2, offset: 5 };
     const noteMessage = formatRecentNotes([{ publicId: "NOTE-6", title: "Note six", summary: "Saved" }], page);
     const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-6", title: "Idea six", concept: "Saved" }], page);
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 });
 
-    expect(noteMessage).toContain("6. <b>Note six</b>");
-    expect(ideaMessage).toContain("6. <b>Idea six</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("Open note 6");
+    expect(noteMessage).toContain("6 · <b>Note six</b>");
+    expect(ideaMessage).toContain("6 · <b>Idea six</b>");
+    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("6");
     expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "← Prev", callback_data: "list:notes:1" },
-      { text: "Page 2/2", callback_data: "list:notes:2" }
+      { text: "←", callback_data: "list:notes:1" },
+      { text: "2/2", callback_data: "list:notes:2" }
     ]);
     expect(keyboard?.inline_keyboard.at(-1)).toEqual([
       { text: "‹ Notes", callback_data: "menu:notes" }
     ]);
   });
 
-  it("formats note saved dates in the user's timezone", () => {
+  it("keeps note details focused on the saved content", () => {
     const message = formatNoteDetail({
       publicId: "NOTE-9",
       title: "OMG",
@@ -268,14 +287,15 @@ describe("bot formatters", () => {
       createdAt: new Date("2026-07-06T18:44:35.000Z")
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Saved Date:</b>");
-    expect(message).toContain("2:44");
-    expect(message).not.toContain("6:44");
+    expect(message).toContain("<b>📝 Note</b>");
+    expect(message).toContain("<b>OMG</b>");
+    expect(message).not.toContain("Saved Date");
+    expect(message).not.toContain("Note ID");
     expect(message).not.toContain("<b>Summary</b>");
     expect(message).not.toContain("<b>Tags</b>");
   });
 
-  it("formats idea saved dates in the user's timezone", () => {
+  it("keeps idea details focused on the concept", () => {
     const message = formatIdeaDetail({
       publicId: "IDEA-1",
       title: "Inbox helper",
@@ -284,9 +304,10 @@ describe("bot formatters", () => {
       createdAt: new Date("2026-07-06T18:44:35.000Z")
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Saved Date:</b>");
-    expect(message).toContain("2:44");
-    expect(message).not.toContain("6:44");
+    expect(message).toContain("<b>💡 Idea</b>");
+    expect(message).toContain("Capture useful thoughts quickly.");
+    expect(message).not.toContain("Saved Date");
+    expect(message).not.toContain("Idea ID");
   });
 
   it("formats archived item dates in the user's timezone", () => {

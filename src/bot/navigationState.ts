@@ -28,9 +28,9 @@ export function appendListOrigin(
   kind: CardItemKind
 ): void {
   const page = listOrigin(userId, kind);
-  if (!page) return;
   const listKind = kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas";
-  keyboard.row().text(`‹ Back to page ${page}`, `list:${listKind}:${page}`);
+  if (page) keyboard.row().text(`‹ Back to page ${page}`, `list:${listKind}:${page}`);
+  else keyboard.row().text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${listKind}`);
 }
 
 function key(userId: string, kind: CardItemKind): string {

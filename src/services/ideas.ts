@@ -1,12 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import type { AiProvider, IdeaScore } from "../ai/types";
-import { bold, code, h } from "../utils/html";
+import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
-import { formatDateTimeForUser } from "../utils/dates";
-import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
@@ -224,16 +223,14 @@ export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string
   }
 
   return [
-    page && page.totalPages > 1 ? `${bold("💡 Recent ideas")} · Page ${page.page}/${page.totalPages}` : bold("💡 Recent ideas"),
+    page && page.totalPages > 1 ? `${bold("💡 Ideas")} · ${page.page}/${page.totalPages}` : bold("💡 Ideas"),
     "",
     ...ideas.map((idea, index) => {
-      const pin = idea.pinnedAt ? `${bold("Pinned")} ` : "";
-      return [
-        `${(page?.offset ?? 0) + index + 1}. ${pin}${bold(idea.title)}`,
-        fieldHtml("Idea ID", code(idea.publicId)),
-        h(truncate(idea.concept, 220))
-      ].join("\n");
-    })
+      const pin = idea.pinnedAt ? "⭐ " : "";
+      return `${(page?.offset ?? 0) + index + 1} · ${pin}${bold(truncate(idea.title, 72))}\n${h(truncate(idea.concept, 110))}`;
+    }),
+    "",
+    italic("Tap a number to open it.")
   ].join("\n\n");
 }
 
@@ -248,15 +245,15 @@ export function formatIdeaDetail(idea: {
   pinnedAt?: Date | null;
   createdAt: Date;
 }, timezone = "UTC"): string {
+  void timezone;
   const metadata = [
-    fieldHtml("Idea ID", code(idea.publicId)),
-    field("Saved Date", formatDateTimeForUser(idea.createdAt, timezone)),
-    idea.pinnedAt ? field("Pinned", "Yes") : undefined,
-    idea.type ? field("Type", idea.type) : undefined,
-    idea.tags.length ? field("Tags", idea.tags.join(", ")) : undefined
+    idea.type ? `◦ ${h(idea.type)}` : undefined,
+    idea.tags.length ? `#${idea.tags.map((tag) => h(tag)).join("  #")}` : undefined,
+    idea.pinnedAt ? "⭐ Starred" : undefined
   ].filter(Boolean).join("\n");
 
   return joinBlocks([
+    bold("💡 Idea"),
     bold(idea.title),
     h(idea.concept),
     idea.problem ? [bold("Problem"), h(idea.problem)].join("\n") : undefined,
