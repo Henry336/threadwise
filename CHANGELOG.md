@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.19.2 - 2026-07-17
+
+### Fixed
+- Open dashboard and gallery links as identity-bearing inline Telegram Mini Apps instead of unauthenticated simple keyboard Web Apps.
+- Rotated the first-party dashboard signing key and prevented a stale multiline Render variable from shadowing the reviewed bundled public key.
+
 ## v0.19.1 - 2026-07-17
 
 ### Fixed

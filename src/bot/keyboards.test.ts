@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 
 describe("interactive keyboard navigation", () => {
   it("offers contextual parent routes from nested help and task cards", () => {
@@ -15,11 +15,8 @@ describe("interactive keyboard navigation", () => {
   it("keeps only Menu and Dashboard in the persistent private composer", () => {
     const keyboard = privateMenuKeyboard();
     expect(keyboard.keyboard).toEqual([[
-      { text: "☰ Menu" },
-      {
-        text: "🌐 Dashboard",
-        web_app: { url: "https://threadwise-dashboard.vercel.app" }
-      }
+      { text: PRIVATE_MENU_LABELS.menu },
+      { text: PRIVATE_MENU_LABELS.dashboard }
     ]]);
     expect(keyboard.is_persistent).toBe(true);
   });

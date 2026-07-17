@@ -17,7 +17,7 @@ export function startMenuKeyboard(): InlineKeyboard {
     .text("📋 Tasks", "menu:tasks").text("📝 Notes", "menu:notes").row()
     .text("💡 Ideas", "menu:ideas").text("🖼️ Images", "menu:images").row()
     .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row()
-    .url("🌐 Dashboard", DASHBOARD_URL).text("⚙️ Settings", "menu:settings").row()
+    .webApp("🌐 Dashboard", DASHBOARD_URL).text("⚙️ Settings", "menu:settings").row()
     .text("❓ Help", "menu:help");
 }
 
@@ -29,14 +29,14 @@ export const PRIVATE_MENU_LABELS = {
 export function privateMenuKeyboard(): Keyboard {
   return new Keyboard()
     .text(PRIVATE_MENU_LABELS.menu)
-    .webApp(PRIVATE_MENU_LABELS.dashboard, DASHBOARD_URL)
+    .text(PRIVATE_MENU_LABELS.dashboard)
     .resized()
     .persistent()
     .placeholder("Tell Threadwise what you need…");
 }
 
 export function dashboardLinkKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().url("Open Threadwise Dashboard", DASHBOARD_URL);
+  return new InlineKeyboard().webApp("Open Threadwise Dashboard", DASHBOARD_URL);
 }
 
 export function tasksModeKeyboard(): InlineKeyboard {
@@ -63,7 +63,7 @@ export function ideasModeKeyboard(): InlineKeyboard {
 export function imagesModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🖼️ Browse images", "menu:images-list").text("🔎 Find an image", "menu:images-search").row()
-    .url("Open gallery", `${DASHBOARD_URL}/dashboard?view=images`).text("‹ Main menu", "menu:home");
+    .webApp("Open gallery", `${DASHBOARD_URL}/dashboard?view=images`).text("‹ Main menu", "menu:home");
 }
 
 export function expensesModeKeyboard(): InlineKeyboard {

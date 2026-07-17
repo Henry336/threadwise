@@ -21,8 +21,6 @@ services:
         value: gpt-5.5,gpt-5.4,gpt-5.4-nano
       - key: ADMIN_STATUS_TOKEN
         sync: false
-      - key: DASHBOARD_API_PUBLIC_KEY
-        sync: false
       - key: WEBHOOK_URL
         sync: false
       - key: WEBHOOK_SECRET_PATH

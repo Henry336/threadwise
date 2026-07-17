@@ -380,7 +380,10 @@ describe("bot formatters", () => {
   it("provides concise start navigation and image-choice buttons", () => {
     expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📋 Tasks", callback_data: "menu:tasks" });
     expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🖼️ Images", callback_data: "menu:images" });
-    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌐 Dashboard", url: "https://threadwise-dashboard.vercel.app" });
+    expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({
+      text: "🌐 Dashboard",
+      web_app: { url: "https://threadwise-dashboard.vercel.app" }
+    });
     expect(incomingImageKeyboard("pending-1").inline_keyboard).toEqual([
       [
         { text: "🖼️ Save image", callback_data: "image-upload:save:pending-1" },
@@ -403,10 +406,7 @@ describe("bot formatters", () => {
     expect(menu.resize_keyboard).toBe(true);
     expect(menu.keyboard).toHaveLength(1);
     expect(menu.keyboard.flat()).toContainEqual({ text: "☰ Menu" });
-    expect(menu.keyboard.flat()).toContainEqual({
-      text: "🌐 Dashboard",
-      web_app: { url: "https://threadwise-dashboard.vercel.app" }
-    });
+    expect(menu.keyboard.flat()).toContainEqual({ text: "🌐 Dashboard" });
   });
 
   it("keeps the start shortcut confirmation compact", () => {

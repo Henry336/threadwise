@@ -432,7 +432,6 @@ OPENAI_API_KEY
 OPENAI_MODEL
 OPENAI_MODEL_FALLBACKS
 ADMIN_STATUS_TOKEN
-DASHBOARD_API_PUBLIC_KEY
 WEBHOOK_URL
 BOT_ALLOWED_TELEGRAM_IDS
 MICROSOFT_CLIENT_ID
@@ -477,7 +476,7 @@ Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find t
 
 `GET /api/v1/dashboard` remains the fast server-to-server snapshot for the separate Threadwise dashboard. Authenticated routes beneath `/api/v1/dashboard/*` add paginated collections, CRUD actions, search, settings, image delivery, integration disconnects, privacy export, and confirmed account deletion. They do not enable browser database access and never return OAuth tokens, embeddings, Telegram file identifiers, receipt identifiers, expense raw text, or provider credentials.
 
-The first-party dashboard verification key is bundled as a public-only default. Set `DASHBOARD_API_PUBLIC_KEY` on the bot service only when rotating to a replacement Ed25519 SPKI public key. The value may contain real newlines or literal `\n` sequences. Keep the matching private key only in the dashboard service; do not add it to this repository or Render.
+The first-party dashboard verification key is bundled as public-only trust material. Rotate that reviewed source value and the matching Vercel private secret together. Render does not accept an environment override, so a stale multiline variable cannot silently shadow the deployed key. Keep the private key only in the dashboard service; do not add it to this repository or Render.
 
 The dashboard sends `Authorization: Bearer <token>`. Tokens must use `alg=EdDSA` and `typ=JWT`, and contain all of these claims:
 
@@ -499,7 +498,7 @@ openssl genpkey -algorithm Ed25519 -out dashboard-private.pem
 openssl pkey -in dashboard-private.pem -pubout -out dashboard-public.pem
 ```
 
-Store `dashboard-private.pem` as the dashboard's private environment secret. Either update the bundled public-only verification key or store `dashboard-public.pem` as `DASHBOARD_API_PUBLIC_KEY` on Render. Delete the local key files after deployment secrets are configured.
+Store `dashboard-private.pem` as the dashboard's private environment secret and update the bundled public-only verification key in `src/dashboard/publicKey.ts` in the same release. Delete the local key files after the deployment secret is configured.
 
 ## Private Admin Endpoints
 
