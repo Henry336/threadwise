@@ -51,7 +51,13 @@ export function helpTopicsKeyboard(): InlineKeyboard {
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
     .text("💰 Expenses", "menu:expenses").text("📊 Excel", "menu:excel").row()
     .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
-    .text("⌨️ Commands", "menu:commands");
+    .text("⌨️ Commands", "menu:commands")
+    .row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function menuBackKeyboard(label = "‹ Main menu"): InlineKeyboard {
+  return new InlineKeyboard().text(label, "menu:home");
 }
 
 export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -66,7 +72,9 @@ export function taskActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
     .text("✏️ Edit title", `item:task:edit:title:${taskId}`)
     .row()
     .text("📝 Edit details", `item:task:edit:description:${taskId}`)
-    .text("🗑️ Cancel task", `task:cancel:${taskId}`);
+    .text("🗑️ Cancel task", `task:cancel:${taskId}`)
+    .row()
+    .text("‹ Main menu", "menu:home");
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
@@ -107,11 +115,17 @@ export function itemCreatedKeyboard(kind: Exclude<ItemKind, "task">, item: ItemA
 }
 
 export function undoKeyboard(label = "↩️ Undo"): InlineKeyboard {
-  return new InlineKeyboard().text(label, "undo:last");
+  return new InlineKeyboard()
+    .text(label, "undo:last")
+    .row()
+    .text("‹ Main menu", "menu:home");
 }
 
 export function restoreCompletedTaskKeyboard(taskId: string): InlineKeyboard {
-  return new InlineKeyboard().text("↩️ Restore task", `task:restore:${taskId}`);
+  return new InlineKeyboard()
+    .text("↩️ Restore task", `task:restore:${taskId}`)
+    .row()
+    .text("‹ Main menu", "menu:home");
 }
 
 export function editCancelKeyboard(): InlineKeyboard {
@@ -131,6 +145,8 @@ export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget): Inl
   if (kind === "note") {
     keyboard.row().text("🗃️ Archive note", `item:note:archive:${item.id}`);
   }
+
+  keyboard.row().text("‹ Main menu", "menu:home");
 
   return keyboard;
 }
@@ -163,11 +179,13 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
 }
 
 function appendActiveListNavigation(keyboard: InlineKeyboard, navigation?: ActiveListNavigation): void {
-  if (!navigation || navigation.totalPages <= 1) return;
-  keyboard.row();
-  if (navigation.page > 1) keyboard.text("← Prev", `list:${navigation.kind}:${navigation.page - 1}`);
-  keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
-  if (navigation.page < navigation.totalPages) keyboard.text("Next →", `list:${navigation.kind}:${navigation.page + 1}`);
+  if (navigation && navigation.totalPages > 1) {
+    keyboard.row();
+    if (navigation.page > 1) keyboard.text("← Prev", `list:${navigation.kind}:${navigation.page - 1}`);
+    keyboard.text(`Page ${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
+    if (navigation.page < navigation.totalPages) keyboard.text("Next →", `list:${navigation.kind}:${navigation.page + 1}`);
+  }
+  keyboard.row().text("‹ Main menu", "menu:home");
 }
 
 export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
@@ -188,40 +206,26 @@ export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
 }
 
 export function searchPageKeyboard(pendingId: string, page: number, totalPages: number): InlineKeyboard | undefined {
-  if (totalPages <= 1) {
-    return undefined;
-  }
-
   const keyboard = new InlineKeyboard();
-  if (page > 1) {
-    keyboard.text("Prev", `search:${pendingId}:${page - 1}`);
+  if (totalPages > 1) {
+    if (page > 1) keyboard.text("Prev", `search:${pendingId}:${page - 1}`);
+    keyboard.text(`Page ${page}/${totalPages}`, `search:${pendingId}:${page}`);
+    if (page < totalPages) keyboard.text("Next", `search:${pendingId}:${page + 1}`);
+    keyboard.row();
   }
-
-  keyboard.text(`Page ${page}/${totalPages}`, `search:${pendingId}:${page}`);
-
-  if (page < totalPages) {
-    keyboard.text("Next", `search:${pendingId}:${page + 1}`);
-  }
-
+  keyboard.text("‹ Main menu", "menu:home");
   return keyboard;
 }
 
 export function archivedPageKeyboard(kind: string, page: number, totalPages: number): InlineKeyboard | undefined {
-  if (totalPages <= 1) {
-    return undefined;
-  }
-
   const keyboard = new InlineKeyboard();
-  if (page > 1) {
-    keyboard.text("Prev", `archived:${kind}:${page - 1}`);
+  if (totalPages > 1) {
+    if (page > 1) keyboard.text("Prev", `archived:${kind}:${page - 1}`);
+    keyboard.text(`Page ${page}/${totalPages}`, `archived:${kind}:${page}`);
+    if (page < totalPages) keyboard.text("Next", `archived:${kind}:${page + 1}`);
+    keyboard.row();
   }
-
-  keyboard.text(`Page ${page}/${totalPages}`, `archived:${kind}:${page}`);
-
-  if (page < totalPages) {
-    keyboard.text("Next", `archived:${kind}:${page + 1}`);
-  }
-
+  keyboard.text("‹ Main menu", "menu:home");
   return keyboard;
 }
 
@@ -241,6 +245,10 @@ export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
     .row()
     .text("🔎 Show full text", `image:text:${pendingId}`)
     .text("✕ Discard", `image:discard:${pendingId}`);
+}
+
+export function imageReminderTimeKeyboard(pendingId: string): InlineKeyboard {
+  return new InlineKeyboard().text("✕ Cancel reminder", `image:discard:${pendingId}`);
 }
 
 export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
@@ -274,13 +282,16 @@ export function storedImageListKeyboard(
     keyboard.text(`Page ${page}/${totalPages}`, `${pagePrefix}:${page}`);
     if (page < totalPages) keyboard.text("Next →", `${pagePrefix}:${page + 1}`);
   }
+  keyboard.row().text("‹ Main menu", "menu:home");
   return keyboard;
 }
 
 export function storedImageActionsKeyboard(imageId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("✏️ Edit caption", `stored-image:caption:${imageId}`)
-    .text("🗑️ Delete", `stored-image:delete:${imageId}`);
+    .text("🗑️ Delete", `stored-image:delete:${imageId}`)
+    .row()
+    .text("‹ Images", "menu:images");
 }
 
 export function storedImageDeleteKeyboard(imageId: string): InlineKeyboard {
@@ -300,10 +311,13 @@ export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {
 }
 
 export function expensePageKeyboard(encodedFilter: string, page: number, totalPages: number): InlineKeyboard | undefined {
-  if (totalPages <= 1) return undefined;
   const keyboard = new InlineKeyboard();
-  if (page > 1) keyboard.text("Prev", `expense:page:${encodedFilter}:${page - 1}`);
-  keyboard.text(`Page ${page}/${totalPages}`, `expense:page:${encodedFilter}:${page}`);
-  if (page < totalPages) keyboard.text("Next", `expense:page:${encodedFilter}:${page + 1}`);
+  if (totalPages > 1) {
+    if (page > 1) keyboard.text("Prev", `expense:page:${encodedFilter}:${page - 1}`);
+    keyboard.text(`Page ${page}/${totalPages}`, `expense:page:${encodedFilter}:${page}`);
+    if (page < totalPages) keyboard.text("Next", `expense:page:${encodedFilter}:${page + 1}`);
+    keyboard.row();
+  }
+  keyboard.text("‹ Main menu", "menu:home");
   return keyboard;
 }

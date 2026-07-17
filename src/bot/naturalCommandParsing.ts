@@ -3,16 +3,17 @@ export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "im
 
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
-  const match = normalized.match(/^(?:(?:show|list|view|open|give|display|browse|pull up|bring up)\s+)?(?:me\s+)?(?:my\s+|the\s+)?(?:all\s+|recent\s+|open\s+|saved\s+)?(tasks?|notes?|ideas?)$/)
-    ?? normalized.match(/^(?:let\s+me\s+(?:see|view)|what\s+(?:are|were)\s+my|what)\s+(?:all\s+|recent\s+|open\s+)?(?:my\s+)?(tasks?|notes?|ideas?)(?:\s+do\s+i\s+have)?$/)
-    ?? normalized.match(/^what\s+(tasks?|notes?|ideas?)\s+do\s+i\s+have$/)
-    ?? normalized.match(/^do\s+i\s+have\s+any\s+(tasks?|notes?|ideas?)$/);
+  const match = normalized.match(/^(?:(?:show|list|view|open|give|display|browse|pull up|bring up)\s+)?(?:me\s+)?(?:my\s+|the\s+)?(?:all\s+|recent\s+|open\s+|saved\s+|upcoming\s+)?(tasks?|to-?dos?|reminders?|notes?|ideas?)(?:\s+list)?$/)
+    ?? normalized.match(/^(?:let\s+me\s+(?:see|view)|what\s+(?:are|were)\s+my|what)\s+(?:all\s+|recent\s+|open\s+|upcoming\s+)?(?:my\s+)?(tasks?|to-?dos?|reminders?|notes?|ideas?)(?:\s+do\s+i\s+have)?$/)
+    ?? normalized.match(/^what\s+(tasks?|to-?dos?|reminders?|notes?|ideas?)\s+do\s+i\s+have$/)
+    ?? normalized.match(/^do\s+i\s+have\s+any\s+(tasks?|to-?dos?|reminders?|notes?|ideas?)$/)
+    ?? (/^(?:what(?:'s| is)\s+on\s+my\s+plate|what\s+do\s+i\s+(?:need|have)\s+to\s+do|what(?:'s| is)\s+(?:due|coming up))$/.test(normalized) ? ["", "tasks"] : undefined);
   if (!match?.[1]) {
     return undefined;
   }
 
   const item = match[1];
-  if (item.startsWith("task")) return "tasks";
+  if (item.startsWith("task") || item.startsWith("todo") || item.startsWith("to-do") || item.startsWith("remind")) return "tasks";
   if (item.startsWith("note")) return "notes";
   return "ideas";
 }
@@ -25,13 +26,18 @@ export function parseNaturalReminderBody(text: string): string | undefined {
     ?? normalized.match(/^(?:please\s+)?(?:i\s+)?(?:need|want)\s+(?:a\s+)?reminder\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?reminder\s*[:,-]?\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:schedule|set up)\s+(?:a\s+)?reminder\s+(?:for\s+me\s+)?(?:to|about|for)?\s*(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:wake|ping|alert|notify|nudge)\s+me\s+(?:up\s+)?(?:to|about|for)?\s*(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?(?:wake|ping|alert|notify|nudge|buzz|poke)\s+me\s+(?:up\s+)?(?:to|about|for)?\s*(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?give\s+me\s+(?:a\s+)?heads?-?up\s+(?:to|about|for)?\s*(.+)$/i);
   if (directMatch?.[1]) {
     return stripTrailingPunctuation(directMatch[1]);
   }
 
   const forgetMatch = normalized.match(/^(?:please\s+)?(?:do\s+not|don't)\s+let\s+me\s+forget\s+(to|about)\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?i\s+need\s+to\s+remember\s+(to|about)\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?i\s+need\s+to\s+remember\s+(to|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:do\s+not|don't)\s+let\s+me\s+miss\s+(.+)$/i);
+  if (forgetMatch?.[1] && !forgetMatch[2]) {
+    return `me about ${stripTrailingPunctuation(forgetMatch[1])}`;
+  }
   if (forgetMatch?.[1] && forgetMatch[2]) {
     return `me ${forgetMatch[1].toLowerCase()} ${stripTrailingPunctuation(forgetMatch[2])}`;
   }
@@ -40,7 +46,8 @@ export function parseNaturalReminderBody(text: string): string | undefined {
     ?? normalized.match(/^(?:please\s+)?(?:alert|notify)\s+me\s+(to|about|for)\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:give|send)\s+me\s+(?:a\s+)?reminder\s+(to|about|for)\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+remember\s+(to|about)\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?don't\s+forget\s+(to|about)\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?don't\s+forget\s+(to|about)\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+don't\s+forget\s+(to|about)\s+(.+)$/i);
   if (nudgeMatch?.[1] && nudgeMatch[2]) {
     return `me ${nudgeMatch[1].toLowerCase()} ${stripTrailingPunctuation(nudgeMatch[2])}`;
   }
@@ -57,7 +64,8 @@ export function parseNaturalNoteBody(text: string): string | undefined {
     ?? normalized.match(/^(?:please\s+)?(?:make|create)\s+(?:me\s+)?(?:a\s+)?note\s+(?:that|of|about)\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?remember\s+that\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:add|put)\s+(.+?)\s+(?:to|in)\s+my\s+notes?$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:file|log|record)\s+(?:this\s+)?(?:as\s+)?(?:a\s+)?note\s*[:,-]?\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?(?:file|log|record)\s+(?:this\s+)?(?:as\s+)?(?:a\s+)?note\s*[:,-]?\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:keep\s+this\s+in\s+mind|save\s+this\s+for\s+later|remember)\s*[:,-]\s*(.+)$/i);
   return match?.[1] ? stripTrailingPunctuation(match[1]).replace(/^that\s+/i, "") : undefined;
 }
 
@@ -67,7 +75,8 @@ export function parseNaturalIdeaBody(text: string): string | undefined {
     ?? normalized.match(/^(?:please\s+)?(?:save|capture|record)\s+(?:this\s+)?(?:as\s+)?(?:an\s+)?idea\s*[:,-]?\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?i\s+(?:have|had)\s+an\s+idea\s+(?:for|to|about)\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:here(?:'s| is)|this is)\s+(?:(?:my|an?)\s+)?(?:new\s+)?idea\s*[:,-]?\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:add|put)\s+(.+?)\s+(?:to|in)\s+my\s+ideas?$/i);
+    ?? normalized.match(/^(?:please\s+)?(?:add|put)\s+(.+?)\s+(?:to|in)\s+my\s+ideas?$/i)
+    ?? normalized.match(/^(?:please\s+)?(?:brainwave|concept|idea\s+for\s+later)\s*[:,-]\s*(.+)$/i);
   return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 
@@ -79,7 +88,11 @@ export function parseNaturalTaskBody(text: string): string | undefined {
     ?? normalized.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+my\s+(?:task|todo|to-do)\s+list$/i)
     ?? normalized.match(/^(?:please\s+)?(?:i\s+)?(?:(?:have|need|ought)\s+to|must|should)\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?remember\s+to\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+my\s+list$/i)
+    ?? normalized.match(/^(?:please\s+)?my\s+next\s+task\s+is\s+(?:to\s+)?(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?i(?:'ve|\s+have)\s+got\s+to\s+(.+)$/i)
+    ?? normalized.match(/^(?:please\s+)?i\s+gotta\s+(.+)$/i);
   return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 
@@ -233,12 +246,12 @@ function parseNaturalQuietHoursChange(text: string): string[] | undefined {
     return ["quiet", "off"];
   }
 
-  const match = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?quiet\s+hours\s*(?:to|as)?\s+(\d{1,2}:\d{2})\s*(?:-|to|until)\s*(\d{1,2}:\d{2})$/i);
+  const match = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?quiet\s+hours\s*(?:to|as)?\s+(\d{1,2}[:.]\d{2})\s*(?:-|to|until)\s*(\d{1,2}[:.]\d{2})$/i);
   if (!match?.[1] || !match[2]) {
     return undefined;
   }
 
-  return ["quiet", match[1], match[2]];
+  return ["quiet", match[1].replace(".", ":"), match[2].replace(".", ":")];
 }
 
 function parseNaturalMinutesSetting(text: string, pattern: RegExp, setting: string): string[] | undefined {
@@ -286,12 +299,13 @@ export function normalizeNaturalCommandText(text: string): string {
   return text
     .trim()
     .replace(/^(?:hey|hi|hello|yo)\s+(?:threadwise|bot)[,!:;-]*\s*/i, "")
-    .replace(/^please\s+(?=(?:can|could|would|will)\s+you\b)/i, "")
+    .replace(/^(?:hey|hi|hello|yo)[,!:;-]*\s+(?=(?:please|pls|plz|can|could|would|will|show|list|open|remind|add|save|create|make|help)\b)/i, "")
+    .replace(/^(?:please|pls|plz|kindly)\s+(?=(?:can|could|would|will)\s+(?:you|u)\b)/i, "")
     .replace(/^would\s+you\s+mind\s+/i, "")
-    .replace(/^(?:can|could|would|will)\s+you\s+(?:(?:please|kindly|maybe)\s+)?/i, "")
+    .replace(/^(?:can|could|would|will)\s+(?:you|u)\s+(?:(?:please|pls|plz|kindly|maybe)\s+)?/i, "")
     .replace(/^i\s+(?:want|need)\s+you\s+to\s+/i, "")
-    .replace(/^please\s+/i, "")
-    .replace(/\s+(?:please|for\s+me|thanks|thank\s+you)[?.!]*$/i, "")
+    .replace(/^(?:please|pls|plz|kindly)\s+/i, "")
+    .replace(/\s+(?:please|pls|plz|for\s+me|thanks|thank\s+you|thx)[?.!]*$/i, "")
     .replace(/[,;:?!]+$/g, "")
     .replace(/^opening\b/i, "open")
     .replace(/^showing\b/i, "show")

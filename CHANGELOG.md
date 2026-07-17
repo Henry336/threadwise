@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.18.0 - 2026-07-17
+
+### Added
+- Expanded deterministic natural-language coverage for conversational list, reminder, task, note, idea, search, completion, snooze, reschedule, cancellation, importance, undo, and settings requests.
+- Added dotted clocks such as `1.30pm` and `13.30`, spoken clocks such as `quarter past one`, parts of day, numeric day-first dates, weekday shorthand, `EOD`, `next week`, and `next month` without requiring an AI token.
+- Added persistent Main menu and back routes across nested inline task, note, idea, image, expense, search, archive, settings, and help cards.
+
+### Changed
+- Telegram inline-button actions now update the current message card in place whenever Telegram permits it, instead of adding a new bot message for each step.
+
+### Fixed
+- Fixed dotted times such as `1.30pm` being reduced to `1:00 AM`; the exact minute and meridiem are now preserved.
+
 ## v0.17.1 - 2026-07-14
 
 ### Changed

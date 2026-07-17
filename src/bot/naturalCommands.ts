@@ -94,7 +94,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  if (/^(?:undo|undo that|take that back|reverse (?:the )?(?:last )?change)$/.test(lower)) {
+  if (/^(?:undo|undo that|take that back|reverse (?:the )?(?:last )?change|never mind that|revert (?:the )?(?:last )?(?:thing|change))$/.test(lower)) {
     await replyHtml(ctx, await undoLastAction(user.id));
     return true;
   }
@@ -332,7 +332,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const searchMatch = trimmed.match(/^(?:search(?:\s+for)?|look\s+for|find\s+(?:anything\s+)?(?:about\s+)?)\s*(.+)$/i);
+  const searchMatch = trimmed.match(/^(?:search(?:\s+for)?|look\s+for|find\s+(?:anything\s+)?(?:about\s+)?)\s*(.+)$/i)
+    ?? trimmed.match(/^(?:do\s+i\s+have\s+anything|where(?:'s|\s+is)\s+(?:the\s+)?(?:thing|note|task|idea))\s+(?:about|on|for)\s+(.+)$/i);
   if (searchMatch?.[1]) {
     const imageSearch = searchMatch[1].match(/^(?:saved\s+)?(?:images?|photos?|pictures?|screenshots?)(?:\s+(?:captioned|named|called|for|about|containing|with(?:\s+(?:caption|text))?))?\s+(.+)$/i);
     if (imageSearch?.[1]) {
@@ -365,7 +366,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const viewNoteMatch = trimmed.match(/^(?:(?:show|view|open|read)\s+(?:me\s+)?(?:the\s+)?)?note\s+(\d+|NOTE-\d+)$/i);
+  const viewNoteMatch = trimmed.match(/^(?:(?:show|view|open|read)\s+(?:me\s+)?(?:the\s+)?)?note\s+(\d+|NOTE-\d+)$/i)
+    ?? trimmed.match(/^(?:what(?:'s|\s+is)\s+in|tell\s+me\s+about)\s+note\s+(\d+|NOTE-\d+)$/i);
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
@@ -410,7 +412,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const taskDetailMatch = trimmed.match(/^(?:task|(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?task)\s+(\S+)$/i);
+  const taskDetailMatch = trimmed.match(/^(?:task|(?:show|view|open)\s+(?:me\s+)?(?:the\s+)?task)\s+(\S+)$/i)
+    ?? trimmed.match(/^(?:what(?:'s|\s+is)|tell\s+me\s+about)\s+(?:in\s+)?task\s+(\S+)$/i);
   if (taskDetailMatch?.[1]) {
     try {
       const task = await findTaskReference(user.id, normalizePublicId(taskDetailMatch[1]));
@@ -430,7 +433,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const doneMatch = trimmed.match(/^(?:done|complete|finish|check off|tick off)\s+(?:task\s+)?(\S+)$/i)
     ?? trimmed.match(/^(?:mark|set)\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|completed|finished)$/i)
-    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|completed|finished)$/i);
+    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|completed|finished)$/i)
+    ?? trimmed.match(/^i(?:'ve|\s+have)?\s+(?:done|completed|finished|checked\s+off)\s+(?:task\s+)?(\S+)$/i);
   if (doneMatch?.[1]) {
     const completion = await completeTask(user.id, normalizePublicId(doneMatch[1]));
     if (completion.alreadyCompleted) {
@@ -441,7 +445,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const snoozeMatch = trimmed.match(/^(?:snooze|delay|pause)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i)
+  const snoozeMatch = trimmed.match(/^(?:snooze|delay|pause|put\s+off)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i)
     ?? trimmed.match(/^(?:remind|nudge)\s+me\s+(?:about\s+)?(?:task\s+)?(\S+)\s+(?:again\s+)?(?:in|after)\s+(.+)$/i);
   if (snoozeMatch?.[1]) {
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
@@ -450,7 +454,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   const rescheduleMatch = trimmed.match(/^(?:reschedule|move|postpone|push|shift|change\s+the\s+time\s+of)\s+(?:task\s+)?(\S+)\s+(?:to|until|for|by)?\s*(.+)$/i)
-    ?? trimmed.match(/^(?:change|set|update)\s+(?:the\s+)?(?:due\s+date|deadline|time)\s+(?:of|for)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i);
+    ?? trimmed.match(/^(?:change|set|update)\s+(?:the\s+)?(?:due\s+date|deadline|time)\s+(?:of|for)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i)
+    ?? trimmed.match(/^(?:make|set)\s+(?:task\s+)?(\S+)\s+due\s+(.+)$/i)
+    ?? trimmed.match(/^(?:task\s+)?(\S+)\s+(?:is|should\s+be)\s+due\s+(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
@@ -478,7 +484,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i);
+  const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i)
+    ?? trimmed.match(/^i\s+(?:don't|do\s+not)\s+need\s+(?:task\s+)?(\S+)\s+anymore$/i);
   if (cancelMatch?.[1]) {
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
     await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
@@ -487,7 +494,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const removeImportantMatch = trimmed.match(/^(?:remove|clear)\s+(?:the\s+)?important(?:\s+mark)?\s+from\s+(?:task\s+)?(.+)$/i)
     ?? trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+not\s+important$/i);
-  const markImportantMatch = trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+important$/i);
+  const markImportantMatch = trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+important$/i)
+    ?? trimmed.match(/^make\s+(?:task\s+)?(.+)\s+important$/i);
   const pinMatch = trimmed.match(/^(pin|star|important|unpin|unstar)\s+(?:task\s+|note\s+|idea\s+)?(.+)$/i);
   if (removeImportantMatch?.[1]) {
     const item = await pinItem(user.id, normalizePublicId(removeImportantMatch[1]), false);
@@ -633,7 +641,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     const parsed = splitReminderText(reminderBody);
     const scheduledAt = parseDueDate(parsed?.whenText ?? reminderBody, user.settings?.timezone ?? "UTC");
     if (!parsed || !scheduledAt || scheduledAt.getTime() <= Date.now()) {
-      await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try adding something like: by 9pm, tomorrow morning, Friday at 3, or in 20 minutes.");
+      await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try: by 9pm, at 1.30pm, tomorrow morning, Friday at 3, or in 20 minutes.");
       return true;
     }
     const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));

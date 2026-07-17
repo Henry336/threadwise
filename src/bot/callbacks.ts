@@ -15,13 +15,13 @@ import { formatSearchResultsPage } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
-import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
+import { archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, helpTopicsKeyboard, imageReminderTimeKeyboard, itemActionsKeyboard, itemCreatedKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
-import { formatHelpGuide, formatHelpTopic } from "./help";
+import { formatHelpGuide, formatHelpTopic, formatStartText } from "./help";
 import { formatSettings } from "../services/settings";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
@@ -59,12 +59,12 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   });
   bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]));
+    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true);
     await ctx.answerCallbackQuery({ text: `Page ${page}` });
   });
   bot.callbackQuery(/^stored-image:search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1]);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true);
     await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
@@ -76,13 +76,13 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const user = await ensureUser(ctx);
     const item = await beginPendingItemEdit(user.id, "image", ctx.match[1] ?? "", "caption");
     await ctx.answerCallbackQuery({ text: "Send the new caption" });
-    await replyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
+    await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
   });
   bot.callbackQuery(/^stored-image:delete:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     const image = await findStoredImageById(user.id, ctx.match[1] ?? "");
     await ctx.answerCallbackQuery({ text: "Please confirm" });
-    await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
+    await editOrReplyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
       reply_markup: storedImageDeleteKeyboard(image.id)
     });
   });
@@ -90,12 +90,12 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const user = await ensureUser(ctx);
     if (ctx.match[1] === "cancel") {
       await ctx.answerCallbackQuery({ text: "Image kept" });
-      await ctx.reply("Kept it. Nothing changed.");
+      await editOrReplyText(ctx, "Kept it. Nothing changed.", { reply_markup: menuBackKeyboard() });
       return;
     }
     const image = await deleteStoredImage(user.id, ctx.match[2] ?? "");
     await ctx.answerCallbackQuery({ text: "Image deleted" });
-    await replyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`);
+    await editOrReplyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`, { reply_markup: menuBackKeyboard() });
   });
   bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
 }
@@ -104,24 +104,30 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   if (!action) return;
   const user = await ensureUser(ctx);
   await ctx.answerCallbackQuery();
+  if (action === "home") {
+    await editOrReplyHtml(ctx, formatStartText(user.settings?.timezone ?? "Asia/Singapore"), {
+      reply_markup: startMenuKeyboard()
+    });
+    return;
+  }
   if (action === "tasks" || action === "notes" || action === "ideas") {
-    await replyActiveList(ctx, user, action);
+    await replyActiveList(ctx, user, action, 1, true);
     return;
   }
   if (action === "images") {
-    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
     return;
   }
   if (action === "settings") {
-    await replyHtml(ctx, await formatSettings(user.id));
+    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: menuBackKeyboard() });
     return;
   }
   if (action === "help") {
-    await replyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
+    await editOrReplyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
     return;
   }
   if (action === "integrations") {
-    await replyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`);
+    await editOrReplyHtml(ctx, `${formatHelpTopic("excel")}\n\n${bold("📅 Google Calendar")}\nConnect it with ${code("/calendar connect")}, then add a dated task with ${code("/calendar 1")}.`, { reply_markup: menuBackKeyboard() });
     return;
   }
   const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
@@ -135,7 +141,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     commands: "commands"
   };
   const topic = topics[action];
-  if (topic) await replyHtml(ctx, formatHelpTopic(topic));
+  if (topic) await editOrReplyHtml(ctx, formatHelpTopic(topic), { reply_markup: menuBackKeyboard() });
 }
 
 async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
@@ -143,7 +149,7 @@ async function handleActiveListPage(ctx: Context, kindText: string | undefined, 
   const requestedPage = Number(pageText);
   if (!Number.isInteger(requestedPage) || requestedPage < 1) return;
   const user = await ensureUser(ctx);
-  const page = await replyActiveList(ctx, user, kindText, requestedPage);
+  const page = await replyActiveList(ctx, user, kindText, requestedPage, true);
   await ctx.answerCallbackQuery({ text: `Page ${page}` });
 }
 
@@ -154,15 +160,15 @@ async function handleBulkAction(ctx: Context, action: string | undefined, pendin
     if (action === "cancel") {
       await cancelBulkAction(user.id, pendingId, String(ctx.from.id));
       await ctx.answerCallbackQuery({ text: "Canceled" });
-      await ctx.reply("Canceled. Everything is still where you left it.");
+      await editOrReplyText(ctx, "Canceled. Everything is still where you left it.", { reply_markup: menuBackKeyboard() });
       return;
     }
     const result = await confirmBulkAction(user.id, pendingId, String(ctx.from.id));
     await ctx.answerCallbackQuery({ text: "Bulk action complete" });
-    await replyHtml(ctx, formatBulkActionResult(result));
+    await editOrReplyHtml(ctx, formatBulkActionResult(result), { reply_markup: undoKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not complete action" });
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't complete that bulk action.");
+    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't complete that bulk action.", { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -174,7 +180,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     if (action === "discard") {
       await discardPendingImageCapture(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Discarded" });
-      await ctx.reply(pending.awaitingAction === "stored-image-saved" ? "Discarded the extracted-text preview. Your original image and its searchable OCR text are still saved." : "Discarded. Nothing was saved.");
+      await editOrReplyText(ctx, pending.awaitingAction === "stored-image-saved" ? "Discarded the extracted-text preview. Your original image and its searchable OCR text are still saved." : "Discarded. Nothing was saved.", { reply_markup: menuBackKeyboard() });
       return;
     }
     if (action === "text") {
@@ -185,7 +191,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     if (action === "reminder") {
       await awaitImageReminderTime(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Choose a time" });
-      await ctx.reply("When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.");
+      await editOrReplyText(ctx, "When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.", { reply_markup: imageReminderTimeKeyboard(pendingId) });
       return;
     }
     if (action === "expense") {
@@ -197,7 +203,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       });
       await consumePendingImageCapture(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Expense preview" });
-      await replyHtml(ctx, formatPendingExpense(expense, user.settings?.timezone ?? "UTC"), {
+      await editOrReplyHtml(ctx, formatPendingExpense(expense, user.settings?.timezone ?? "UTC"), {
         reply_markup: expenseConfirmationKeyboard(expense.id)
       });
       return;
@@ -206,14 +212,14 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     await ctx.answerCallbackQuery({ text: "Saving" });
     if (action === "note") {
       const note = await createNote(user.id, consumed.extractedText, ai);
-      await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+      await editOrReplyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
       return;
     }
     const task = await createTask(user.id, consumed.extractedText, ai);
-    await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't finish that image action.");
+    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't finish that image action.", { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -224,13 +230,13 @@ async function handleExpenseAction(ctx: Context, action: string | undefined, pen
     if (action === "discard") {
       await cancelPendingExpense(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Discarded" });
-      await ctx.reply("Got it—I left that expense unsaved.");
+      await editOrReplyText(ctx, "Got it—I left that expense unsaved.", { reply_markup: menuBackKeyboard() });
       return;
     }
     if (action === "edit") {
       await beginExpenseEdit(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Ready to edit" });
-      await ctx.reply("Send the fields to change, for example: total 12.50, merchant Toast Box, category Food, date today. Send 'cancel expense edit' to stop.");
+      await editOrReplyText(ctx, "Send the fields to change, for example: total 12.50, merchant Toast Box, category Food, date today. Send 'cancel expense edit' to stop.");
       return;
     }
     const expense = await confirmPendingExpense(user.id, pendingId);
@@ -244,10 +250,10 @@ async function handleExpenseAction(ctx: Context, action: string | undefined, pen
         syncMessage = `\nExcel: not synced (${error instanceof Error ? error.message : "sync failed"})`;
       }
     }
-    await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`);
+    await editOrReplyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`, { reply_markup: menuBackKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not save" });
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that expense.");
+    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't save that expense.", { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -258,7 +264,7 @@ async function handleExpensePage(ctx: Context, encoded: string, pageText: string
   const user = await ensureUser(ctx);
   const result = await listExpenses(user.id, filter, page, user.settings?.timezone ?? "UTC");
   await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
-  await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
+  await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
     reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
   });
 }
@@ -276,13 +282,13 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   const completion = await completeTask(user.id, taskId);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
-    await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), {
+    await editOrReplyHtml(ctx, formatTaskAlreadyCompleted(completion.task), {
       reply_markup: restoreCompletedTaskKeyboard(completion.task.id)
     });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await replyHtml(ctx, formatTaskCompleted(completion.task, user.settings?.timezone), {
+  await editOrReplyHtml(ctx, formatTaskCompleted(completion.task, user.settings?.timezone), {
     reply_markup: undoKeyboard("↩️ Undo complete")
   });
 }
@@ -293,13 +299,13 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
-    await replyHtml(ctx, `${bold("Task already open")} ${code(result.task.publicId)} ${h(result.task.title)}`, {
+    await editOrReplyHtml(ctx, `${bold("Task already open")} ${code(result.task.publicId)} ${h(result.task.title)}`, {
       reply_markup: taskActionsKeyboard(result.task)
     });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  await replyHtml(ctx, `${bold("↩️ Task restored")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} puts it back if needed.`, {
+  await editOrReplyHtml(ctx, `${bold("↩️ Task restored")} ${code(result.task.publicId)} ${h(result.task.title)}\n${code("/undo")} puts it back if needed.`, {
     reply_markup: taskActionsKeyboard(result.task).row().text("↩️ Undo restore", "undo:last")
   });
 }
@@ -309,7 +315,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  await replyHtml(ctx, `${bold("⏰ Snoozed for an hour")} ${code(task.publicId)} ${h(task.title)}`, {
+  await editOrReplyHtml(ctx, `${bold("⏰ Snoozed for an hour")} ${code(task.publicId)} ${h(task.title)}`, {
     reply_markup: undoKeyboard("↩️ Undo snooze")
   });
 }
@@ -319,7 +325,7 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   const user = await ensureUser(ctx);
   const task = await cancelTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Canceled task" });
-  await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}`, {
+  await editOrReplyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}`, {
     reply_markup: undoKeyboard("↩️ Undo cancel")
   });
 }
@@ -329,9 +335,9 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   const user = await ensureUser(ctx);
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
+  await editOrReplyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
     reply_markup: undoKeyboard("↩️ Undo")
-  } : undefined);
+  } : { reply_markup: menuBackKeyboard() });
 }
 
 async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
@@ -343,9 +349,9 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
+  await editOrReplyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? {
     reply_markup: undoKeyboard("↩️ Undo")
-  } : undefined);
+  } : { reply_markup: menuBackKeyboard() });
 }
 
 async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
@@ -353,7 +359,7 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   const user = await ensureUser(ctx);
   const item = await beginPendingItemEdit(user.id, kind, itemId, isEditableItemField(field) ? field : "title");
   await ctx.answerCallbackQuery({ text: "Ready to edit" });
-  await replyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
+  await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
 }
 
 async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
@@ -361,7 +367,7 @@ async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
   const user = await ensureUser(ctx);
   const note = await archiveNote(user.id, noteId);
   await ctx.answerCallbackQuery({ text: "Archived note" });
-  await replyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
+  await editOrReplyHtml(ctx, `${bold("🗃️ Note archived")} ${code(note.publicId)} ${h(note.title)}\nIt is out of the way, not gone. ${code("/undo")} brings it back.`, {
     reply_markup: undoKeyboard("↩️ Undo archive")
   });
 }
@@ -369,14 +375,14 @@ async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
 async function handleUndoLast(ctx: Context) {
   const user = await ensureUser(ctx);
   await ctx.answerCallbackQuery({ text: "Undoing" });
-  await replyHtml(ctx, await undoLastAction(user.id));
+  await editOrReplyHtml(ctx, await undoLastAction(user.id), { reply_markup: menuBackKeyboard() });
 }
 
 async function handleEditCancel(ctx: Context) {
   const user = await ensureUser(ctx);
   const canceled = await cancelPendingItemEdit(user.id);
   await ctx.answerCallbackQuery({ text: canceled ? "Edit canceled" : "No edit pending" });
-  await ctx.reply(canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.");
+  await editOrReplyText(ctx, canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.", { reply_markup: menuBackKeyboard() });
 }
 
 async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
@@ -394,12 +400,12 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
     });
     const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
     await ctx.answerCallbackQuery({ text: `Page ${Math.min(page, totalPages)}` });
-    await replyHtml(ctx, formatSearchResultsPage(results, page, pageSize, parsed.label), {
+    await editOrReplyHtml(ctx, formatSearchResultsPage(results, page, pageSize, parsed.label), {
       reply_markup: searchPageKeyboard(pendingId, Math.min(page, totalPages), totalPages)
     });
   } catch {
     await ctx.answerCallbackQuery({ text: "Search expired" });
-    await ctx.reply("That search has gone stale. Run /search again and I’ll fetch a fresh page.");
+    await editOrReplyText(ctx, "That search has gone stale. Run /search again and I’ll fetch a fresh page.", { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -411,23 +417,23 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
     if (action === "cancel") {
       await cancelNoteMerge(user.id, pendingId);
       await ctx.answerCallbackQuery({ text: "Canceled" });
-      await ctx.reply("Merge canceled. Your original notes are untouched.");
+      await editOrReplyText(ctx, "Merge canceled. Your original notes are untouched.", { reply_markup: menuBackKeyboard() });
       return;
     }
 
     if (action === "retry") {
       const result = await retryNoteMergePreview(user.id, pendingId, ai);
       await ctx.answerCallbackQuery({ text: "New preview" });
-      await replyHtml(ctx, formatNoteMergePreview(result), { reply_markup: noteMergePreviewKeyboard(result.pendingId) });
+      await editOrReplyHtml(ctx, formatNoteMergePreview(result), { reply_markup: noteMergePreviewKeyboard(result.pendingId) });
       return;
     }
 
     const result = await confirmNoteMerge(user.id, pendingId, ai);
     await ctx.answerCallbackQuery({ text: "Merged" });
-    await replyHtml(ctx, formatNoteMergeConfirmed(result));
+    await editOrReplyHtml(ctx, formatNoteMergeConfirmed(result), { reply_markup: undoKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not finish merge" });
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't finish that merge. Try starting it again from /notes.");
+    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't finish that merge. Try starting it again from /notes.", { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -447,7 +453,7 @@ async function handleArchivedPage(ctx: Context, kindText: string | undefined, pa
   const user = await ensureUser(ctx);
   const archived = await listArchivedItems(user.id, kind, page);
   await ctx.answerCallbackQuery({ text: `Page ${archived.page}` });
-  await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+  await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }
@@ -459,7 +465,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   if (action === "ignore") {
     await ignorePendingCapture(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Ignored" });
-    await ctx.reply("Got it—I’ll leave that one alone.");
+    await editOrReplyText(ctx, "Got it—I’ll leave that one alone.", { reply_markup: menuBackKeyboard() });
     return;
   }
 
@@ -468,7 +474,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "task") {
     const task = await createTask(user.id, pending.sourceText, ai);
-    await replyHtml(ctx, `${formatTaskCreated(task, user.settings?.timezone)}\n\n${code("/undo")} if this was the wrong bucket.`, {
+    await editOrReplyHtml(ctx, `${formatTaskCreated(task, user.settings?.timezone)}\n\n${code("/undo")} if this was the wrong bucket.`, {
       reply_markup: taskCreatedKeyboard(task)
     });
     return;
@@ -476,7 +482,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "idea") {
     const idea = await createIdea(user.id, pending.sourceText, ai);
-    await replyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`, {
+    await editOrReplyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`, {
       reply_markup: itemCreatedKeyboard("idea", idea)
     });
     return;
@@ -484,11 +490,11 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "note") {
     const note = await createNote(user.id, pending.sourceText, ai);
-    await replyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`, {
+    await editOrReplyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`, {
       reply_markup: itemCreatedKeyboard("note", note)
     });
     return;
   }
 
-  await ctx.reply("That capture type is no longer available.");
+  await editOrReplyText(ctx, "That capture type is no longer available.", { reply_markup: menuBackKeyboard() });
 }

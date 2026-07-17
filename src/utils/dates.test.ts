@@ -71,6 +71,55 @@ describe("date utilities", () => {
     expect(parseDueDate(text, "Asia/Singapore", now)).toBeInstanceOf(Date);
   });
 
+  it.each([
+    ["remind me to go to the bank later at 1.30pm", "2026-07-05T05:30:00.000Z"],
+    ["remind me to call Mum at 1.30 p.m.", "2026-07-05T05:30:00.000Z"],
+    ["remind me at 1 30 pm", "2026-07-05T05:30:00.000Z"],
+    ["remind me at 13h30", "2026-07-05T05:30:00.000Z"]
+  ])("accepts common clock punctuation and spacing: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
+    ["remind me tomorrow morning", "2026-07-06T01:00:00.000Z"],
+    ["remind me tomorrow afternoon", "2026-07-06T06:00:00.000Z"],
+    ["remind me this evening", "2026-07-05T10:00:00.000Z"],
+    ["remind me tonight", "2026-07-05T12:00:00.000Z"],
+    ["remind me at lunchtime tomorrow", "2026-07-06T04:00:00.000Z"]
+  ])("parses conversational parts of the day: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
+    ["remind me tomorrow at noon", "2026-07-06T04:00:00.000Z"],
+    ["remind me tomorrow at midnight", "2026-07-05T16:00:00.000Z"],
+    ["remind me tomorrow 13.30", "2026-07-06T05:30:00.000Z"]
+  ])("keeps relative days attached to conversational clocks: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
+    ["remind me quarter past one pm", "2026-07-05T05:15:00.000Z"],
+    ["remind me quarter to two pm", "2026-07-05T05:45:00.000Z"],
+    ["remind me half past 1 pm", "2026-07-05T05:30:00.000Z"]
+  ])("parses spoken clock expressions: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
+  it.each([
+    ["remind me on 18/7 at 1.30pm", "2026-07-18T05:30:00.000Z"],
+    ["remind me on 18/7/27 at 9am", "2027-07-18T01:00:00.000Z"],
+    ["remind me by end of day", "2026-07-05T09:00:00.000Z"],
+    ["remind me next month", "2026-08-01T01:00:00.000Z"]
+  ])("parses broader calendar shorthand: %s", (text, expected) => {
+    const now = new Date("2026-07-05T04:00:00.000Z");
+    expect(parseDueDate(text, "Asia/Singapore", now)?.toISOString()).toBe(expected);
+  });
+
   it("parses tomorrow with a time", () => {
     const now = new Date("2026-07-05T04:00:00.000Z");
     const due = parseDueDate("submit report tomorrow at 9am", "Asia/Singapore", now);

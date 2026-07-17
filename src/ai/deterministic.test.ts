@@ -30,6 +30,12 @@ describe("deterministic AI helpers", () => {
     });
   });
 
+  it("keeps dotted clock reminders accurate and out of the title", () => {
+    const input = "Remind me to go to the bank later at 1.30pm";
+    expect(classifyMessageDeterministically(input, "Asia/Singapore")?.kind).toBe("task");
+    expect(structureTaskDeterministically(input).title).toBe("Go to the bank later");
+  });
+
   it("handles hedged compound timing without losing a long task description", () => {
     const input = "Remind me to buy snacks, sth from Breadtalk, a detergent, possibly a water bottle asw in about 1 hour 15 mins";
     expect(classifyMessageDeterministically(input, "Asia/Singapore")?.kind).toBe("task");

@@ -131,7 +131,10 @@ describe("bot formatters", () => {
       text: "✏️ Edit 1",
       callback_data: "item:task:edit:title:task-uuid-1"
     });
-    expect(keyboard?.inline_keyboard).toHaveLength(1);
+    expect(keyboard?.inline_keyboard).toHaveLength(2);
+    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+      { text: "‹ Main menu", callback_data: "menu:home" }
+    ]);
   });
 
   it("keeps global numbering and navigation on later task pages", () => {
@@ -143,10 +146,13 @@ describe("bot formatters", () => {
     expect(message).toContain("Page 2/3");
     expect(message).toContain("11. <b>Later task</b>");
     expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("✅ Complete 11");
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
       { text: "← Prev", callback_data: "list:tasks:1" },
       { text: "Page 2/3", callback_data: "list:tasks:2" },
       { text: "Next →", callback_data: "list:tasks:3" }
+    ]);
+    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+      { text: "‹ Main menu", callback_data: "menu:home" }
     ]);
   });
 
@@ -196,7 +202,9 @@ describe("bot formatters", () => {
       text: "☆ Unstar",
       callback_data: "item:idea:unpin:idea-uuid-1"
     });
-    expect(ideaKeyboard.inline_keyboard[2]).toBeUndefined();
+    expect(ideaKeyboard.inline_keyboard[2]).toEqual([
+      { text: "‹ Main menu", callback_data: "menu:home" }
+    ]);
   });
 
   it("shows star and edit controls for note and idea lists", () => {
@@ -225,9 +233,12 @@ describe("bot formatters", () => {
     expect(noteMessage).toContain("11. <b>Note eleven</b>");
     expect(ideaMessage).toContain("11. <b>Idea eleven</b>");
     expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("⭐ Star 11");
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
       { text: "← Prev", callback_data: "list:notes:1" },
       { text: "Page 2/2", callback_data: "list:notes:2" }
+    ]);
+    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
+      { text: "‹ Main menu", callback_data: "menu:home" }
     ]);
   });
 

@@ -7,7 +7,9 @@ describe("natural command parsing", () => {
     ["I want you to list my notes for me", "list my notes"],
     ["Would you mind opening idea 2 please", "open idea 2"],
     ["Would you mind reminding me to call Mum at 8pm?", "remind me to call Mum at 8pm"],
-    ["Please could you maybe archive note 2, thanks", "archive note 2"]
+    ["Please could you maybe archive note 2, thanks", "archive note 2"],
+    ["hey, can u show my reminders pls", "show my reminders"],
+    ["plz remind me to call Mum at 8pm thx", "remind me to call Mum at 8pm"]
   ])("normalizes conversational command wrappers: %s", (input, expected) => {
     expect(normalizeNaturalCommandText(input)).toBe(expected);
   });
@@ -21,7 +23,12 @@ describe("natural command parsing", () => {
     ["show recent notes", "notes"],
     ["what are my open tasks", "tasks"],
     ["pull up my saved notes", "notes"],
-    ["do I have any tasks", "tasks"]
+    ["do I have any tasks", "tasks"],
+    ["show my reminders", "tasks"],
+    ["open my to-do list", "tasks"],
+    ["what's on my plate", "tasks"],
+    ["what do I need to do", "tasks"],
+    ["what's coming up", "tasks"]
   ])("parses list requests: %s", (input, expected) => {
     expect(parseListRequest(input)).toBe(expected);
   });
@@ -81,7 +88,8 @@ describe("natural command parsing", () => {
     ["use compact reminders", ["mode", "compact"]],
     ["make my reminders detailed", ["mode", "detailed"]],
     ["send me assigned task reminders in private", ["dm", "on"]],
-    ["stop dming me", ["dm", "off"]]
+    ["stop dming me", ["dm", "off"]],
+    ["set quiet hours to 22.00-08.00", ["quiet", "22:00", "08:00"]]
   ])("parses natural settings: %s", (input, expected) => {
     expect(parseNaturalSettingChange(input)).toEqual(expected);
   });
@@ -104,7 +112,11 @@ describe("natural command parsing", () => {
     ["don't forget to lock the door at 11pm", "me to lock the door at 11pm"],
     ["reminder: submit the form tomorrow", "submit the form tomorrow"],
     ["schedule a reminder for me to stretch in 20 minutes", "stretch in 20 minutes"],
-    ["wake me up to check the oven at 7am", "check the oven at 7am"]
+    ["wake me up to check the oven at 7am", "check the oven at 7am"],
+    ["buzz me to leave at 6pm", "leave at 6pm"],
+    ["give me a heads-up about rent tomorrow", "rent tomorrow"],
+    ["don't let me miss the meeting at 2pm", "me about the meeting at 2pm"],
+    ["make sure I don't forget to submit the form by 5pm", "me to submit the form by 5pm"]
   ])("parses reminder starter bodies: %s", (input, expected) => {
     expect(parseNaturalReminderBody(input)).toBe(expected);
   });
@@ -116,7 +128,10 @@ describe("natural command parsing", () => {
     ["note to self: renew the passport after the trip", "renew the passport after the trip"],
     ["remember that Wi-Fi password is on the router", "Wi-Fi password is on the router"],
     ["add the hotel address to my notes", "the hotel address"],
-    ["file this as a note: call reference 123", "call reference 123"]
+    ["file this as a note: call reference 123", "call reference 123"],
+    ["keep this in mind: the spare key is with Sam", "the spare key is with Sam"],
+    ["save this for later: deployment checklist", "deployment checklist"],
+    ["remember: the locker code changed", "the locker code changed"]
   ])("parses natural note capture: %s", (input, expected) => {
     expect(parseNaturalNoteBody(input)).toBe(expected);
   });
@@ -126,7 +141,11 @@ describe("natural command parsing", () => {
     ["I need to submit the report by Friday", "submit the report by Friday"],
     ["put book dentist on my todo list", "book dentist"],
     ["I must renew my passport next month", "renew my passport next month"],
-    ["remember to buy milk tomorrow", "buy milk tomorrow"]
+    ["remember to buy milk tomorrow", "buy milk tomorrow"],
+    ["put renew passport on my list", "renew passport"],
+    ["my next task is to email Alex", "email Alex"],
+    ["I've got to submit the form", "submit the form"],
+    ["I gotta call Mum", "call Mum"]
   ])("parses natural task capture: %s", (input, expected) => {
     expect(parseNaturalTaskBody(input)).toBe(expected);
   });
@@ -135,7 +154,9 @@ describe("natural command parsing", () => {
     ["save this as an idea: a receipt scanner for Telegram", "a receipt scanner for Telegram"],
     ["I have an idea for a quiet-hours dashboard", "a quiet-hours dashboard"],
     ["here's an idea: shared grocery reminders", "shared grocery reminders"],
-    ["put receipt categorization in my ideas", "receipt categorization"]
+    ["put receipt categorization in my ideas", "receipt categorization"],
+    ["brainwave: a calmer reminder digest", "a calmer reminder digest"],
+    ["concept: shared household errands", "shared household errands"]
   ])("parses natural idea capture: %s", (input, expected) => {
     expect(parseNaturalIdeaBody(input)).toBe(expected);
   });

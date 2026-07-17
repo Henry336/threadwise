@@ -8,9 +8,9 @@ import { consumePendingImageUpload, createPendingImageUpload, discardPendingImag
 import { beginPendingItemEdit, formatEditStarted } from "../services/itemEdits";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
-import { bold, h, replyHtml } from "../utils/html";
+import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { editCancelKeyboard, expenseConfirmationKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, menuBackKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
@@ -83,20 +83,20 @@ async function handleIncomingImageAction(
   if (action === "discard") {
     await discardPendingImageUpload(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Discarded" });
-    await ctx.reply("Got it—I left the image unsaved and did not extract anything.");
+    await editOrReplyText(ctx, "Got it—I left the image unsaved and did not extract anything.", { reply_markup: menuBackKeyboard() });
     return;
   }
   if (action === "save") {
     const saved = await savePendingImageUpload(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: saved.duplicate ? "Already saved" : "Image saved" });
-    await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+    await editOrReplyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate), { reply_markup: menuBackKeyboard() });
     return;
   }
   if (action === "caption") {
     const saved = await savePendingImageUpload(user.id, pendingId);
     const edit = await beginPendingItemEdit(user.id, "image", saved.image.id, "caption");
     await ctx.answerCallbackQuery({ text: saved.duplicate ? "Update its caption" : "Add a caption" });
-    await replyHtml(ctx, `${formatStoredImageSaved(saved.image, saved.duplicate)}\n\n${formatEditStarted(edit)}`, { reply_markup: editCancelKeyboard() });
+    await editOrReplyHtml(ctx, `${formatStoredImageSaved(saved.image, saved.duplicate)}\n\n${formatEditStarted(edit)}`, { reply_markup: editCancelKeyboard() });
     return;
   }
   if (action === "save-extract") {
@@ -113,7 +113,7 @@ async function handleIncomingImageAction(
     });
     const saved = await savePendingImageUpload(user.id, savedPending.id);
     await ctx.answerCallbackQuery({ text: "Saved — now extracting" });
-    await replyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
+    await editOrReplyHtml(ctx, formatStoredImageSaved(saved.image, saved.duplicate));
     await processImageOcr(ctx, ai, token, {
       telegramFileId: pending.telegramFileId,
       telegramUniqueId: pending.telegramUniqueId ?? undefined,
@@ -147,7 +147,11 @@ async function processImageOcr(
   storedImageId?: string
 ): Promise<void> {
   const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
-  const progress = await ctx.reply(`Reading the image locally in ${formatOcrLanguages(ocrLanguages)}. The first scan can take a little longer.`);
+  const progressText = `Reading the image locally in ${formatOcrLanguages(ocrLanguages)}. The first scan can take a little longer.`;
+  const progress = ctx.callbackQuery?.message
+    ? undefined
+    : await ctx.reply(progressText);
+  if (ctx.callbackQuery?.message) await editOrReplyText(ctx, progressText);
   try {
     const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
@@ -160,7 +164,7 @@ async function processImageOcr(
         ocrConfidence: extracted.confidence,
         defaultCurrency: user.settings?.expenseCurrency
       });
-      await replyHtml(ctx, formatPendingExpense(pendingExpense, user.settings?.timezone ?? "UTC"), {
+      await editOrReplyHtml(ctx, formatPendingExpense(pendingExpense, user.settings?.timezone ?? "UTC"), {
         reply_markup: expenseConfirmationKeyboard(pendingExpense.id)
       });
       return;
@@ -168,13 +172,13 @@ async function processImageOcr(
 
     if (intent === "note") {
       const note = await createNote(user.id, extracted.text, ai);
-      await replyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+      await editOrReplyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
       return;
     }
 
     if (intent === "task") {
       const task = await createTask(user.id, extracted.text, ai);
-      await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+      await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
       return;
     }
 
@@ -182,7 +186,7 @@ async function processImageOcr(
       const scheduledAt = parseDueDate(preparedCaption, user.settings?.timezone ?? "UTC");
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
         const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
-        await replyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+        await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
         return;
       }
     }
@@ -198,19 +202,23 @@ async function processImageOcr(
     });
 
     if (intent === "reminder") {
-      await ctx.reply("The text is ready. When should I bring it back? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.");
+      await editOrReplyText(ctx, "The text is ready. When should I bring it back? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.", {
+        reply_markup: imageReminderTimeKeyboard(pending.id)
+      });
       return;
     }
 
-    await replyHtml(ctx, formatImagePreview(extracted.text, extracted.confidence, Boolean(storedImageId)), {
+    await editOrReplyHtml(ctx, formatImagePreview(extracted.text, extracted.confidence, Boolean(storedImageId)), {
       reply_markup: imageTextActionsKeyboard(pending.id)
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "I couldn't read that image. Try a clearer photo or screenshot.";
-    await ctx.reply(storedImageId ? `The original image is safely saved, but I couldn't extract its text. ${detail}` : detail);
+    await editOrReplyText(ctx, storedImageId ? `The original image is safely saved, but I couldn't extract its text. ${detail}` : detail, {
+      reply_markup: menuBackKeyboard()
+    });
   } finally {
     try {
-      await ctx.api.deleteMessage(ctx.chat?.id ?? 0, progress.message_id);
+      if (progress) await ctx.api.deleteMessage(ctx.chat?.id ?? 0, progress.message_id);
     } catch {
       // The progress message is harmless if Telegram does not allow deleting it.
     }

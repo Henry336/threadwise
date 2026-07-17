@@ -8,7 +8,7 @@ export type QuietHours = {
 };
 
 export function parseDueDate(input: string, timezone: string, now: Date = new Date()): Date | undefined {
-  const text = input.toLowerCase();
+  const text = normalizeNaturalDateText(input);
   const base = DateTime.fromJSDate(now).setZone(timezone);
 
   const relativeMinutes = parseRelativeDurationMinutes(text);
@@ -19,11 +19,11 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
     return withOptionalTime(base.plus({ days: 2 }), dayAfterTomorrowMatch[1], dayAfterTomorrowMatch[2], dayAfterTomorrowMatch[3]).toJSDate();
   }
 
-  const namedClockMatch = text.match(/\b(?:at\s+)?(noon|midnight)(?:\s+(today|tomorrow))?\b/);
-  if (namedClockMatch?.[1]) {
-    const explicitDay = namedClockMatch[2];
+  const namedClockMatch = text.match(/\b(?:(today|tomorrow)\s+(?:at\s+)?)?(noon|midday|lunchtime|midnight)(?:\s+(today|tomorrow))?\b/);
+  if (namedClockMatch?.[2]) {
+    const explicitDay = namedClockMatch[1] ?? namedClockMatch[3];
     let scheduled = (explicitDay === "tomorrow" ? base.plus({ days: 1 }) : base).set({
-      hour: namedClockMatch[1] === "noon" ? 12 : 0,
+      hour: namedClockMatch[2] === "midnight" ? 0 : 12,
       minute: 0,
       second: 0,
       millisecond: 0
@@ -40,12 +40,17 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
     return withOptionalTime(dayBase, timeBeforeRelativeDayMatch[1], timeBeforeRelativeDayMatch[2], timeBeforeRelativeDayMatch[3]).toJSDate();
   }
 
-  const tomorrowMatch = text.match(/\btomorrow(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  const relativeDayPart = parseRelativeDayPart(text, base);
+  if (relativeDayPart) {
+    return relativeDayPart.toJSDate();
+  }
+
+  const tomorrowMatch = text.match(/\btomorrow(?:\s+(?:(?:at|by|before|around)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
   if (tomorrowMatch) {
     return withOptionalTime(base.plus({ days: 1 }), tomorrowMatch[1], tomorrowMatch[2], tomorrowMatch[3]).toJSDate();
   }
 
-  const todayMatch = text.match(/\btoday(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  const todayMatch = text.match(/\btoday(?:\s+(?:(?:at|by|before|around)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
   if (todayMatch) {
     return withOptionalTime(base, todayMatch[1], todayMatch[2], todayMatch[3]).toJSDate();
   }
@@ -62,6 +67,12 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
 
   const monthlyDay = parseMonthlyDay(text, base);
   if (monthlyDay) return monthlyDay.toJSDate();
+
+  const numericDate = parseNumericDate(text, base);
+  if (numericDate) return numericDate.toJSDate();
+
+  const broaderRelativeDate = parseBroaderRelativeDate(text, base);
+  if (broaderRelativeDate) return broaderRelativeDate.toJSDate();
 
   const isoMatch = text.match(/\b(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}):(\d{2}))?\b/);
   if (isoMatch?.[1]) {
@@ -289,7 +300,8 @@ export function formatRecurrenceRule(rule: RecurrenceRule): string {
 
 function hasReminderTimeText(input: string): boolean {
   if (parseRelativeDurationMinutes(input)) return true;
-  return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|tonight|next\s+\w+)(?:\s+(?:at|by|before|around)\s+\d{1,2})?|noon|midnight|(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{4}-\d{2}-\d{2})\b/i.test(input);
+  const text = normalizeNaturalDateText(input);
+  return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night)|next\s+\w+)(?:\s+(?:at|by|before|around)?\s*\d{1,2})?|end\s+of\s+(?:the\s+)?day|eod|noon|midnight|midday|lunchtime|(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b/i.test(text);
 }
 
 function relativeAmount(value: string): number {
@@ -355,7 +367,7 @@ function parseWeekday(text: string, base: DateTime): DateTime | undefined {
     ["saturday", 6],
     ["sunday", 7]
   ]);
-  const match = text.match(/\b(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
+  const match = text.match(/\b((?:next|this)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:(?:at|by|before|around)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/);
   if (!match?.[2]) {
     return undefined;
   }
@@ -366,7 +378,7 @@ function parseWeekday(text: string, base: DateTime): DateTime | undefined {
   }
 
   let daysToAdd = targetWeekday - base.weekday;
-  if (daysToAdd < 0 || match[1]) {
+  if (daysToAdd < 0 || match[1]?.trim() === "next") {
     daysToAdd += 7;
   }
   let scheduled = withOptionalTime(base.plus({ days: daysToAdd }), match[3], match[4], match[5]);
@@ -495,6 +507,17 @@ function monthDayDateTime(input: {
 }
 
 function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: string; meridiem?: string } | undefined {
+  const spoken = text.match(/\b(half|quarter)\s+(past|to)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)?\b/);
+  if (spoken?.[1] && spoken[2] && spoken[3]) {
+    const rawHour = clockWordValue(spoken[3]);
+    if (rawHour) {
+      const isTo = spoken[2] === "to";
+      const minute = spoken[1] === "half" ? 30 : isTo ? 45 : 15;
+      const hour = isTo ? (rawHour === 1 ? 12 : rawHour - 1) : rawHour;
+      return { hour: String(hour), minute: String(minute), meridiem: spoken[4] };
+    }
+  }
+
   const match = text.match(/\b(?:at|by|before|around|no\s+later\s+than)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/)
     ?? text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
   if (!match?.[1]) {
@@ -502,7 +525,8 @@ function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: 
   }
 
   const hour = Number(match[1]);
-  if (hour < 0 || hour > 23) {
+  const minute = Number(match[2] ?? 0);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || (match[3] && hour > 12)) {
     return undefined;
   }
 
@@ -511,6 +535,81 @@ function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: 
     minute: match[2],
     meridiem: match[3]
   };
+}
+
+function normalizeNaturalDateText(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\b([ap])\s*\.?\s*m\.?\b/g, "$1m")
+    .replace(/\b(\d{1,2})\s*[.]\s*(\d{2})(?!\d)(?!\s*(?:hours?|hrs?|h|minutes?|mins?|m|days?|d)\b)/g, "$1:$2")
+    .replace(/\b(\d{1,2})\s*[:]\s*(\d{2})/g, "$1:$2")
+    .replace(/\b(\d{1,2})\s+(\d{2})\s*(am|pm)\b/g, "$1:$2$3")
+    .replace(/\b(\d{1,2})h(\d{2})\b/g, "$1:$2")
+    .replace(/\b(?:tmr|tmrw|tmw)\b/g, "tomorrow")
+    .replace(/\btonite\b/g, "tonight")
+    .replace(/\bmon\b/g, "monday")
+    .replace(/\btue(?:s)?\b/g, "tuesday")
+    .replace(/\bwed\b/g, "wednesday")
+    .replace(/\bthu(?:rs)?\b/g, "thursday")
+    .replace(/\bfri\b/g, "friday")
+    .replace(/\bsat\b/g, "saturday")
+    .replace(/\bsun\b/g, "sunday")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseRelativeDayPart(text: string, base: DateTime): DateTime | undefined {
+  const match = text.match(/\b(?:(today|tomorrow|this)\s+)?(morning|afternoon|evening|night|tonight)\b/);
+  if (!match?.[2]) return undefined;
+  const part = match[2];
+  const explicitDay = match[1];
+  const hour = part === "morning" ? 9 : part === "afternoon" ? 14 : part === "evening" ? 18 : 20;
+  const dayBase = explicitDay === "tomorrow" ? base.plus({ days: 1 }) : base;
+  const explicitClock = parseClockOnly(text, base);
+  let scheduled = explicitClock
+    ? withOptionalTime(dayBase, explicitClock.hour, explicitClock.minute, explicitClock.meridiem)
+    : dayBase.set({ hour, minute: 0, second: 0, millisecond: 0 });
+  if ((!explicitDay || explicitDay === "this") && scheduled <= base) scheduled = scheduled.plus({ days: 1 });
+  return scheduled;
+}
+
+function parseBroaderRelativeDate(text: string, base: DateTime): DateTime | undefined {
+  if (/\b(?:end\s+of\s+(?:the\s+)?day|eod)\b/.test(text)) {
+    let scheduled = base.set({ hour: 17, minute: 0, second: 0, millisecond: 0 });
+    if (scheduled <= base) scheduled = scheduled.plus({ days: 1 });
+    return scheduled;
+  }
+  if (/\bnext\s+week\b/.test(text)) {
+    return base.plus({ weeks: 1 }).startOf("week").set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
+  }
+  if (/\bnext\s+month\b/.test(text)) {
+    return base.plus({ months: 1 }).startOf("month").set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
+  }
+  return undefined;
+}
+
+function parseNumericDate(text: string, base: DateTime): DateTime | undefined {
+  const match = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?(?:\s+(?:(?:at|by|before|around)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?\b/);
+  if (!match?.[1] || !match[2]) return undefined;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  let year = match[3] ? Number(match[3]) : base.year;
+  if (year < 100) year += 2000;
+  let scheduled = withOptionalTime(base.set({ year, month, day }), match[4], match[5], match[6]);
+  if (!scheduled.isValid || scheduled.day !== day || scheduled.month !== month) return undefined;
+  if (!match[3] && scheduled <= base) scheduled = scheduled.plus({ years: 1 });
+  return scheduled;
+}
+
+function clockWordValue(value: string): number | undefined {
+  const words: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+    seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
+  };
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) return numeric;
+  return words[value];
 }
 
 export function parseDurationMinutes(input: string, fallbackMinutes: number): number {
