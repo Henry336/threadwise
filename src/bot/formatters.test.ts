@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
-import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartText, HELP_COMMANDS } from "./help";
+import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
 import { formatNoteDetail, formatRecentNotes } from "../services/notes";
@@ -409,19 +409,14 @@ describe("bot formatters", () => {
     });
   });
 
-  it("shows natural-first onboarding after start", () => {
-    const message = formatStartText("Asia/Yangon");
+  it("keeps the start shortcut confirmation compact", () => {
+    const message = formatStartShortcutText();
 
-    expect(message).toContain("<b>Try typing</b>");
-    expect(message).toContain("<code>remind me to call mom tomorrow at 9</code>");
-    expect(message).toContain("<code>remind me to stretch every day at 6pm</code>");
-    expect(message).toContain("<code>show me my tasks</code>");
-    expect(message).toContain("Telegram does not share an exact device timezone with bots");
-    expect(message).toContain("Threadwise never receives your Telegram password");
-    expect(message).toContain("not end-to-end encrypted");
-    expect(message).toContain("<code>/privacy</code>");
-    expect(message).toContain("<code>/commands</code> shows the compact slash-command reference.");
+    expect(message).toBe("☰ Menu and 🌐 Dashboard are pinned below.");
+    expect(message).not.toContain("Welcome to Threadwise");
+    expect(message.length).toBeLessThan(80);
   });
+
 });
 
 function task(overrides: Partial<TaskListItem>): TaskListItem {

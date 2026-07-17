@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartText } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import {
@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -796,10 +796,12 @@ async function handleStart(ctx: Context) {
     return;
   }
   const timezone = user.settings?.timezone ?? "Asia/Singapore";
-  await replyHtml(ctx, formatStartText(timezone), {
-    reply_markup: isGroupChat(ctx) ? startMenuKeyboard() : privateMenuKeyboard()
-  });
-  if (!isGroupChat(ctx) && ctx.from) await showMainMenu(ctx, timezone, user.id, ctx.from.id);
+  if (!isGroupChat(ctx)) {
+    await ctx.reply(formatStartShortcutText(), {
+      reply_markup: privateMenuKeyboard()
+    });
+  }
+  await showMainMenu(ctx, timezone, user.id, ctx.from?.id);
 }
 
 async function handleMenuCommand(ctx: Context) {

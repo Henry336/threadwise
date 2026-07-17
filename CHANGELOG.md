@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.19.1 - 2026-07-17
+
+### Fixed
+- Removed the legacy long-form onboarding response from `/start`; private chats now receive only a one-line shortcut confirmation followed by the compact interactive menu.
+
 ## v0.19.0 - 2026-07-17
 
 ### Added

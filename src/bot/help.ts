@@ -20,7 +20,7 @@ export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" |
 export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
   { command: "/commands", description: "Show the full slash-command reference.", example: "/commands" },
-  { command: "/start", description: "Show first-run onboarding and timezone examples.", example: "/start" },
+  { command: "/start", description: "Open the main menu and install private-chat shortcuts.", example: "/start" },
   { command: "/menu", description: "Bring a fresh control card to the bottom of the chat.", example: "/menu" },
   { command: "/add", description: "Add a task and keep it on your radar until done.", example: "/add pay invoice tomorrow at 9am" },
   { command: "/remind", description: "Schedule a reminder for a specific time.", example: "/remind tomorrow at 9am | submit the form" },
@@ -241,43 +241,8 @@ const HELP_SECTIONS: HelpSection[] = [
   }
 ];
 
-export function formatStartText(timezone = "Asia/Singapore"): string {
-  return [
-    bold("👋 Welcome to Threadwise"),
-    "Keep tasks, reminders, notes, ideas, images, and spending in one calm place.",
-    "Type naturally, or use the permanent Menu button below when tapping is easier.",
-    "In groups, mention me or reply to me so I know the message is for Threadwise.",
-    "",
-    bold("Try typing"),
-    code("remind me to call mom tomorrow at 9"),
-    code("remind me to stretch every day at 6pm"),
-    code("save note passport expires in May"),
-    code("send a photo, then choose Save image or Extract text"),
-    code("show me my tasks"),
-    code("change timezone to Myanmar"),
-    "",
-    bold("First setup"),
-    `${bold("Current timezone:")} ${code(timezone)}`,
-    "Telegram does not share an exact device timezone with bots, so I make a best guess. If this looks wrong, type a country or city:",
-    code("change timezone to Singapore"),
-    code("change timezone to Myanmar"),
-    code("change timezone to Malaysia"),
-    "",
-    bold("Your dashboard"),
-    `Everything stays in sync at ${DASHBOARD_URL}`,
-    "Sign in with the same Telegram account. Telegram handles authentication; Threadwise never receives your Telegram password.",
-    "",
-    bold("Your data"),
-    "Other users cannot browse your content: every request is scoped to your Telegram account.",
-    "Connected-service tokens are encrypted before storage. Your saved content is not end-to-end encrypted, so authorized production operators can technically access it when operating the service.",
-    "If you use an AI-powered feature, the relevant content may be sent to the configured AI provider to complete that request.",
-    `Use ${code("/privacy")} for the full plain-language explanation and export, disconnect, or delete controls.`,
-    "",
-    `${code("/menu")} brings a fresh control card to the bottom of the chat.`,
-    `${code("/dashboard")} opens the live web app.`,
-    `${code("/help")} shows what I can do with natural examples.`,
-    `${code("/commands")} shows the compact slash-command reference.`
-  ].join("\n");
+export function formatStartShortcutText(): string {
+  return "☰ Menu and 🌐 Dashboard are pinned below.";
 }
 
 export function formatMainMenuText(timezone = "Asia/Singapore"): string {
