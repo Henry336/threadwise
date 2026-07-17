@@ -7,6 +7,7 @@ import {
   type UserSettings
 } from "@prisma/client";
 import { DateTime } from "luxon";
+import type { AiProvider, IdeaScore } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { nextRecurringDueAt, recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
@@ -24,6 +25,7 @@ import {
   recordTaskStateUndo
 } from "../services/undo";
 import { DashboardUserNotFoundError } from "./snapshot";
+import { storedIdeaBrief } from "./ideaBrief";
 import type {
   ExpenseCreateInput,
   ExpenseUpdateInput,
@@ -82,6 +84,13 @@ export class DashboardItemNotFoundError extends Error {
   }
 }
 
+export class DashboardConflictError extends Error {
+  constructor() {
+    super("This item changed somewhere else. Refresh it before saving your edit.");
+    this.name = "DashboardConflictError";
+  }
+}
+
 export class DashboardUpstreamError extends Error {
   constructor() {
     super("The image could not be loaded from Telegram.");
@@ -94,6 +103,17 @@ export class DashboardUnsupportedMediaError extends Error {
     super("Only safe raster image formats can be displayed in the dashboard.");
     this.name = "DashboardUnsupportedMediaError";
   }
+}
+
+function assertExpectedRevision(expectedUpdatedAt: string | undefined, currentUpdatedAt: Date): void {
+  if (expectedUpdatedAt && currentUpdatedAt.toISOString() !== expectedUpdatedAt) {
+    throw new DashboardConflictError();
+  }
+}
+
+function throwIfRevisionConflict(error: unknown, expectedUpdatedAt: string | undefined): void {
+  if (!expectedUpdatedAt || !error || typeof error !== "object") return;
+  if ((error as { code?: unknown }).code === "P2025") throw new DashboardConflictError();
 }
 
 type DashboardUserContext = {
@@ -113,6 +133,7 @@ export type DashboardTask = {
   pinned: boolean;
   reminderIntervalMinutes?: number;
   nextReminderAt?: string;
+  snoozedUntil?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -137,6 +158,7 @@ export type DashboardIdea = {
   status: IdeaStatus;
   tags: string[];
   pinned: boolean;
+  brief?: IdeaScore;
   createdAt: string;
   updatedAt: string;
 };
@@ -166,6 +188,7 @@ export type DashboardImage = {
   caption?: string;
   ocrText?: string;
   ocrConfidence?: number;
+  pinned: boolean;
   contentUrl: string;
   createdAt: string;
   updatedAt: string;
@@ -220,6 +243,7 @@ function compactSummary(body: string): string {
 function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
+  snoozedUntil: Date | null;
   createdAt: Date; updatedAt: Date;
 }): DashboardTask {
   return {
@@ -233,6 +257,7 @@ function taskView(task: {
     pinned: Boolean(task.pinnedAt),
     ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
     ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
+    ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString()
   };
@@ -250,11 +275,14 @@ function noteView(note: {
 
 function ideaView(idea: {
   id: string; publicId: string; title: string; concept: string; status: IdeaStatus; tags: string[]; pinnedAt: Date | null;
+  scores?: Prisma.JsonValue | null;
   createdAt: Date; updatedAt: Date;
 }): DashboardIdea {
+  const brief = storedIdeaBrief(idea.scores);
   return {
     id: idea.id, publicId: idea.publicId, title: idea.title, concept: idea.concept, status: idea.status,
-    tags: idea.tags, pinned: Boolean(idea.pinnedAt), createdAt: idea.createdAt.toISOString(), updatedAt: idea.updatedAt.toISOString()
+    tags: idea.tags, pinned: Boolean(idea.pinnedAt), ...(brief ? { brief } : {}),
+    createdAt: idea.createdAt.toISOString(), updatedAt: idea.updatedAt.toISOString()
   };
 }
 
@@ -282,7 +310,8 @@ function expenseView(expense: {
 
 export function imageView(image: {
   id: string; publicId: string; mediaKind: string; mimeType: string | null; fileName: string | null;
-  caption: string | null; ocrText: string | null; ocrConfidence: number | null; createdAt: Date; updatedAt: Date;
+  caption: string | null; ocrText: string | null; ocrConfidence: number | null; pinnedAt: Date | null;
+  createdAt: Date; updatedAt: Date;
 }): DashboardImage {
   return {
     id: image.id,
@@ -293,6 +322,7 @@ export function imageView(image: {
     ...(image.caption ? { caption: image.caption } : {}),
     ...(image.ocrText ? { ocrText: image.ocrText } : {}),
     ...(typeof image.ocrConfidence === "number" ? { ocrConfidence: image.ocrConfidence } : {}),
+    pinned: Boolean(image.pinnedAt),
     contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(image.id)}/content`,
     createdAt: image.createdAt.toISOString(),
     updatedAt: image.updatedAt.toISOString()
@@ -334,7 +364,7 @@ export async function listDashboardTasks(
   };
   const [total, items] = await Promise.all([
     database.task.count({ where }),
-    database.task.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { dueAt: "asc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
+    database.task.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
   return pageResult(items.map(taskView), options.page, options.limit, total);
 }
@@ -373,6 +403,7 @@ async function scopedTask(database: PrismaClient, userId: string, id: string) {
 export async function updateDashboardTask(telegramId: string, id: string, input: TaskUpdateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
+  assertExpectedRevision(input.expectedUpdatedAt, task.updatedAt);
   const data: Prisma.TaskUncheckedUpdateInput = {};
   const nextTitle = input.title ?? task.title;
   const nextDescription = "description" in input ? input.description ?? null : task.description;
@@ -385,6 +416,8 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const descriptionChanged = "description" in input && nextDescription !== task.description;
   const dueChanged = "dueAt" in input && nextDueAt?.getTime() !== task.dueAt?.getTime();
   const pinnedChanged = input.pinned !== undefined && input.pinned !== Boolean(task.pinnedAt);
+  const nextSnoozedUntil = "snoozedUntil" in input ? input.snoozedUntil ? new Date(input.snoozedUntil) : null : task.snoozedUntil;
+  const snoozeChanged = "snoozedUntil" in input && nextSnoozedUntil?.getTime() !== task.snoozedUntil?.getTime();
   const nextTimezone = dueChanged ? user.settings.timezone : task.timezone ?? "UTC";
 
   if (titleChanged) data.title = input.title;
@@ -403,6 +436,15 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   }
   if ("reminderIntervalMinutes" in input) data.reminderIntervalMinutes = input.reminderIntervalMinutes;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
+  if (snoozeChanged) {
+    if (nextSnoozedUntil && nextSnoozedUntil.getTime() <= Date.now()) {
+      throw new DashboardValidationError("A snooze time must be in the future.");
+    }
+    data.snoozedUntil = nextSnoozedUntil;
+    if (task.status === TaskStatus.OPEN) {
+      data.nextReminderAt = nextSnoozedUntil ?? nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
+    }
+  }
 
   if (titleChanged || descriptionChanged || dueChanged) {
     data.calendarUrl = nextDueAt
@@ -457,9 +499,15 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
 
   if (Object.keys(data).length === 0) return taskView(task);
 
-  const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged;
-  const updated = needsUndo
-    ? await database.$transaction(async (tx) => {
+  const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
+  const revisionWhere: Prisma.TaskWhereUniqueInput = {
+    id: task.id,
+    ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
+  };
+  let updated;
+  try {
+    updated = needsUndo
+      ? await database.$transaction(async (tx) => {
         if (titleChanged) {
           await recordRenameUndo(tx, user.id, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle }, task.title);
         }
@@ -472,7 +520,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
             task.description
           );
         }
-        if (dueChanged && !statusChanged) await recordRescheduleUndo(tx, user.id, task);
+        if ((dueChanged || snoozeChanged) && !statusChanged) await recordRescheduleUndo(tx, user.id, task);
         if (pinnedChanged) {
           await recordPinUndo(tx, user.id, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle, pinnedAt: task.pinnedAt });
         }
@@ -488,9 +536,13 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
                 : "restore-task"
           );
         }
-        return tx.task.update({ where: { id: task.id }, data });
-      })
-    : await database.task.update({ where: { id: task.id }, data });
+          return tx.task.update({ where: revisionWhere, data });
+        })
+      : await database.task.update({ where: revisionWhere, data });
+  } catch (error) {
+    throwIfRevisionConflict(error, input.expectedUpdatedAt);
+    throw error;
+  }
   return taskView(updated);
 }
 
@@ -558,6 +610,7 @@ async function scopedNote(database: PrismaClient, userId: string, id: string) {
 export async function updateDashboardNote(telegramId: string, id: string, input: NoteUpdateInput, database: PrismaClient = prisma): Promise<DashboardNote> {
   const user = await userContext(telegramId, database);
   const note = await scopedNote(database, user.id, id);
+  assertExpectedRevision(input.expectedUpdatedAt, note.updatedAt);
   const data: Prisma.NoteUncheckedUpdateInput = {};
   const nextBody = input.body ?? note.body;
   const titleChanged = input.title !== undefined && input.title !== note.title;
@@ -573,8 +626,14 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
   if (input.tags !== undefined) data.tags = input.tags;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
   if (Object.keys(data).length === 0) return noteView(note);
-  const updated = titleChanged || bodyChanged || pinnedChanged
-    ? await database.$transaction(async (tx) => {
+  const revisionWhere: Prisma.NoteWhereUniqueInput = {
+    id: note.id,
+    ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
+  };
+  let updated;
+  try {
+    updated = titleChanged || bodyChanged || pinnedChanged
+      ? await database.$transaction(async (tx) => {
         if (titleChanged) {
           await recordRenameUndo(tx, user.id, { kind: "note", id: note.id, publicId: note.publicId, title: input.title ?? note.title }, note.title);
         }
@@ -592,9 +651,13 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
             kind: "note", id: note.id, publicId: note.publicId, title: input.title ?? note.title, pinnedAt: note.pinnedAt
           });
         }
-        return tx.note.update({ where: { id: note.id }, data });
-      })
-    : await database.note.update({ where: { id: note.id }, data });
+          return tx.note.update({ where: revisionWhere, data });
+        })
+      : await database.note.update({ where: revisionWhere, data });
+  } catch (error) {
+    throwIfRevisionConflict(error, input.expectedUpdatedAt);
+    throw error;
+  }
   return noteView(updated);
 }
 
@@ -664,6 +727,7 @@ async function scopedIdea(database: PrismaClient, userId: string, id: string) {
 export async function updateDashboardIdea(telegramId: string, id: string, input: IdeaUpdateInput, database: PrismaClient = prisma): Promise<DashboardIdea> {
   const user = await userContext(telegramId, database);
   const idea = await scopedIdea(database, user.id, id);
+  assertExpectedRevision(input.expectedUpdatedAt, idea.updatedAt);
   const data: Prisma.IdeaUncheckedUpdateInput = {};
   const titleChanged = input.title !== undefined && input.title !== idea.title;
   const conceptChanged = input.concept !== undefined && input.concept !== idea.concept;
@@ -678,8 +742,14 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   if (input.status !== undefined) data.status = input.status;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
   if (Object.keys(data).length === 0) return ideaView(idea);
-  const updated = titleChanged || conceptChanged || pinnedChanged
-    ? await database.$transaction(async (tx) => {
+  const revisionWhere: Prisma.IdeaWhereUniqueInput = {
+    id: idea.id,
+    ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
+  };
+  let updated;
+  try {
+    updated = titleChanged || conceptChanged || pinnedChanged
+      ? await database.$transaction(async (tx) => {
         if (titleChanged) {
           await recordRenameUndo(tx, user.id, { kind: "idea", id: idea.id, publicId: idea.publicId, title: input.title ?? idea.title }, idea.title);
         }
@@ -697,10 +767,38 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
             kind: "idea", id: idea.id, publicId: idea.publicId, title: input.title ?? idea.title, pinnedAt: idea.pinnedAt
           });
         }
-        return tx.idea.update({ where: { id: idea.id }, data });
-      })
-    : await database.idea.update({ where: { id: idea.id }, data });
+          return tx.idea.update({ where: revisionWhere, data });
+        })
+      : await database.idea.update({ where: revisionWhere, data });
+  } catch (error) {
+    throwIfRevisionConflict(error, input.expectedUpdatedAt);
+    throw error;
+  }
   return ideaView(updated);
+}
+
+export async function analyzeDashboardIdea(
+  telegramId: string,
+  id: string,
+  ai: AiProvider,
+  database: PrismaClient = prisma
+): Promise<{ idea: DashboardIdea; brief: IdeaScore }> {
+  const user = await userContext(telegramId, database);
+  const idea = await scopedIdea(database, user.id, id);
+  const brief = await ai.scoreIdea({
+    title: idea.title,
+    concept: idea.concept,
+    problem: idea.problem ?? undefined,
+    targetUser: idea.targetUser ?? undefined,
+    type: idea.type ?? undefined,
+    tags: idea.tags,
+    sourceText: idea.sourceText
+  });
+  const updated = await database.idea.update({
+    where: { id: idea.id },
+    data: { scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts }
+  });
+  return { idea: ideaView(updated), brief };
 }
 
 export async function archiveDashboardIdea(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
@@ -817,7 +915,7 @@ async function scopedImage(database: PrismaClient, userId: string, id: string) {
 
 const imageSelect = {
   id: true, publicId: true, mediaKind: true, mimeType: true, fileName: true, caption: true, ocrText: true,
-  ocrConfidence: true, createdAt: true, updatedAt: true
+  ocrConfidence: true, pinnedAt: true, createdAt: true, updatedAt: true
 } satisfies Prisma.StoredImageSelect;
 
 export async function listDashboardImages(
@@ -832,7 +930,7 @@ export async function listDashboardImages(
   };
   const [total, images] = await Promise.all([
     database.storedImage.count({ where }),
-    database.storedImage.findMany({ where, select: imageSelect, orderBy: { createdAt: "desc" }, skip: (options.page - 1) * options.limit, take: options.limit })
+    database.storedImage.findMany({ where, select: imageSelect, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
   return pageResult(images.map(imageView), options.page, options.limit, total);
 }
@@ -845,16 +943,35 @@ export async function updateDashboardImage(
 ): Promise<DashboardImage> {
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
-  const caption = input.caption?.trim() || null;
-  if (caption === image.caption) return imageView(image);
-  const updated = await database.$transaction(async (tx) => {
-    await recordImageCaptionUndo(tx, user.id, image, image.caption);
-    return tx.storedImage.update({
-      where: { id: image.id },
-      data: { caption },
-      select: imageSelect
-    });
-  });
+  assertExpectedRevision(input.expectedUpdatedAt, image.updatedAt);
+  const caption = Object.prototype.hasOwnProperty.call(input, "caption") ? input.caption?.trim() || null : image.caption;
+  const captionChanged = caption !== image.caption;
+  const pinnedChanged = input.pinned !== undefined && input.pinned !== Boolean(image.pinnedAt);
+  if (!captionChanged && !pinnedChanged) return imageView(image);
+  const where: Prisma.StoredImageWhereUniqueInput = {
+    id: image.id,
+    ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
+  };
+  let updated;
+  try {
+    updated = captionChanged
+      ? await database.$transaction(async (tx) => {
+        await recordImageCaptionUndo(tx, user.id, image, image.caption);
+        return tx.storedImage.update({
+          where,
+          data: { caption, ...(pinnedChanged ? { pinnedAt: input.pinned ? new Date() : null } : {}) },
+          select: imageSelect
+        });
+      })
+      : await database.storedImage.update({
+        where,
+        data: { pinnedAt: input.pinned ? new Date() : null },
+        select: imageSelect
+      });
+  } catch (error) {
+    throwIfRevisionConflict(error, input.expectedUpdatedAt);
+    throw error;
+  }
   return imageView(updated);
 }
 

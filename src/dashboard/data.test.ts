@@ -1,6 +1,8 @@
 import { RecurrenceRule, TaskStatus, type PrismaClient, type UserSettings } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
+  analyzeDashboardIdea,
+  DashboardConflictError,
   DashboardUnsupportedMediaError,
   archiveDashboardTask,
   createDashboardTask,
@@ -14,6 +16,7 @@ import {
   updateDashboardSettings,
   updateDashboardTask
 } from "./data";
+import type { AiProvider, IdeaScore } from "../ai/types";
 
 const settings = {
   id: "settings-1",
@@ -50,6 +53,7 @@ function storedImage(mimeType = "image/png") {
     caption: null,
     ocrText: null,
     ocrConfidence: null,
+    pinnedAt: null,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z")
   };
@@ -61,6 +65,23 @@ describe("dashboard data security", () => {
       quietHoursStart: "03:00",
       quietHoursEnd: "06:00"
     });
+  });
+
+  it("rejects a stale in-place task edit instead of overwriting a newer Telegram change", async () => {
+    const database = {
+      user: { findUnique: userFindUnique() },
+      task: {
+        findFirst: vi.fn(async () => ({
+          id: "task-1",
+          updatedAt: new Date("2026-07-17T10:01:00.000Z")
+        }))
+      }
+    } as unknown as PrismaClient;
+
+    await expect(updateDashboardTask("123456789", "TASK-1", {
+      title: "Stale browser title",
+      expectedUpdatedAt: "2026-07-17T10:00:00.000Z"
+    }, database)).rejects.toBeInstanceOf(DashboardConflictError);
   });
 
   it("retries a raced public id allocation and records creation undo in the successful transaction", async () => {
@@ -260,6 +281,88 @@ describe("dashboard data security", () => {
         action: "undoable:image-caption",
         metadata: expect.objectContaining({ targetId: "image-1", previousCaption: null })
       })
+    });
+  });
+
+  it("pins images with a guarded revision and exposes the favourite state", async () => {
+    const original = storedImage();
+    const imageUpdate = vi.fn(async ({ data }: { data: { pinnedAt: Date | null } }) => ({
+      ...original,
+      pinnedAt: data.pinnedAt,
+      updatedAt: new Date("2026-01-01T00:01:00.000Z")
+    }));
+    const database = {
+      user: { findUnique: userFindUnique() },
+      storedImage: { findFirst: vi.fn(async () => original), update: imageUpdate }
+    } as unknown as PrismaClient;
+
+    await expect(updateDashboardImage("123456789", "IMG-1", {
+      pinned: true,
+      expectedUpdatedAt: original.updatedAt.toISOString()
+    }, database)).resolves.toMatchObject({ pinned: true });
+    expect(imageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "image-1", updatedAt: original.updatedAt },
+      data: { pinnedAt: expect.any(Date) }
+    }));
+  });
+
+  it("builds and persists an AI idea brief for only the signed-in owner's idea", async () => {
+    const brief: IdeaScore = {
+      buildability: 8,
+      usefulness: 9,
+      novelty: 7,
+      portfolioValue: 8,
+      monetization: 6,
+      difficulty: 4,
+      risk: 3,
+      summary: "A focused idea with a practical first version.",
+      marketNotes: "Validate retention before widening the audience.",
+      dos: ["Interview target users."],
+      donts: ["Build every integration first."]
+    };
+    const idea = {
+      id: "idea-1",
+      userId: "user-1",
+      publicId: "IDEA-1",
+      title: "A calmer capture assistant",
+      concept: "Turn quick messages into structured personal context.",
+      problem: "Useful thoughts get lost.",
+      targetUser: "Busy Telegram users",
+      type: "product",
+      tags: ["capture"],
+      sourceText: "A calmer capture assistant",
+      status: "RAW" as const,
+      pinnedAt: null,
+      archivedAt: null,
+      archivedReason: null,
+      scores: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z")
+    };
+    const scoreIdea = vi.fn(async () => brief);
+    const ai = { scoreIdea } as unknown as AiProvider;
+    const ideaFindFirst = vi.fn(async () => idea);
+    const ideaUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...idea,
+      ...data,
+      updatedAt: new Date("2026-01-01T00:01:00.000Z")
+    }));
+    const database = {
+      user: { findUnique: userFindUnique() },
+      idea: { findFirst: ideaFindFirst, update: ideaUpdate }
+    } as unknown as PrismaClient;
+
+    await expect(analyzeDashboardIdea("123456789", "IDEA-1", ai, database)).resolves.toMatchObject({
+      brief,
+      idea: { id: "idea-1", brief }
+    });
+    expect(ideaFindFirst).toHaveBeenCalledWith({
+      where: { userId: "user-1", archivedAt: null, OR: [{ id: "IDEA-1" }, { publicId: "IDEA-1" }] }
+    });
+    expect(scoreIdea).toHaveBeenCalledWith(expect.objectContaining({ title: idea.title, concept: idea.concept, sourceText: idea.sourceText }));
+    expect(ideaUpdate).toHaveBeenCalledWith({
+      where: { id: "idea-1" },
+      data: { scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts }
     });
   });
 
