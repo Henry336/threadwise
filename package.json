@@ -11,7 +11,7 @@
     "smoke:ocr": "tsx scripts/ocr-smoke.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
+    "db:migrate": "node scripts/migrate-deploy.mjs",
     "db:dev": "prisma migrate dev"
   },
   "keywords": [
