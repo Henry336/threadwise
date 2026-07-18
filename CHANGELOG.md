@@ -5,7 +5,7 @@
 ### Fixed
 - Bounded the long-running Prisma pool to three connections and automatically use Supabase transaction pooling for runtime traffic, preventing a small session pool from being monopolized during Render deploys.
 - Separated Prisma migration traffic through optional `DIRECT_URL`, limited migrations to one connection, and rejected accidental transaction-pooler migration URLs with a clear error.
-- Added a read-only migration gate that skips the dedicated migration session only when every checked-in migration name and checksum is already recorded as successfully applied.
+- Added a read-only migration gate that skips the dedicated migration session only when every checked-in migration name is recorded as successfully applied and no migration is unfinished or rolled back.
 - Moved database migrations into Render's pre-deploy command so the web process starts only after schema checks complete.
 
 ### Verified

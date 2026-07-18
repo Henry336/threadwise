@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
@@ -76,31 +75,33 @@ async function allLocalMigrationsAreApplied(databaseUrl) {
 
   try {
     const databaseMigrations = await statusClient.$queryRawUnsafe(
-      'SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"'
+      'SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations"'
     );
-    const unfinishedMigration = databaseMigrations.some(
+    const unfinishedMigrations = databaseMigrations.filter(
       (migration) => migration.finished_at === null && migration.rolled_back_at === null
     );
 
-    if (unfinishedMigration) return false;
+    if (unfinishedMigrations.length > 0) {
+      console.warn(`Unfinished Prisma migrations require the dedicated migration connection: ${unfinishedMigrations.map((migration) => migration.migration_name).join(", ")}`);
+      return false;
+    }
 
-    const appliedMigrations = new Map(
+    const appliedMigrations = new Set(
       databaseMigrations
         .filter((migration) => migration.finished_at !== null && migration.rolled_back_at === null)
-        .map((migration) => [migration.migration_name, migration.checksum])
+        .map((migration) => migration.migration_name)
     );
     const localMigrations = readdirSync(path.resolve("prisma", "migrations"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => ({
-        name: entry.name,
-        checksum: createHash("sha256")
-          .update(readFileSync(path.resolve("prisma", "migrations", entry.name, "migration.sql")))
-          .digest("hex")
-      }));
+      .map((entry) => entry.name);
+    const pendingMigrations = localMigrations.filter((migration) => !appliedMigrations.has(migration));
 
-    return localMigrations.length > 0 && localMigrations.every(
-      (migration) => appliedMigrations.get(migration.name) === migration.checksum
-    );
+    if (pendingMigrations.length > 0) {
+      console.log(`Pending Prisma migrations require the dedicated migration connection: ${pendingMigrations.join(", ")}`);
+      return false;
+    }
+
+    return localMigrations.length > 0;
   } catch {
     console.warn("Could not verify migration status through the runtime pool; continuing with Prisma migrate.");
     return false;
