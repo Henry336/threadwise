@@ -123,37 +123,41 @@ export async function resolveDashboardWorkspace(
   }
   if (!WORKSPACE_ID.test(requestedWorkspaceId)) throw new DashboardGroupAccessError();
 
-  const membership = await database.groupMembership.findFirst({
-    where: {
-      telegramId: principalTelegramId,
-      status: GroupMemberStatus.ACTIVE,
-      workspace: { id: requestedWorkspaceId, isActive: true }
-    },
+  const workspace = await database.groupWorkspace.findUnique({
+    where: { id: requestedWorkspaceId },
     include: {
-      workspace: {
-        include: {
-          ownerUser: { select: { telegramId: true } },
-          _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } }
-        }
-      }
+      ownerUser: { select: { telegramId: true } },
+      _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } }
     }
   });
-  if (!membership || !botToken) throw new DashboardGroupAccessError();
+  if (!workspace?.isActive || !botToken) throw new DashboardGroupAccessError();
 
-  const role = await verifyMembership(botToken, membership.workspace.telegramChatId, principalTelegramId);
-  await database.groupMembership.update({
-    where: { id: membership.id },
-    data: { role, status: GroupMemberStatus.ACTIVE, lastSeenAt: new Date() }
+  const role = await verifyMembership(botToken, workspace.telegramChatId, principalTelegramId);
+  await database.groupMembership.upsert({
+    where: {
+      workspaceId_telegramId: {
+        workspaceId: workspace.id,
+        telegramId: principalTelegramId
+      }
+    },
+    update: { role, status: GroupMemberStatus.ACTIVE, lastSeenAt: new Date() },
+    create: {
+      workspaceId: workspace.id,
+      telegramId: principalTelegramId,
+      role,
+      status: GroupMemberStatus.ACTIVE,
+      lastSeenAt: new Date()
+    }
   });
   return {
     principalTelegramId,
-    ownerTelegramId: membership.workspace.ownerUser.telegramId,
+    ownerTelegramId: workspace.ownerUser.telegramId,
     workspace: {
-      id: membership.workspace.id,
+      id: workspace.id,
       kind: "GROUP",
-      name: membership.workspace.title,
+      name: workspace.title,
       role,
-      memberCount: membership.workspace._count.members
+      memberCount: Math.max(workspace._count.members, 1)
     }
   };
 }
