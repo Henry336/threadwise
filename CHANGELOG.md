@@ -15,6 +15,7 @@
 
 ### Quality
 - Added regression coverage for compact group menus and help, personal/group owner validation, and live membership-gated dashboard resolution.
+- Made group-safe keyboards unconditional: a missing workspace lookup now omits the dashboard URL instead of ever falling back to a private-only Mini App button.
 
 ## Unreleased - Database Connection Hardening
 

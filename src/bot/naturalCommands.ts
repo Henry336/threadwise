@@ -73,7 +73,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (lower === "help") {
     const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
     await replyHtml(ctx, isGroupChat(ctx) ? formatGroupHelpGuide(ctx.me.username) : formatHelpGuide(), {
-      reply_markup: workspace ? groupHelpTopicsKeyboard(workspace.id) : helpTopicsKeyboard()
+      reply_markup: isGroupChat(ctx) ? groupHelpTopicsKeyboard(workspace?.id) : helpTopicsKeyboard()
     });
     return true;
   }
@@ -178,7 +178,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
     await replyControlCardHtml(ctx, isGroupChat(ctx)
       ? `${bold("⚙️ Group settings")}\nThese defaults apply only to this shared group workspace. Telegram group admins can change them.`
-      : await formatSettings(user.id), { reply_markup: workspace ? groupSettingsModeKeyboard(workspace.id) : settingsModeKeyboard() });
+      : await formatSettings(user.id), { reply_markup: isGroupChat(ctx) ? groupSettingsModeKeyboard(workspace?.id) : settingsModeKeyboard() });
     return true;
   }
 

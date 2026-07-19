@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupHelpTopicsKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic } from "./help";
 
 describe("interactive keyboard navigation", () => {
@@ -33,6 +33,15 @@ describe("interactive keyboard navigation", () => {
     expect(formatGroupHelpTopic("settings")).toContain("group admin");
     expect(formatGroupHelpTopic("excel")).toContain("never shared");
     expect(formatGroupCommandReference()).toContain("/dashboard");
+  });
+
+  it("never falls back to private Mini App buttons when a group workspace id is unavailable", () => {
+    const groupKeyboards = [groupStartMenuKeyboard(), groupHelpTopicsKeyboard(), groupImagesModeKeyboard(), groupSettingsModeKeyboard()];
+    for (const keyboard of groupKeyboards) {
+      expect(JSON.stringify(keyboard.inline_keyboard)).not.toContain("web_app");
+    }
+    expect(callbackData(groupStartMenuKeyboard())).toContain("menu:help");
+    expect(callbackData(groupHelpTopicsKeyboard())).toContain("menu:home");
   });
 });
 

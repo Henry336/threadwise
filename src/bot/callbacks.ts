@@ -240,7 +240,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     await editOrReplyHtml(ctx, group
       ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone ?? "Asia/Singapore")
       : formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
-      reply_markup: workspace ? groupStartMenuKeyboard(workspace.id) : startMenuKeyboard()
+      reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard()
     });
     return;
   }
@@ -257,7 +257,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "images") {
-    await editOrReplyHtml(ctx, `${bold(group ? "🖼️ Shared images" : "🖼️ Images")}\nBrowse saved images here, or open the visual gallery on the dashboard.`, { reply_markup: workspace ? groupImagesModeKeyboard(workspace.id) : imagesModeKeyboard() });
+    await editOrReplyHtml(ctx, `${bold(group ? "🖼️ Shared images" : "🖼️ Images")}\nBrowse saved images here, or open the visual gallery on the dashboard.`, { reply_markup: group ? groupImagesModeKeyboard(workspace?.id) : imagesModeKeyboard() });
     return;
   }
   if (action === "expenses") {
@@ -272,7 +272,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     await editOrReplyHtml(ctx, group
       ? `${bold("⚙️ Group settings")}\nThese defaults belong only to this shared workspace. Telegram group admins can change them.`
       : await formatSettings(user.id), {
-      reply_markup: workspace ? groupSettingsModeKeyboard(workspace.id) : settingsModeKeyboard()
+      reply_markup: group ? groupSettingsModeKeyboard(workspace?.id) : settingsModeKeyboard()
     });
     return;
   }
@@ -299,7 +299,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "help") {
     await editOrReplyHtml(ctx, group ? formatGroupHelpGuide(ctx.me.username) : formatHelpGuide(), {
-      reply_markup: workspace ? groupHelpTopicsKeyboard(workspace.id) : helpTopicsKeyboard()
+      reply_markup: group ? groupHelpTopicsKeyboard(workspace?.id) : helpTopicsKeyboard()
     });
     return;
   }
@@ -369,7 +369,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "cancel-input") {
     clearMenuInput(user.id, ctx.from.id);
-    await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: workspace ? groupStartMenuKeyboard(workspace.id) : startMenuKeyboard() });
+    await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
   const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {

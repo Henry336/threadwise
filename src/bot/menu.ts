@@ -24,7 +24,7 @@ export async function showMainMenu(
   const message = await replyHtml(ctx, group
     ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", timezone)
     : formatMainMenuText(timezone), {
-    reply_markup: workspace ? groupStartMenuKeyboard(workspace.id) : startMenuKeyboard()
+    reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard()
   });
   if (!group) await rememberNewControlCard(ctx, message);
 }

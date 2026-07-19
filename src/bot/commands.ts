@@ -136,7 +136,7 @@ async function handleHelp(ctx: Context) {
     const workspace = await groupWorkspaceForContext(ctx);
     await replyHtml(ctx, topic ? formatGroupHelpTopic(topic, ctx.me.username) : formatGroupHelpGuide(ctx.me.username), topic
       ? { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") }
-      : workspace ? { reply_markup: groupHelpTopicsKeyboard(workspace.id) } : {});
+      : { reply_markup: groupHelpTopicsKeyboard(workspace?.id) });
     return;
   }
   await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide(), topic ? {} : { reply_markup: helpTopicsKeyboard() });
@@ -662,7 +662,7 @@ async function handleSettings(ctx: Context) {
     if (isGroupChat(ctx)) {
       const workspace = await groupWorkspaceForContext(ctx);
       await replyControlCardHtml(ctx, `${bold("⚙️ Group settings")}\nThese defaults apply only to this shared group workspace. Telegram group admins can change them.`, {
-        ...(workspace ? { reply_markup: groupSettingsModeKeyboard(workspace.id) } : {})
+        reply_markup: groupSettingsModeKeyboard(workspace?.id)
       });
     } else {
       await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });

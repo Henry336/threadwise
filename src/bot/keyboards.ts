@@ -21,13 +21,17 @@ export function startMenuKeyboard(): InlineKeyboard {
     .text("❓ Help", "menu:help");
 }
 
-export function groupStartMenuKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard()
+export function groupStartMenuKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
     .text("📋 Shared tasks", "menu:tasks").text("📝 Shared notes", "menu:notes").row()
     .text("💡 Shared ideas", "menu:ideas").text("🖼️ Shared images", "menu:images").row()
-    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row()
-    .url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).text("⚙️ Group settings", "menu:settings").row()
-    .text("❓ Group help", "menu:help");
+    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row();
+  if (workspaceId) {
+    keyboard.url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).text("⚙️ Group settings", "menu:settings").row();
+  } else {
+    keyboard.text("⚙️ Group settings", "menu:settings").row();
+  }
+  return keyboard.text("❓ Group help", "menu:help");
 }
 
 export const PRIVATE_MENU_LABELS = {
@@ -80,10 +84,11 @@ export function imagesModeKeyboard(): InlineKeyboard {
     .webApp("Open gallery", `${DASHBOARD_URL}/dashboard?view=images`).text("‹ Main menu", "menu:home");
 }
 
-export function groupImagesModeKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("🖼️ Browse images", "menu:images-list").text("🔎 Find an image", "menu:images-search").row()
-    .url("Open shared gallery", groupDashboardUrl(workspaceId, "images")).text("‹ Main menu", "menu:home");
+export function groupImagesModeKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("🖼️ Browse images", "menu:images-list").text("🔎 Find an image", "menu:images-search").row();
+  if (workspaceId) keyboard.url("Open shared gallery", groupDashboardUrl(workspaceId, "images"));
+  return keyboard.text("‹ Main menu", "menu:home");
 }
 
 export function expensesModeKeyboard(): InlineKeyboard {
@@ -122,11 +127,11 @@ export function settingsModeKeyboard(): InlineKeyboard {
     .text("‹ Main menu", "menu:home");
 }
 
-export function groupSettingsModeKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
-    .url("🌐 Shared dashboard", groupDashboardUrl(workspaceId, "settings")).row()
-    .text("❓ Group help", "menu:help").text("‹ Main menu", "menu:home");
+export function groupSettingsModeKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row();
+  if (workspaceId) keyboard.url("🌐 Shared dashboard", groupDashboardUrl(workspaceId, "settings")).row();
+  return keyboard.text("❓ Group help", "menu:help").text("‹ Main menu", "menu:home");
 }
 
 export type SettingChoiceField = "interval" | "mode" | "quiet" | "due-nudge" | "max" | "timezone" | "currency" | "ocr" | "dm";
@@ -218,13 +223,13 @@ export function helpTopicsKeyboard(): InlineKeyboard {
     .text("‹ Main menu", "menu:home");
 }
 
-export function groupHelpTopicsKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard()
+export function groupHelpTopicsKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
     .text("📋 Tasks", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
-    .text("⌨️ Group commands", "menu:commands").row()
-    .url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).row()
-    .text("‹ Main menu", "menu:home");
+    .text("⌨️ Group commands", "menu:commands").row();
+  if (workspaceId) keyboard.url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).row();
+  return keyboard.text("‹ Main menu", "menu:home");
 }
 
 export function menuBackKeyboard(label = "‹ Main menu", callbackData = "menu:home"): InlineKeyboard {
