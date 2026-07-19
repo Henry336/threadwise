@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
+import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
 import { commandBody, normalizePublicId } from "../utils/text";
 import {
@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -75,14 +75,18 @@ import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
+import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
   bot.command("menu", async (ctx) => handleMenuCommand(ctx));
   bot.command("help", async (ctx) => handleHelp(ctx));
-  bot.command("dashboard", async (ctx) => showDashboardLink(ctx));
-  bot.command("privacy", async (ctx) => replyHtml(ctx, formatPrivacyText(), { reply_markup: dashboardLinkKeyboard() }));
-  bot.command("commands", async (ctx) => replyHtml(ctx, formatCommandReference()));
+  bot.command("dashboard", async (ctx) => {
+    await ensureUser(ctx);
+    await showDashboardLink(ctx);
+  });
+  bot.command("privacy", async (ctx) => replyHtml(ctx, isGroupChat(ctx) ? formatGroupPrivacyText() : formatPrivacyText(), isGroupChat(ctx) ? {} : { reply_markup: dashboardLinkKeyboard() }));
+  bot.command("commands", async (ctx) => replyHtml(ctx, isGroupChat(ctx) ? formatGroupCommandReference() : formatCommandReference()));
   bot.command("idea", async (ctx) => handleIdea(ctx, ai));
   bot.command("ideas", async (ctx) => handleIdeas(ctx));
   bot.command("note", async (ctx) => handleNote(ctx, ai));
@@ -112,12 +116,12 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("search", async (ctx) => handleSearch(ctx, ai));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
   bot.command("brief", async (ctx) => handleBrief(ctx));
-  bot.command("calendar", async (ctx) => handleCalendar(ctx, true));
-  bot.command("googlecal", async (ctx) => handleCalendar(ctx, false));
-  bot.command("gmail", async (ctx) => handleGmail(ctx, ai));
+  bot.command("calendar", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, true));
+  bot.command("googlecal", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, false));
+  bot.command("gmail", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Gmail") : handleGmail(ctx, ai));
   bot.command("expense", async (ctx) => handleExpense(ctx));
   bot.command("expenses", async (ctx) => handleExpenses(ctx));
-  bot.command("excel", async (ctx) => handleExcel(ctx));
+  bot.command("excel", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Excel") : handleExcel(ctx));
   bot.command("images", async (ctx) => handleImages(ctx));
   bot.command("image", async (ctx) => handleImage(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
@@ -127,6 +131,14 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
 async function handleHelp(ctx: Context) {
   const topicText = commandBody(ctx.message?.text ?? "", "help");
   const topic = topicText ? parseNaturalHelpRequest(`help ${topicText}`) : undefined;
+  if (isGroupChat(ctx)) {
+    await ensureUser(ctx);
+    const workspace = await groupWorkspaceForContext(ctx);
+    await replyHtml(ctx, topic ? formatGroupHelpTopic(topic, ctx.me.username) : formatGroupHelpGuide(ctx.me.username), topic
+      ? { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") }
+      : workspace ? { reply_markup: groupHelpTopicsKeyboard(workspace.id) } : {});
+    return;
+  }
   await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide(), topic ? {} : { reply_markup: helpTopicsKeyboard() });
 }
 
@@ -187,6 +199,10 @@ async function handleNotes(ctx: Context) {
   const notes = await searchNotes(user.id, query);
   const keyboard = itemListKeyboard("note", notes);
   await replyControlCardHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
+}
+
+async function explainPrivateIntegration(ctx: Context, provider: string): Promise<void> {
+  await ctx.reply(`${provider} connections stay attached to a person's private Threadwise account, so they are not opened or shared from a group. Message me privately to manage ${provider}.`);
 }
 
 async function handleImages(ctx: Context) {
@@ -643,7 +659,19 @@ async function handleSettings(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "settings");
   if (!body) {
-    await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
+    if (isGroupChat(ctx)) {
+      const workspace = await groupWorkspaceForContext(ctx);
+      await replyControlCardHtml(ctx, `${bold("⚙️ Group settings")}\nThese defaults apply only to this shared group workspace. Telegram group admins can change them.`, {
+        ...(workspace ? { reply_markup: groupSettingsModeKeyboard(workspace.id) } : {})
+      });
+    } else {
+      await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
+    }
+    return;
+  }
+
+  if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+    await ctx.reply("Only a Telegram group admin can change this group's Threadwise settings.");
     return;
   }
 

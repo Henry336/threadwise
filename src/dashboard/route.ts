@@ -70,6 +70,14 @@ import {
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
 import { subscribeDashboardChanges } from "./realtime";
+import {
+  DashboardGroupAccessError,
+  assertPersonalWorkspace,
+  assertWorkspaceManager,
+  listDashboardWorkspaces,
+  resolveDashboardWorkspace,
+  type DashboardWorkspaceScope
+} from "./workspaces";
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
@@ -143,7 +151,7 @@ const defaultActions: DashboardRouteActions = {
   deleteAccount: deleteDashboardAccount
 };
 
-type RouteWork = (telegramId: string) => Promise<unknown>;
+type RouteWork = (telegramId: string, scope: DashboardWorkspaceScope) => Promise<unknown>;
 
 export function registerDashboardRoute(server: FastifyInstance, options: DashboardRouteOptions = {}): void {
   const loadSnapshot = options.loadSnapshot ?? getDashboardSnapshot;
@@ -153,20 +161,45 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      return await work(principal.telegramId);
+      const scope = await resolveDashboardWorkspace(
+        principal.telegramId,
+        dashboardWorkspaceHeader(request),
+        options.telegramBotToken
+      );
+      return await work(scope.ownerTelegramId, scope);
     } catch (error) {
       return sendDashboardError(reply, error, operation);
     }
   };
 
-  server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadSnapshot, "snapshot"));
+  const loadScopedSnapshot: RouteWork = async (telegramId, scope) => ({
+    ...await loadSnapshot(telegramId),
+    workspace: scope.workspace
+  });
 
-  server.get("/api/v1/dashboard/snapshot", async (request, reply) => run(request, reply, loadSnapshot, "snapshot"));
+  server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
+
+  server.get("/api/v1/dashboard/snapshot", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
+
+  server.get("/api/v1/dashboard/workspaces", async (request, reply) => {
+    noStore(reply);
+    try {
+      const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      return { workspaces: await listDashboardWorkspaces(principal.telegramId) };
+    } catch (error) {
+      return sendDashboardError(reply, error, "list_workspaces");
+    }
+  });
 
   server.get("/api/v1/dashboard/events", async (request, reply) => {
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      const scope = await resolveDashboardWorkspace(
+        principal.telegramId,
+        dashboardWorkspaceHeader(request),
+        options.telegramBotToken
+      );
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -175,7 +208,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
         "X-Accel-Buffering": "no"
       });
       reply.raw.write("retry: 2500\n\n");
-      const unsubscribe = subscribeDashboardChanges(principal.telegramId, (event) => {
+      const unsubscribe = subscribeDashboardChanges(scope.ownerTelegramId, (event) => {
         if (!reply.raw.destroyed) reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
       });
       const heartbeat = setInterval(() => {
@@ -326,25 +359,30 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     settings: await actions.getSettings(telegramId)
   }), "get_settings"));
 
-  server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId) => ({
-    settings: await actions.updateSettings(telegramId, settingsUpdateSchema.parse(request.body))
-  }), "update_settings"));
+  server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertWorkspaceManager(scope);
+    return { settings: await actions.updateSettings(telegramId, settingsUpdateSchema.parse(request.body)) };
+  }, "update_settings"));
 
-  server.post("/api/v1/dashboard/integrations/:provider/disconnect", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.post("/api/v1/dashboard/integrations/:provider/disconnect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     const { provider } = integrationParamsSchema.parse(request.params);
     return actions.disconnectIntegration(telegramId, provider);
   }, "disconnect_integration"));
 
-  server.post("/api/v1/dashboard/integrations/excel/sync", async (request, reply) => run(request, reply, async (telegramId) => (
-    actions.syncExcelExpenses(telegramId)
-  ), "sync_excel_expenses"));
+  server.post("/api/v1/dashboard/integrations/excel/sync", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return actions.syncExcelExpenses(telegramId);
+  }, "sync_excel_expenses"));
 
-  server.get("/api/v1/dashboard/privacy/export", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.get("/api/v1/dashboard/privacy/export", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     reply.header("Content-Disposition", 'attachment; filename="threadwise-export.json"');
     return actions.exportData(telegramId);
   }, "export_data"));
 
-  server.delete("/api/v1/dashboard/privacy/account", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.delete("/api/v1/dashboard/privacy/account", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     deleteAccountSchema.parse(request.body);
     await actions.deleteAccount(telegramId);
     return { deleted: true };
@@ -355,6 +393,12 @@ function noStore(reply: FastifyReply): void {
   reply.header("Cache-Control", "private, no-store, max-age=0");
   reply.header("Pragma", "no-cache");
   reply.header("Vary", "Authorization");
+}
+
+function dashboardWorkspaceHeader(request: FastifyRequest): string | undefined {
+  const value = request.headers["x-threadwise-workspace"];
+  const workspace = Array.isArray(value) ? value[0] : value;
+  return typeof workspace === "string" && workspace.trim() ? workspace.trim() : undefined;
 }
 
 function searchKinds(value: string | undefined): DashboardSearchKind[] {
@@ -373,6 +417,9 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
       .code(401)
       .header("WWW-Authenticate", 'Bearer realm="threadwise-dashboard", error="invalid_token"')
       .send({ error: "unauthorized" });
+  }
+  if (error instanceof DashboardGroupAccessError) {
+    return reply.code(403).send({ error: "group_access_denied", message: error.message });
   }
   if (error instanceof DashboardConfigurationError) {
     logger.error("Dashboard API is not configured correctly.", { errorType: error.name });

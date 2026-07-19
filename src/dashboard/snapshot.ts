@@ -5,11 +5,18 @@ import { normalizeClock } from "../utils/clock";
 import type { IdeaScore } from "../ai/types";
 import { storedIdeaBrief } from "./ideaBrief";
 
-const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
+const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const DASHBOARD_LIST_LIMIT = 50;
 const WEEKLY_ACTIVITY_LIMIT = 1_000;
 
 export type DashboardSnapshot = {
+  workspace?: {
+    id: string;
+    kind: "PERSONAL" | "GROUP";
+    name: string;
+    role: "OWNER" | "ADMIN" | "MEMBER";
+    memberCount?: number;
+  };
   user: {
     telegramId: string;
     firstName: string;
@@ -117,7 +124,7 @@ export class DashboardUserNotFoundError extends Error {
 
 function accentFor(telegramId: string): "iris" | "coral" | "mint" {
   const accents = ["iris", "coral", "mint"] as const;
-  const checksum = [...telegramId].reduce((sum, digit) => sum + Number(digit), 0);
+  const checksum = [...telegramId].reduce((sum, character) => sum + character.charCodeAt(0), 0);
   return accents[checksum % accents.length] ?? "iris";
 }
 
@@ -143,9 +150,9 @@ export async function getDashboardSnapshot(
   database: PrismaClient = prisma,
   now = new Date()
 ): Promise<DashboardSnapshot> {
-  // Synthetic group owners use `chat:<id>` and are deliberately excluded: a
-  // human dashboard token can only address its own positive Telegram user id.
-  if (!PERSONAL_TELEGRAM_ID.test(telegramId)) {
+  // A synthetic group owner is accepted only after the route has resolved a
+  // signed human principal through an active GroupMembership.
+  if (!DASHBOARD_OWNER_ID.test(telegramId)) {
     throw new DashboardUserNotFoundError();
   }
 
@@ -410,7 +417,7 @@ export async function getDashboardSnapshot(
       directNudgesEnabled: user.settings?.directNudgesEnabled ?? false
     },
     activity: [...activityByDate.values()],
-    integrations: [
+    integrations: telegramId.startsWith("chat:") ? [] : [
       user.gmailConnection
         ? {
             name: "Gmail",

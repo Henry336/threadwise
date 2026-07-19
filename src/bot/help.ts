@@ -255,6 +255,115 @@ export function formatMainMenuText(timezone = "Asia/Singapore"): string {
   ].join("\n");
 }
 
+export function formatGroupMainMenuText(groupName: string, timezone = "Asia/Singapore"): string {
+  return [
+    bold(`Threadwise · ${groupName}`),
+    "This group has its own shared workspace.",
+    `Times use ${code(timezone)}. Mention me or reply to one of my messages to add something naturally.`
+  ].join("\n");
+}
+
+export function formatGroupHelpGuide(botUsername?: string): string {
+  const mention = botUsername ? `@${botUsername.replace(/^@/, "")}` : "@ThreadwiseBot";
+  return [
+    bold("❓ Threadwise in this group"),
+    "Everything created here stays in this group's shared workspace. It never mixes with anyone's private Threadwise account.",
+    "",
+    bold("Create together"),
+    `${code(`${mention} remind us to submit the form Friday at 5pm`)}`,
+    `${code(`${mention} save note: the venue code is 1842`)}`,
+    `${code(`${mention} idea: run a monthly demo night`)}`,
+    "",
+    bold("Browse and manage"),
+    `${code("/tasks")} · ${code("/notes")} · ${code("/ideas")} · ${code("/images")} · ${code("/expenses")}`,
+    `${code("/menu")} opens the shared menu. ${code("/commands")} shows the compact group reference.`,
+    "",
+    "Threadwise ignores ordinary conversation unless you mention it, reply to it, or use a slash command."
+  ].join("\n");
+}
+
+export function formatGroupHelpTopic(topic: HelpTopic, botUsername?: string): string {
+  if (topic === "general") return formatGroupHelpGuide(botUsername);
+  if (topic === "commands") return formatGroupCommandReference();
+  if (topic === "privacy") return formatGroupPrivacyText();
+  if (topic === "excel") {
+    return [
+      bold("Excel stays personal"),
+      "A person's Excel connection is never shared with a Telegram group.",
+      "Group expenses still stay available in chat and in the shared dashboard. Open Threadwise privately to connect or export Excel."
+    ].join("\n");
+  }
+  if (topic === "settings") {
+    return [
+      bold("Group settings"),
+      "Timezone, currency, OCR language, quiet hours, and reminder defaults belong to this group workspace.",
+      `A Telegram group admin can change them with ${code("/settings")} or the Group settings buttons.`
+    ].join("\n");
+  }
+  const sharedTopics: Partial<Record<HelpTopic, string>> = {
+    reminders: [
+      bold("Shared tasks & reminders"),
+      `Create with ${code("/add")}, schedule with ${code("/remind")}, and browse with ${code("/tasks")}.`,
+      `Use ${code("/assign 2 @alex")}, ${code("/done 2")}, or the buttons on an opened task. Reminders return to this group.`
+    ].join("\n"),
+    notes: [
+      bold("Shared notes"),
+      `Save with ${code("/note venue code is 1842")}; browse or search with ${code("/notes")} and ${code("/search notes venue")}.`,
+      "Notes created here belong to the group, not to the person who typed them."
+    ].join("\n"),
+    ideas: [
+      bold("Shared ideas"),
+      `Save with ${code("/idea run a monthly demo night")} and browse with ${code("/ideas")}.`,
+      "Open the shared dashboard for editable idea cards and Idea Brief analysis."
+    ].join("\n"),
+    images: [
+      bold("Shared images"),
+      "Mention Threadwise in the image caption or send the image while replying to one of its messages, then choose how to save or extract it.",
+      `Browse with ${code("/images")} or search with ${code("/images passport")}.`
+    ].join("\n"),
+    expenses: [
+      bold("Shared expenses"),
+      `Record with ${code("/expense spent $18.40 on lunch")} and review with ${code("/expenses this month")}.`,
+      "The shared dashboard adds group totals and visual breakdowns; personal Excel connections stay private."
+    ].join("\n"),
+    search: [
+      bold("Search the group workspace"),
+      `Use ${code("/search prototype")} across shared tasks, notes, and ideas, or use the shared dashboard for live filters.`
+    ].join("\n"),
+    cleanup: [
+      bold("Undo & cleanup"),
+      `Use ${code("/undo")} for the latest supported change, or open an item before archiving, restoring, or deleting it.`,
+      "Remember: collection changes are shared with everyone in this group workspace."
+    ].join("\n")
+  };
+  if (sharedTopics[topic]) return sharedTopics[topic];
+  return formatHelpTopic(topic);
+}
+
+export function formatGroupCommandReference(): string {
+  return [
+    bold("Group commands"),
+    `${code("/menu")} shared menu · ${code("/help")} group guide · ${code("/dashboard")} shared dashboard`,
+    `${code("/add")} task · ${code("/remind")} reminder · ${code("/tasks")} open tasks · ${code("/done")} complete`,
+    `${code("/note")} save note · ${code("/notes")} browse notes · ${code("/idea")} save idea · ${code("/ideas")} browse ideas`,
+    `${code("/images")} saved images · ${code("/expense")} add spending · ${code("/expenses")} browse spending`,
+    `${code("/search")} find shared content · ${code("/assign")} assign a task · ${code("/settings")} group defaults`,
+    "",
+    `Example: ${code("/remind tomorrow at 9am | bring the prototype")}`,
+    "Group settings are restricted to Telegram group admins."
+  ].join("\n");
+}
+
+export function formatGroupPrivacyText(): string {
+  return [
+    bold("🔐 Group data & privacy"),
+    "This chat has a separate shared workspace. Group items are not added to any member's private workspace.",
+    "Anyone who can use Threadwise in this group may see or change shared items. Group admins control shared settings.",
+    "The group dashboard requires Telegram sign-in and a current membership check. Personal integrations and private account controls are never exposed inside it.",
+    "Threadwise content is not end-to-end encrypted; authorized production operators can technically access stored content when maintaining or securing the service."
+  ].join("\n");
+}
+
 export function formatPrivacyText(): string {
   return [
     bold("🔐 Data & privacy"),

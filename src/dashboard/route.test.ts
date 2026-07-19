@@ -72,7 +72,10 @@ describe("dashboard API routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(snapshot);
+    expect(response.json()).toEqual({
+      ...snapshot,
+      workspace: { id: "personal", kind: "PERSONAL", name: "Personal", role: "OWNER" }
+    });
     expect(loadSnapshot).toHaveBeenCalledOnce();
     expect(loadSnapshot).toHaveBeenCalledWith("123456789");
     expect(response.headers["cache-control"]).toBe("private, no-store, max-age=0");

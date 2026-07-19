@@ -2,6 +2,7 @@ import type { Context } from "grammy";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { defaultCurrencyForTimezone } from "../utils/currencies";
+import { recordGroupWorkspaceAccess } from "./groupWorkspaces";
 
 export async function ensureUser(ctx: Context) {
   const identity = threadwiseUserIdentity(ctx);
@@ -32,6 +33,7 @@ export async function ensureUser(ctx: Context) {
     include: { settings: true }
   });
 
+  let readyUser = user;
   if (!user.settings) {
     await prisma.userSettings.create({
       data: {
@@ -46,25 +48,24 @@ export async function ensureUser(ctx: Context) {
       }
     });
 
-    return prisma.user.findUniqueOrThrow({
+    readyUser = await prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       include: { settings: true }
     });
-  }
-
-  if (identity.isGroup && user.settings.reminderChatId !== identity.reminderChatId) {
+  } else if (identity.isGroup && user.settings.reminderChatId !== identity.reminderChatId) {
     await prisma.userSettings.update({
       where: { userId: user.id },
       data: { reminderChatId: identity.reminderChatId }
     });
 
-    return prisma.user.findUniqueOrThrow({
+    readyUser = await prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       include: { settings: true }
     });
   }
 
-  return user;
+  if (identity.isGroup) await recordGroupWorkspaceAccess(ctx, readyUser.id);
+  return readyUser;
 }
 
 type ThreadwiseUserIdentity = {

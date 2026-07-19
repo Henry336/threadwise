@@ -31,7 +31,7 @@ async function main() {
   if (env.WEBHOOK_URL) {
     await bot.init();
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
-    await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member"] });
+    await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"] });
     const webhookInfo = await bot.api.getWebhookInfo();
     server = await startServer(bot, ai, {
       port: env.PORT,

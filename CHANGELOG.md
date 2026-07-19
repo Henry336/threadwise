@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.20.0 - 2026-07-19
+
+### Group workspaces
+- Rebuilt `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and settings around compact group-specific copy and controls instead of reusing the private-chat interface.
+- Restored topic-specific `/help <topic>` guidance in groups and uses Telegram-compatible URL buttons for shared dashboards, since inline Mini App buttons are private-chat-only.
+- Added durable group workspace and membership records while preserving the existing chat-scoped task, note, idea, image, expense, setting, and reminder ownership.
+- Added Telegram role refreshes, membership lifecycle updates, admin-only group settings, and explicit separation from personal Gmail, Calendar, and Excel connections.
+
+### Shared dashboard
+- Added signed-human-to-shared-workspace authorization with opaque workspace selection and live Telegram membership verification.
+- Added shared dashboard CRUD, capture, search, saved images, expenses, Idea Briefs, settings, and live update streams without allowing a group URL to address a private workspace.
+- Kept personal integrations and destructive personal account controls unavailable in group scope.
+
+### Quality
+- Added regression coverage for compact group menus and help, personal/group owner validation, and live membership-gated dashboard resolution.
+
 ## Unreleased - Database Connection Hardening
 
 ### Fixed

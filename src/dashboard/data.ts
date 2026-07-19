@@ -43,7 +43,7 @@ import type {
 const MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024;
 const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
-const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
+const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const PUBLIC_ID_CREATE_ATTEMPTS = 3;
 
 type PublicIdKind = "IDEA" | "TASK" | "NOTE" | "EXP";
@@ -222,7 +222,7 @@ function pageResult<T>(items: T[], page: number, limit: number, total: number): 
 }
 
 async function userContext(telegramId: string, database: PrismaClient = prisma): Promise<DashboardUserContext> {
-  if (!PERSONAL_TELEGRAM_ID.test(telegramId)) throw new DashboardUserNotFoundError();
+  if (!DASHBOARD_OWNER_ID.test(telegramId)) throw new DashboardUserNotFoundError();
   const user = await database.user.findUnique({
     where: { telegramId },
     select: { id: true, telegramId: true, settings: true }

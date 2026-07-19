@@ -16,18 +16,20 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
-import { formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
+import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupMainMenuText, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
 import { formatRegionSettings, formatReminderSettings, formatSettings, updateSetting } from "../services/settings";
 import { beginMenuInput, clearMenuInput, type MenuInputAction } from "./menuInputs";
 import { rememberCallbackControlCard } from "./controlCards";
 import { buildItemCard } from "./itemCards";
 import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationState";
 import { cancelTransientInteractions } from "./interactions";
+import { isGroupChat } from "./groupRouting";
+import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
@@ -126,6 +128,10 @@ async function handleSettingCallback(ctx: Context, action: string | undefined) {
   if (!action) return;
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
+  if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+    await ctx.answerCallbackQuery({ text: "Only group admins can change shared settings.", show_alert: true });
+    return;
+  }
   rememberCallbackControlCard(ctx);
   clearMenuInput(user.id, ctx.from.id);
 
@@ -225,12 +231,16 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   if (!action) return;
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
+  const group = isGroupChat(ctx);
+  const workspace = group ? await groupWorkspaceForContext(ctx) : undefined;
   await cancelTransientInteractions(user.id, ctx.from.id);
   await ctx.answerCallbackQuery();
   rememberCallbackControlCard(ctx);
   if (action === "home") {
-    await editOrReplyHtml(ctx, formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
-      reply_markup: startMenuKeyboard()
+    await editOrReplyHtml(ctx, group
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone ?? "Asia/Singapore")
+      : formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
+      reply_markup: workspace ? groupStartMenuKeyboard(workspace.id) : startMenuKeyboard()
     });
     return;
   }
@@ -247,11 +257,11 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "images") {
-    await editOrReplyHtml(ctx, `${bold("🖼️ Images")}\nBrowse saved images here, or open the visual gallery on the dashboard.`, { reply_markup: imagesModeKeyboard() });
+    await editOrReplyHtml(ctx, `${bold(group ? "🖼️ Shared images" : "🖼️ Images")}\nBrowse saved images here, or open the visual gallery on the dashboard.`, { reply_markup: workspace ? groupImagesModeKeyboard(workspace.id) : imagesModeKeyboard() });
     return;
   }
   if (action === "expenses") {
-    await editOrReplyHtml(ctx, `${bold("💰 Expenses")}\nRecord spending, review recent entries, or export to Excel.`, { reply_markup: expensesModeKeyboard() });
+    await editOrReplyHtml(ctx, `${bold(group ? "💰 Shared expenses" : "💰 Expenses")}\n${group ? "Record and review spending saved for this group." : "Record spending, review recent entries, or export to Excel."}`, { reply_markup: group ? groupExpensesModeKeyboard() : expensesModeKeyboard() });
     return;
   }
   if (action === "search") {
@@ -259,7 +269,11 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "settings") {
-    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
+    await editOrReplyHtml(ctx, group
+      ? `${bold("⚙️ Group settings")}\nThese defaults belong only to this shared workspace. Telegram group admins can change them.`
+      : await formatSettings(user.id), {
+      reply_markup: workspace ? groupSettingsModeKeyboard(workspace.id) : settingsModeKeyboard()
+    });
     return;
   }
   if (action === "tasks-list" || action === "notes-list" || action === "ideas-list") {
@@ -284,10 +298,16 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "help") {
-    await editOrReplyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
+    await editOrReplyHtml(ctx, group ? formatGroupHelpGuide(ctx.me.username) : formatHelpGuide(), {
+      reply_markup: workspace ? groupHelpTopicsKeyboard(workspace.id) : helpTopicsKeyboard()
+    });
     return;
   }
   if (action === "integrations") {
+    if (group) {
+      await editOrReplyHtml(ctx, `${bold("🔌 Personal integrations stay private")}\nGmail, Calendar, and Excel connections belong to individual accounts and are not shared with a group workspace.`, { reply_markup: menuBackKeyboard("‹ Group settings", "menu:settings") });
+      return;
+    }
     await editOrReplyHtml(ctx, `${bold("🔌 Integrations")}\nChoose a service for its setup and status commands.`, { reply_markup: integrationsSettingsKeyboard() });
     return;
   }
@@ -300,6 +320,10 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "privacy") {
+    if (group) {
+      await editOrReplyHtml(ctx, formatGroupPrivacyText(), { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") });
+      return;
+    }
     await editOrReplyHtml(ctx, [
       bold("🔐 Data & privacy"),
       "Telegram verifies who you are; database credentials never reach your browser.",
@@ -345,7 +369,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "cancel-input") {
     clearMenuInput(user.id, ctx.from.id);
-    await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: startMenuKeyboard() });
+    await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: workspace ? groupStartMenuKeyboard(workspace.id) : startMenuKeyboard() });
     return;
   }
   const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
@@ -358,9 +382,13 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   };
   const topic = topics[action];
   if (topic) {
+    if (group && topic === "commands") {
+      await editOrReplyHtml(ctx, formatGroupCommandReference(), { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") });
+      return;
+    }
     const parentLabel = action === "excel" ? "‹ Expenses" : "‹ Help";
     const parentCallback = action === "excel" ? "menu:expenses" : "menu:help";
-    await editOrReplyHtml(ctx, formatHelpTopic(topic), { reply_markup: menuBackKeyboard(parentLabel, parentCallback) });
+    await editOrReplyHtml(ctx, group ? formatGroupHelpTopic(topic, ctx.me.username) : formatHelpTopic(topic), { reply_markup: menuBackKeyboard(parentLabel, parentCallback) });
   }
 }
 

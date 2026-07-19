@@ -160,8 +160,8 @@ describe("dashboard snapshot", () => {
     expect(JSON.stringify(snapshot)).not.toMatch(/accessToken|refreshToken|sourceText|embedding|telegramFileId|receiptFileUniqueId|rawText/);
   });
 
-  it("rejects synthetic group owners before any database query", async () => {
-    await expect(getDashboardSnapshot("chat:-100123", database)).rejects.toBeInstanceOf(DashboardUserNotFoundError);
+  it("rejects malformed synthetic group owners before any database query", async () => {
+    await expect(getDashboardSnapshot("chat:not-a-group", database)).rejects.toBeInstanceOf(DashboardUserNotFoundError);
     expect(mocks.userFindUnique).not.toHaveBeenCalled();
   });
 });

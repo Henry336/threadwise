@@ -1,6 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
-import { DASHBOARD_URL } from "./links";
+import { DASHBOARD_URL, groupDashboardUrl } from "./links";
 
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
 type ItemKind = "task" | "note" | "idea";
@@ -21,6 +21,15 @@ export function startMenuKeyboard(): InlineKeyboard {
     .text("❓ Help", "menu:help");
 }
 
+export function groupStartMenuKeyboard(workspaceId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📋 Shared tasks", "menu:tasks").text("📝 Shared notes", "menu:notes").row()
+    .text("💡 Shared ideas", "menu:ideas").text("🖼️ Shared images", "menu:images").row()
+    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row()
+    .url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).text("⚙️ Group settings", "menu:settings").row()
+    .text("❓ Group help", "menu:help");
+}
+
 export const PRIVATE_MENU_LABELS = {
   menu: "☰ Menu",
   dashboard: "🌐 Dashboard"
@@ -37,6 +46,10 @@ export function privateMenuKeyboard(): Keyboard {
 
 export function dashboardLinkKeyboard(): InlineKeyboard {
   return new InlineKeyboard().webApp("Open Threadwise Dashboard", DASHBOARD_URL);
+}
+
+export function groupDashboardLinkKeyboard(workspaceId: string): InlineKeyboard {
+  return new InlineKeyboard().url("Open shared group dashboard", groupDashboardUrl(workspaceId));
 }
 
 export function tasksModeKeyboard(): InlineKeyboard {
@@ -67,10 +80,22 @@ export function imagesModeKeyboard(): InlineKeyboard {
     .webApp("Open gallery", `${DASHBOARD_URL}/dashboard?view=images`).text("‹ Main menu", "menu:home");
 }
 
+export function groupImagesModeKeyboard(workspaceId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🖼️ Browse images", "menu:images-list").text("🔎 Find an image", "menu:images-search").row()
+    .url("Open shared gallery", groupDashboardUrl(workspaceId, "images")).text("‹ Main menu", "menu:home");
+}
+
 export function expensesModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("＋ Add expense", "menu:expenses-add").text("💰 Recent expenses", "menu:expenses-list").row()
     .text("📊 Excel & export", "menu:excel").text("‹ Main menu", "menu:home");
+}
+
+export function groupExpensesModeKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("＋ Add expense", "menu:expenses-add").text("💰 Recent expenses", "menu:expenses-list").row()
+    .text("‹ Main menu", "menu:home");
 }
 
 export function searchModeKeyboard(): InlineKeyboard {
@@ -95,6 +120,13 @@ export function settingsModeKeyboard(): InlineKeyboard {
     .text("🔌 Integrations", "menu:integrations").text("🔐 Data & privacy", "menu:privacy").row()
     .webApp("🌐 Dashboard settings", `${DASHBOARD_URL}/dashboard?view=settings`).row()
     .text("‹ Main menu", "menu:home");
+}
+
+export function groupSettingsModeKeyboard(workspaceId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
+    .url("🌐 Shared dashboard", groupDashboardUrl(workspaceId, "settings")).row()
+    .text("❓ Group help", "menu:help").text("‹ Main menu", "menu:home");
 }
 
 export type SettingChoiceField = "interval" | "mode" | "quiet" | "due-nudge" | "max" | "timezone" | "currency" | "ocr" | "dm";
@@ -183,6 +215,15 @@ export function helpTopicsKeyboard(): InlineKeyboard {
     .text("🔐 Privacy", "menu:privacy").webApp("🌐 Dashboard", DASHBOARD_URL).row()
     .text("⌨️ Commands", "menu:commands")
     .row()
+    .text("‹ Main menu", "menu:home");
+}
+
+export function groupHelpTopicsKeyboard(workspaceId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📋 Tasks", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
+    .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
+    .text("⌨️ Group commands", "menu:commands").row()
+    .url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).row()
     .text("‹ Main menu", "menu:home");
 }
 

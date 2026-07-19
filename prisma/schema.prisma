@@ -43,6 +43,18 @@ enum CaptureKind {
   NOISE
 }
 
+enum GroupMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum GroupMemberStatus {
+  ACTIVE
+  LEFT
+  KICKED
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -76,6 +88,44 @@ model User {
   microsoftConnection   MicrosoftConnection?
   reminderHistory       ReminderDelivery[]
   auditLogs             AuditLog[]
+  groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
+}
+
+model GroupWorkspace {
+  id             String   @id @default(uuid())
+  ownerUserId    String   @unique
+  telegramChatId String   @unique
+  title          String
+  username       String?
+  isActive       Boolean  @default(true)
+  botStatus      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  ownerUser User              @relation("GroupWorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members   GroupMembership[]
+
+  @@index([isActive, updatedAt])
+}
+
+model GroupMembership {
+  id           String            @id @default(uuid())
+  workspaceId  String
+  telegramId   String
+  username     String?
+  firstName    String?
+  lastName     String?
+  role         GroupMemberRole   @default(MEMBER)
+  status       GroupMemberStatus @default(ACTIVE)
+  lastSeenAt   DateTime           @default(now())
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  workspace GroupWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, telegramId])
+  @@index([telegramId, status])
+  @@index([workspaceId, role])
 }
 
 model UserSettings {

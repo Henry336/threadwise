@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
+import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
 import {
   createIdea,
   createImplementationBrief,
@@ -28,7 +28,7 @@ import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, forma
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, dashboardLinkKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -46,6 +46,7 @@ import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
+import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -70,18 +71,21 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (lower === "help") {
-    await replyHtml(ctx, formatHelpGuide(), { reply_markup: helpTopicsKeyboard() });
+    const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+    await replyHtml(ctx, isGroupChat(ctx) ? formatGroupHelpGuide(ctx.me.username) : formatHelpGuide(), {
+      reply_markup: workspace ? groupHelpTopicsKeyboard(workspace.id) : helpTopicsKeyboard()
+    });
     return true;
   }
 
   const helpTopic = parseNaturalHelpRequest(trimmed);
   if (helpTopic) {
-    await replyHtml(ctx, formatHelpTopic(helpTopic));
+    await replyHtml(ctx, isGroupChat(ctx) ? formatGroupHelpTopic(helpTopic, ctx.me.username) : formatHelpTopic(helpTopic));
     return true;
   }
 
   if (lower === "commands" || lower === "slash commands" || lower === "show commands") {
-    await replyHtml(ctx, formatCommandReference());
+    await replyHtml(ctx, isGroupChat(ctx) ? formatGroupCommandReference() : formatCommandReference());
     return true;
   }
 
@@ -97,7 +101,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:privacy|data privacy|is my data safe|who can (?:see|access) my data|how (?:is|do you keep) my data safe)$/.test(lower)) {
-    await replyHtml(ctx, formatPrivacyText(), { reply_markup: dashboardLinkKeyboard() });
+    await replyHtml(ctx, isGroupChat(ctx) ? formatGroupPrivacyText() : formatPrivacyText(), isGroupChat(ctx) ? {} : { reply_markup: dashboardLinkKeyboard() });
     return true;
   }
 
@@ -171,12 +175,19 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:settings|preferences|show (?:me )?(?:my )?(?:settings|preferences)|what are my settings)$/.test(lower)) {
-    await replyControlCardHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
+    const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+    await replyControlCardHtml(ctx, isGroupChat(ctx)
+      ? `${bold("⚙️ Group settings")}\nThese defaults apply only to this shared group workspace. Telegram group admins can change them.`
+      : await formatSettings(user.id), { reply_markup: workspace ? groupSettingsModeKeyboard(workspace.id) : settingsModeKeyboard() });
     return true;
   }
 
   const settingChange = parseNaturalSettingChange(trimmed);
   if (settingChange) {
+    if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+      await ctx.reply("Only a Telegram group admin can change this group's Threadwise settings.");
+      return true;
+    }
     const result = await updateSetting(user.id, settingChange);
     await ctx.reply(result.message);
     return true;

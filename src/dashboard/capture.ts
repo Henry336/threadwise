@@ -15,7 +15,7 @@ import { DashboardUserNotFoundError } from "./snapshot";
 import { DashboardValidationError } from "./data";
 import type { CapturePreviewInput } from "./schemas";
 
-const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
+const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 
 export type DashboardCaptureKind = "task" | "note" | "idea" | "expense";
 
@@ -34,7 +34,7 @@ export async function previewDashboardCapture(
   database: PrismaClient = prisma,
   now = new Date()
 ): Promise<DashboardCapturePreview> {
-  if (!PERSONAL_TELEGRAM_ID.test(telegramId)) throw new DashboardUserNotFoundError();
+  if (!DASHBOARD_OWNER_ID.test(telegramId)) throw new DashboardUserNotFoundError();
   const user = await database.user.findUnique({
     where: { telegramId },
     select: { settings: { select: { timezone: true, expenseCurrency: true } } }

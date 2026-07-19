@@ -8,6 +8,7 @@ import { registerCommands } from "./commands";
 import { isGroupChat, isTelegramContextAllowed, shouldHandleGroupUpdate } from "./groupRouting";
 import { registerNaturalLanguage } from "./naturalLanguage";
 import { registerImageMessages } from "./imageMessages";
+import { updateGroupBotStatus, updateGroupMemberFromTelegram } from "../services/groupWorkspaces";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -52,6 +53,14 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   registerCallbacks(bot, ai);
   registerImageMessages(bot, ai, token);
   registerNaturalLanguage(bot, ai);
+  bot.on("chat_member", async (ctx) => {
+    const update = ctx.chatMember;
+    await updateGroupMemberFromTelegram(String(update.chat.id), update.new_chat_member.user, update.new_chat_member.status);
+  });
+  bot.on("my_chat_member", async (ctx) => {
+    const update = ctx.myChatMember;
+    await updateGroupBotStatus(String(update.chat.id), update.new_chat_member.status);
+  });
 
   bot.catch((error) => {
     logger.error("Bot update failed.", {
