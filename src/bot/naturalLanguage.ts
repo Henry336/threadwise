@@ -25,6 +25,7 @@ import { appendListOrigin } from "./navigationState";
 import { replyControlCardHtml } from "./controlCards";
 import { formatIdeaScore } from "./formatters";
 import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
+import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -88,8 +89,9 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           return;
         }
         const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
+        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+        await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
         return;
       }
 
@@ -143,8 +145,9 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       if (shouldAutoSave(classification.kind, classification.confidence)) {
         if (classification.kind === "task") {
           const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
+          await recordGroupTaskCreatedFromContext(ctx, user.id, task);
           await replyControlCardHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
-            reply_markup: taskCreatedKeyboard(task)
+            reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx))
           });
           return;
         }
@@ -207,8 +210,9 @@ async function handlePendingMenuInput(
 
   if (action === "task") {
     const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
+    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
     return true;
   }
 
@@ -219,8 +223,9 @@ async function handlePendingMenuInput(
       return true;
     }
     const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
+    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
     return true;
   }
 

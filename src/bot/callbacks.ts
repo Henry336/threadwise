@@ -1,4 +1,5 @@
 import type { Bot, Context } from "grammy";
+import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { cancelTask, completeTask, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
@@ -16,7 +17,7 @@ import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImage
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -30,8 +31,10 @@ import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationSt
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
+import { collaborationActorFromContext, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
+  bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
@@ -464,7 +467,11 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       return;
     }
     const task = await createTask(user.id, consumed.extractedText, ai);
-    await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
+    }
+    await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't finish that image action.", { reply_markup: menuBackKeyboard() });
@@ -524,6 +531,32 @@ async function replyInChunks(ctx: Context, text: string) {
   }
 }
 
+async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefined, action: string | undefined) {
+  if (!taskId || !isGroupChat(ctx)) return;
+  const user = await ensureUser(ctx);
+  try {
+    const status = action === "block" ? TaskAssigneeStatus.BLOCKED : TaskAssigneeStatus.ACCEPTED;
+    const task = await setTaskAssignmentStatus(user.id, taskId, collaborationActorFromContext(ctx), status);
+    await ctx.answerCallbackQuery({ text: action === "block" ? "Marked blocked" : "Assignment accepted" });
+    const card = await buildItemCard(
+      user.id,
+      "task",
+      task.publicId,
+      user.settings?.timezone ?? "UTC",
+      action === "block" ? "Task marked blocked" : "Assignment accepted",
+      false,
+    );
+    addTaskCollaborationActions(card.keyboard, task.id);
+    appendListOrigin(card.keyboard, user.id, "task");
+    await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+  } catch (error) {
+    await ctx.answerCallbackQuery({
+      text: error instanceof Error ? error.message.slice(0, 180) : "Could not update assignment",
+      show_alert: true,
+    });
+  }
+}
+
 async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const user = await ensureUser(ctx);
@@ -532,6 +565,10 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
     await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
     return;
+  }
+  if (isGroupChat(ctx)) {
+    const actor = collaborationActorFromContext(ctx);
+    await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
   await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
@@ -694,6 +731,7 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
   if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
   const user = await ensureUser(ctx);
   const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false);
+  if (kind === "task" && isGroupChat(ctx)) addTaskCollaborationActions(card.keyboard, itemId);
   const page = Math.max(1, Number(pageText) || 1);
   const listKind = kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas";
   rememberListOrigin(user.id, kind, page);
@@ -735,8 +773,12 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   if (action === "task") {
     const task = await createTask(user.id, pending.sourceText, ai);
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
+    }
     await editOrReplyHtml(ctx, `${formatTaskCreated(task, user.settings?.timezone)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: taskCreatedKeyboard(task)
+      reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx))
     });
     return;
   }

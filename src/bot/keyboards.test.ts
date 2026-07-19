@@ -8,6 +8,13 @@ describe("interactive keyboard navigation", () => {
     expect(callbackData(taskActionsKeyboard("task-row-id"))).toContain("menu:tasks");
   });
 
+  it("adds group assignment actions without changing private task cards", () => {
+    expect(callbackData(taskActionsKeyboard("task-row-id"))).not.toContain("task:accept:task-row-id");
+    const groupActions = callbackData(taskActionsKeyboard("task-row-id", true, true));
+    expect(groupActions).toContain("task:accept:task-row-id");
+    expect(groupActions).toContain("task:block:task-row-id");
+  });
+
   it("keeps a back route even when a paged result has only one page", () => {
     expect(callbackData(searchPageKeyboard("search-id", 1, 1))).toEqual(["menu:search"]);
     expect(callbackData(menuBackKeyboard())).toEqual(["menu:home"]);

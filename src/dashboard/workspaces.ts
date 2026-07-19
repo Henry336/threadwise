@@ -17,6 +17,7 @@ export type DashboardWorkspace = {
 export type DashboardWorkspaceScope = {
   principalTelegramId: string;
   ownerTelegramId: string;
+  telegramChatId?: string;
   workspace: DashboardWorkspace;
 };
 
@@ -152,6 +153,7 @@ export async function resolveDashboardWorkspace(
   return {
     principalTelegramId,
     ownerTelegramId: workspace.ownerUser.telegramId,
+    telegramChatId: workspace.telegramChatId,
     workspace: {
       id: workspace.id,
       kind: "GROUP",

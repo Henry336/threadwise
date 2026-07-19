@@ -12,6 +12,7 @@ import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/h
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, menuBackKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
+import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
@@ -178,7 +179,8 @@ async function processImageOcr(
 
     if (intent === "task") {
       const task = await createTask(user.id, extracted.text, ai);
-      await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+      await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+      await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
       return;
     }
 
@@ -186,7 +188,8 @@ async function processImageOcr(
       const scheduledAt = parseDueDate(preparedCaption, user.settings?.timezone ?? "UTC");
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
         const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
-        await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+        await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
         return;
       }
     }

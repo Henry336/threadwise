@@ -241,7 +241,7 @@ export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | 
   return new InlineKeyboard().text(label ?? `‹ ${fallback}`, `menu:${mode}`);
 }
 
-export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true): InlineKeyboard {
+export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true, includeCollaboration = false): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
 
@@ -251,17 +251,24 @@ export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true):
     .row()
     .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
     .text("✏️ Title", `item:task:edit:title:${taskId}`)
-    .text("📝 Details", `item:task:edit:description:${taskId}`)
-    .row()
-    .text("🗑 Cancel", `task:cancel:${taskId}`);
+    .text("📝 Details", `item:task:edit:description:${taskId}`);
+  if (includeCollaboration) addTaskCollaborationActions(keyboard, taskId);
+  keyboard.row().text("🗑 Cancel", `task:cancel:${taskId}`);
   if (includeBack) keyboard.text("‹ Tasks", "menu:tasks");
   return keyboard;
 }
 
-export function taskCreatedKeyboard(task: TaskActionTarget): InlineKeyboard {
-  return taskActionsKeyboard(task)
+export function taskCreatedKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
+  return taskActionsKeyboard(task, true, includeCollaboration)
     .row()
     .text("↩️ Undo save", "undo:last");
+}
+
+export function addTaskCollaborationActions(keyboard: InlineKeyboard, taskId: string): InlineKeyboard {
+  return keyboard
+    .row()
+    .text("🤝 Accept mine", `task:accept:${taskId}`)
+    .text("⛔ Block mine", `task:block:${taskId}`);
 }
 
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation): InlineKeyboard | undefined {

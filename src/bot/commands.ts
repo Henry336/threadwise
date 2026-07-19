@@ -1,5 +1,6 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
+import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
@@ -25,6 +26,7 @@ import {
   formatTaskAlreadyCompleted,
   formatTaskCompleted,
   formatTaskCreated,
+  listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
   snoozeTask,
@@ -56,9 +58,9 @@ import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigu
 import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
-import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
+import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -76,6 +78,7 @@ import { findStoredImageReference, updateStoredImageCaption } from "../services/
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
+import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -103,6 +106,12 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["reschedule", "move"], async (ctx) => handleReschedule(ctx));
   bot.command("assign", async (ctx) => handleAssign(ctx));
   bot.command("unassign", async (ctx) => handleUnassign(ctx));
+  bot.command("mytasks", async (ctx) => handleMyGroupTasks(ctx));
+  bot.command("accept", async (ctx) => handleAssignmentStatus(ctx, "accept", TaskAssigneeStatus.ACCEPTED));
+  bot.command("decline", async (ctx) => handleAssignmentStatus(ctx, "decline", TaskAssigneeStatus.DECLINED));
+  bot.command("block", async (ctx) => handleAssignmentStatus(ctx, "block", TaskAssigneeStatus.BLOCKED));
+  bot.command("unblock", async (ctx) => handleAssignmentStatus(ctx, "unblock", TaskAssigneeStatus.ACCEPTED));
+  bot.command("handoff", async (ctx) => handleHandoff(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
@@ -299,7 +308,11 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
 
   try {
     const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
+    }
+    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't add that task. Try again in a moment.");
   }
@@ -344,7 +357,11 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
   try {
     const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
     const task = await createScheduledReminder(user.id, taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, taskText));
-    await replyControlCardHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task) });
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
+    }
+    await replyControlCardHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");
   }
@@ -375,7 +392,7 @@ async function handleTaskDetail(ctx: Context) {
             quietHoursEnd: user.settings.quietHoursEnd
           }
         : undefined),
-      { reply_markup: taskActionsKeyboard(task) }
+      { reply_markup: taskActionsKeyboard(task, true, isGroupChat(ctx)) }
     );
   } catch (error) {
     await ctx.reply(taskLookupError(error));
@@ -401,6 +418,10 @@ async function handleDone(ctx: Context) {
     if (completion.alreadyCompleted) {
       await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
       return;
+    }
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
     }
     await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
   } catch (error) {
@@ -454,6 +475,10 @@ async function handleAssign(ctx: Context) {
 
   try {
     const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_ASSIGNED, task, `${actor.displayName} assigned ${task.publicId} to ${formatAssignee(task)}.`);
+    }
     await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${assigneeDmSetupLine(ctx)}`);
   } catch (error) {
     await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
@@ -471,9 +496,81 @@ async function handleUnassign(ctx: Context) {
 
   try {
     const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_UNASSIGNED, task, `${actor.displayName} updated the assignees on ${task.publicId}.`);
+    }
     await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
   } catch (error) {
     await ctx.reply(taskLookupError(error));
+  }
+}
+
+async function handleMyGroupTasks(ctx: Context) {
+  if (!isGroupChat(ctx)) {
+    await ctx.reply("My tasks is for shared group workspaces. Use /tasks here.");
+    return;
+  }
+  const user = await ensureUser(ctx);
+  const actor = collaborationActorFromContext(ctx);
+  const tasks = (await listOpenTasks(user.id)).filter((task) => task.assignees?.some((assignee) =>
+    assignee.telegramId === actor.telegramId
+    || Boolean(actor.username && assignee.username?.toLowerCase() === actor.username.toLowerCase())
+  )).slice(0, 3);
+  if (tasks.length === 0) {
+    await ctx.reply("Nothing is assigned to you right now.");
+    return;
+  }
+  const text = formatOpenTasks(tasks, user.settings?.timezone ?? "UTC").replace(bold("📋 Tasks"), bold("My shared tasks"));
+  await replyHtml(ctx, text, { reply_markup: taskListKeyboard(tasks, 3) });
+}
+
+async function handleAssignmentStatus(ctx: Context, command: string, status: TaskAssigneeStatus) {
+  if (!isGroupChat(ctx)) {
+    await ctx.reply(`/${command} is for assignments in a group workspace.`);
+    return;
+  }
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", command);
+  const [reference, ...reasonParts] = body.split(/\s+/).filter(Boolean);
+  if (!reference) {
+    await ctx.reply(`Send it like this: /${command} TASK-1${status === TaskAssigneeStatus.BLOCKED || status === TaskAssigneeStatus.DECLINED ? " reason" : ""}`);
+    return;
+  }
+  try {
+    const task = await setTaskAssignmentStatus(user.id, reference, collaborationActorFromContext(ctx), status, reasonParts.join(" "));
+    const label = status === TaskAssigneeStatus.BLOCKED
+      ? "Task blocked"
+      : status === TaskAssigneeStatus.DECLINED
+        ? "Assignment declined"
+        : command === "unblock"
+          ? "Blocker cleared"
+          : "Assignment accepted";
+    await replyHtml(ctx, `${bold(label)} ${code(task.publicId)}\n${h(task.title)}`);
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't update that assignment.");
+  }
+}
+
+async function handleHandoff(ctx: Context) {
+  if (!isGroupChat(ctx)) {
+    await ctx.reply("/handoff is for assignments in a group workspace.");
+    return;
+  }
+  const user = await ensureUser(ctx);
+  const body = commandBody(ctx.message?.text ?? "", "handoff");
+  const match = body.match(/^(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
+  if (!match?.[1] || !match[2]) {
+    await ctx.reply("Send it like this: /handoff TASK-1 @alex");
+    return;
+  }
+  const reasonParts = match[2].match(/^(.+?)\s+(?:because|since)\s+(.+)$/i);
+  const target = reasonParts?.[1] ?? match[2];
+  try {
+    const task = await handoffTaskAssignment(user.id, match[1], collaborationActorFromContext(ctx), target, taskCreationOptionsFromContext(ctx, target), reasonParts?.[2]);
+    await replyHtml(ctx, `${bold("Task handed off")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.`);
+  } catch (error) {
+    await ctx.reply(error instanceof Error ? error.message : "I couldn't hand off that task.");
   }
 }
 

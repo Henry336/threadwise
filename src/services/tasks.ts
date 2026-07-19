@@ -1,4 +1,4 @@
-import { Prisma, RecurrenceRule, TaskStatus } from "@prisma/client";
+import { Prisma, RecurrenceRule, TaskAssigneeStatus, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
@@ -46,6 +46,10 @@ export type TaskAssigneeInfo = {
   telegramId?: string | null;
   username?: string | null;
   displayName?: string | null;
+  status?: TaskAssigneeStatus;
+  statusReason?: string | null;
+  respondedAt?: Date | null;
+  updatedAt?: Date;
 };
 
 export type TaskEntityMention = {

@@ -64,12 +64,14 @@ import {
   searchQuerySchema,
   settingsUpdateSchema,
   taskCreateSchema,
+  taskCollaborationSchema,
   taskListQuerySchema,
   taskUpdateSchema
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
 import { subscribeDashboardChanges } from "./realtime";
+import { getDashboardGroupCollaboration, recordDashboardTaskMutation, updateDashboardTaskCollaboration } from "./collaboration";
 import {
   DashboardGroupAccessError,
   assertPersonalWorkspace,
@@ -172,10 +174,17 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     }
   };
 
-  const loadScopedSnapshot: RouteWork = async (telegramId, scope) => ({
-    ...await loadSnapshot(telegramId),
-    workspace: scope.workspace
-  });
+  const loadScopedSnapshot: RouteWork = async (telegramId, scope) => {
+    const [snapshot, collaboration] = await Promise.all([
+      loadSnapshot(telegramId),
+      getDashboardGroupCollaboration(scope),
+    ]);
+    return {
+      ...snapshot,
+      workspace: scope.workspace,
+      ...(collaboration ? { collaboration } : {}),
+    };
+  };
 
   server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
 
@@ -237,14 +246,29 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { tasks: await actions.listTasks(telegramId, query) };
   }, "list_tasks"));
 
-  server.post("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => ({
-    task: await actions.createTask(telegramId, taskCreateSchema.parse(request.body))
-  }), "create_task"));
+  server.post("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    const task = await actions.createTask(telegramId, taskCreateSchema.parse(request.body));
+    await recordDashboardTaskMutation(scope, task, { kind: "created" }, options.telegramBotToken);
+    return { task };
+  }, "create_task"));
 
-  server.patch("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.patch("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { task: await actions.updateTask(telegramId, id, taskUpdateSchema.parse(request.body)) };
+    const input = taskUpdateSchema.parse(request.body);
+    const task = await actions.updateTask(telegramId, id, input);
+    await recordDashboardTaskMutation(scope, task, { kind: "updated", input }, options.telegramBotToken);
+    return { task };
   }, "update_task"));
+
+  server.post("/api/v1/dashboard/tasks/:id/collaboration", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return updateDashboardTaskCollaboration(
+      scope,
+      id,
+      taskCollaborationSchema.parse(request.body),
+      options.telegramBotToken,
+    );
+  }, "update_task_collaboration"));
 
   server.delete("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.21.0 - 2026-07-19
+
+### Shared group work
+- Added acknowledgement states for every task assignee: awaiting reply, accepted, declined, and blocked, including optional blocker or decline context.
+- Added task handoffs, assignment activity history, compact `my tasks`, unassigned, and blocked views, plus natural-language equivalents for the same group workflows.
+- Added group task buttons for accepting work and reporting a blocker without turning Telegram into a wall of controls.
+
+### Group dashboard API
+- Added member workload, attention, weekly movement, handoff, and activity snapshots backed by the same shared task records used by Telegram.
+- Added authenticated assign, unassign, accept, decline, block, unblock, and handoff actions with role-aware permissions.
+- Mirrored dashboard task and assignment changes back to the Telegram group quietly, while live dashboard events keep open browsers current.
+
+### Quality
+- Added a guarded Prisma migration for collaboration state and activity history.
+- Verified all 502 bot tests, TypeScript typechecking, and the production build with a single-worker, low-load release pass.
+
 ## v0.20.0 - 2026-07-19
 
 ### Group workspaces

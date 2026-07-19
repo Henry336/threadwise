@@ -134,6 +134,16 @@ export type DashboardTask = {
   reminderIntervalMinutes?: number;
   nextReminderAt?: string;
   snoozedUntil?: string;
+  assignees: Array<{
+    id: string;
+    telegramId?: string;
+    username?: string;
+    displayName: string;
+    status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED";
+    statusReason?: string;
+    respondedAt?: string;
+    updatedAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 };
@@ -244,6 +254,11 @@ function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
   snoozedUntil: Date | null;
+  assignees?: Array<{
+    id: string; telegramId: string | null; username: string | null; displayName: string | null;
+    status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED"; statusReason: string | null;
+    respondedAt: Date | null; updatedAt: Date;
+  }>;
   createdAt: Date; updatedAt: Date;
 }): DashboardTask {
   return {
@@ -258,6 +273,16 @@ function taskView(task: {
     ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
     ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
     ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
+    assignees: (task.assignees ?? []).map((assignee) => ({
+      id: assignee.id,
+      ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),
+      ...(assignee.username ? { username: assignee.username } : {}),
+      displayName: assignee.displayName || (assignee.username ? `@${assignee.username}` : "Assigned member"),
+      status: assignee.status,
+      ...(assignee.statusReason ? { statusReason: assignee.statusReason } : {}),
+      ...(assignee.respondedAt ? { respondedAt: assignee.respondedAt.toISOString() } : {}),
+      updatedAt: assignee.updatedAt.toISOString(),
+    })),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString()
   };
@@ -364,7 +389,7 @@ export async function listDashboardTasks(
   };
   const [total, items] = await Promise.all([
     database.task.count({ where }),
-    database.task.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
+    database.task.findMany({ where, include: { assignees: { orderBy: { createdAt: "asc" } } }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
   return pageResult(items.map(taskView), options.page, options.limit, total);
 }
@@ -386,7 +411,8 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
         reminderIntervalMinutes: interval,
         nextReminderAt: nextReminder(dueAt, interval, user.settings.dueNudgeMinutes),
         calendarUrl: dueAt ? createGoogleCalendarUrl({ title: input.title, details: input.description ?? input.title, dueAt, timezone: user.settings.timezone }) : null
-      }
+      },
+      include: { assignees: true },
     });
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
@@ -395,7 +421,10 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
 }
 
 async function scopedTask(database: PrismaClient, userId: string, id: string) {
-  const task = await database.task.findFirst({ where: { userId, archivedAt: null, OR: itemReference(id) } });
+  const task = await database.task.findFirst({
+    where: { userId, archivedAt: null, OR: itemReference(id) },
+    include: { assignees: { orderBy: { createdAt: "asc" } } },
+  });
   if (!task) throw new DashboardItemNotFoundError();
   return task;
 }
@@ -543,7 +572,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
   }
-  return taskView(updated);
+  return taskView({ ...updated, assignees: task.assignees ?? [] });
 }
 
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {

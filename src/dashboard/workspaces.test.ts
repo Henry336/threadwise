@@ -28,6 +28,7 @@ describe("dashboard group workspace authorization", () => {
     expect(scope).toEqual({
       principalTelegramId: "123456789",
       ownerTelegramId: "chat:-100456789",
+      telegramChatId: "-100456789",
       workspace: { id: workspaceId, kind: "GROUP", name: "Launch team", role: "ADMIN", memberCount: 4 }
     });
     expect(verify).toHaveBeenCalledWith("bot-token", "-100456789", "123456789");

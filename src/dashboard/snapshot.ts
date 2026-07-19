@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
 import type { IdeaScore } from "../ai/types";
 import { storedIdeaBrief } from "./ideaBrief";
+import type { DashboardGroupCollaboration, DashboardTaskAssignee } from "./collaboration";
 
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const DASHBOARD_LIST_LIMIT = 50;
@@ -17,6 +18,7 @@ export type DashboardSnapshot = {
     role: "OWNER" | "ADMIN" | "MEMBER";
     memberCount?: number;
   };
+  collaboration?: DashboardGroupCollaboration;
   user: {
     telegramId: string;
     firstName: string;
@@ -40,6 +42,7 @@ export type DashboardSnapshot = {
     reminderCount?: number;
     snoozedUntil?: string;
     assignee?: string;
+    assignees?: DashboardTaskAssignee[];
     createdAt: string;
     updatedAt: string;
   }>;
@@ -201,6 +204,19 @@ export async function getDashboardSnapshot(
         snoozedUntil: true,
         assignedUsername: true,
         assignedDisplayName: true,
+        assignees: {
+          select: {
+            id: true,
+            telegramId: true,
+            username: true,
+            displayName: true,
+            status: true,
+            statusReason: true,
+            respondedAt: true,
+            updatedAt: true
+          },
+          orderBy: { createdAt: "asc" }
+        },
         createdAt: true,
         updatedAt: true
       },
@@ -349,6 +365,16 @@ export async function getDashboardSnapshot(
         : task.assignedUsername
           ? { assignee: `@${task.assignedUsername}` }
           : {}),
+      assignees: (task.assignees ?? []).map((assignee) => ({
+        id: assignee.id,
+        ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),
+        ...(assignee.username ? { username: assignee.username } : {}),
+        displayName: assignee.displayName || (assignee.username ? `@${assignee.username}` : "Assigned member"),
+        status: assignee.status ?? "PENDING",
+        ...(assignee.statusReason ? { statusReason: assignee.statusReason } : {}),
+        ...(assignee.respondedAt ? { respondedAt: assignee.respondedAt.toISOString() } : {}),
+        updatedAt: (assignee.updatedAt ?? task.updatedAt).toISOString()
+      })),
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString()
     })),

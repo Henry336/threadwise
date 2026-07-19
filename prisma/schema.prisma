@@ -55,6 +55,28 @@ enum GroupMemberStatus {
   KICKED
 }
 
+enum TaskAssigneeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum GroupActivityType {
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_COMPLETED
+  TASK_REOPENED
+  TASK_ARCHIVED
+  TASK_ASSIGNED
+  TASK_UNASSIGNED
+  ASSIGNMENT_ACCEPTED
+  ASSIGNMENT_DECLINED
+  TASK_BLOCKED
+  TASK_UNBLOCKED
+  TASK_HANDED_OFF
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -104,8 +126,27 @@ model GroupWorkspace {
 
   ownerUser User              @relation("GroupWorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   members   GroupMembership[]
+  activity  GroupActivity[]
 
   @@index([isActive, updatedAt])
+}
+
+model GroupActivity {
+  id              String            @id @default(uuid())
+  workspaceId     String
+  actorTelegramId String
+  actorName        String
+  type             GroupActivityType
+  taskPublicId     String?
+  taskTitle        String?
+  summary          String
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+
+  workspace GroupWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, type, createdAt])
 }
 
 model GroupMembership {
@@ -226,19 +267,24 @@ model Task {
 }
 
 model TaskAssignee {
-  id            String   @id @default(uuid())
+  id            String             @id @default(uuid())
   taskId        String
   normalizedKey String
   telegramId    String?
   username      String?
   displayName   String?
-  createdAt     DateTime @default(now())
+  status        TaskAssigneeStatus @default(PENDING)
+  statusReason  String?
+  respondedAt   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, normalizedKey])
-  @@index([telegramId])
+  @@index([telegramId, status])
   @@index([username])
+  @@index([taskId, status])
 }
 
 model Note {

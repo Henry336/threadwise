@@ -43,6 +43,19 @@ export const taskUpdateSchema = z.object({
   expectedUpdatedAt: dateTime.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
+const collaborationReason = z.string().trim().min(1).max(500).optional();
+const collaborationAssigneeId = z.string().uuid().optional();
+const collaborationTelegramId = z.string().regex(/^[1-9]\d{0,19}$/);
+export const taskCollaborationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("assign"), targetTelegramId: collaborationTelegramId }).strict(),
+  z.object({ action: z.literal("unassign"), assigneeId: z.string().uuid() }).strict(),
+  z.object({ action: z.literal("accept"), assigneeId: collaborationAssigneeId }).strict(),
+  z.object({ action: z.literal("decline"), assigneeId: collaborationAssigneeId, reason: collaborationReason }).strict(),
+  z.object({ action: z.literal("block"), assigneeId: collaborationAssigneeId, reason: collaborationReason }).strict(),
+  z.object({ action: z.literal("unblock"), assigneeId: collaborationAssigneeId }).strict(),
+  z.object({ action: z.literal("handoff"), assigneeId: z.string().uuid(), targetTelegramId: collaborationTelegramId, reason: collaborationReason }).strict(),
+]);
+
 export const noteCreateSchema = z.object({
   title: trimmed(500),
   body: trimmed(50_000),
@@ -138,6 +151,7 @@ export const deleteAccountSchema = z.object({
 
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
+export type TaskCollaborationInput = z.infer<typeof taskCollaborationSchema>;
 export type CapturePreviewInput = z.infer<typeof capturePreviewSchema>;
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>;
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>;
