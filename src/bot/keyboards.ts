@@ -4,7 +4,7 @@ import { DASHBOARD_URL, groupDashboardUrl } from "./links";
 
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
 type ItemKind = "task" | "note" | "idea";
-type ItemActionTarget = { id: string; pinnedAt?: Date | null };
+type ItemActionTarget = { id: string; publicId?: string; pinnedAt?: Date | null };
 export type ActiveListNavigation = {
   kind: "tasks" | "notes" | "ideas";
   page: number;
@@ -343,7 +343,7 @@ export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemAct
   const visibleItems = items.slice(0, maxButtons);
   for (const [index, item] of visibleItems.entries()) {
     const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard.text(String(number), `item:${kind}:open:${item.id}:${navigation?.page ?? 1}`);
+    keyboard.text(String(number), `item:${kind}:open:${item.publicId ?? item.id}:${navigation?.page ?? 1}`);
   }
 
   appendActiveListNavigation(keyboard, navigation, kind === "note" ? "notes" : "ideas");

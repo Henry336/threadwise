@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.21.1 - 2026-07-20
+
+### Fixed
+- Restored numbered Telegram note buttons: new list pages use short public note IDs, while note lookup also accepts the row UUIDs embedded in already-sent list messages.
+- Added regression coverage for both newly generated and already-delivered note callbacks so opening a note remains backward-compatible across deployments.
+
 ## v0.21.0 - 2026-07-19
 
 ### Shared group work

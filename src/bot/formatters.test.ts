@@ -251,6 +251,15 @@ describe("bot formatters", () => {
   });
 
   it("keeps note and idea lists compact until an item is opened", () => {
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", publicId: "NOTE-1", pinnedAt: null }]);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
+      text: "1",
+      callback_data: "item:note:open:NOTE-1:1"
+    });
+  });
+
+  it("falls back to a row UUID for already-generated item buttons", () => {
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }]);
 
     expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
@@ -263,7 +272,7 @@ describe("bot formatters", () => {
     const page = { page: 2, totalPages: 2, offset: 5 };
     const noteMessage = formatRecentNotes([{ publicId: "NOTE-6", title: "Note six", summary: "Saved" }], page);
     const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-6", title: "Idea six", concept: "Saved" }], page);
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 });
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6", publicId: "NOTE-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 });
 
     expect(noteMessage).toContain("6 · <b>Note six</b>");
     expect(ideaMessage).toContain("6 · <b>Idea six</b>");

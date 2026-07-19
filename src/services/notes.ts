@@ -64,12 +64,12 @@ export async function searchNotes(userId: string, query: string) {
   return sortPinnedFirst(notes);
 }
 
-export async function findNote(userId: string, publicId: string) {
+export async function findNote(userId: string, publicOrUuid: string) {
   return prisma.note.findFirstOrThrow({
     where: {
       userId,
       archivedAt: null,
-      publicId: publicId.toUpperCase()
+      OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     }
   });
 }
