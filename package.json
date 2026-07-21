@@ -1,6 +1,6 @@
 {
   "name": "threadwise",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "description": "A Telegram life inbox for notes, tasks, reminders, local image OCR, expenses, Excel sync, search, and ideas.",
   "main": "dist/main.js",
   "scripts": {

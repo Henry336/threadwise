@@ -13,6 +13,7 @@ import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./gr
 import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, menuBackKeyboard, taskCreatedKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
+import { userFacingError } from "./errorResponses";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
@@ -215,7 +216,7 @@ async function processImageOcr(
       reply_markup: imageTextActionsKeyboard(pending.id)
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : "I couldn't read that image. Try a clearer photo or screenshot.";
+    const detail = userFacingError(error, "I couldn't read that image. Try a clearer photo or screenshot.");
     await editOrReplyText(ctx, storedImageId ? `The original image is safely saved, but I couldn't extract its text. ${detail}` : detail, {
       reply_markup: menuBackKeyboard()
     });

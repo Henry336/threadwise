@@ -32,6 +32,7 @@ import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
+import { userFacingError } from "./errorResponses";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
@@ -419,7 +420,7 @@ async function handleBulkAction(ctx: Context, action: string | undefined, pendin
     await editOrReplyHtml(ctx, formatBulkActionResult(result), { reply_markup: undoKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not complete action" });
-    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't complete that bulk action.", { reply_markup: menuBackKeyboard() });
+    await editOrReplyText(ctx, userFacingError(error, "I couldn't complete that bulk action."), { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -474,7 +475,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
-    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't finish that image action.", { reply_markup: menuBackKeyboard() });
+    await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -502,13 +503,13 @@ async function handleExpenseAction(ctx: Context, action: string | undefined, pen
         await syncExpenseToExcel(user.id, expense.id, user.settings?.timezone ?? "UTC");
         syncMessage = "\nExcel: synced";
       } catch (error) {
-        syncMessage = `\nExcel: not synced (${error instanceof Error ? error.message : "sync failed"})`;
+        syncMessage = `\nExcel: not synced. ${userFacingError(error, "You can retry the sync from Expenses.")}`;
       }
     }
     await editOrReplyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`, { reply_markup: menuBackKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not save" });
-    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't save that expense.", { reply_markup: menuBackKeyboard() });
+    await editOrReplyText(ctx, userFacingError(error, "I couldn't save that expense."), { reply_markup: menuBackKeyboard() });
   }
 }
 
@@ -551,7 +552,7 @@ async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefin
     await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
   } catch (error) {
     await ctx.answerCallbackQuery({
-      text: error instanceof Error ? error.message.slice(0, 180) : "Could not update assignment",
+      text: userFacingError(error, "I couldn't update that assignment.").slice(0, 180),
       show_alert: true,
     });
   }
@@ -719,7 +720,7 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
     await editOrReplyHtml(ctx, formatNoteMergeConfirmed(result), { reply_markup: undoKeyboard() });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Could not finish merge" });
-    await editOrReplyText(ctx, error instanceof Error ? error.message : "I couldn't finish that merge. Try starting it again from /notes.", { reply_markup: menuBackKeyboard() });
+    await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that merge. Try starting it again from /notes."), { reply_markup: menuBackKeyboard() });
   }
 }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.21.2 - 2026-07-21
+
+### Fixed
+- Prevented Prisma, provider, connection, stack-trace, and configuration details from leaking into Telegram replies; failures now use short recovery guidance appropriate to the error category.
+- Added a final bot-wide error boundary so previously unguarded message handlers receive a normal failure reply and callback handlers receive a Telegram alert instead of silently dying.
+- Stopped “Give me a reminder…” from being misread as “give task … to …”; task assignment through “give” now requires an actual task number or `TASK-…` reference.
+- Preserved useful validation messages such as missing current list numbers while still hiding unexpected implementation failures.
+
+### Quality
+- Added regression coverage for the exact reported reminder phrase, task-assignment disambiguation, Prisma errors, database outages, unknown runtime failures, callback alerts, and message fallbacks.
+- Verified all 513 tests and the production TypeScript build with one worker at a time.
+
 ## v0.21.1 - 2026-07-20
 
 ### Fixed

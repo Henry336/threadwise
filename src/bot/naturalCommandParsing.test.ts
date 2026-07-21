@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody, parseNaturalTimezoneChange } from "./naturalCommandParsing";
+import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskAssignment, parseNaturalTaskBody, parseNaturalTimezoneChange } from "./naturalCommandParsing";
 
 describe("natural command parsing", () => {
   it.each([
@@ -107,6 +107,7 @@ describe("natural command parsing", () => {
     ["don't let me forget to submit the form at 5pm", "me to submit the form at 5pm"],
     ["nudge me to check the oven in 20 minutes", "check the oven in 20 minutes"],
     ["send me a reminder about rent on 10 July at 8am", "me about rent on 10 July at 8am"],
+    ["Give me a reminder to prepare for the 4:30pm-IT2900-group-interview at 4 pm on 23 July", "me to prepare for the 4:30pm-IT2900-group-interview at 4 pm on 23 July"],
     ["remind me to finish all tasks by 9 pm", "me to finish all tasks by 9 pm"],
     ["notify me to leave before 8:30am", "leave before 8:30am"],
     ["I need a reminder to pay rent by 9pm", "to pay rent by 9pm"],
@@ -121,6 +122,12 @@ describe("natural command parsing", () => {
     ["make sure I don't forget to submit the form by 5pm", "me to submit the form by 5pm"]
   ])("parses reminder starter bodies: %s", (input, expected) => {
     expect(parseNaturalReminderBody(input)).toBe(expected);
+  });
+
+  it("does not confuse reminder requests with task assignment", () => {
+    expect(parseNaturalTaskAssignment("Give me a reminder to prepare for an interview tomorrow at 4pm")).toBeUndefined();
+    expect(parseNaturalTaskAssignment("give task 12 to @alex")).toEqual(["12", "@alex"]);
+    expect(parseNaturalTaskAssignment("assign TASK-9 to Henry")).toEqual(["TASK-9", "Henry"]);
   });
 
   it.each([

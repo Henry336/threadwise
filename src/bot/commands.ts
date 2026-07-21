@@ -79,6 +79,7 @@ import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
+import { userFacingError } from "./errorResponses";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -163,7 +164,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
     const idea = await createIdea(user.id, text, ai);
     await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that idea. Try again in a moment.");
+    await ctx.reply(userFacingError(error, "I couldn't save that idea. Try again in a moment."));
   }
 }
 
@@ -194,7 +195,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
     const note = await createNote(user.id, text, ai);
     await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that note. Try again in a moment.");
+    await ctx.reply(userFacingError(error, "I couldn't save that note. Try again in a moment."));
   }
 }
 
@@ -288,7 +289,7 @@ async function handleMerge(ctx: Context, ai: AiProvider) {
       reply_markup: noteMergePreviewKeyboard(preview.pendingId)
     });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that merge. Try /notes to check the note numbers.");
+    await ctx.reply(userFacingError(error, "I couldn't prepare that merge. Try /notes to check the note numbers."));
   }
 }
 
@@ -314,7 +315,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
     }
     await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't add that task. Try again in a moment.");
+    await ctx.reply(userFacingError(error, "I couldn't add that task. Try again in a moment."));
   }
 }
 
@@ -363,7 +364,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
     }
     await replyControlCardHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't save that reminder. Try again in a moment.");
+    await ctx.reply(userFacingError(error, "I couldn't save that reminder. Try again in a moment."));
   }
 }
 
@@ -460,7 +461,7 @@ async function handleReschedule(ctx: Context) {
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
     await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
+    await ctx.reply(userFacingError(error, taskLookupError(error)));
   }
 }
 
@@ -481,7 +482,7 @@ async function handleAssign(ctx: Context) {
     }
     await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${assigneeDmSetupLine(ctx)}`);
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : taskLookupError(error));
+    await ctx.reply(userFacingError(error, taskLookupError(error)));
   }
 }
 
@@ -548,7 +549,7 @@ async function handleAssignmentStatus(ctx: Context, command: string, status: Tas
           : "Assignment accepted";
     await replyHtml(ctx, `${bold(label)} ${code(task.publicId)}\n${h(task.title)}`);
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't update that assignment.");
+    await ctx.reply(userFacingError(error, "I couldn't update that assignment."));
   }
 }
 
@@ -570,7 +571,7 @@ async function handleHandoff(ctx: Context) {
     const task = await handoffTaskAssignment(user.id, match[1], collaborationActorFromContext(ctx), target, taskCreationOptionsFromContext(ctx, target), reasonParts?.[2]);
     await replyHtml(ctx, `${bold("Task handed off")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.`);
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't hand off that task.");
+    await ctx.reply(userFacingError(error, "I couldn't hand off that task."));
   }
 }
 
@@ -973,7 +974,7 @@ async function handleExpense(ctx: Context) {
       const expense = await updateSavedExpense(user.id, normalizePublicId(editMatch[1]), editMatch[2], user.settings?.timezone ?? "UTC");
       await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't update that expense.");
+      await ctx.reply(userFacingError(error, "I couldn't update that expense."));
     }
     return;
   }
@@ -983,7 +984,7 @@ async function handleExpense(ctx: Context) {
       reply_markup: expenseConfirmationKeyboard(pending.id)
     });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that expense.");
+    await ctx.reply(userFacingError(error, "I couldn't prepare that expense."));
   }
 }
 
@@ -1024,7 +1025,7 @@ async function handleExcel(ctx: Context) {
       const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
       await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
+      await ctx.reply(userFacingError(error, "I couldn't create the workbook."));
     }
     return;
   }
@@ -1033,7 +1034,7 @@ async function handleExcel(ctx: Context) {
       const item = await linkExpenseWorkbook(user.id, body.slice(4).trim());
       await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
+      await ctx.reply(userFacingError(error, "I couldn't link that workbook."));
     }
     return;
   }
@@ -1042,7 +1043,7 @@ async function handleExcel(ctx: Context) {
       const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
       await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "Excel sync failed.");
+      await ctx.reply(userFacingError(error, "I couldn't sync those expenses to Excel."));
     }
     return;
   }
@@ -1079,7 +1080,7 @@ async function replyBulkActionPreview(ctx: Context, userId: string, request: Bul
       reply_markup: bulkActionConfirmationKeyboard(preview.pending.id)
     });
   } catch (error) {
-    await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that bulk action.");
+    await ctx.reply(userFacingError(error, "I couldn't prepare that bulk action."));
   }
 }
 

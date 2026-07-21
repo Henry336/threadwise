@@ -7,6 +7,7 @@ import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 import { normalizePublicId } from "../utils/text";
+import { userFacingError } from "./errorResponses";
 
 export async function replyWithTaskCalendar(
   ctx: Context,
@@ -47,7 +48,7 @@ export async function replyWithTaskCalendar(
         return;
       }
     } catch (error) {
-      await ctx.reply(`${error instanceof Error ? error.message : "Google Calendar sync failed."} I'll send the no-login fallback instead.`);
+      await ctx.reply(`${userFacingError(error, "I couldn't sync that task to Google Calendar.")} I'll send the no-login fallback instead.`);
     }
   }
 

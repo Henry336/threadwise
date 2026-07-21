@@ -34,7 +34,7 @@ import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, g
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
-import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskBody } from "./naturalCommandParsing";
+import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskAssignment, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
@@ -49,6 +49,7 @@ import { findStoredImageReference, updateStoredImageCaption } from "../services/
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
+import { userFacingError } from "./errorResponses";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -67,7 +68,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
         reply_markup: bulkActionConfirmationKeyboard(preview.pending.id)
       });
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that bulk action.");
+      await ctx.reply(userFacingError(error, "I couldn't prepare that bulk action."));
     }
     return true;
   }
@@ -240,7 +241,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const expense = await updateSavedExpense(user.id, expenseEditMatch[1], editText, user.settings?.timezone ?? "UTC");
       await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't update that expense.");
+      await ctx.reply(userFacingError(error, "I couldn't update that expense."));
     }
     return true;
   }
@@ -253,7 +254,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
         reply_markup: expenseConfirmationKeyboard(pending.id)
       });
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that expense.");
+      await ctx.reply(userFacingError(error, "I couldn't prepare that expense."));
     }
     return true;
   }
@@ -279,7 +280,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
     await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined].filter(Boolean).join("\n"));
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't create the workbook.");
+      await ctx.reply(userFacingError(error, "I couldn't create the workbook."));
     }
     return true;
   }
@@ -290,7 +291,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const item = await linkExpenseWorkbook(user.id, excelLinkMatch[1]);
     await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't link that workbook.");
+      await ctx.reply(userFacingError(error, "I couldn't link that workbook."));
     }
     return true;
   }
@@ -300,7 +301,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
       await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "Excel sync failed.");
+      await ctx.reply(userFacingError(error, "I couldn't sync those expenses to Excel."));
     }
     return true;
   }
@@ -362,7 +363,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const preview = await createNoteMergePreview(user.id, mergeMatch[1].split(/\s+/).map(normalizePublicId), ai);
       await replyHtml(ctx, formatNoteMergePreview(preview), { reply_markup: noteMergePreviewKeyboard(preview.pendingId) });
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't prepare that merge. Try /notes to check the note numbers.");
+      await ctx.reply(userFacingError(error, "I couldn't prepare that merge. Try /notes to check the note numbers."));
     }
     return true;
   }
@@ -555,9 +556,10 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
-  const assignMatch = trimmed.match(/^(?:assign|give)\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
-  if (assignMatch?.[1] && assignMatch[2]) {
-    const task = await assignTask(user.id, normalizePublicId(assignMatch[1]), assignMatch[2], taskCreationOptionsFromContext(ctx, assignMatch[2]));
+  const assignment = parseNaturalTaskAssignment(trimmed);
+  if (assignment) {
+    const [reference, assignee] = assignment;
+    const task = await assignTask(user.id, normalizePublicId(reference), assignee, taskCreationOptionsFromContext(ctx, assignee));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_ASSIGNED, task, `${actor.displayName} assigned ${task.publicId} to ${formatAssignee(task)}.`);

@@ -26,6 +26,7 @@ import { replyControlCardHtml } from "./controlCards";
 import { formatIdeaScore } from "./formatters";
 import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
+import { userFacingError } from "./errorResponses";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -186,7 +187,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         reply_markup: captureConfirmationKeyboard(pending.id)
       });
     } catch (error) {
-      await ctx.reply(error instanceof Error ? error.message : "I couldn't handle that request. Try /help for examples.");
+      await ctx.reply(userFacingError(error, "I couldn't handle that request. Try /help for examples."));
     }
   });
 }

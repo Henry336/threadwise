@@ -55,6 +55,13 @@ export function parseNaturalReminderBody(text: string): string | undefined {
   return undefined;
 }
 
+export function parseNaturalTaskAssignment(text: string): [reference: string, assignee: string] | undefined {
+  const normalized = text.trim();
+  const match = normalized.match(/^assign\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i)
+    ?? normalized.match(/^give\s+(?:task\s+)?(\d+|TASK-\d+)\s+to\s+(.+)$/i);
+  return match?.[1] && match[2] ? [match[1], match[2]] : undefined;
+}
+
 export function parseNaturalNoteBody(text: string): string | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^(?:please\s+)?note\s+to\s+self\s*[:,-]?\s+(.+)$/i)
