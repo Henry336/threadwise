@@ -2,7 +2,8 @@ import type { Bot, Context } from "grammy";
 import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, findTaskReference, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { formatReminderMessage } from "../services/reminders";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaCreated, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
@@ -12,12 +13,12 @@ import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNote
 import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
 import { undoLastAction } from "../services/undo";
-import { formatIdeaScore, formatSearchResultsPage } from "./formatters";
+import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
 import { syncExpenseToExcel } from "../services/excel";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -39,6 +40,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2], ctx.match[1] === "full"));
   bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
@@ -603,6 +605,37 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo snooze", "undo:last") });
+}
+
+async function handleTaskReminderView(ctx: Context, taskId: string | undefined, expanded: boolean) {
+  if (!taskId) return;
+  const user = await ensureUser(ctx);
+  try {
+    const task = await findTaskReference(user.id, taskId);
+    const timezone = user.settings?.timezone ?? "UTC";
+    const includeCollaboration = isGroupChat(ctx);
+
+    if (expanded) {
+      const keyboard = taskActionsKeyboard(task, true, includeCollaboration)
+        .row()
+        .text("‹ Reminder", `task:view-summary:${task.id}`);
+      await ctx.answerCallbackQuery({ text: "Full reminder" });
+      await editOrReplyHtml(ctx, formatTaskDetail(task, timezone), { reply_markup: keyboard });
+      return;
+    }
+
+    const reminderMode = user.settings?.reminderMode;
+    if (!reminderMode) throw new Error("Reminder settings are missing.");
+    await ctx.answerCallbackQuery({ text: "Reminder" });
+    await editOrReplyHtml(ctx, formatReminderMessage(task, { timezone, reminderMode }), {
+      reply_markup: reminderActionsKeyboard(task, includeCollaboration)
+    });
+  } catch (error) {
+    await ctx.answerCallbackQuery({
+      text: userFacingError(error, "I couldn't open that reminder. Try /tasks for a fresh copy.").slice(0, 180),
+      show_alert: true
+    });
+  }
 }
 
 async function handleTaskCancel(ctx: Context, taskId: string | undefined) {

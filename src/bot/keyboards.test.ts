@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, reminderActionsKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic } from "./help";
 
 describe("interactive keyboard navigation", () => {
   it("offers contextual parent routes from nested help and task cards", () => {
     expect(callbackData(helpTopicsKeyboard())).toContain("menu:home");
     expect(callbackData(taskActionsKeyboard("task-row-id"))).toContain("menu:tasks");
+  });
+
+  it("lets reminder cards expand in place without cluttering ordinary task cards", () => {
+    expect(callbackData(taskActionsKeyboard("task-row-id"))).not.toContain("task:view-full:task-row-id");
+    expect(callbackData(reminderActionsKeyboard("task-row-id"))).toContain("task:view-full:task-row-id");
   });
 
   it("adds group assignment actions without changing private task cards", () => {

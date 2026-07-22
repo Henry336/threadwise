@@ -76,6 +76,16 @@ describe("bot formatters", () => {
     expect(message).not.toContain("Plan the launch — confirm");
   });
 
+  it("uses the preserved capture when a reminder has no separate description", () => {
+    const message = formatTaskDetail(task({
+      title: "Start drafting plans for my parents' visit...",
+      description: null,
+      sourceText: "Start drafting plans for my parents' visit, including precautions, hidden gifts, and gallery changes."
+    }));
+
+    expect(message).toContain("including precautions, hidden gifts, and gallery changes.");
+  });
+
   it("formats newly created tasks without noisy calendar links", () => {
     const message = formatTaskCreated({
       publicId: "TASK-9",

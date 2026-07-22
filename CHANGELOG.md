@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.22.1 - 2026-07-22
+
+### Reminder navigation
+- Added a `View full` button to scheduled reminder cards. It expands the current Telegram message in place and returns to the compact reminder with one tap.
+- Reused the preserved capture text when older reminders do not have a separate description, so expanded reminders still show their full context.
+
+### Quality
+- Added regression coverage for the reminder-only expand action and the preserved-text fallback.
+
 ## v0.22.0 - 2026-07-22
 
 ### Group workspace boundaries

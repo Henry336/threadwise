@@ -5,7 +5,7 @@ import { logger } from "../logger";
 import { formatDateTimeForUser, formatRecurrenceRule, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
-import { taskActionsKeyboard } from "../bot/keyboards";
+import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
@@ -158,7 +158,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       try {
         const sentMessage = await bot.api.sendMessage(chatId, message, {
           ...HTML_REPLY,
-          reply_markup: taskActionsKeyboard(task)
+          reply_markup: reminderActionsKeyboard(task)
         });
 
         const nextSchedule = nextTaskScheduleAfterDelivery({

@@ -36,7 +36,7 @@ export type ReminderSettingsView = {
 export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
   const timezone = task.timezone ?? fallbackTimezone;
   void settings;
-  const description = withoutRepeatedTitle(task.title, task.description);
+  const description = withoutRepeatedTitle(task.title, task.description || task.sourceText);
   const metadata = [
     task.status === "DONE" ? "✅ Completed" : task.status === "CANCELED" ? "🗑 Cancelled" : undefined,
     task.dueAt ? `⏰ ${h(formatDateTimeForUser(task.dueAt, timezone))}` : "○ No due date",
