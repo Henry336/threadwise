@@ -1,10 +1,11 @@
 import crypto from "crypto";
-import type { Bot } from "grammy";
+import { RecurrenceRule, TaskStatus } from "@prisma/client";
+import { InlineKeyboard, type Bot } from "grammy";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
-import { bold, code, h, HTML_REPLY } from "../utils/html";
+import { bold, h, HTML_REPLY } from "../utils/html";
 
 const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
@@ -28,6 +29,10 @@ type CalendarTask = {
   dueAt?: Date | null;
   timezone?: string | null;
   calendarEventId?: string | null;
+  calendarEventUrl?: string | null;
+  recurrenceRule?: RecurrenceRule | null;
+  recurrenceDayOfMonth?: number | null;
+  status?: TaskStatus;
 };
 
 type GoogleCalendarEventResponse = {
@@ -40,6 +45,18 @@ export type GoogleCalendarEventInput = {
   details?: string | null;
   dueAt: Date;
   timezone: string;
+  recurrenceRule?: RecurrenceRule | null;
+};
+
+export type CalendarConnectOptions = {
+  taskId?: string;
+  enableAutoSync?: boolean;
+  returnTo?: string;
+};
+
+export type OAuthCallbackResult = {
+  message: string;
+  redirectUrl?: string;
 };
 
 export function calendarConfigured(): boolean {
@@ -51,17 +68,21 @@ export function calendarConfigured(): boolean {
   );
 }
 
-export async function createCalendarConnectUrl(userId: string, chatId: string): Promise<string> {
+export async function createCalendarConnectUrl(userId: string, chatId: string, options: CalendarConnectOptions = {}): Promise<string> {
   if (!calendarConfigured()) {
     throw new Error("Google Calendar is not configured. Add the Google OAuth credentials, Calendar redirect URI, and token encryption key.");
   }
 
   const state = crypto.randomBytes(24).toString("hex");
+  await prisma.pendingCalendarOAuth.deleteMany({ where: { userId } });
   await prisma.pendingCalendarOAuth.create({
     data: {
       userId,
       state,
       chatId,
+      taskId: options.taskId,
+      enableAutoSync: options.enableAutoSync ?? false,
+      returnTo: options.returnTo,
       expiresAt: new Date(Date.now() + 15 * 60_000)
     }
   });
@@ -78,27 +99,25 @@ export async function createCalendarConnectUrl(userId: string, chatId: string): 
   return url.toString();
 }
 
-export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: string; state?: string; error?: string }): Promise<string> {
-  if (query.error) {
-    return `Google Calendar connection failed: ${query.error}`;
-  }
-  if (!query.code || !query.state) {
-    return "Google Calendar connection failed: missing code or state.";
-  }
-
-  const pending = await prisma.pendingCalendarOAuth.findFirst({
-    where: { state: query.state, expiresAt: { gt: new Date() } }
+export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: string; state?: string; error?: string }): Promise<OAuthCallbackResult> {
+  const pending = query.state
+    ? await prisma.pendingCalendarOAuth.findFirst({ where: { state: query.state, expiresAt: { gt: new Date() } } })
+    : undefined;
+  const result = (message: string): OAuthCallbackResult => ({
+    message,
+    ...(pending?.returnTo ? { redirectUrl: withConnectionResult(pending.returnTo, "calendar", message.startsWith("Google Calendar connected") ? "connected" : "error") } : {})
   });
-  if (!pending) {
-    return "Google Calendar connection expired. Return to Telegram and run /calendar connect again.";
-  }
+
+  if (query.error) return result(`Google Calendar connection failed: ${query.error}`);
+  if (!query.code || !query.state) return result("Google Calendar connection failed because the authorization response was incomplete.");
+  if (!pending) return { message: "This Google Calendar connection link expired. Open Connections and try again." };
 
   try {
     const tokens = await exchangeCodeForTokens(query.code);
     const existing = await prisma.calendarConnection.findUnique({ where: { userId: pending.userId } });
     const refreshToken = tokens.refresh_token ?? (existing ? unprotectToken(existing.refreshToken) : undefined);
     if (!tokens.access_token || !refreshToken) {
-      return "Google Calendar did not return offline access. Run /calendar connect again and approve Calendar access.";
+      return result("Google Calendar did not grant lasting access. Reconnect and approve Calendar access.");
     }
 
     const profile = await googleGet<{ email?: string }>(tokens.access_token, "https://openidconnect.googleapis.com/v1/userinfo");
@@ -119,52 +138,99 @@ export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: stri
           accessTokenExpiresAt: expiresAt(tokens.expires_in)
         }
       }),
+      ...(pending.enableAutoSync
+        ? [prisma.userSettings.update({ where: { userId: pending.userId }, data: { calendarAutoSync: true } })]
+        : []),
       prisma.pendingCalendarOAuth.deleteMany({ where: { userId: pending.userId } })
     ]);
 
-    await bot.api.sendMessage(
-      pending.chatId,
-      `Google Calendar connected${profile.email ? ` for ${profile.email}` : ""}.\n\nUse /calendar 1 to add or update a dated task in your primary calendar.`,
-      HTML_REPLY
-    );
-    return "Google Calendar connected. You can close this page and return to Telegram.";
+    let taskMessage = "";
+    let taskKeyboard: InlineKeyboard | undefined;
+    if (pending.taskId) {
+      const task = await prisma.task.findFirst({ where: { id: pending.taskId, userId: pending.userId, archivedAt: null } });
+      if (task?.dueAt) {
+        try {
+          const synced = await syncTaskToGoogleCalendar(pending.userId, task);
+          if (synced) {
+            taskMessage = `\n${h(task.title)} is now in Google Calendar.`;
+            taskKeyboard = new InlineKeyboard().url("Open event", synced.eventUrl).text("‹ Tasks", "menu:tasks");
+          }
+        } catch (error) {
+          logger.warn("Calendar connected but the pending task could not be synced.", { userId: pending.userId, taskId: task.id, error: String(error) });
+          taskMessage = "\nThe account is connected, but that reminder did not sync. Open it and tap Calendar to retry.";
+        }
+      }
+    }
+
+    if (pending.enableAutoSync && !pending.taskId) {
+      try {
+        const backfill = await syncEligibleTasksToGoogleCalendar(pending.userId);
+        taskMessage = backfill.synced > 0
+          ? `\n${backfill.synced} existing dated task${backfill.synced === 1 ? " was" : "s were"} also synced.`
+          : "";
+      } catch (error) {
+        logger.warn("Calendar connected but existing dated tasks could not be backfilled.", { userId: pending.userId, error: String(error) });
+        taskMessage = "\nThe account is connected. Existing tasks can be synced from Connections.";
+      }
+    }
+
+    const autoSyncMessage = pending.enableAutoSync
+      ? "\nAutomatic sync is on for dated tasks."
+      : "";
+    const telegramMessage = `Google Calendar connected${profile.email ? ` for ${h(profile.email)}` : ""}.${taskMessage}${autoSyncMessage}`;
+    try {
+      await bot.api.sendMessage(pending.chatId, telegramMessage, {
+        ...HTML_REPLY,
+        ...(taskKeyboard ? { reply_markup: taskKeyboard } : {})
+      });
+    } catch (error) {
+      logger.warn("Calendar connected but the Telegram confirmation could not be delivered.", { userId: pending.userId, error: String(error) });
+    }
+    return result(`Google Calendar connected${taskMessage ? " and the selected reminder was synced" : ""}.`);
   } catch (error) {
     logger.error("Google Calendar OAuth callback failed.", { error: String(error) });
-    return "Google Calendar connection failed. Return to Telegram and try /calendar connect again.";
+    return result("Google Calendar connection failed. Open Connections and try again.");
   }
 }
 
 export async function disconnectCalendar(userId: string): Promise<string> {
   await prisma.$transaction([
     prisma.calendarConnection.deleteMany({ where: { userId } }),
-    prisma.pendingCalendarOAuth.deleteMany({ where: { userId } })
+    prisma.pendingCalendarOAuth.deleteMany({ where: { userId } }),
+    prisma.userSettings.updateMany({ where: { userId }, data: { calendarAutoSync: false } })
   ]);
   return "Google Calendar disconnected. Existing calendar events are left in Google Calendar.";
 }
 
+export async function calendarConnectionStatus(userId: string) {
+  const [connection, settings, syncedTasks] = await Promise.all([
+    prisma.calendarConnection.findUnique({ where: { userId } }),
+    prisma.userSettings.findUnique({ where: { userId }, select: { calendarAutoSync: true } }),
+    prisma.task.count({ where: { userId, calendarEventId: { not: null }, archivedAt: null } })
+  ]);
+  return {
+    connected: Boolean(connection),
+    email: connection?.calendarEmail ?? undefined,
+    autoSync: settings?.calendarAutoSync ?? false,
+    syncedTasks
+  };
+}
+
 export async function formatCalendarStatus(userId: string): Promise<string> {
-  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
-  if (!connection) {
+  const status = await calendarConnectionStatus(userId);
+  if (!status.connected) {
     return [
       bold("📅 Google Calendar"),
-      calendarConfigured()
-        ? `${code("/calendar connect")} to add dated tasks directly to your primary calendar.`
-        : "Google Calendar connection setup is not available on this deployment yet.",
-      "",
-      `${code("/calendar connect")} - connect Google Calendar`,
-      `${code("/calendar 1")} - add or update a dated task`,
-      `${code("/calendar disconnect")} - remove the connection`,
-      `${code("/googlecal 1")} - get a no-login template link`
+      calendarConfigured() ? "Not connected." : "Connection setup is not available on this deployment.",
+      "Connect once, then use the Calendar button on any dated task."
     ].join("\n");
   }
 
   return [
     bold("📅 Google Calendar"),
-    `${bold("Account")} ${h(connection.calendarEmail ?? "connected")}`,
-    `${bold("Target")} primary calendar`,
-    "",
-    `${code("/calendar 1")} - add or update a dated task`,
-    `${code("/calendar disconnect")} - remove the connection`
+    `${bold("Account")} ${h(status.email ?? "Connected")}`,
+    `${bold("Automatic sync")} ${status.autoSync ? "On" : "Off"}`,
+    `${bold("Synced tasks")} ${status.syncedTasks}`
   ].join("\n");
 }
 
@@ -183,7 +249,8 @@ export async function syncTaskToGoogleCalendar(userId: string, task: CalendarTas
     title: task.title,
     details: task.description ?? task.sourceText,
     dueAt: task.dueAt,
-    timezone: task.timezone ?? "UTC"
+    timezone: task.timezone ?? "UTC",
+    recurrenceRule: task.recurrenceRule
   });
   let created = !task.calendarEventId;
   const url = task.calendarEventId
@@ -222,6 +289,69 @@ export async function syncTaskToGoogleCalendar(userId: string, task: CalendarTas
   return { created, eventId: response.id, eventUrl: response.htmlLink };
 }
 
+export async function removeTaskFromGoogleCalendar(userId: string, task: CalendarTask): Promise<{ removed: boolean }> {
+  if (!task.calendarEventId) return { removed: false };
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
+  if (!connection) throw new Error("Reconnect Google Calendar before removing this event.");
+  const accessToken = await validAccessToken(connection);
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(task.calendarEventId)}`;
+  try {
+    await googleRequest<void>(accessToken, url, { method: "DELETE" });
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.endsWith(": 404")) throw error;
+  }
+  await prisma.task.update({
+    where: { id: task.id },
+    data: { calendarEventId: null, calendarEventUrl: null, calendarSyncedAt: null }
+  });
+  return { removed: true };
+}
+
+export async function syncTaskCalendarBestEffort(userId: string, task: CalendarTask): Promise<"synced" | "removed" | "skipped" | "failed"> {
+  const settings = await prisma.userSettings.findUnique({ where: { userId }, select: { calendarAutoSync: true } });
+  if (!task.calendarEventId && !settings?.calendarAutoSync) return "skipped";
+  try {
+    if (!task.dueAt || task.status === TaskStatus.CANCELED) {
+      if (task.calendarEventId) {
+        await removeTaskFromGoogleCalendar(userId, task);
+        return "removed";
+      }
+      return "skipped";
+    }
+    const synced = await syncTaskToGoogleCalendar(userId, task);
+    return synced ? "synced" : "skipped";
+  } catch (error) {
+    logger.warn("Automatic Google Calendar sync failed without blocking the Threadwise task change.", {
+      userId,
+      taskId: task.id,
+      error: String(error)
+    });
+    return "failed";
+  }
+}
+
+export async function syncEligibleTasksToGoogleCalendar(userId: string, limit = 100): Promise<{ synced: number; failed: number }> {
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId }, select: { id: true } });
+  if (!connection) throw new Error("Connect Google Calendar first.");
+  const tasks = await prisma.task.findMany({
+    where: { userId, status: TaskStatus.OPEN, archivedAt: null, dueAt: { not: null } },
+    orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+    take: limit
+  });
+  let synced = 0;
+  let failed = 0;
+  for (const task of tasks) {
+    try {
+      await syncTaskToGoogleCalendar(userId, task);
+      synced += 1;
+    } catch (error) {
+      failed += 1;
+      logger.warn("An existing task could not be synced to Google Calendar.", { userId, taskId: task.id, error: String(error) });
+    }
+  }
+  return { synced, failed };
+}
+
 export function buildGoogleCalendarEvent(input: GoogleCalendarEventInput) {
   const start = DateTime.fromJSDate(input.dueAt).setZone(input.timezone);
   const end = start.plus({ minutes: 30 });
@@ -230,8 +360,16 @@ export function buildGoogleCalendarEvent(input: GoogleCalendarEventInput) {
     description: input.details ?? "",
     start: { dateTime: start.toISO(), timeZone: input.timezone },
     end: { dateTime: end.toISO(), timeZone: input.timezone },
+    ...(input.recurrenceRule ? { recurrence: [googleRecurrenceRule(input.recurrenceRule, start)] } : {}),
     extendedProperties: { private: { threadwise: "true" } }
   };
+}
+
+function googleRecurrenceRule(rule: RecurrenceRule, dueAt: DateTime): string {
+  if (rule === RecurrenceRule.DAILY) return "RRULE:FREQ=DAILY";
+  if (rule === RecurrenceRule.WEEKLY) return `RRULE:FREQ=WEEKLY;BYDAY=${dueAt.toFormat("ccc").slice(0, 2).toUpperCase()}`;
+  if (rule === RecurrenceRule.MONTHLY) return `RRULE:FREQ=MONTHLY;BYMONTHDAY=${dueAt.day}`;
+  return `RRULE:FREQ=YEARLY;BYMONTH=${dueAt.month};BYMONTHDAY=${dueAt.day}`;
 }
 
 async function validAccessToken(connection: { id: string; accessToken?: string | null; refreshToken: string; accessTokenExpiresAt?: Date | null }): Promise<string> {
@@ -298,7 +436,20 @@ async function googleRequest<T>(accessToken: string, url: string, init: RequestI
   if (!response.ok) {
     throw new Error(`Google Calendar API request failed: ${response.status}`);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+function withConnectionResult(returnTo: string, provider: string, result: "connected" | "error"): string {
+  try {
+    const url = new URL(returnTo);
+    if (url.protocol !== "https:") return returnTo;
+    url.searchParams.set("connection", provider);
+    url.searchParams.set("result", result);
+    return url.toString();
+  } catch {
+    return returnTo;
+  }
 }
 
 function calendarRedirectUri(): string | undefined {
@@ -336,11 +487,11 @@ function unprotectToken(value: string): string {
 function tokenKey(): Buffer {
   const secret = tokenEncryptionSecret();
   if (!secret) {
-    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY or GMAIL_TOKEN_ENCRYPTION_KEY is required for Google Calendar.");
+    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY is required for Google Calendar.");
   }
   return crypto.createHash("sha256").update(secret).digest();
 }
 
 function tokenEncryptionSecret(): string | undefined {
-  return env.GOOGLE_TOKEN_ENCRYPTION_KEY ?? env.GMAIL_TOKEN_ENCRYPTION_KEY;
+  return env.GOOGLE_TOKEN_ENCRYPTION_KEY;
 }

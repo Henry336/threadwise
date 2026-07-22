@@ -8,8 +8,6 @@ import type {
   AiProviderHealthCheck,
   AiProviderStatus,
   Classification,
-  EmailDigestSummary,
-  EmailForSummary,
   IdeaScore,
   MergedNotePreview,
   NoteAnalysis,
@@ -189,29 +187,6 @@ export class OpenAiProvider implements AiProvider {
     };
   }
 
-  async summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary> {
-    const content = await this.jsonCompletion(
-      "Summarize unread Gmail messages for a private productivity inbox. Return JSON only. Mark important only when an email likely needs attention, a reply, a deadline, account/security action, bill/payment, meeting, document review, or high-value opportunity. Do not over-alert newsletters or marketing.",
-      `Unread emails:\n${JSON.stringify(emails, null, 2)}\n\nReturn: { "overview": string, "items": [{ "messageId": string, "subject": string, "from": string, "summary": string, "important": boolean, "importanceReason"?: string, "suggestedAction"?: string }] }`
-    );
-
-    const fallback = fallbackEmailDigest(emails);
-    const parsed = safeJsonParse<EmailDigestSummary>(content, fallback);
-    return {
-      overview: parsed.overview || fallback.overview,
-      items: emails.map((email) => {
-        const item = parsed.items.find((candidate) => candidate.messageId === email.messageId);
-        return item ?? fallback.items.find((candidate) => candidate.messageId === email.messageId) ?? {
-          messageId: email.messageId,
-          subject: email.subject,
-          from: email.from,
-          summary: email.snippet || email.body.slice(0, 180),
-          important: false
-        };
-      })
-    };
-  }
-
   async embed(text: string): Promise<number[]> {
     return deterministicEmbedding(text);
   }
@@ -290,7 +265,6 @@ export class OpenAiProvider implements AiProvider {
     }
   }
 }
-
 function parseModelList(value?: string): string[] {
   return value?.split(",").map((model) => model.trim()).filter(Boolean) ?? [];
 }
@@ -331,18 +305,5 @@ function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {
     connections: ["These notes were grouped together by the user for later consolidation."],
     preservedDetails: notes.map((note) => `${note.publicId}: ${note.summary}`),
     possibleMissingContext: []
-  };
-}
-
-function fallbackEmailDigest(emails: EmailForSummary[]): EmailDigestSummary {
-  return {
-    overview: emails.length ? `${emails.length} unread email${emails.length === 1 ? "" : "s"} scanned.` : "No unread emails found.",
-    items: emails.map((email) => ({
-      messageId: email.messageId,
-      subject: email.subject,
-      from: email.from,
-      summary: email.snippet || email.body.slice(0, 180),
-      important: false
-    }))
   };
 }

@@ -53,10 +53,9 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Connect Google Calendar or add/update a dated task as an event.", example: "/calendar 1" },
   { command: "/googlecal", description: "Get only the Google Calendar link for a dated task.", example: "/googlecal 1" },
-  { command: "/gmail", description: "Connect Gmail, scan unread emails, and create reminders for important mail.", example: "/gmail connect" },
   { command: "/expense", description: "Prepare a manual expense for confirmation.", example: "/expense spent $18.40 on lunch at Toast Box today" },
   { command: "/expenses", description: "Browse saved expenses with date, month, or year filters.", example: "/expenses this month" },
-  { command: "/excel", description: "Export expenses or connect and synchronize an Excel workbook.", example: "/excel create" },
+  { command: "/excel", description: "Open Excel connection, sync, and export controls.", example: "/excel" },
   { command: "/settings", description: "Edit timezone, expense currency, OCR languages, quiet hours, and reminder behavior.", example: "/settings currency MMK" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" },
@@ -109,7 +108,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "add task 2 to my calendar",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @alex and @sam", "/unassign 2 @alex", "/settings dm on", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar connect", "/calendar 2", "/cancel 1 2 3"]
+    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @alex and @sam", "/unassign 2 @alex", "/settings dm on", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar", "/cancel 1 2 3"]
   },
   {
     topic: "notes",
@@ -192,7 +191,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "download my expenses as Excel",
       "show my Excel status"
     ],
-    commands: ["/excel connect", "/excel create", "/excel sync", "/excel export", "/excel use <OneDrive link>", "/excel disconnect"]
+    commands: ["/excel"]
   },
   {
     topic: "search",

@@ -4,8 +4,6 @@ import type {
   AiProviderHealthCheck,
   AiProviderStatus,
   Classification,
-  EmailDigestSummary,
-  EmailForSummary,
   IdeaScore,
   MergedNotePreview,
   NoteAnalysis,
@@ -57,10 +55,6 @@ export class CachedAiProvider implements AiProvider {
 
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     return this.cached("scoreIdea", input, () => this.inner.scoreIdea(input));
-  }
-
-  summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary> {
-    return this.cached("summarizeEmails", emails, () => this.inner.summarizeEmails(emails));
   }
 
   embed(text: string): Promise<number[]> {

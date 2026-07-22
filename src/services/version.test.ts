@@ -11,7 +11,6 @@ describe("version status", () => {
         activeChatModel: "gpt-5.4-mini",
         embeddingModel: "text-embedding-3-small"
       },
-      gmailConfigured: true,
       calendarConfigured: true,
       excelConfigured: true,
       reminders: {
@@ -32,7 +31,6 @@ describe("version status", () => {
 
     expect(message).toContain("<b>Threadwise</b> <code>v");
     expect(message).toContain("<b>AI</b> OpenAI (gpt-5.4-mini)");
-    expect(message).toContain("<b>Gmail</b> configured");
     expect(message).toContain("<b>Google Calendar</b> configured");
     expect(message).toContain("<b>Microsoft Excel</b> configured");
     expect(message).toContain("<b>Due tasks found</b> 3");

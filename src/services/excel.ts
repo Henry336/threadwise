@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import ExcelJS from "exceljs";
-import type { Bot } from "grammy";
+import { InlineKeyboard, type Bot } from "grammy";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
-import { bold, code, h, HTML_REPLY } from "../utils/html";
+import { bold, h, HTML_REPLY } from "../utils/html";
 import { EXPENSE_COLUMNS, expenseRowValues } from "./expenses";
 
 const MICROSOFT_SCOPES = ["offline_access", "User.Read", "Files.ReadWrite"];
@@ -30,6 +30,16 @@ type DriveItem = {
 type WorkbookTables = { value?: Array<{ name?: string }> };
 type WorkbookColumns = { value?: Array<{ name?: string }> };
 
+export type MicrosoftConnectOptions = {
+  enableAutoSync?: boolean;
+  returnTo?: string;
+};
+
+export type MicrosoftOAuthCallbackResult = {
+  message: string;
+  redirectUrl?: string;
+};
+
 export function microsoftExcelConfigured(): boolean {
   return Boolean(
     env.MICROSOFT_CLIENT_ID &&
@@ -39,13 +49,21 @@ export function microsoftExcelConfigured(): boolean {
   );
 }
 
-export async function createMicrosoftConnectUrl(userId: string, chatId: string): Promise<string> {
+export async function createMicrosoftConnectUrl(userId: string, chatId: string, options: MicrosoftConnectOptions = {}): Promise<string> {
   if (!microsoftExcelConfigured()) {
     throw new Error("Excel integration is not configured on the server yet.");
   }
   const state = crypto.randomBytes(24).toString("hex");
+  await prisma.pendingMicrosoftOAuth.deleteMany({ where: { userId } });
   await prisma.pendingMicrosoftOAuth.create({
-    data: { userId, state, chatId, expiresAt: new Date(Date.now() + 15 * 60_000) }
+    data: {
+      userId,
+      state,
+      chatId,
+      enableAutoSync: options.enableAutoSync ?? true,
+      returnTo: options.returnTo,
+      expiresAt: new Date(Date.now() + 15 * 60_000)
+    }
   });
   const url = new URL("https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
   url.searchParams.set("client_id", env.MICROSOFT_CLIENT_ID ?? "");
@@ -57,18 +75,24 @@ export async function createMicrosoftConnectUrl(userId: string, chatId: string):
   return url.toString();
 }
 
-export async function handleMicrosoftOAuthCallback(bot: Bot, query: { code?: string; state?: string; error?: string; error_description?: string }): Promise<string> {
-  if (query.error) return `Microsoft connection failed: ${query.error_description ?? query.error}`;
-  if (!query.code || !query.state) return "Microsoft connection failed: missing code or state.";
-  const pending = await prisma.pendingMicrosoftOAuth.findFirst({
-    where: { state: query.state, expiresAt: { gt: new Date() } }
+export async function handleMicrosoftOAuthCallback(bot: Bot, query: { code?: string; state?: string; error?: string; error_description?: string }): Promise<MicrosoftOAuthCallbackResult> {
+  const pending = query.state
+    ? await prisma.pendingMicrosoftOAuth.findFirst({ where: { state: query.state, expiresAt: { gt: new Date() } } })
+    : undefined;
+  const result = (message: string): MicrosoftOAuthCallbackResult => ({
+    message,
+    ...(pending?.returnTo ? { redirectUrl: withConnectionResult(pending.returnTo, "excel", message.startsWith("Microsoft Excel connected") ? "connected" : "error") } : {})
   });
-  if (!pending) return "Microsoft connection expired. Return to Telegram and run /excel connect again.";
+  if (query.error) return result(`Microsoft connection failed: ${query.error_description ?? query.error}`);
+  if (!query.code || !query.state) return result("Microsoft connection failed because the authorization response was incomplete.");
+  if (!pending) return { message: "This Microsoft connection link expired. Open Connections and try again." };
 
   try {
     const tokens = await exchangeCodeForTokens(query.code);
-    if (!tokens.access_token || !tokens.refresh_token) {
-      return "Microsoft did not return offline access. Run /excel connect again and approve file access.";
+    const existing = await prisma.microsoftConnection.findUnique({ where: { userId: pending.userId } });
+    const refreshToken = tokens.refresh_token ?? (existing ? unprotectToken(existing.refreshToken) : undefined);
+    if (!tokens.access_token || !refreshToken) {
+      return result("Microsoft did not grant lasting file access. Reconnect and approve the requested permissions.");
     }
     const profile = await graphRequest<{ mail?: string; userPrincipalName?: string }>(tokens.access_token, "/me?$select=mail,userPrincipalName");
     await prisma.$transaction([
@@ -77,63 +101,98 @@ export async function handleMicrosoftOAuthCallback(bot: Bot, query: { code?: str
         update: {
           microsoftEmail: profile.mail ?? profile.userPrincipalName,
           accessToken: protectToken(tokens.access_token),
-          refreshToken: protectToken(tokens.refresh_token),
+          refreshToken: protectToken(refreshToken),
           accessTokenExpiresAt: expiresAt(tokens.expires_in)
         },
         create: {
           userId: pending.userId,
           microsoftEmail: profile.mail ?? profile.userPrincipalName,
           accessToken: protectToken(tokens.access_token),
-          refreshToken: protectToken(tokens.refresh_token),
+          refreshToken: protectToken(refreshToken),
           accessTokenExpiresAt: expiresAt(tokens.expires_in)
         }
       }),
+      ...(pending.enableAutoSync
+        ? [prisma.userSettings.update({ where: { userId: pending.userId }, data: { excelAutoSync: true } })]
+        : []),
       prisma.pendingMicrosoftOAuth.deleteMany({ where: { userId: pending.userId } })
     ]);
-    await bot.api.sendMessage(
-      pending.chatId,
-      `Microsoft connected${profile.mail || profile.userPrincipalName ? ` for ${profile.mail ?? profile.userPrincipalName}` : ""}.\n\nUse /excel create and Threadwise will make the expense workbook for you.`,
-      HTML_REPLY
-    );
-    return "Microsoft connected. You can close this page and return to Telegram.";
+
+    let workbookMessage = "";
+    let workbookReady = false;
+    let keyboard: InlineKeyboard | undefined;
+    try {
+      const user = await prisma.user.findUnique({ where: { id: pending.userId }, include: { settings: true } });
+      const workbook = await createExpenseWorkbook(pending.userId, user?.settings?.timezone ?? "UTC");
+      workbookReady = true;
+      workbookMessage = `\n${h(workbook.name ?? DEFAULT_WORKBOOK_NAME)} is ready and existing expenses were imported.`;
+      if (workbook.webUrl) keyboard = new InlineKeyboard().url("Open workbook", workbook.webUrl).text("‹ Expenses", "menu:expenses");
+    } catch (error) {
+      logger.warn("Microsoft connected but workbook setup did not finish.", { userId: pending.userId, error: String(error) });
+      workbookMessage = "\nThe account is connected, but the workbook could not be prepared. Open Excel in Connections and tap Create workbook.";
+    }
+
+    const email = profile.mail ?? profile.userPrincipalName;
+    try {
+      await bot.api.sendMessage(
+        pending.chatId,
+        `Microsoft Excel connected${email ? ` for ${h(email)}` : ""}.${workbookMessage}${pending.enableAutoSync ? "\nNew expenses will sync automatically." : ""}`,
+        { ...HTML_REPLY, ...(keyboard ? { reply_markup: keyboard } : {}) }
+      );
+    } catch (error) {
+      logger.warn("Microsoft connected but the Telegram confirmation could not be delivered.", { userId: pending.userId, error: String(error) });
+    }
+    return result(workbookReady
+      ? "Microsoft Excel connected and the expense workbook is ready."
+      : "Microsoft Excel connected. Open Connections to finish preparing the workbook.");
   } catch (error) {
     logger.error("Microsoft OAuth callback failed.", { error: String(error) });
-    return "Microsoft connection failed. Return to Telegram and try /excel connect again.";
+    return result("Microsoft connection failed. Open Connections and try again.");
   }
 }
 
 export async function disconnectMicrosoft(userId: string): Promise<string> {
   await prisma.$transaction([
     prisma.microsoftConnection.deleteMany({ where: { userId } }),
-    prisma.pendingMicrosoftOAuth.deleteMany({ where: { userId } })
+    prisma.pendingMicrosoftOAuth.deleteMany({ where: { userId } }),
+    prisma.userSettings.updateMany({ where: { userId }, data: { excelAutoSync: false } })
   ]);
   return "Excel disconnected. Your Threadwise expenses and existing OneDrive workbook are unchanged.";
 }
 
+export async function excelConnectionStatus(userId: string) {
+  const [connection, settings, unsyncedExpenses] = await Promise.all([
+    prisma.microsoftConnection.findUnique({ where: { userId } }),
+    prisma.userSettings.findUnique({ where: { userId }, select: { excelAutoSync: true } }),
+    prisma.expense.count({ where: { userId, excelSyncedAt: null } })
+  ]);
+  return {
+    connected: Boolean(connection),
+    email: connection?.microsoftEmail ?? undefined,
+    autoSync: settings?.excelAutoSync ?? false,
+    workbookName: connection?.workbookName ?? undefined,
+    workbookUrl: connection?.workbookWebUrl ?? undefined,
+    workbookReady: Boolean(connection?.workbookDriveItemId && connection.workbookDriveId),
+    unsyncedExpenses
+  };
+}
+
 export async function formatExcelStatus(userId: string): Promise<string> {
-  const connection = await prisma.microsoftConnection.findUnique({ where: { userId } });
-  if (!connection) {
+  const status = await excelConnectionStatus(userId);
+  if (!status.connected) {
     return [
-      bold("📊 Excel"),
-      microsoftExcelConfigured()
-        ? `${code("/excel connect")} to connect Microsoft, then ${code("/excel create")} to let Threadwise make your workbook.`
-        : "Excel connection setup is not available on this deployment yet.",
-      "",
-      `${code("/expenses")} always works because Threadwise stores expenses itself.`,
-      `${code("/excel export")} downloads a standalone workbook without Microsoft sign-in.`
+      bold("📊 Microsoft Excel"),
+      microsoftExcelConfigured() ? "Not connected." : "Connection setup is not available on this deployment.",
+      "Connect once; Threadwise will create the workbook and import existing expenses."
     ].join("\n");
   }
-
   return [
-    bold("📊 Excel"),
-    `${bold("Microsoft account")} ${h(connection.microsoftEmail ?? "connected")}`,
-    `${bold("Workbook")} ${connection.workbookName ? h(connection.workbookName) : "not selected"}`,
-    connection.workbookWebUrl ? h(connection.workbookWebUrl) : undefined,
-    "",
-    connection.workbookDriveItemId
-      ? `${code("/excel sync")} sends unsynced Threadwise expenses to this workbook.`
-      : `${code("/excel create")} lets Threadwise create the recommended workbook.`
-  ].filter(Boolean).join("\n");
+    bold("📊 Microsoft Excel"),
+    `${bold("Account")} ${h(status.email ?? "Connected")}`,
+    `${bold("Workbook")} ${h(status.workbookName ?? "Needs setup")}`,
+    `${bold("Automatic sync")} ${status.autoSync ? "On" : "Off"}`,
+    `${bold("Waiting to sync")} ${status.unsyncedExpenses}`
+  ].join("\n");
 }
 
 export async function createExpenseWorkbook(userId: string, timezone: string) {
@@ -186,7 +245,7 @@ export async function linkExpenseWorkbook(userId: string, sharingUrl: string) {
     `https://graph.microsoft.com/v1.0/drives/${encodeURIComponent(item.parentReference.driveId)}/items/${encodeURIComponent(item.id)}/workbook/tables`
   );
   if (!(tables.value ?? []).some((table) => table.name?.toLowerCase() === DEFAULT_TABLE_NAME.toLowerCase())) {
-    throw new Error(`That workbook needs an Excel table named ${DEFAULT_TABLE_NAME}. The easiest option is /excel create, which sets everything up automatically.`);
+    throw new Error(`That workbook needs an Excel table named ${DEFAULT_TABLE_NAME}. Use Create workbook in Connections for automatic setup.`);
   }
   const columns = await graphAbsolute<WorkbookColumns>(
     accessToken,
@@ -194,7 +253,7 @@ export async function linkExpenseWorkbook(userId: string, sharingUrl: string) {
   );
   const columnNames = (columns.value ?? []).map((column) => column.name ?? "");
   if (columnNames.length !== EXPENSE_COLUMNS.length || EXPENSE_COLUMNS.some((name, index) => columnNames[index] !== name)) {
-    throw new Error(`The ${DEFAULT_TABLE_NAME} table columns do not match Threadwise's expense template. Use /excel create for the simplest setup.`);
+    throw new Error(`The ${DEFAULT_TABLE_NAME} table columns do not match Threadwise's expense template. Use Create workbook in Connections for automatic setup.`);
   }
   await prisma.microsoftConnection.update({
     where: { userId },
@@ -229,6 +288,24 @@ export async function syncUnsyncedExpenses(userId: string, timezone: string): Pr
   await addRows(accessToken, connection, expenses.map((expense) => expenseRowValues(expense, timezone)));
   await prisma.expense.updateMany({ where: { id: { in: expenses.map((expense) => expense.id) } }, data: { excelSyncedAt: new Date() } });
   return expenses.length;
+}
+
+export async function syncExpenseToExcelIfEnabled(userId: string, expenseId: string, timezone: string): Promise<"synced" | "skipped" | "failed"> {
+  const settings = await prisma.userSettings.findUnique({ where: { userId }, select: { excelAutoSync: true } });
+  if (!settings?.excelAutoSync) return "skipped";
+  const status = await excelConnectionStatus(userId);
+  if (!status.connected || !status.workbookReady) return "skipped";
+  try {
+    await syncExpenseToExcel(userId, expenseId, timezone);
+    return "synced";
+  } catch (error) {
+    logger.warn("Automatic Excel sync failed without blocking the Threadwise expense save.", {
+      userId,
+      expenseId,
+      error: String(error)
+    });
+    return "failed";
+  }
 }
 
 export async function exportExpensesWorkbook(userId: string, timezone: string): Promise<Buffer> {
@@ -277,14 +354,14 @@ async function addRows(accessToken: string, connection: { workbookDriveId?: stri
 
 async function requireConnection(userId: string) {
   const connection = await prisma.microsoftConnection.findUnique({ where: { userId } });
-  if (!connection) throw new Error("Microsoft is not connected. Use /excel connect first.");
+  if (!connection) throw new Error("Connect Microsoft Excel in Connections first.");
   return connection;
 }
 
 async function requireWorkbook(userId: string) {
   const connection = await requireConnection(userId);
   if (!connection.workbookDriveItemId || !connection.workbookDriveId) {
-    throw new Error("No Excel workbook is selected. Use /excel create first, or /excel use <OneDrive link>.");
+    throw new Error("No Excel workbook is selected. Create one from Connections first.");
   }
   return connection;
 }
@@ -352,6 +429,18 @@ async function graphAbsolute<T>(accessToken: string, url: string, init: RequestI
 function microsoftRedirectUri(): string | undefined {
   if (env.MICROSOFT_REDIRECT_URI) return env.MICROSOFT_REDIRECT_URI;
   return env.WEBHOOK_URL ? `${env.WEBHOOK_URL.replace(/\/$/, "")}/excel/oauth/callback` : undefined;
+}
+
+function withConnectionResult(returnTo: string, provider: string, result: "connected" | "error"): string {
+  try {
+    const url = new URL(returnTo);
+    if (url.protocol !== "https:") return returnTo;
+    url.searchParams.set("connection", provider);
+    url.searchParams.set("result", result);
+    return url.toString();
+  } catch {
+    return returnTo;
+  }
 }
 
 function expiresAt(seconds?: number): Date | undefined {

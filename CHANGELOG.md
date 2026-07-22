@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.23.0 - 2026-07-22
+
+### Integration lifecycle
+- Replaced command-sequence onboarding with concise button-first Calendar and Excel panels in Telegram and direct provider management in the personal dashboard.
+- Added contextual Calendar actions to dated task cards, including connect-and-sync intent preservation through OAuth, durable update/remove/open actions, recurrence-aware events, eligible-task backfill, and optional automatic synchronization.
+- Made linked task edits patch the same Google event and made task cancellation ask whether to remove the linked event.
+- Made first-time Excel connection create a recommended OneDrive workbook and import existing expenses, with open, retry sync, workbook setup, disconnect, and optional automatic synchronization for new expenses.
+- Added deterministic natural-language actions for common Calendar and Excel goals without requiring command memorization.
+
+### Product scope
+- Retired Gmail from commands, menus, routing, callbacks, scheduled work, status, environment configuration, and active provider code.
+- Kept legacy Gmail schema objects inert for a later separately reviewed retention migration instead of coupling product retirement to destructive data removal.
+- Kept Calendar and Excel personal-only; group workspaces continue to expose only shared collaboration data.
+
+### Reliability and records
+- Kept Threadwise as the source of truth: external provider failures cannot discard a task or expense that was already saved.
+- Expanded authenticated dashboard snapshots and routes with provider identity, sync coverage, auto-sync settings, task-level Calendar actions, and Excel workbook lifecycle controls.
+- Added `docs/PRODUCT_JOURNAL.md`, reconstructed the major product phases from repository evidence, recorded the integration friction and rationale contemporaneously, and established a maintenance template for future decisions.
+
+### Quality
+- Added migration coverage for Calendar/Excel auto-sync preferences and OAuth return intent.
+- Added regression coverage for dashboard integration state, selected-task OAuth authorization, disconnect settings, and live revision behavior.
+
 ## v0.22.1 - 2026-07-22
 
 ### Reminder navigation

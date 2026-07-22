@@ -6,6 +6,7 @@ import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseD
 import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
+import { syncTaskCalendarBestEffort } from "./googleCalendar";
 import { nextPublicId } from "./publicIds";
 import { nextDueReminderAt } from "./reminders";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
@@ -93,7 +94,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
       })
     : undefined;
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const task = await tx.task.create({
       data: {
         userId,
@@ -120,6 +121,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
     return task;
   });
+  return refreshCalendarState(userId, created);
 }
 
 export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
@@ -143,7 +145,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
     timezone: settings.timezone
   });
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const task = await tx.task.create({
       data: {
         userId,
@@ -170,6 +172,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
     await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
     return task;
   });
+  return refreshCalendarState(userId, created);
 }
 
 export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {
@@ -305,7 +308,7 @@ export async function renameTaskTitle(userId: string, reference: string, title: 
       })
     : task.calendarUrl;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await recordRenameUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle }, task.title);
     return tx.task.update({
       where: { id: task.id },
@@ -315,6 +318,7 @@ export async function renameTaskTitle(userId: string, reference: string, title: 
       }
     });
   });
+  return refreshCalendarState(userId, updated);
 }
 
 export async function updateTaskDescription(userId: string, reference: string, description: string) {
@@ -333,7 +337,7 @@ export async function updateTaskDescription(userId: string, reference: string, d
       })
     : task.calendarUrl;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await recordFieldEditUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title }, "description", task.description ?? null);
     return tx.task.update({
       where: { id: task.id },
@@ -344,6 +348,7 @@ export async function updateTaskDescription(userId: string, reference: string, d
       }
     });
   });
+  return refreshCalendarState(userId, updated);
 }
 
 export async function assignTask(userId: string, reference: string, assigneeText: string, options: TaskCreationOptions = {}) {
@@ -434,7 +439,7 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
       })
     : null;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await recordRescheduleUndo(tx, userId, task);
     return tx.task.update({
       where: { id: task.id },
@@ -448,6 +453,7 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
       }
     });
   });
+  return refreshCalendarState(userId, updated);
 }
 
 export async function findTask(userId: string, publicOrUuid: string) {
@@ -457,6 +463,15 @@ export async function findTask(userId: string, publicOrUuid: string) {
       archivedAt: null,
       OR: [{ id: publicOrUuid }, { publicId: publicOrUuid.toUpperCase() }]
     },
+    include: { assignees: true }
+  });
+}
+
+async function refreshCalendarState(userId: string, task: TaskListItem): Promise<TaskListItem> {
+  const outcome = await syncTaskCalendarBestEffort(userId, task);
+  if (outcome !== "synced" && outcome !== "removed") return task;
+  return prisma.task.findUniqueOrThrow({
+    where: { id: task.id },
     include: { assignees: true }
   });
 }

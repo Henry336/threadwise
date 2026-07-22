@@ -10,12 +10,14 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 
 Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE.md)
 
+Product decisions, observed friction, and implementation rationale: [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md)
+
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
-- Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays 10 notes per page with Prev/Next controls, while `/notes <query>` searches notes.
-- Lists saved ideas 10 per page with `/ideas` and opens one with `/ideas <1 or IDEA-1>`.
+- Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays three readable previews per mobile page, while `/notes <query>` searches notes.
+- Lists saved ideas three readable previews per page with `/ideas` and opens one with `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
@@ -31,7 +33,7 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 - Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to go to the bank at 1.30pm", "don't let me forget to submit the form tomorrow afternoon", "nudge me to check the oven in half an hour", and compound timing such as "in about 1 hour 15 mins" without requiring OpenAI. Dotted and spoken clocks, day parts, numeric day-first dates, weekday shorthand, EOD, next week, and next month are handled locally.
 - Sends recurring Telegram reminders every 3 hours by default until a task is completed.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
-- Lists open tasks 10 per page with Prev/Next controls and global active list numbers, while keeping stable task IDs for durable references.
+- Lists open tasks three readable previews per mobile page with Prev/Next controls and global active list numbers, while keeping stable task IDs for durable references.
 - Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`. Inline actions update the current Telegram card in place when possible, and nested cards provide a Main menu or back route. Pressing Complete again reports that the task is already completed and offers a safe Restore button.
 - Supports bulk task completion and bulk task/note/idea removal with an itemized preview, requester-only Confirm/Cancel buttons, a 25-item limit, and no changes before confirmation.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
@@ -48,16 +50,16 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting with content first, then IDs/dates/settings metadata below.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, cleanup, Gmail, calendar, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
+- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, cleanup, Calendar, Excel, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
 - Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
 - Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
 - Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
 - Analyzes notekeeping style with `/note-analysis`, including what works, what does not, and suggested experiments.
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
-- Connects Google Calendar with OAuth and uses `/calendar <task>` to create or update one durable event in the primary calendar. Without a connection, the same command falls back to a template link and `.ics` export; `/googlecal` always provides the no-login template link.
-- Connects Gmail with read-only OAuth, scans unread mail, triages ordinary messages deterministically, sends summaries, and creates follow-up tasks for important messages.
-- Shows release, AI, Gmail, and reminder delivery status with `/version`.
+- Connects Google Calendar from Telegram or the dashboard, optionally backfills and automatically synchronizes dated tasks, and keeps one durable event updated after task edits.
+- Connects Microsoft Excel from Telegram or the dashboard, creates a recommended expense workbook with existing rows, and optionally keeps new expenses synchronized.
+- Shows release, AI, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
@@ -140,17 +142,9 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 /search notes deployment reliability
 /score IDEA-1
 /brief IDEA-1
-/calendar TASK-1
-/calendar 1
-/calendar connect
-/calendar status
-/calendar disconnect
+/calendar
 /googlecal TASK-1
 /googlecal 1
-/gmail
-/gmail connect
-/gmail scan
-/gmail disconnect
 /expense spent $18.40 on lunch at Toast Box today using Visa
 /expense edit EXP-2 currency MMK
 /expenses
@@ -159,11 +153,6 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 /expenses 2026
 /excel
 /excel export
-/excel connect
-/excel create
-/excel sync
-/excel use https://onedrive.live.com/...
-/excel disconnect
 /images
 /images passport
 /image 1
@@ -195,7 +184,7 @@ Normal Telegram messages are also supported. Threadwise checks deterministic com
 
 In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` now use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode.
 
-`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings and assigning work to other members require a currently verified owner or administrator; each active member can still respond to or hand off their own assignment. Shared captures and collection actions are available to verified active members. Expenses, Gmail, Calendar, Excel, personal export, and account deletion remain personal-only in the web app.
+`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings and assigning work to other members require a currently verified owner or administrator; each active member can still respond to or hand off their own assignment. Shared captures and collection actions are available to verified active members. Expenses, Calendar, Excel, personal export, and account deletion remain personal-only in the web app.
 
 The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, unassigned, awaiting-reply, and blocked work; **People** shows assignment load without ranking people; **Progress** derives done, next, and blocked items; **Activity** records meaningful task movement; and **Resources** brings the group's notes, ideas, and visual references into one concise library. Task changes made on the web use the same database rows queried by the bot and are quietly mirrored into the Telegram group.
 
@@ -242,29 +231,13 @@ GET /admin/reminders/status
 
 Send the token as `Authorization: Bearer <ADMIN_STATUS_TOKEN>` or `x-threadwise-admin-token`. The run endpoint performs one due-reminder pass and returns delivery diagnostics.
 
-Calendar links and synced Google event IDs are stored on each dated task row. That means `TASK-1` maps to one durable Google Calendar event across restarts and deployments; asking for `/calendar TASK-1` again updates that event instead of creating a duplicate.
+Calendar links and synced Google event IDs are stored on each dated task row. That means `TASK-1` maps to one durable Google Calendar event across restarts and deployments. Renaming, rescheduling, changing recurrence, or asking to sync it again patches the same event instead of creating a duplicate.
 
-Connect with `/calendar connect`, then use `/calendar 1` or natural text such as `add task 1 to my calendar`. `/calendar status` shows the connected account and `/calendar disconnect` removes Threadwise's stored Calendar tokens while leaving existing events alone. Enable the Google Calendar API in the same Google Cloud project and add `https://threadwise-90du.onrender.com/calendar/oauth/callback` as an authorized redirect URI. `GOOGLE_CALENDAR_REDIRECT_URI` can override that URL; otherwise Threadwise derives it from `WEBHOOK_URL`.
+Open `/calendar`, the Integrations menu, a dated task's `Calendar` button, or the dashboard's Connections tab. Connecting from a task preserves that task through OAuth and synchronizes it immediately on return. The Calendar panel can synchronize eligible dated tasks, enable automatic synchronization, open the calendar, or disconnect. Plain requests such as `put task 1 on my calendar`, `automatically sync my dated tasks`, and `remove task 1 from my calendar` follow the same lifecycle. Canceling a linked task asks whether its Calendar event should also be removed.
+
+Enable the Google Calendar API in the same Google Cloud project and add `https://threadwise-90du.onrender.com/calendar/oauth/callback` as an authorized redirect URI. `GOOGLE_CALENDAR_REDIRECT_URI` can override that URL; otherwise Threadwise derives it from `WEBHOOK_URL`.
 
 `/brief IDEA-1` does not run a coding agent by itself. It creates a structured implementation prompt that can be copied into Codex, Claude Code, or another coding agent after you choose the target repository.
-
-## Gmail Integration
-
-Gmail is optional and disabled until Google OAuth environment variables are configured.
-
-```text
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=https://your-render-app.onrender.com/gmail/oauth/callback
-GMAIL_TOKEN_ENCRYPTION_KEY=use-a-long-random-secret
-```
-
-- `/gmail connect` creates a Google OAuth link with read-only Gmail access.
-- `/gmail scan` scans unread mail immediately.
-- Connected users are scanned once per local day after `GMAIL_DAILY_SCAN_HOUR`.
-- Threadwise sends a Telegram digest of unread messages and creates open follow-up tasks for messages classified as important.
-- Gmail messages are not marked read. Threadwise stores encrypted OAuth tokens plus message IDs, sender, subject, snippet, summary, importance reason, and any created task link so the same email does not create duplicate reminders.
-- The integration accepts only `https://www.googleapis.com/auth/gmail.readonly`; it cannot send, delete, archive, or mark emails read.
 
 ## Image Text Extraction
 
@@ -312,14 +285,9 @@ Every expense uses these predefined Excel columns: Expense ID, Transaction Date,
 
 Excel is optional. The simplest no-login option is `/excel export`, which sends the user a ready-to-open `.xlsx` file containing all saved expenses.
 
-For ongoing synchronization:
+For ongoing synchronization, open `/excel`, the Integrations menu, Expenses, or the dashboard's Connections tab and choose `Connect Excel`. After OAuth, Threadwise creates a recommended workbook in the user's OneDrive, adds the predefined table and columns, and imports existing expenses. The same panel can open the workbook, synchronize waiting rows, enable automatic synchronization for new expenses, recreate/select a workbook, or disconnect. Plain requests such as `connect Excel`, `open my expense workbook`, and `sync my expenses` use the same actions.
 
-1. Run `/excel connect` and approve Microsoft access.
-2. Run `/excel create`. Threadwise creates a timestamped workbook in the user's own OneDrive, adds the predefined table and columns, and includes existing expenses.
-3. Confirm new expenses with `Save + sync Excel`, or run `/excel sync` to send up to 200 waiting expenses.
-4. Run `/excel` or say `show my Excel status` to see the connected account and workbook.
-
-The user does not need to provide a link when using `/excel create`. Advanced users can select an existing OneDrive or SharePoint `.xlsx` file with `/excel use <sharing link>`, but it must contain an Excel table named `Expenses` with the exact Threadwise columns in the documented order. `/excel disconnect` removes stored Microsoft tokens but does not delete the workbook or any Threadwise expenses.
+Advanced users can still select an existing OneDrive or SharePoint `.xlsx` file through the compatibility command, but it must contain an Excel table named `Expenses` with the exact Threadwise columns in the documented order. Disconnecting removes stored Microsoft tokens but does not delete the workbook or any Threadwise expenses. A standalone `/excel export` remains available without OAuth.
 
 To enable Microsoft sign-in on Render, create a Microsoft Entra app registration, add a Web redirect URI of `https://threadwise-90du.onrender.com/excel/oauth/callback`, and grant delegated `User.Read` and `Files.ReadWrite` permissions. `offline_access` is requested during sign-in so synchronization can continue after the initial connection. Then set:
 
@@ -361,7 +329,7 @@ prisma/
   schema.prisma       PostgreSQL data model
 ```
 
-The important design choice is that commands and reminders are deterministic. Common command-like text, settings changes, list/detail requests, classification, task extraction, reminder parsing, simple note structuring, Gmail triage, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, idea scoring, and richer Gmail wording when a message already looks important. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
+The important design choice is that commands and reminders are deterministic. Common command-like text, settings changes, list/detail requests, classification, task extraction, reminder parsing, simple note structuring, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, and idea scoring. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
 
 ## Data Model
 

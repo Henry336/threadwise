@@ -23,14 +23,13 @@ import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
 import { undoLastAction } from "../services/undo";
-import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
 import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
-import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
+import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -38,7 +37,7 @@ import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest,
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
@@ -50,6 +49,7 @@ import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { userFacingError } from "./errorResponses";
+import { prisma } from "../db/prisma";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -105,6 +105,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (/^(?:privacy|data privacy|is my data safe|who can (?:see|access) my data|how (?:is|do you keep) my data safe)$/.test(lower)) {
     await replyHtml(ctx, isGroupChat(ctx) ? formatGroupPrivacyText() : formatPrivacyText(), isGroupChat(ctx) ? {} : { reply_markup: dashboardLinkKeyboard() });
+    return true;
+  }
+
+  if (isGroupChat(ctx)
+    && !/^(?:remind|task|note|idea|save|remember)\b/.test(lower)
+    && /\b(?:google calendar|calendar|microsoft excel|excel|workbook|spreadsheet)\b/.test(lower)) {
+    await ctx.reply("Calendar and Excel are personal connections. Message me privately to manage them.");
     return true;
   }
 
@@ -260,7 +267,12 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:excel|excel status|show (?:me )?(?:my )?excel status|is excel connected)$/.test(lower)) {
-    await replyHtml(ctx, await formatExcelStatus(user.id));
+    const status = await excelConnectionStatus(user.id);
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const connectUrl = !status.connected && microsoftExcelConfigured()
+      ? await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true })
+      : undefined;
+    await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status, connectUrl) });
     return true;
   }
 
@@ -270,8 +282,10 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       return true;
     }
     const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createMicrosoftConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [bold("Connect Microsoft Excel"), "Open this Microsoft link and approve file access.", "", h(url)].join("\n"));
+    const url = await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true });
+    await replyHtml(ctx, `${bold("📊 Microsoft Excel")}\nConnect once. Threadwise will prepare the workbook and import existing expenses.`, {
+      reply_markup: excelSettingsKeyboard({ connected: false, autoSync: false, workbookReady: false }, url)
+    });
     return true;
   }
 
@@ -306,6 +320,24 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
 
+  if (/^(?:open|show) (?:my )?(?:expense )?(?:excel )?(?:workbook|spreadsheet)$/.test(lower)) {
+    const status = await excelConnectionStatus(user.id);
+    if (!status.workbookUrl) {
+      await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status) });
+    } else {
+      await replyHtml(ctx, `${bold("📊 Expense workbook")}\n${h(status.workbookName ?? "Threadwise Expenses.xlsx")}`, { reply_markup: excelSettingsKeyboard(status) });
+    }
+    return true;
+  }
+
+  const automaticExcel = lower.match(/^(?:turn |switch )?(on|off)?\s*(?:automatic|automatically) sync (?:my )?expenses (?:to|with) excel$/);
+  if (automaticExcel) {
+    const enabled = automaticExcel[1] !== "off";
+    await prisma.userSettings.update({ where: { userId: user.id }, data: { excelAutoSync: enabled } });
+    await ctx.reply(`Automatic Excel sync is ${enabled ? "on" : "off"}.`);
+    return true;
+  }
+
   if (/^(?:export|download|give me) (?:all )?(?:my )?expenses (?:as|to|in) (?:an )?excel(?: workbook| file)?$/.test(lower)) {
     const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
     await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
@@ -314,34 +346,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (/^(?:disconnect|unlink) (?:my )?(?:microsoft )?excel$/.test(lower)) {
     await replyHtml(ctx, await disconnectMicrosoft(user.id));
-    return true;
-  }
-
-  if (/^(?:gmail|gmail status|show (?:me )?(?:my )?gmail status|is gmail connected)$/.test(lower)) {
-    await replyHtml(ctx, await formatGmailStatus(user.id));
-    return true;
-  }
-
-  if (/^(?:gmail connect|connect (?:my )?gmail|set up gmail|link (?:my )?gmail)$/.test(lower)) {
-    if (!gmailConfigured()) {
-      await ctx.reply("Gmail is not configured on the server yet. Add Google OAuth env vars first.");
-      return true;
-    }
-
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createGmailConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [`${bold("Connect Gmail")}`, "Open this Google OAuth link, approve Gmail read-only access, then return here.", "", h(url)].join("\n"));
-    return true;
-  }
-
-  if (/^(?:gmail scan|scan (?:my )?(?:unread )?gmail|check (?:my )?(?:unread )?(?:gmail|email)|summari[sz]e (?:my )?unread (?:gmail|email))$/.test(lower)) {
-    const result = await scanGmailNow(user.id, ai);
-    await replyHtml(ctx, result.message);
-    return true;
-  }
-
-  if (/^(?:gmail disconnect|disconnect (?:my )?gmail|unlink (?:my )?gmail)$/.test(lower)) {
-    await replyHtml(ctx, await disconnectGmail(user.id));
     return true;
   }
 
@@ -695,7 +699,12 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:calendar|google calendar|calendar status|google calendar status|is (?:my )?google calendar connected|show (?:me )?(?:my )?calendar(?: status)?)$/.test(lower)) {
-    await replyHtml(ctx, await formatCalendarStatus(user.id));
+    const status = await calendarConnectionStatus(user.id);
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const connectUrl = !status.connected && calendarConfigured()
+      ? await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true })
+      : undefined;
+    await replyHtml(ctx, await formatCalendarStatus(user.id), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
     return true;
   }
 
@@ -705,13 +714,53 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       return true;
     }
     const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createCalendarConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [bold("Connect Google Calendar"), "Open this Google OAuth link and approve Calendar event access.", "", h(url)].join("\n"));
+    const url = await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true });
+    await replyHtml(ctx, `${bold("📅 Google Calendar")}\nConnect once. Dated tasks can then stay in sync automatically.`, {
+      reply_markup: calendarSettingsKeyboard({ connected: false, autoSync: false }, url)
+    });
     return true;
   }
 
   if (/^(?:disconnect|unlink) (?:my )?(?:google )?calendar$/.test(lower)) {
     await replyHtml(ctx, await disconnectCalendar(user.id));
+    return true;
+  }
+
+  const automaticCalendar = lower.match(/^(?:(?:turn|switch)\s+)?(on|off)?\s*(?:automatic|automatically) sync (?:all )?(?:my )?(?:dated )?(?:tasks|reminders)(?: (?:to|with) (?:google )?calendar)?$/);
+  if (automaticCalendar) {
+    const enabled = automaticCalendar[1] !== "off";
+    await prisma.userSettings.update({ where: { userId: user.id }, data: { calendarAutoSync: enabled } });
+    if (enabled && (await calendarConnectionStatus(user.id)).connected) {
+      const result = await syncEligibleTasksToGoogleCalendar(user.id);
+      await ctx.reply(`Automatic Calendar sync is on. ${result.synced} dated task${result.synced === 1 ? "" : "s"} synced${result.failed ? `; ${result.failed} need another try` : ""}.`);
+    } else {
+      await ctx.reply(`Automatic Calendar sync is ${enabled ? "on" : "off"}.`);
+    }
+    return true;
+  }
+
+  const removeCalendarMatch = trimmed.match(/^(?:remove|delete|take)\s+(?:task\s+)?(\S+)\s+(?:from|off)\s+(?:my\s+)?(?:google\s+)?calendar$/i);
+  if (removeCalendarMatch?.[1]) {
+    try {
+      const task = await findTaskReference(user.id, normalizePublicId(removeCalendarMatch[1]));
+      await removeTaskFromGoogleCalendar(user.id, task);
+      await ctx.reply(`${task.publicId} was removed from Google Calendar. The Threadwise task is unchanged.`);
+    } catch (error) {
+      await ctx.reply(userFacingError(error, "I couldn't remove that Calendar event."));
+    }
+    return true;
+  }
+
+  if (/^(?:add|put) (?:this|the) (?:task|reminder) (?:to|on) (?:my )?(?:google )?calendar$/.test(lower)) {
+    const task = await prisma.task.findFirst({
+      where: { userId: user.id, status: "OPEN", archivedAt: null, dueAt: { not: null } },
+      orderBy: { updatedAt: "desc" }
+    });
+    if (!task) {
+      await ctx.reply("I couldn't find a recent dated task. Open Tasks and tap Calendar on the one you mean.");
+      return true;
+    }
+    await replyNaturalCalendarTask(ctx, user.id, user.telegramId, task.id);
     return true;
   }
 
@@ -729,12 +778,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const calendarMatch = trimmed.match(/^(?:calendar|googlecal)\s+(?:for\s+)?(?:task\s+)?(\S+)$/i)
     ?? trimmed.match(/^(?:add|put)\s+(?:task\s+)?(\S+)\s+(?:to|on)\s+(?:my\s+)?calendar$/i);
   if (calendarMatch?.[1]) {
-    await replyWithTaskCalendar(ctx, {
-      userId: user.id,
-      reference: calendarMatch[1],
-      timezone: user.settings?.timezone,
-      includeIcs: !/^googlecal/i.test(trimmed)
-    });
+    await replyNaturalCalendarTask(ctx, user.id, user.telegramId, calendarMatch[1]);
     return true;
   }
 
@@ -765,7 +809,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (/^(?:version|status|bot status|system status|what version (?:is this|are you running)|are reminders working)$/.test(lower)) {
     await replyHtml(ctx, formatVersionStatus({
       ai: ai.getStatus(),
-      gmailConfigured: gmailConfigured(),
       calendarConfigured: calendarConfigured(),
       excelConfigured: microsoftExcelConfigured(),
       reminders: getReminderDiagnostics()
@@ -799,6 +842,34 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   return false;
+}
+
+async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId: string, reference: string) {
+  try {
+    let task = await findTaskReference(userId, normalizePublicId(reference));
+    if (!task.dueAt) {
+      await ctx.reply(`${task.publicId} needs a due date before it can go on a calendar.`);
+      return;
+    }
+    const status = await calendarConnectionStatus(userId);
+    if (!status.connected) {
+      if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
+      const chatId = ctx.chat ? String(ctx.chat.id) : telegramId;
+      const url = await createCalendarConnectUrl(userId, chatId, { taskId: task.id });
+      await replyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\nConnect once; this reminder will be added automatically after approval.`, {
+        reply_markup: calendarTaskKeyboard(task, url)
+      });
+      return;
+    }
+    const synced = await syncTaskToGoogleCalendar(userId, task);
+    if (!synced) throw new Error("Reconnect Google Calendar and try again.");
+    task = await findTaskReference(userId, task.id);
+    await replyHtml(ctx, `${bold(synced.created ? "📅 Added to Google Calendar" : "📅 Calendar updated")}\n${h(task.title)}`, {
+      reply_markup: calendarTaskKeyboard(task)
+    });
+  } catch (error) {
+    await ctx.reply(userFacingError(error, "I couldn't update Google Calendar."));
+  }
 }
 
 function naturalExpenseText(text: string): string | undefined {

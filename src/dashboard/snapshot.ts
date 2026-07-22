@@ -41,6 +41,9 @@ export type DashboardSnapshot = {
     nextReminderAt?: string;
     reminderCount?: number;
     snoozedUntil?: string;
+    calendarEventId?: string;
+    calendarEventUrl?: string;
+    calendarSyncedAt?: string;
     assignee?: string;
     assignees?: DashboardTaskAssignee[];
     createdAt: string;
@@ -109,12 +112,21 @@ export type DashboardSnapshot = {
     expenseCurrency: string;
     ocrLanguages: string;
     directNudgesEnabled: boolean;
+    calendarAutoSync: boolean;
+    excelAutoSync: boolean;
   };
   activity: Array<{ day: string; captures: number; completed: number }>;
   integrations: Array<{
-    name: "Gmail" | "Calendar" | "Excel";
+    provider: "calendar" | "excel";
+    name: "Calendar" | "Excel";
     state: "connected" | "attention" | "available";
     detail: string;
+    accountEmail?: string;
+    autoSync: boolean;
+    syncedCount: number;
+    unsyncedCount: number;
+    workbookName?: string;
+    workbookUrl?: string;
   }>;
 };
 
@@ -134,18 +146,6 @@ function accentFor(telegramId: string): "iris" | "coral" | "mint" {
 function safeTimezone(value: string | undefined): string {
   if (!value) return "UTC";
   return DateTime.now().setZone(value).isValid ? value : "UTC";
-}
-
-function gmailDetail(lastScanAt: Date | null, now: Date): string {
-  if (!lastScanAt) return "Connected; no scan recorded yet";
-
-  const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - lastScanAt.getTime()) / 60_000));
-  if (elapsedMinutes < 1) return "Scanned just now";
-  if (elapsedMinutes < 60) return `Scanned ${elapsedMinutes} min ago`;
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `Scanned ${elapsedHours} hr ago`;
-  return `Scanned ${Math.floor(elapsedHours / 24)} d ago`;
 }
 
 export async function getDashboardSnapshot(
@@ -168,9 +168,15 @@ export async function getDashboardSnapshot(
       firstName: true,
       lastName: true,
       settings: true,
-      gmailConnection: { select: { scanEnabled: true, lastScanAt: true } },
-      calendarConnection: { select: { createdAt: true } },
-      microsoftConnection: { select: { workbookName: true, createdAt: true } }
+      calendarConnection: { select: { calendarEmail: true, createdAt: true } },
+      microsoftConnection: {
+        select: {
+          microsoftEmail: true,
+          workbookName: true,
+          workbookWebUrl: true,
+          createdAt: true
+        }
+      }
     }
   });
 
@@ -202,6 +208,9 @@ export async function getDashboardSnapshot(
         nextReminderAt: true,
         reminderCount: true,
         snoozedUntil: true,
+        calendarEventId: true,
+        calendarEventUrl: true,
+        calendarSyncedAt: true,
         assignedUsername: true,
         assignedDisplayName: true,
         assignees: {
@@ -360,6 +369,9 @@ export async function getDashboardSnapshot(
       ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
       ...(task.reminderCount > 0 ? { reminderCount: task.reminderCount } : {}),
       ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
+      ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
+      ...(task.calendarEventUrl ? { calendarEventUrl: task.calendarEventUrl } : {}),
+      ...(task.calendarSyncedAt ? { calendarSyncedAt: task.calendarSyncedAt.toISOString() } : {}),
       ...(task.assignedDisplayName
         ? { assignee: task.assignedDisplayName }
         : task.assignedUsername
@@ -440,25 +452,65 @@ export async function getDashboardSnapshot(
       reminderMode: user.settings?.reminderMode ?? "INDIVIDUAL",
       expenseCurrency: user.settings?.expenseCurrency ?? "SGD",
       ocrLanguages: user.settings?.ocrLanguages ?? "eng",
-      directNudgesEnabled: user.settings?.directNudgesEnabled ?? false
+      directNudgesEnabled: user.settings?.directNudgesEnabled ?? false,
+      calendarAutoSync: user.settings?.calendarAutoSync ?? false,
+      excelAutoSync: user.settings?.excelAutoSync ?? false
     },
     activity: [...activityByDate.values()],
     integrations: telegramId.startsWith("chat:") ? [] : [
-      user.gmailConnection
-        ? {
-            name: "Gmail",
-            state: user.gmailConnection.scanEnabled ? "connected" : "attention",
-            detail: user.gmailConnection.scanEnabled ? gmailDetail(user.gmailConnection.lastScanAt, now) : "Scanning is paused"
-          }
-        : { name: "Gmail", state: "available", detail: "Connect from Telegram" },
       user.calendarConnection
-        ? { name: "Calendar", state: "connected", detail: "Calendar connected" }
-        : { name: "Calendar", state: "available", detail: "Connect from Telegram" },
+        ? {
+            provider: "calendar",
+            name: "Calendar",
+            state: "connected",
+            detail: `${tasks.filter((task) => Boolean(task.calendarEventId)).length} dated task${tasks.filter((task) => Boolean(task.calendarEventId)).length === 1 ? "" : "s"} synced`,
+            ...(user.calendarConnection.calendarEmail ? { accountEmail: user.calendarConnection.calendarEmail } : {}),
+            autoSync: user.settings?.calendarAutoSync ?? false,
+            syncedCount: tasks.filter((task) => Boolean(task.calendarEventId)).length,
+            unsyncedCount: tasks.filter((task) => Boolean(task.dueAt) && !task.calendarEventId && task.status === "OPEN").length
+          }
+        : {
+            provider: "calendar",
+            name: "Calendar",
+            state: "available",
+            detail: "Not connected",
+            autoSync: false,
+            syncedCount: 0,
+            unsyncedCount: tasks.filter((task) => Boolean(task.dueAt) && task.status === "OPEN").length
+          },
       user.microsoftConnection
         ? user.microsoftConnection.workbookName
-          ? { name: "Excel", state: "connected", detail: "Workbook connected" }
-          : { name: "Excel", state: "attention", detail: "Choose or create a workbook" }
-        : { name: "Excel", state: "available", detail: "Connect from Telegram" }
+          ? {
+              provider: "excel",
+              name: "Excel",
+              state: "connected",
+              detail: user.microsoftConnection.workbookName,
+              ...(user.microsoftConnection.microsoftEmail ? { accountEmail: user.microsoftConnection.microsoftEmail } : {}),
+              autoSync: user.settings?.excelAutoSync ?? false,
+              syncedCount: expenses.filter((expense) => Boolean(expense.excelSyncedAt)).length,
+              unsyncedCount: expenses.filter((expense) => !expense.excelSyncedAt).length,
+              workbookName: user.microsoftConnection.workbookName,
+              ...(user.microsoftConnection.workbookWebUrl ? { workbookUrl: user.microsoftConnection.workbookWebUrl } : {})
+            }
+          : {
+              provider: "excel",
+              name: "Excel",
+              state: "attention",
+              detail: "Workbook setup needed",
+              ...(user.microsoftConnection.microsoftEmail ? { accountEmail: user.microsoftConnection.microsoftEmail } : {}),
+              autoSync: user.settings?.excelAutoSync ?? false,
+              syncedCount: expenses.filter((expense) => Boolean(expense.excelSyncedAt)).length,
+              unsyncedCount: expenses.filter((expense) => !expense.excelSyncedAt).length
+            }
+        : {
+            provider: "excel",
+            name: "Excel",
+            state: "available",
+            detail: "Not connected",
+            autoSync: false,
+            syncedCount: 0,
+            unsyncedCount: expenses.length
+          }
     ]
   };
 }

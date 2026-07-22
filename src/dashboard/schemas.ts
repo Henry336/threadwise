@@ -132,7 +132,9 @@ export const settingsUpdateSchema = z.object({
   reminderMode: z.nativeEnum(ReminderMode).optional(),
   expenseCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).optional(),
   ocrLanguages: z.string().trim().regex(/^[a-z]{3}(?:\+[a-z]{3})*$/).max(40).optional(),
-  directNudgesEnabled: z.boolean().optional()
+  directNudgesEnabled: z.boolean().optional(),
+  calendarAutoSync: z.boolean().optional(),
+  excelAutoSync: z.boolean().optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
 export const searchQuerySchema = z.object({
@@ -142,7 +144,16 @@ export const searchQuerySchema = z.object({
 }).strict();
 
 export const integrationParamsSchema = z.object({
-  provider: z.enum(["gmail", "calendar", "excel"])
+  provider: z.enum(["calendar", "excel"])
+}).strict();
+
+export const integrationConnectSchema = z.object({
+  taskId: z.string().trim().min(1).max(100).optional()
+}).strict();
+
+export const calendarTaskIntegrationSchema = z.object({
+  taskId: z.string().trim().min(1).max(100),
+  action: z.enum(["sync", "remove"])
 }).strict();
 
 export const deleteAccountSchema = z.object({

@@ -68,11 +68,11 @@ The `AiProvider` interface supports:
 - Embeddings
 - Provider status and a small live health check for the private admin endpoint
 
-`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, Gmail triage, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
+`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, integration intent, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
 
 The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are wrapped by a bounded in-memory cache keyed by content hash; lookups are O(1), duplicate concurrent calls share a promise, and the oldest entries are evicted when the cache exceeds its cap.
 
-OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted. AI is reserved for synthesis-heavy work such as complex note/idea structuring, note merges, note analysis, idea scoring, and richer Gmail summaries for messages that already look important.
+OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted. AI is reserved for synthesis-heavy work such as complex note/idea structuring, note merges, note analysis, and idea scoring.
 
 The private `GET /admin/ai/status` endpoint is enabled only when `ADMIN_STATUS_TOKEN` is set. It is intentionally not exposed through Telegram.
 
@@ -87,7 +87,7 @@ Approximate per-request work:
 - Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
 - Simple note capture: `O(L) + DB create + Telegram reply`
 - Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
-- Gmail scan: `O(M * K)` deterministic triage, where `M` is unread messages fetched and `K` is a small fixed important-word list. AI summary calls happen only for messages that pass the deterministic importance gate.
+- Calendar/Excel auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
 - Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: local cache lookup is `O(1)`; cache misses pay OpenAI latency and provider rate limits.
 
 Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` identical synthesis requests arrive at the same time, the cache stores the in-flight promise so they share one OpenAI call; if they are all different synthesis requests, OpenAI becomes the bottleneck.
@@ -112,7 +112,7 @@ Database access goes through Prisma query objects rather than string-built SQL, 
 
 When `BOT_ALLOWED_TELEGRAM_IDS` is configured, access can be granted by sender id or group chat id. A group chat id may be written as the raw Telegram chat id or as `chat:<id>`. Blocked private users receive a private-bot notice; blocked group messages are ignored silently to avoid leaking bot presence into unrelated group conversations.
 
-Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Gmail OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
+Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Calendar/Microsoft OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
 
 ## Search
 
@@ -132,13 +132,16 @@ This is intentionally simple. If the dataset grows, move embeddings to pgvector 
 
 Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archive note 1` and note archive buttons set `archivedReason = removed` and record an undo entry; `/archived <type>` pages through archived notes, ideas, and tasks.
 
-## Calendar Integration
+## Integration Lifecycle
 
-The first implementation stores due dates and keeps a Google Calendar template URL on each dated task row. The public task ID plus `userId` is the lookup key, so calendar links are durable across restarts and scoped to the right Telegram user. This is safer and more deployable than an in-memory hashtable.
+Google Calendar and Microsoft Excel are personal-workspace mirrors. Threadwise's PostgreSQL rows remain authoritative, so a provider outage never rejects or removes a task or expense that was successfully captured.
 
-Normal task cards do not display the long Google Calendar URL. Users can ask for it only when needed:
+Google Calendar stores encrypted per-user OAuth tokens and one durable provider event ID on each synchronized task. The public task ID plus `userId` is the lookup key. Creating, renaming, rescheduling, or changing recurrence patches the same primary-calendar event. Removing an event clears the provider linkage without deleting the Threadwise task. The optional `calendarAutoSync` setting applies best-effort synchronization after task writes; an explicit bulk sync backfills eligible dated tasks.
 
-- `/googlecal TASK-1` or natural text like `give me the google calendar link for TASK-1` returns the stored Google Calendar template link.
-- `/calendar TASK-1` returns the link and sends a `.ics` file.
+Microsoft Excel stores encrypted OAuth tokens plus the selected workbook, worksheet, and table identifiers. First connection can create the recommended workbook and import existing expenses. The optional `excelAutoSync` setting mirrors new confirmed expenses best-effort, while manual sync retries waiting rows. The standalone `.xlsx` export does not require OAuth.
 
-Google Calendar OAuth now stores encrypted per-user tokens and durable event IDs. `/calendar <task>` creates the event once and patches the same primary-calendar event on later calls; template links and `.ics` files remain the fallback when Calendar is not connected or the API is unavailable.
+OAuth pending-state rows bind the signed-in Telegram user, expire, and can preserve a selected task or requested auto-sync setting across the provider redirect. Dashboard callbacks return to the Connections tab; Telegram-initiated callbacks send a concise completion message. Provider status and mutations are exposed through the signed dashboard API, never directly to the browser database layer.
+
+Normal task cards do not display long template URLs. Users interact through a contextual Calendar button, the integration panels, dashboard Connections, or plain-language requests. `/calendar` and `/excel` open the same panels; older subcommands remain compatibility fallbacks.
+
+Gmail was removed from the active runtime in July 2026. Its legacy schema objects are retained inertly to avoid destructive data removal during the lifecycle revamp and should only be dropped in a separately reviewed retention migration.

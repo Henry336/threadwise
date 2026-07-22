@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RecurrenceRule } from "@prisma/client";
 
 describe("Google Calendar integration", () => {
   beforeEach(() => {
@@ -32,5 +33,17 @@ describe("Google Calendar integration", () => {
       end: { dateTime: "2026-07-13T09:30:00.000+08:00", timeZone: "Asia/Singapore" },
       extendedProperties: { private: { threadwise: "true" } }
     });
+  });
+
+  it("keeps a recurring reminder recurring in Google Calendar", async () => {
+    const { buildGoogleCalendarEvent } = await import("./googleCalendar");
+    const event = buildGoogleCalendarEvent({
+      title: "Weekly review",
+      dueAt: new Date("2026-07-17T01:00:00.000Z"),
+      timezone: "Asia/Singapore",
+      recurrenceRule: RecurrenceRule.WEEKLY
+    });
+
+    expect(event.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=FR"]);
   });
 });

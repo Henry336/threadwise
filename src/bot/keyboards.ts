@@ -2,7 +2,7 @@ import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
 import { DASHBOARD_URL, groupDashboardUrl } from "./links";
 
-type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt">;
+type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt" | "dueAt" | "calendarEventId" | "calendarEventUrl">;
 type ItemKind = "task" | "note" | "idea";
 type ItemActionTarget = { id: string; publicId?: string; pinnedAt?: Date | null };
 export type ActiveListNavigation = {
@@ -193,9 +193,66 @@ export function settingInputKeyboard(parent: "reminders" | "region"): InlineKeyb
 
 export function integrationsSettingsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📊 Excel", "menu:excel").text("📅 Calendar", "menu:calendar-settings").row()
-    .text("✉️ Gmail", "menu:gmail-settings").row()
+    .text("📅 Google Calendar", "menu:calendar-settings").row()
+    .text("📊 Microsoft Excel", "menu:excel-settings").row()
     .text("‹ Settings", "menu:settings");
+}
+
+export function calendarSettingsKeyboard(status: { connected: boolean; autoSync: boolean }, connectUrl?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (!status.connected && connectUrl) {
+    keyboard.url("Connect Google Calendar", connectUrl).row();
+  } else if (status.connected) {
+    keyboard.text("Sync existing tasks", "integration:calendar:sync-all").row()
+      .text(status.autoSync ? "Automatic sync: On" : "Automatic sync: Off", "integration:calendar:toggle-auto").row()
+      .text("Disconnect", "integration:calendar:disconnect-confirm").row();
+  }
+  return keyboard.text("‹ Integrations", "menu:integrations");
+}
+
+export function calendarTaskKeyboard(task: Pick<TaskListItem, "id" | "calendarEventId" | "calendarEventUrl">, connectUrl?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (connectUrl) {
+    keyboard.url("Connect & add", connectUrl).row();
+  } else if (task.calendarEventId) {
+    if (task.calendarEventUrl) keyboard.url("Open event", task.calendarEventUrl).row();
+    keyboard.text("Update event", `integration:calendar:sync:${task.id}`)
+      .text("Remove event", `integration:calendar:remove:${task.id}`).row();
+  } else {
+    keyboard.text("Add to Calendar", `integration:calendar:sync:${task.id}`).row();
+  }
+  return keyboard.text("‹ Reminder", `task:view-full:${task.id}`);
+}
+
+export function excelSettingsKeyboard(
+  status: { connected: boolean; autoSync: boolean; workbookReady: boolean; workbookUrl?: string },
+  connectUrl?: string
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (!status.connected && connectUrl) {
+    keyboard.url("Connect Microsoft Excel", connectUrl).row();
+  } else if (status.connected) {
+    if (!status.workbookReady) keyboard.text("Create expense workbook", "integration:excel:create").row();
+    if (status.workbookUrl) keyboard.url("Open workbook", status.workbookUrl).row();
+    if (status.workbookReady) keyboard.text("Sync expenses now", "integration:excel:sync").row();
+    keyboard.text(status.autoSync ? "Automatic sync: On" : "Automatic sync: Off", "integration:excel:toggle-auto").row()
+      .text("Disconnect", "integration:excel:disconnect-confirm").row();
+  }
+  return keyboard.text("Download .xlsx", "integration:excel:export").row()
+    .text("‹ Integrations", "menu:integrations");
+}
+
+export function disconnectIntegrationKeyboard(provider: "calendar" | "excel"): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Disconnect", `integration:${provider}:disconnect`)
+    .text("Keep connected", `menu:${provider === "calendar" ? "calendar-settings" : "excel-settings"}`);
+}
+
+export function taskCancelCalendarKeyboard(taskId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Cancel + remove event", `task:cancel-confirm:remove:${taskId}`).row()
+    .text("Cancel task only", `task:cancel-confirm:keep:${taskId}`).row()
+    .text("Keep task", `task:view-full:${taskId}`);
 }
 
 export function privacySettingsKeyboard(): InlineKeyboard {
@@ -253,9 +310,16 @@ export function taskActionsKeyboard(
   const keyboard = new InlineKeyboard()
     .text("✅ Done", `task:done:${taskId}`)
     .text("⏰ Snooze", `task:snooze:${taskId}`)
-    .row()
-    .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`)
-    .text("✏️ Title", `item:task:edit:title:${taskId}`)
+    .row();
+  const hasDueDate = typeof task !== "string" && Boolean(task.dueAt);
+  const isCalendarLinked = typeof task !== "string" && Boolean(task.calendarEventId);
+  if (hasDueDate && !includeCollaboration) {
+    keyboard.text(isCalendarLinked ? "✓ Calendar" : "📅 Calendar", `task:calendar:${taskId}`)
+      .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`).row();
+  } else {
+    keyboard.text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`).row();
+  }
+  keyboard.text("✏️ Title", `item:task:edit:title:${taskId}`)
     .text("📝 Details", `item:task:edit:description:${taskId}`);
   if (includeFullReminder) keyboard.row().text("📖 View full", `task:view-full:${taskId}`);
   if (includeCollaboration) addTaskCollaborationActions(keyboard, taskId);

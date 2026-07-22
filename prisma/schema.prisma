@@ -183,6 +183,8 @@ model UserSettings {
   expenseCurrency         String       @default("SGD")
   ocrLanguages            String       @default("eng")
   directNudgesEnabled     Boolean      @default(false)
+  calendarAutoSync        Boolean      @default(false)
+  excelAutoSync           Boolean      @default(false)
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
@@ -473,12 +475,15 @@ model GmailMessageSummary {
 }
 
 model PendingCalendarOAuth {
-  id        String   @id @default(uuid())
-  userId    String
-  state     String   @unique
-  chatId    String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String
+  state          String   @unique
+  chatId         String
+  taskId         String?
+  enableAutoSync Boolean  @default(false)
+  returnTo       String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -622,12 +627,14 @@ model Expense {
 }
 
 model PendingMicrosoftOAuth {
-  id        String   @id @default(uuid())
-  userId    String
-  state     String   @unique
-  chatId    String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  userId         String
+  state          String   @unique
+  chatId         String
+  enableAutoSync Boolean  @default(true)
+  returnTo       String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

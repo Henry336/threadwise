@@ -19,7 +19,9 @@ import {
   archiveDashboardTask,
   convertDashboardIdeaToTask,
   createDashboardExpense,
+  createDashboardExcelWorkbook,
   createDashboardIdea,
+  createDashboardIntegrationConnectUrl,
   createDashboardNote,
   createDashboardTask,
   deleteDashboardAccount,
@@ -36,17 +38,20 @@ import {
   loadDashboardImageContent,
   searchDashboard,
   syncDashboardExcelExpenses,
+  syncDashboardCalendarTasks,
   updateDashboardExpense,
   updateDashboardIdea,
   updateDashboardImage,
   updateDashboardNote,
   updateDashboardSettings,
   updateDashboardTask,
+  updateDashboardTaskCalendar,
   type DashboardSearchKind
 } from "./data";
 import {
   dashboardIdParamsSchema,
   capturePreviewSchema,
+  calendarTaskIntegrationSchema,
   deleteAccountSchema,
   expenseCreateSchema,
   expenseListQuerySchema,
@@ -57,6 +62,7 @@ import {
   ideaUpdateSchema,
   imageUpdateSchema,
   imageListQuerySchema,
+  integrationConnectSchema,
   integrationParamsSchema,
   noteCreateSchema,
   noteListQuerySchema,
@@ -108,6 +114,10 @@ export type DashboardRouteActions = {
   updateSettings: typeof updateDashboardSettings;
   search: typeof searchDashboard;
   disconnectIntegration: typeof disconnectDashboardIntegration;
+  connectIntegration: typeof createDashboardIntegrationConnectUrl;
+  syncCalendarTasks: typeof syncDashboardCalendarTasks;
+  updateTaskCalendar: typeof updateDashboardTaskCalendar;
+  createExcelWorkbook: typeof createDashboardExcelWorkbook;
   syncExcelExpenses: typeof syncDashboardExcelExpenses;
   exportData: typeof exportDashboardData;
   deleteAccount: typeof deleteDashboardAccount;
@@ -148,6 +158,10 @@ const defaultActions: DashboardRouteActions = {
   updateSettings: updateDashboardSettings,
   search: searchDashboard,
   disconnectIntegration: disconnectDashboardIntegration,
+  connectIntegration: createDashboardIntegrationConnectUrl,
+  syncCalendarTasks: syncDashboardCalendarTasks,
+  updateTaskCalendar: updateDashboardTaskCalendar,
+  createExcelWorkbook: createDashboardExcelWorkbook,
   syncExcelExpenses: syncDashboardExcelExpenses,
   exportData: exportDashboardData,
   deleteAccount: deleteDashboardAccount
@@ -406,6 +420,28 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const { provider } = integrationParamsSchema.parse(request.params);
     return actions.disconnectIntegration(telegramId, provider);
   }, "disconnect_integration"));
+
+  server.post("/api/v1/dashboard/integrations/:provider/connect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    const { provider } = integrationParamsSchema.parse(request.params);
+    return actions.connectIntegration(telegramId, provider, integrationConnectSchema.parse(request.body ?? {}));
+  }, "connect_integration"));
+
+  server.post("/api/v1/dashboard/integrations/calendar/sync", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return actions.syncCalendarTasks(telegramId);
+  }, "sync_calendar_tasks"));
+
+  server.post("/api/v1/dashboard/integrations/calendar/task", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    const input = calendarTaskIntegrationSchema.parse(request.body);
+    return actions.updateTaskCalendar(telegramId, input.taskId, input.action);
+  }, "update_task_calendar"));
+
+  server.post("/api/v1/dashboard/integrations/excel/workbook", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return actions.createExcelWorkbook(telegramId);
+  }, "create_excel_workbook"));
 
   server.post("/api/v1/dashboard/integrations/excel/sync", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);

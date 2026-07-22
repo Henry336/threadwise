@@ -7,7 +7,6 @@ const fallbackVersion = "0.19.0";
 
 export type VersionStatus = {
   ai: AiProviderStatus;
-  gmailConfigured: boolean;
   calendarConfigured: boolean;
   excelConfigured: boolean;
   reminders: ReminderDiagnostics;
@@ -32,7 +31,6 @@ export function formatVersionStatus(status: VersionStatus, now = new Date()): st
     `${bold("Checked")} ${h(now.toISOString())}`,
     "",
     `${bold("AI")} ${h(aiLine)}`,
-    `${bold("Gmail")} ${status.gmailConfigured ? "configured" : "not configured"}`,
     `${bold("Google Calendar")} ${status.calendarConfigured ? "configured" : "not configured"}`,
     `${bold("Microsoft Excel")} ${status.excelConfigured ? "configured" : "not configured"}`,
     "",

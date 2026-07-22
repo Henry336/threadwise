@@ -4,8 +4,6 @@ import type {
   AiProviderHealthCheck,
   AiProviderStatus,
   Classification,
-  EmailDigestSummary,
-  EmailForSummary,
   IdeaScore,
   MergedNotePreview,
   NoteAnalysis,
@@ -57,10 +55,6 @@ export class ResilientAiProvider implements AiProvider {
 
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     return this.withFallback("scoreIdea", () => this.primary.scoreIdea(input), () => this.fallback.scoreIdea(input));
-  }
-
-  async summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary> {
-    return this.withFallback("summarizeEmails", () => this.primary.summarizeEmails(emails), () => this.fallback.summarizeEmails(emails));
   }
 
   async embed(text: string): Promise<number[]> {

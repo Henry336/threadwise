@@ -80,7 +80,6 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
       id: true,
       updatedAt: true,
       settings: { select: { updatedAt: true } },
-      gmailConnection: { select: { updatedAt: true } },
       calendarConnection: { select: { updatedAt: true } },
       microsoftConnection: { select: { updatedAt: true } }
     }
@@ -98,7 +97,6 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
   return JSON.stringify([
     stamp(user.updatedAt),
     stamp(user.settings?.updatedAt),
-    stamp(user.gmailConnection?.updatedAt),
     stamp(user.calendarConnection?.updatedAt),
     stamp(user.microsoftConnection?.updatedAt),
     aggregateStamp(tasks),

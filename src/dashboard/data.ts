@@ -12,6 +12,9 @@ import { prisma } from "../db/prisma";
 import { nextRecurringDueAt, recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
+import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled } from "../services/excel";
+import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
 import { nextDueReminderAt } from "../services/reminders";
 import {
@@ -134,6 +137,9 @@ export type DashboardTask = {
   reminderIntervalMinutes?: number;
   nextReminderAt?: string;
   snoozedUntil?: string;
+  calendarEventId?: string;
+  calendarEventUrl?: string;
+  calendarSyncedAt?: string;
   assignees: Array<{
     id: string;
     telegramId?: string;
@@ -215,6 +221,8 @@ export type DashboardSettings = {
   expenseCurrency: string;
   ocrLanguages: string;
   directNudgesEnabled: boolean;
+  calendarAutoSync: boolean;
+  excelAutoSync: boolean;
 };
 
 export type DashboardPage<T> = {
@@ -254,6 +262,7 @@ function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
   snoozedUntil: Date | null;
+  calendarEventId?: string | null; calendarEventUrl?: string | null; calendarSyncedAt?: Date | null;
   assignees?: Array<{
     id: string; telegramId: string | null; username: string | null; displayName: string | null;
     status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED"; statusReason: string | null;
@@ -273,6 +282,9 @@ function taskView(task: {
     ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
     ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
     ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
+    ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
+    ...(task.calendarEventUrl ? { calendarEventUrl: task.calendarEventUrl } : {}),
+    ...(task.calendarSyncedAt ? { calendarSyncedAt: task.calendarSyncedAt.toISOString() } : {}),
     assignees: (task.assignees ?? []).map((assignee) => ({
       id: assignee.id,
       ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),
@@ -367,7 +379,9 @@ export function settingsView(settings: UserSettings): DashboardSettings {
     reminderMode: settings.reminderMode,
     expenseCurrency: settings.expenseCurrency,
     ocrLanguages: settings.ocrLanguages,
-    directNudgesEnabled: settings.directNudgesEnabled
+    directNudgesEnabled: settings.directNudgesEnabled,
+    calendarAutoSync: settings.calendarAutoSync,
+    excelAutoSync: settings.excelAutoSync
   };
 }
 
@@ -417,6 +431,12 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
   });
+  if (database === prisma) {
+    const outcome = await syncTaskCalendarBestEffort(user.id, task);
+    if (outcome === "synced" || outcome === "removed") {
+      return taskView(await scopedTask(database, user.id, task.id));
+    }
+  }
   return taskView(task);
 }
 
@@ -571,6 +591,13 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   } catch (error) {
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
+  }
+  if (database === prisma && (titleChanged || descriptionChanged || dueChanged)) {
+    const candidate = { ...updated, assignees: task.assignees ?? [] };
+    const outcome = await syncTaskCalendarBestEffort(user.id, candidate);
+    if (outcome === "synced" || outcome === "removed") {
+      return taskView(await scopedTask(database, user.id, task.id));
+    }
   }
   return taskView({ ...updated, assignees: task.assignees ?? [] });
 }
@@ -884,6 +911,10 @@ export async function createDashboardExpense(
       rawText: input.description ?? input.merchant ?? "Dashboard expense"
     }
   }));
+  if (database === prisma) {
+    await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
+    return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
+  }
   return expenseView(expense);
 }
 
@@ -1165,29 +1196,78 @@ export async function searchDashboard(
 
 export async function disconnectDashboardIntegration(
   telegramId: string,
-  provider: "gmail" | "calendar" | "excel",
+  provider: "calendar" | "excel",
   database: PrismaClient = prisma
 ): Promise<{ provider: string; disconnected: boolean }> {
   const user = await userContext(telegramId, database);
-  if (provider === "gmail") {
-    return database.$transaction(async (tx) => {
-      await tx.pendingGmailOAuth.deleteMany({ where: { userId: user.id } });
-      const result = await tx.gmailConnection.deleteMany({ where: { userId: user.id } });
-      return { provider, disconnected: result.count > 0 };
-    });
-  }
   if (provider === "calendar") {
     return database.$transaction(async (tx) => {
       await tx.pendingCalendarOAuth.deleteMany({ where: { userId: user.id } });
       const result = await tx.calendarConnection.deleteMany({ where: { userId: user.id } });
+      await tx.userSettings.updateMany({ where: { userId: user.id }, data: { calendarAutoSync: false } });
       return { provider, disconnected: result.count > 0 };
     });
   }
   return database.$transaction(async (tx) => {
     await tx.pendingMicrosoftOAuth.deleteMany({ where: { userId: user.id } });
     const result = await tx.microsoftConnection.deleteMany({ where: { userId: user.id } });
+    await tx.userSettings.updateMany({ where: { userId: user.id }, data: { excelAutoSync: false } });
     return { provider, disconnected: result.count > 0 };
   });
+}
+
+export async function createDashboardIntegrationConnectUrl(
+  telegramId: string,
+  provider: "calendar" | "excel",
+  options: { taskId?: string } = {},
+  database: PrismaClient = prisma
+): Promise<{ provider: "calendar" | "excel"; url: string }> {
+  const user = await userContext(telegramId, database);
+  if (database !== prisma) throw new DashboardValidationError("Connection links are available only from the live dashboard.");
+  const returnTo = new URL("/dashboard?view=settings&tab=connections", DASHBOARD_URL).toString();
+  const url = provider === "calendar"
+    ? await createCalendarConnectUrl(user.id, user.telegramId, { enableAutoSync: true, returnTo, taskId: options.taskId })
+    : await createMicrosoftConnectUrl(user.id, user.telegramId, { enableAutoSync: true, returnTo });
+  return { provider, url };
+}
+
+export async function syncDashboardCalendarTasks(
+  telegramId: string,
+  database: PrismaClient = prisma
+): Promise<{ provider: "calendar"; synced: number; failed: number }> {
+  const user = await userContext(telegramId, database);
+  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
+  const result = await syncEligibleTasksToGoogleCalendar(user.id);
+  return { provider: "calendar", ...result };
+}
+
+export async function updateDashboardTaskCalendar(
+  telegramId: string,
+  taskId: string,
+  action: "sync" | "remove",
+  database: PrismaClient = prisma
+): Promise<{ task: DashboardTask; action: "synced" | "removed" }> {
+  const user = await userContext(telegramId, database);
+  const task = await scopedTask(database, user.id, taskId);
+  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
+  if (action === "remove") {
+    await removeTaskFromGoogleCalendar(user.id, task);
+    return { task: taskView(await scopedTask(database, user.id, task.id)), action: "removed" };
+  }
+  if (!task.dueAt) throw new DashboardValidationError("Add a due date before syncing this task.");
+  const result = await syncTaskToGoogleCalendar(user.id, task);
+  if (!result) throw new DashboardValidationError("Connect Google Calendar first.");
+  return { task: taskView(await scopedTask(database, user.id, task.id)), action: "synced" };
+}
+
+export async function createDashboardExcelWorkbook(
+  telegramId: string,
+  database: PrismaClient = prisma
+): Promise<{ provider: "excel"; name: string; url?: string }> {
+  const user = await userContext(telegramId, database);
+  if (database !== prisma) throw new DashboardValidationError("Workbook setup is available only from the live dashboard.");
+  const workbook = await createExpenseWorkbook(user.id, user.settings.timezone);
+  return { provider: "excel", name: workbook.name ?? "Threadwise Expenses.xlsx", ...(workbook.webUrl ? { url: workbook.webUrl } : {}) };
 }
 
 export async function syncDashboardExcelExpenses(
@@ -1202,7 +1282,7 @@ export async function syncDashboardExcelExpenses(
 
 export async function exportDashboardData(telegramId: string, database: PrismaClient = prisma) {
   const user = await userContext(telegramId, database);
-  const [profile, tasks, notes, ideas, expenses, images, reflections, gmail, calendar, excel] = await Promise.all([
+  const [profile, tasks, notes, ideas, expenses, images, reflections, calendar, excel] = await Promise.all([
     database.user.findUniqueOrThrow({ where: { id: user.id }, select: { telegramId: true, username: true, firstName: true, lastName: true, createdAt: true, updatedAt: true } }),
     database.task.findMany({ where: { userId: user.id }, select: { publicId: true, title: true, description: true, status: true, dueAt: true, timezone: true, recurrenceRule: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
     database.note.findMany({ where: { userId: user.id }, select: { publicId: true, title: true, body: true, summary: true, tags: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
@@ -1210,7 +1290,6 @@ export async function exportDashboardData(telegramId: string, database: PrismaCl
     database.expense.findMany({ where: { userId: user.id }, select: { publicId: true, merchant: true, transactionAt: true, category: true, description: true, subtotal: true, tax: true, discount: true, total: true, currency: true, paymentMethod: true, sourceType: true, notes: true, excelSyncedAt: true, createdAt: true, updatedAt: true } }),
     database.storedImage.findMany({ where: { userId: user.id }, select: { publicId: true, mediaKind: true, mimeType: true, fileName: true, caption: true, ocrText: true, ocrConfidence: true, createdAt: true, updatedAt: true } }),
     database.reflection.findMany({ where: { userId: user.id }, select: { publicId: true, situation: true, balancedView: true, immediateAction: true, keepInMind: true, risks: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
-    database.gmailConnection.findUnique({ where: { userId: user.id }, select: { gmailEmail: true, scanEnabled: true, scanHourLocal: true, lastScanAt: true, createdAt: true } }),
     database.calendarConnection.findUnique({ where: { userId: user.id }, select: { calendarEmail: true, createdAt: true } }),
     database.microsoftConnection.findUnique({ where: { userId: user.id }, select: { microsoftEmail: true, workbookName: true, tableName: true, createdAt: true } })
   ]);
@@ -1226,7 +1305,6 @@ export async function exportDashboardData(telegramId: string, database: PrismaCl
     images,
     reflections,
     integrations: {
-      gmail: gmail ? { connected: true, ...gmail } : { connected: false },
       calendar: calendar ? { connected: true, ...calendar } : { connected: false },
       excel: excel ? { connected: true, ...excel } : { connected: false }
     }

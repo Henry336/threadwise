@@ -18,7 +18,6 @@ describe("dashboard live revision", () => {
           id: "user-1",
           updatedAt: new Date("2026-07-17T09:00:00.000Z"),
           settings: { updatedAt: new Date("2026-07-17T09:00:00.000Z") },
-          gmailConnection: null,
           calendarConnection: null,
           microsoftConnection: null
         }))

@@ -80,31 +80,6 @@ export type IdeaScore = {
   donts: string[];
 };
 
-export type EmailForSummary = {
-  messageId: string;
-  threadId?: string;
-  from: string;
-  subject: string;
-  snippet: string;
-  body: string;
-  receivedAt?: string;
-};
-
-export type EmailSummaryItem = {
-  messageId: string;
-  subject: string;
-  from: string;
-  summary: string;
-  important: boolean;
-  importanceReason?: string;
-  suggestedAction?: string;
-};
-
-export type EmailDigestSummary = {
-  overview: string;
-  items: EmailSummaryItem[];
-};
-
 export type AiProviderStatus = {
   provider: "openai" | "heuristic";
   apiKeyConfigured: boolean;
@@ -141,6 +116,5 @@ export interface AiProvider {
   mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt?: number): Promise<MergedNotePreview>;
   analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis>;
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore>;
-  summarizeEmails(emails: EmailForSummary[]): Promise<EmailDigestSummary>;
   embed(text: string): Promise<number[]>;
 }

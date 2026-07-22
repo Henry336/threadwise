@@ -36,9 +36,9 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      - key: GOOGLE_REDIRECT_URI
+      - key: GOOGLE_CALENDAR_REDIRECT_URI
         sync: false
-      - key: GMAIL_TOKEN_ENCRYPTION_KEY
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
         sync: false
       - key: MICROSOFT_CLIENT_ID
         sync: false
@@ -48,12 +48,6 @@ services:
         sync: false
       - key: MICROSOFT_TOKEN_ENCRYPTION_KEY
         sync: false
-      - key: GMAIL_SCAN_POLL_MS
-        value: "900000"
-      - key: GMAIL_DAILY_SCAN_HOUR
-        value: "8"
-      - key: GMAIL_MAX_UNREAD_PER_SCAN
-        value: "10"
       - key: DEFAULT_TIMEZONE
         value: Asia/Singapore
       - key: DEFAULT_REMINDER_INTERVAL_MINUTES

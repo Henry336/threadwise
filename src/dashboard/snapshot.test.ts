@@ -45,11 +45,12 @@ describe("dashboard snapshot", () => {
         reminderMode: "INDIVIDUAL",
         expenseCurrency: "SGD",
         ocrLanguages: "eng",
-        directNudgesEnabled: false
+        directNudgesEnabled: false,
+        calendarAutoSync: true,
+        excelAutoSync: true
       },
-      gmailConnection: { scanEnabled: true, lastScanAt: new Date("2026-07-16T09:42:00.000Z") },
-      calendarConnection: { createdAt: new Date("2026-07-01T00:00:00.000Z") },
-      microsoftConnection: { workbookName: "Expenses.xlsx", createdAt: new Date("2026-07-01T00:00:00.000Z") }
+      calendarConnection: { calendarEmail: "henry@example.com", createdAt: new Date("2026-07-01T00:00:00.000Z") },
+      microsoftConnection: { microsoftEmail: "henry@example.com", workbookName: "Expenses.xlsx", workbookWebUrl: "https://example.com/expenses", createdAt: new Date("2026-07-01T00:00:00.000Z") }
     });
     mocks.taskFindMany
       .mockResolvedValueOnce([
@@ -129,9 +130,8 @@ describe("dashboard snapshot", () => {
     expect(snapshot.activity.reduce((total, day) => total + day.captures, 0)).toBe(5);
     expect(snapshot.activity.reduce((total, day) => total + day.completed, 0)).toBe(1);
     expect(snapshot.integrations).toEqual([
-      { name: "Gmail", state: "connected", detail: "Scanned 18 min ago" },
-      { name: "Calendar", state: "connected", detail: "Calendar connected" },
-      { name: "Excel", state: "connected", detail: "Workbook connected" }
+      { provider: "calendar", name: "Calendar", state: "connected", detail: "0 dated tasks synced", accountEmail: "henry@example.com", autoSync: true, syncedCount: 0, unsyncedCount: 1 },
+      { provider: "excel", name: "Excel", state: "connected", detail: "Expenses.xlsx", accountEmail: "henry@example.com", autoSync: true, syncedCount: 0, unsyncedCount: 1, workbookName: "Expenses.xlsx", workbookUrl: "https://example.com/expenses" }
     ]);
 
     expect(mocks.userFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { telegramId: "123456789" } }));

@@ -36,7 +36,9 @@ describe("dashboard API routes", () => {
       reminderMode: "INDIVIDUAL",
       expenseCurrency: "SGD",
       ocrLanguages: "eng",
-      directNudgesEnabled: false
+      directNudgesEnabled: false,
+      calendarAutoSync: false,
+      excelAutoSync: false
     },
     activity: [],
     integrations: []
@@ -193,6 +195,24 @@ describe("dashboard API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ provider: "excel", synced: 4 });
     expect(syncExcelExpenses).toHaveBeenCalledWith("123456789");
+    await server.close();
+  });
+
+  it("starts Calendar OAuth for the signed owner and preserves the selected task", async () => {
+    const server = Fastify();
+    const connectIntegration = vi.fn(async () => ({ provider: "calendar" as const, url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe" }));
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { connectIntegration } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/integrations/calendar/connect",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: { taskId: "task-1" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ provider: "calendar", url: expect.stringContaining("accounts.google.com") });
+    expect(connectIntegration).toHaveBeenCalledWith("123456789", "calendar", { taskId: "task-1" });
     await server.close();
   });
 

@@ -54,19 +54,18 @@ import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "..
 import { undoLastAction } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
-import { createGmailConnectUrl, disconnectGmail, formatGmailStatus, gmailConfigured, scanGmailNow } from "../services/gmail";
-import { calendarConfigured, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
+import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
 import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
 import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
@@ -128,7 +127,6 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, true));
   bot.command("googlecal", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, false));
-  bot.command("gmail", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Gmail") : handleGmail(ctx, ai));
   bot.command("expense", async (ctx) => handleExpense(ctx));
   bot.command("expenses", async (ctx) => handleExpenses(ctx));
   bot.command("excel", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Excel") : handleExcel(ctx));
@@ -843,7 +841,12 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
   const action = id.toLowerCase();
 
   if (command === "calendar" && (!id || action === "status")) {
-    await replyHtml(ctx, await formatCalendarStatus(user.id));
+    const status = await calendarConnectionStatus(user.id);
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const connectUrl = !status.connected && calendarConfigured()
+      ? await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true })
+      : undefined;
+    await replyHtml(ctx, await formatCalendarStatus(user.id), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
     return;
   }
 
@@ -853,8 +856,10 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
       return;
     }
     const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createCalendarConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [bold("Connect Google Calendar"), "Open this Google OAuth link and approve Calendar event access.", "", h(url)].join("\n"));
+    const url = await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true });
+    await replyHtml(ctx, `${bold("📅 Google Calendar")}\nConnect once. Dated tasks can then stay in sync automatically.`, {
+      reply_markup: calendarSettingsKeyboard({ connected: false, autoSync: false }, url)
+    });
     return;
   }
 
@@ -874,41 +879,6 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
     timezone: user.settings?.timezone,
     includeIcs
   });
-}
-
-async function handleGmail(ctx: Context, ai: AiProvider) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "gmail").toLowerCase();
-
-  if (!body || body === "status") {
-    await replyHtml(ctx, await formatGmailStatus(user.id));
-    return;
-  }
-
-  if (body === "connect") {
-    if (!gmailConfigured()) {
-      await ctx.reply("Gmail is not configured on the server yet. Add Google OAuth env vars first.");
-      return;
-    }
-
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createGmailConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [`${bold("Connect Gmail")}`, "Open this Google OAuth link, approve Gmail read-only access, then return here.", "", h(url)].join("\n"));
-    return;
-  }
-
-  if (body === "scan") {
-    const result = await scanGmailNow(user.id, ai);
-    await replyHtml(ctx, result.message);
-    return;
-  }
-
-  if (body === "disconnect") {
-    await replyHtml(ctx, await disconnectGmail(user.id));
-    return;
-  }
-
-  await ctx.reply("Try /gmail, /gmail connect, /gmail scan, or /gmail disconnect.");
 }
 
 async function handleStart(ctx: Context) {
@@ -1007,7 +977,12 @@ async function handleExcel(ctx: Context) {
   const body = commandBody(ctx.message?.text ?? "", "excel").trim();
   const lower = body.toLowerCase();
   if (!body || lower === "status") {
-    await replyHtml(ctx, await formatExcelStatus(user.id));
+    const status = await excelConnectionStatus(user.id);
+    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+    const connectUrl = !status.connected && microsoftExcelConfigured()
+      ? await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true })
+      : undefined;
+    await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status, connectUrl) });
     return;
   }
   if (lower === "connect") {
@@ -1016,8 +991,10 @@ async function handleExcel(ctx: Context) {
       return;
     }
     const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createMicrosoftConnectUrl(user.id, chatId);
-    await replyHtml(ctx, [bold("Connect Microsoft Excel"), "Open this Microsoft link and approve access to files you can already use.", "", h(url)].join("\n"));
+    const url = await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true });
+    await replyHtml(ctx, `${bold("📊 Microsoft Excel")}\nConnect once. Threadwise will prepare your expense workbook and import existing expenses.`, {
+      reply_markup: excelSettingsKeyboard({ connected: false, autoSync: false, workbookReady: false }, url)
+    });
     return;
   }
   if (lower === "create" || lower === "setup" || lower === "set up") {
@@ -1056,13 +1033,12 @@ async function handleExcel(ctx: Context) {
     await replyHtml(ctx, await disconnectMicrosoft(user.id));
     return;
   }
-  await ctx.reply("Try /excel, /excel connect, /excel create, /excel sync, /excel export, /excel use <OneDrive link>, or /excel disconnect.");
+  await ctx.reply("Open /excel and use the buttons, or tell me what you want to do in plain language.");
 }
 
 async function handleVersion(ctx: Context, ai: AiProvider) {
   await replyHtml(ctx, formatVersionStatus({
     ai: ai.getStatus(),
-    gmailConfigured: gmailConfigured(),
     calendarConfigured: calendarConfigured(),
     excelConfigured: microsoftExcelConfigured(),
     reminders: getReminderDiagnostics()

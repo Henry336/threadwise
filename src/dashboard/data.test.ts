@@ -383,16 +383,17 @@ describe("dashboard data security", () => {
     const pendingDelete = vi.fn(async () => ({ count: 1 }));
     const connectionDelete = vi.fn(async () => ({ count: 1 }));
     const tx = {
-      pendingGmailOAuth: { deleteMany: pendingDelete },
-      gmailConnection: { deleteMany: connectionDelete }
+      pendingCalendarOAuth: { deleteMany: pendingDelete },
+      calendarConnection: { deleteMany: connectionDelete },
+      userSettings: { updateMany: vi.fn(async () => ({ count: 1 })) }
     };
     const database = {
       user: { findUnique: userFindUnique() },
       $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => work(tx))
     } as unknown as PrismaClient;
 
-    await expect(disconnectDashboardIntegration("123456789", "gmail", database)).resolves.toEqual({
-      provider: "gmail",
+    await expect(disconnectDashboardIntegration("123456789", "calendar", database)).resolves.toEqual({
+      provider: "calendar",
       disconnected: true
     });
     expect(pendingDelete).toHaveBeenCalledWith({ where: { userId: "user-1" } });
@@ -459,7 +460,6 @@ describe("dashboard data security", () => {
   });
 
   it("exports user content with explicit selects that omit provider credentials and Telegram file references", async () => {
-    const gmailFind = vi.fn(async (_query: unknown) => null);
     const calendarFind = vi.fn(async (_query: unknown) => null);
     const microsoftFind = vi.fn(async (_query: unknown) => null);
     const userSafeFind = vi.fn(async (_query: unknown) => ({
@@ -475,14 +475,12 @@ describe("dashboard data security", () => {
       expense: { findMany: emptyFind },
       storedImage: { findMany: emptyFind },
       reflection: { findMany: emptyFind },
-      gmailConnection: { findUnique: gmailFind },
       calendarConnection: { findUnique: calendarFind },
       microsoftConnection: { findUnique: microsoftFind }
     } as unknown as PrismaClient;
 
     const exported = await exportDashboardData("123456789", database);
     const queryText = JSON.stringify({
-      gmail: gmailFind.mock.calls[0]?.[0],
       calendar: calendarFind.mock.calls[0]?.[0],
       microsoft: microsoftFind.mock.calls[0]?.[0],
       image: emptyFind.mock.calls.find((call) => JSON.stringify(call[0]).includes("mediaKind"))?.[0]

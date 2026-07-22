@@ -1,4 +1,4 @@
-import type { Bot, Context } from "grammy";
+import { InputFile, type Bot, type Context } from "grammy";
 import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
@@ -16,9 +16,11 @@ import { undoLastAction } from "../services/undo";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
-import { syncExpenseToExcel } from "../services/excel";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, microsoftExcelConfigured, syncExpenseToExcel, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
+import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
+import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, editCancelKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -41,6 +43,8 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2], ctx.match[1] === "full"));
+  bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2], ctx.match[1] === "remove"));
   bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
@@ -113,6 +117,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     await editOrReplyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`, { reply_markup: menuBackKeyboard() });
   });
   bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]));
+  bot.callbackQuery(/^integration:(calendar|excel):(.+)$/, async (ctx) => handleIntegrationAction(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
 }
 
@@ -311,18 +316,18 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "integrations") {
     if (group) {
-      await editOrReplyHtml(ctx, `${bold("🔌 Personal integrations stay private")}\nGmail, Calendar, and Excel connections belong to individual accounts and are not shared with a group workspace.`, { reply_markup: menuBackKeyboard("‹ Group settings", "menu:settings") });
+      await editOrReplyHtml(ctx, `${bold("🔌 Personal integrations stay private")}\nCalendar and Excel connections are managed in your private Threadwise chat.`, { reply_markup: menuBackKeyboard("‹ Group settings", "menu:settings") });
       return;
     }
-    await editOrReplyHtml(ctx, `${bold("🔌 Integrations")}\nChoose a service for its setup and status commands.`, { reply_markup: integrationsSettingsKeyboard() });
+    await editOrReplyHtml(ctx, `${bold("🔌 Connections")}\nCalendar for dated tasks. Excel for expenses.`, { reply_markup: integrationsSettingsKeyboard() });
     return;
   }
   if (action === "calendar-settings") {
-    await editOrReplyHtml(ctx, `${bold("📅 Google Calendar")}\n${code("/calendar")} status · ${code("/calendar connect")} connect\nUse ${code("/calendar 1")} to sync a dated task.`, { reply_markup: menuBackKeyboard("‹ Integrations", "menu:integrations") });
+    await showCalendarPanel(ctx, user.id, user.telegramId);
     return;
   }
-  if (action === "gmail-settings") {
-    await editOrReplyHtml(ctx, `${bold("✉️ Gmail")}\n${code("/gmail")} status · ${code("/gmail connect")} connect\nUse ${code("/gmail scan")} to check unread mail.`, { reply_markup: menuBackKeyboard("‹ Integrations", "menu:integrations") });
+  if (action === "excel" || action === "excel-settings") {
+    await showExcelPanel(ctx, user.id, user.telegramId);
     return;
   }
   if (action === "privacy") {
@@ -383,7 +388,6 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     "notes-help": "notes",
     "ideas-help": "ideas",
     "images-help": "images",
-    excel: "excel",
     commands: "commands"
   };
   const topic = topics[action];
@@ -507,6 +511,9 @@ async function handleExpenseAction(ctx: Context, action: string | undefined, pen
       } catch (error) {
         syncMessage = `\nExcel: not synced. ${userFacingError(error, "You can retry the sync from Expenses.")}`;
       }
+    } else {
+      const outcome = await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings?.timezone ?? "UTC");
+      if (outcome === "synced") syncMessage = "\nExcel: synced automatically";
     }
     await editOrReplyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`, { reply_markup: menuBackKeyboard() });
   } catch (error) {
@@ -638,11 +645,194 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
   }
 }
 
+async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
+  if (!taskId) return;
+  if (isGroupChat(ctx)) {
+    await ctx.answerCallbackQuery({ text: "Calendar connections are private.", show_alert: true });
+    return;
+  }
+  const user = await ensureUser(ctx);
+  try {
+    let task = await findTaskReference(user.id, taskId);
+    if (!task.dueAt) {
+      await ctx.answerCallbackQuery({ text: "Add a due date first.", show_alert: true });
+      return;
+    }
+    const status = await calendarConnectionStatus(user.id);
+    if (!status.connected) {
+      if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
+      const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
+      const connectUrl = await createCalendarConnectUrl(user.id, chatId, { taskId: task.id });
+      await ctx.answerCallbackQuery({ text: "Connect Calendar once" });
+      await editOrReplyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\nConnect once; this reminder will be added automatically after approval.`, {
+        reply_markup: calendarTaskKeyboard(task, connectUrl)
+      });
+      return;
+    }
+    if (!task.calendarEventId) {
+      const synced = await syncTaskToGoogleCalendar(user.id, task);
+      if (!synced) throw new Error("Reconnect Google Calendar and try again.");
+      task = await findTaskReference(user.id, task.id);
+      await ctx.answerCallbackQuery({ text: "Added to Calendar" });
+    } else {
+      await ctx.answerCallbackQuery({ text: "Calendar event" });
+    }
+    await editOrReplyHtml(ctx, `${bold("📅 In Google Calendar")}\n${h(task.title)}\nEdits to this dated task update the same event.`, {
+      reply_markup: calendarTaskKeyboard(task)
+    });
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: userFacingError(error, "Calendar could not be updated.").slice(0, 180), show_alert: true });
+  }
+}
+
+async function handleIntegrationAction(ctx: Context, provider: string | undefined, action: string | undefined) {
+  if (!provider || !action) return;
+  if (isGroupChat(ctx)) {
+    await ctx.answerCallbackQuery({ text: "Personal connections are available in private chat.", show_alert: true });
+    return;
+  }
+  const user = await ensureUser(ctx);
+  try {
+    if (provider === "calendar") {
+      if (action === "sync-all") {
+        await ctx.answerCallbackQuery({ text: "Syncing dated tasks…" });
+        const result = await syncEligibleTasksToGoogleCalendar(user.id);
+        await showCalendarPanel(ctx, user.id, user.telegramId, `${result.synced} task${result.synced === 1 ? "" : "s"} synced${result.failed ? `; ${result.failed} need another try` : ""}.`);
+        return;
+      }
+      if (action === "toggle-auto") {
+        const status = await calendarConnectionStatus(user.id);
+        await prisma.userSettings.update({ where: { userId: user.id }, data: { calendarAutoSync: !status.autoSync } });
+        await ctx.answerCallbackQuery({ text: `Automatic sync ${status.autoSync ? "off" : "on"}` });
+        await showCalendarPanel(ctx, user.id, user.telegramId);
+        return;
+      }
+      if (action === "disconnect-confirm") {
+        await ctx.answerCallbackQuery();
+        await editOrReplyHtml(ctx, `${bold("Disconnect Google Calendar?")}\nExisting events will stay in Google Calendar.`, { reply_markup: disconnectIntegrationKeyboard("calendar") });
+        return;
+      }
+      if (action === "disconnect") {
+        await disconnectCalendar(user.id);
+        await ctx.answerCallbackQuery({ text: "Calendar disconnected" });
+        await showCalendarPanel(ctx, user.id, user.telegramId);
+        return;
+      }
+      const taskAction = action.match(/^(sync|remove):(.+)$/);
+      if (taskAction?.[1] && taskAction[2]) {
+        let task = await findTaskReference(user.id, taskAction[2]);
+        if (taskAction[1] === "remove") {
+          await removeTaskFromGoogleCalendar(user.id, task);
+          task = await findTaskReference(user.id, task.id);
+          await ctx.answerCallbackQuery({ text: "Removed from Calendar" });
+          await editOrReplyHtml(ctx, `${bold("📅 Removed from Google Calendar")}\n${h(task.title)}\nThe Threadwise task is unchanged.`, { reply_markup: calendarTaskKeyboard(task) });
+          return;
+        }
+        const synced = await syncTaskToGoogleCalendar(user.id, task);
+        if (!synced) throw new Error("Connect Google Calendar first.");
+        task = await findTaskReference(user.id, task.id);
+        await ctx.answerCallbackQuery({ text: synced.created ? "Added to Calendar" : "Calendar updated" });
+        await editOrReplyHtml(ctx, `${bold("📅 Calendar updated")}\n${h(task.title)}`, { reply_markup: calendarTaskKeyboard(task) });
+        return;
+      }
+    }
+
+    if (provider === "excel") {
+      if (action === "create") {
+        await ctx.answerCallbackQuery({ text: "Preparing workbook…" });
+        await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
+        await showExcelPanel(ctx, user.id, user.telegramId, "Workbook ready. Existing expenses were imported.");
+        return;
+      }
+      if (action === "sync") {
+        await ctx.answerCallbackQuery({ text: "Syncing expenses…" });
+        const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
+        await showExcelPanel(ctx, user.id, user.telegramId, count ? `${count} expense${count === 1 ? "" : "s"} synced.` : "Everything is already synced.");
+        return;
+      }
+      if (action === "toggle-auto") {
+        const status = await excelConnectionStatus(user.id);
+        await prisma.userSettings.update({ where: { userId: user.id }, data: { excelAutoSync: !status.autoSync } });
+        await ctx.answerCallbackQuery({ text: `Automatic sync ${status.autoSync ? "off" : "on"}` });
+        await showExcelPanel(ctx, user.id, user.telegramId);
+        return;
+      }
+      if (action === "export") {
+        await ctx.answerCallbackQuery({ text: "Preparing download…" });
+        const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
+        await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
+        return;
+      }
+      if (action === "disconnect-confirm") {
+        await ctx.answerCallbackQuery();
+        await editOrReplyHtml(ctx, `${bold("Disconnect Microsoft Excel?")}\nThe OneDrive workbook and Threadwise expenses will stay unchanged.`, { reply_markup: disconnectIntegrationKeyboard("excel") });
+        return;
+      }
+      if (action === "disconnect") {
+        await disconnectMicrosoft(user.id);
+        await ctx.answerCallbackQuery({ text: "Excel disconnected" });
+        await showExcelPanel(ctx, user.id, user.telegramId);
+        return;
+      }
+    }
+    await ctx.answerCallbackQuery({ text: "That connection action is no longer available." });
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: userFacingError(error, "The connection could not be updated.").slice(0, 180), show_alert: true });
+  }
+}
+
+async function showCalendarPanel(ctx: Context, userId: string, chatId: string, notice?: string) {
+  const status = await calendarConnectionStatus(userId);
+  const connectUrl = !status.connected && calendarConfigured()
+    ? await createCalendarConnectUrl(userId, chatId, { enableAutoSync: true })
+    : undefined;
+  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatCalendarStatus(userId)].filter(Boolean).join("\n\n"), {
+    reply_markup: calendarSettingsKeyboard(status, connectUrl)
+  });
+}
+
+async function showExcelPanel(ctx: Context, userId: string, chatId: string, notice?: string) {
+  const status = await excelConnectionStatus(userId);
+  const connectUrl = !status.connected && microsoftExcelConfigured()
+    ? await createMicrosoftConnectUrl(userId, chatId, { enableAutoSync: true })
+    : undefined;
+  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatExcelStatus(userId)].filter(Boolean).join("\n\n"), {
+    reply_markup: excelSettingsKeyboard(status, connectUrl)
+  });
+}
+
 async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const user = await ensureUser(ctx);
+  const task = await findTaskReference(user.id, taskId);
+  if (!isGroupChat(ctx) && task.calendarEventId) {
+    await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
+    await editOrReplyHtml(ctx, `${bold("Cancel this task?")}\n${h(task.title)}\nIt also has a Google Calendar event.`, { reply_markup: taskCancelCalendarKeyboard(task.id) });
+    return;
+  }
   await cancelTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Canceled task" });
+  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
+    label: "↩️ Undo cancel",
+    callbackData: "undo:last"
+  });
+}
+
+async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefined, removeEvent: boolean) {
+  if (!taskId) return;
+  const user = await ensureUser(ctx);
+  const task = await findTaskReference(user.id, taskId);
+  await cancelTask(user.id, taskId);
+  let eventRemoved = false;
+  if (removeEvent && task.calendarEventId) {
+    try {
+      await removeTaskFromGoogleCalendar(user.id, task);
+      eventRemoved = true;
+    } catch {
+      // The Threadwise cancellation remains valid even if Google is temporarily unavailable.
+    }
+  }
+  await ctx.answerCallbackQuery({ text: eventRemoved ? "Task and event canceled" : "Task canceled" });
   await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
     label: "↩️ Undo cancel",
     callbackData: "undo:last"

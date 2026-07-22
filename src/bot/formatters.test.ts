@@ -182,19 +182,22 @@ describe("bot formatters", () => {
     const unpinned = taskActionsKeyboard(task({ id: "task-uuid-1" }));
     const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
 
-    expect(unpinned.inline_keyboard[1]?.[0]).toEqual({
+    const unpinnedButtons = unpinned.inline_keyboard.flat();
+    const pinnedButtons = pinned.inline_keyboard.flat();
+
+    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:pin:task-uuid-1")).toEqual({
       text: "⭐ Star",
       callback_data: "item:task:pin:task-uuid-1"
     });
-    expect(unpinned.inline_keyboard[1]?.[1]).toEqual({
+    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:title:task-uuid-1")).toEqual({
       text: "✏️ Title",
       callback_data: "item:task:edit:title:task-uuid-1"
     });
-    expect(unpinned.inline_keyboard[1]?.[2]).toEqual({
+    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:description:task-uuid-1")).toEqual({
       text: "📝 Details",
       callback_data: "item:task:edit:description:task-uuid-1"
     });
-    expect(pinned.inline_keyboard[1]?.[0]).toEqual({
+    expect(pinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:unpin:task-uuid-1")).toEqual({
       text: "☆ Unstar",
       callback_data: "item:task:unpin:task-uuid-1"
     });
@@ -267,6 +270,16 @@ describe("bot formatters", () => {
       text: "1",
       callback_data: "item:note:open:NOTE-1:1"
     });
+  });
+
+  it("shows a contextual Calendar action only for dated private tasks", () => {
+    const dated = taskActionsKeyboard(task({ id: "task-uuid-1", dueAt: new Date("2026-07-23T08:00:00.000Z") }));
+    const linked = taskActionsKeyboard(task({ id: "task-uuid-2", dueAt: new Date("2026-07-23T08:00:00.000Z"), calendarEventId: "event-1" }));
+    const shared = taskActionsKeyboard(task({ id: "task-uuid-3", dueAt: new Date("2026-07-23T08:00:00.000Z") }), true, true);
+
+    expect(dated.inline_keyboard.flat()).toContainEqual({ text: "📅 Calendar", callback_data: "task:calendar:task-uuid-1" });
+    expect(linked.inline_keyboard.flat()).toContainEqual({ text: "✓ Calendar", callback_data: "task:calendar:task-uuid-2" });
+    expect(shared.inline_keyboard.flat().some((button) => "callback_data" in button && button.callback_data.startsWith("task:calendar:"))).toBe(false);
   });
 
   it("falls back to a row UUID for already-generated item buttons", () => {
@@ -503,6 +516,9 @@ function task(overrides: Partial<TaskListItem>): TaskListItem {
     dueAt: overrides.dueAt ?? null,
     timezone: overrides.timezone ?? "Asia/Singapore",
     calendarUrl: overrides.calendarUrl ?? null,
+    calendarEventId: overrides.calendarEventId ?? null,
+    calendarEventUrl: overrides.calendarEventUrl ?? null,
+    calendarSyncedAt: overrides.calendarSyncedAt ?? null,
     reminderIntervalMinutes: overrides.reminderIntervalMinutes ?? 180,
     nextReminderAt: overrides.nextReminderAt ?? null,
     snoozedUntil: overrides.snoozedUntil ?? null,
