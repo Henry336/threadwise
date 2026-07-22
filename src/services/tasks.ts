@@ -545,6 +545,31 @@ export function formatTaskCreated(
   ]);
 }
 
+export function formatTaskSavedAcknowledgement(
+  task: {
+    title: string;
+    dueAt?: Date | null;
+    timezone?: string | null;
+    assignedUsername?: string | null;
+    assignedDisplayName?: string | null;
+    assignees?: TaskAssigneeInfo[];
+    recurrenceRule?: RecurrenceRule | null;
+  },
+  fallbackTimezone = "UTC"
+): string {
+  const timezone = task.timezone ?? fallbackTimezone;
+  const interpretation = [
+    task.dueAt ? field("When", formatDateTimeForUser(task.dueAt, timezone)) : undefined,
+    task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
+    hasAssignees(task) ? fieldHtml("For", formatAssigneeHtml(task)) : undefined
+  ].filter(Boolean).join("\n");
+
+  return joinBlocks([
+    `${bold("Saved")} · ${h(task.title)}`,
+    interpretation || undefined
+  ]);
+}
+
 export function formatTaskCompleted(task: { publicId: string; title: string; status: TaskStatus; recurrenceRule?: RecurrenceRule | null; dueAt?: Date | null; timezone?: string | null }, fallbackTimezone = "UTC"): string {
   if (task.recurrenceRule && task.status === TaskStatus.OPEN && task.dueAt) {
     return joinBlocks([

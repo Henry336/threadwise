@@ -73,6 +73,36 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 ## Contemporary decisions
 
+### 22 July 2026 — Focus, quiet capture, and the Ari identity
+
+**Friction discovered:**
+
+- Threadwise had accumulated capable but equally prominent features. Expenses and Excel weakened the product story because they did not reinforce the strongest Telegram-native behavior as clearly as capture, coordination, and recall.
+- A user described note capture as something that should feel closer to a terminal: after every saved message, a second full response pushed the actual notes upward and made Threadwise feel like a chatbot commenting on the work.
+- Removing all confirmation would be unsafe for interpreted inputs. Dates, recurrence, time zones, and group assignees still need to be visible long enough for someone to catch a parsing mistake.
+- The previous dark circular compass avatar felt detached from the light dashboard and did not provide a flexible, memorable identity across serious product surfaces and warmer human moments.
+
+**Decision:**
+
+- Define Threadwise through three pillars: **Capture, Coordinate, Recall**.
+- Use one positioning sentence everywhere: “Threadwise turns Telegram messages into things people can find, remember, and finish.”
+- Make Tasks, Notes, searchable Images, Search, and group coordination the core. Keep Ideas, Calendar, the dashboard, and future Intelligence core-adjacent.
+- Freeze Expenses and Excel: remove them from active user-facing navigation and discovery without deleting code, schema, or user data.
+- Make routine successful capture quiet. Show a compact acknowledgement, preserve important interpretations, then remove only that acknowledgement after roughly three seconds.
+- Use a two-part identity: a faceless threaded-path product mark for navigation and system chrome, plus Ari—a related friendly thread character—for onboarding, empty states, and recoverable failures.
+
+**Implemented:**
+
+- Private and group menus, help topics, settings, image choices, public product copy, dashboard navigation, command palette, search results, Today, and provider management now follow the focused hierarchy.
+- Legacy expense and Excel services, routes, schema, and data remain intact but no active interface advertises or links to them.
+- Task, note, and idea creation paths across commands, natural language, callback capture, and OCR now use one self-cleaning acknowledgement helper. Callback saves edit and retire the current capture card instead of creating another message.
+- Task acknowledgements show only the interpreted due time, recurrence, and assignee fields when present. Error messages, warnings, details, menus, and action keyboards still use persistent reply/edit helpers.
+- The dashboard now ships an adaptive faceless mark, Ari light and dark avatars, a full Ari illustration, an app favicon, and a 512×512 Telegram avatar derived from deterministic SVG source.
+
+**Outcome/evidence:** Direct timer/callback tests cover message cleanup; formatter assertions protect parsed dates, recurrence, time zones, and assignees; and navigation/copy assertions prevent frozen features from resurfacing. The final release gate passed all 520 backend tests in one worker, backend typechecking and production build, dashboard lint, all six dashboard contract tests, and the dashboard production build. Chromium checks covered the landing page, authenticated Today and Settings views, and 390 px mobile layout with no application console errors.
+
+**Follow-up:** Validate whether capture feels quiet enough in real private and group chats. If 3.5 seconds is too short for date checking, adjust the single acknowledgement TTL rather than reintroducing full cards. Build **Find a time** separately as the next focused Coordinate capability; monetization and Threadwise Intelligence remain later phases.
+
 ### 22 July 2026 — Calendar and Excel integration lifecycle revamp
 
 **Friction discovered:**

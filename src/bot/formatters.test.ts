@@ -4,9 +4,9 @@ import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters
 import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
-import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated } from "../services/tasks";
-import { formatNoteDetail, formatRecentNotes } from "../services/notes";
-import { formatIdeaDetail, formatRecentIdeas } from "../services/ideas";
+import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, formatTaskSavedAcknowledgement } from "../services/tasks";
+import { formatNoteDetail, formatNoteSavedAcknowledgement, formatRecentNotes } from "../services/notes";
+import { formatIdeaDetail, formatIdeaSavedAcknowledgement, formatRecentIdeas } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
 
 describe("bot formatters", () => {
@@ -115,6 +115,24 @@ describe("bot formatters", () => {
     expect(message).toContain("This occurrence is done");
     expect(message).toContain("<b>Next Occurrence:</b>");
     expect(message).toContain("<b>Repeats:</b> Daily");
+  });
+
+  it("keeps quiet acknowledgements short while preserving important interpretations", () => {
+    const taskMessage = formatTaskSavedAcknowledgement({
+      title: "Prepare a gift",
+      dueAt: new Date("2026-07-06T18:44:35.000Z"),
+      timezone: "Asia/Singapore",
+      assignedUsername: "henry_derek",
+      recurrenceRule: RecurrenceRule.DAILY
+    }, "Asia/Singapore");
+
+    expect(taskMessage).toContain("<b>Saved</b> · Prepare a gift");
+    expect(taskMessage).toContain("<b>When:</b>");
+    expect(taskMessage).toContain("<b>Repeats:</b> Daily");
+    expect(taskMessage).toContain("<b>For:</b> @henry_derek");
+    expect(taskMessage).not.toContain("Task ID");
+    expect(formatNoteSavedAcknowledgement({ title: "Launch notes" })).toBe("<b>Note saved</b> · Launch notes");
+    expect(formatIdeaSavedAcknowledgement({ title: "Quiet capture" })).toBe("<b>Idea saved</b> · Quiet capture");
   });
 
   it("formats an already-completed task as a restore prompt", () => {
@@ -417,13 +435,13 @@ describe("bot formatters", () => {
   it("shows natural-language capability help without pagination", () => {
     const message = formatHelpPage(1);
 
-    expect(message).toContain("<b>❓ Threadwise help</b>");
-    expect(message).toContain("<b>⏰ Reminders And Tasks</b>");
-    expect(message).toContain("<code>/help reminders</code>");
-    expect(message).toContain("<b>⚙️ Settings</b>");
-    expect(message).toContain("<b>🖼️ Images And OCR</b>");
-    expect(message).toContain("<b>💰 Expenses</b>");
-    expect(message).toContain("<b>📊 Excel</b>");
+    expect(message).toContain("<b>Threadwise help</b>");
+    expect(message).toContain("<b>Capture</b>");
+    expect(message).toContain("<b>Coordinate</b>");
+    expect(message).toContain("<b>Recall</b>");
+    expect(message).toContain("things people can find, remember, and finish");
+    expect(message).not.toContain("Expenses");
+    expect(message).not.toContain("Excel");
     expect(message).toContain("<code>/commands</code>");
     expect(message).not.toContain("Page 1/");
     expect(message.length).toBeLessThan(4_096);
@@ -455,9 +473,9 @@ describe("bot formatters", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/googlecal");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expense");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/expenses");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/excel");
+    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expense");
+    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expenses");
+    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/excel");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/images");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/image");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
@@ -479,11 +497,11 @@ describe("bot formatters", () => {
         { text: "🔎 Extract text", callback_data: "image-upload:extract:pending-1" },
         { text: "✅ Save + extract", callback_data: "image-upload:save-extract:pending-1" }
       ],
-      [
-        { text: "🧾 Read as receipt", callback_data: "image-upload:expense:pending-1" },
-        { text: "✕ Discard", callback_data: "image-upload:discard:pending-1" }
-      ]
+      [{ text: "✕ Discard", callback_data: "image-upload:discard:pending-1" }]
     ]);
+    expect(startMenuKeyboard().inline_keyboard.flat()).not.toContainEqual({ text: "💰 Expenses", callback_data: "menu:expenses" });
+    expect(regionSettingsKeyboard().inline_keyboard.flat().some((button) => button.text.includes("Currency"))).toBe(false);
+    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📅 Google Calendar", callback_data: "menu:calendar-settings" });
   });
 
   it("provides a persistent private-chat menu beneath the composer", () => {
@@ -498,7 +516,7 @@ describe("bot formatters", () => {
   it("keeps the start shortcut confirmation compact", () => {
     const message = formatStartShortcutText();
 
-    expect(message).toBe("☰ Menu and 🌐 Dashboard are pinned below.");
+    expect(message).toBe("Menu and Dashboard stay within reach below.");
     expect(message).not.toContain("Welcome to Threadwise");
     expect(message.length).toBeLessThan(80);
   });

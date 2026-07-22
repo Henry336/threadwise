@@ -4,16 +4,16 @@ import { classifyMessageDeterministically } from "../ai/deterministic";
 import { logger } from "../logger";
 import { ensureUser } from "../services/users";
 import { createPendingCapture } from "../services/pendingCaptures";
-import { createIdea, findIdeaReference, formatIdeaCreated, scoreIdea } from "../services/ideas";
-import { createNote, formatNoteCreated } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
+import { createIdea, findIdeaReference, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
+import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
+import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
 import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
-import { bold, code, h, italic } from "../utils/html";
+import { bold, h } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, itemCreatedKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
@@ -27,6 +27,7 @@ import { formatIdeaScore } from "./formatters";
 import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
+import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -92,7 +93,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+        await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
         return;
       }
 
@@ -147,25 +148,19 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         if (classification.kind === "task") {
           const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
           await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-          await replyControlCardHtml(ctx, withAutoSaveNote(formatTaskCreated(task, user.settings?.timezone)), {
-            reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx))
-          });
+          await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
           return;
         }
 
         if (classification.kind === "idea") {
           const idea = await createIdea(user.id, text, ai);
-          await replyControlCardHtml(ctx, withAutoSaveNote(formatIdeaCreated(idea)), {
-            reply_markup: itemCreatedKeyboard("idea", idea)
-          });
+          await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
           return;
         }
 
         if (classification.kind === "note") {
           const note = await createNote(user.id, text, ai);
-          await replyControlCardHtml(ctx, withAutoSaveNote(formatNoteCreated(note)), {
-            reply_markup: itemCreatedKeyboard("note", note)
-          });
+          await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
           return;
         }
       }
@@ -213,7 +208,7 @@ async function handlePendingMenuInput(
     const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
     return true;
   }
 
@@ -226,21 +221,21 @@ async function handlePendingMenuInput(
     const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
     return true;
   }
 
   if (action === "note") {
     const note = await createNote(user.id, text, ai);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
     return true;
   }
 
   if (action === "idea") {
     const idea = await createIdea(user.id, text, ai);
     clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
     return true;
   }
 
@@ -302,8 +297,4 @@ async function handlePendingMenuInput(
 
 function shouldAutoSave(kind: string, confidence: number): boolean {
   return confidence >= AUTO_SAVE_CONFIDENCE && (kind === "task" || kind === "idea" || kind === "note");
-}
-
-function withAutoSaveNote(message: string): string {
-  return [message, "", `${italic("I saved that automatically because it looked clear.")} ${code("/undo")} ${italic("if I guessed wrong.")}`].join("\n");
 }

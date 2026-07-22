@@ -194,6 +194,10 @@ export function formatNoteCreated(note: { publicId: string; title: string; summa
   ]);
 }
 
+export function formatNoteSavedAcknowledgement(note: { title: string }): string {
+  return `${bold("Note saved")} · ${h(note.title)}`;
+}
+
 export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (notes.length === 0) {
     return "Nothing saved here yet—send a note when something is worth keeping.";

@@ -32,7 +32,7 @@ describe("version status", () => {
     expect(message).toContain("<b>Threadwise</b> <code>v");
     expect(message).toContain("<b>AI</b> OpenAI (gpt-5.4-mini)");
     expect(message).toContain("<b>Google Calendar</b> configured");
-    expect(message).toContain("<b>Microsoft Excel</b> configured");
+    expect(message).not.toContain("Microsoft Excel");
     expect(message).toContain("<b>Due tasks found</b> 3");
     expect(message).toContain("<b>Sent</b> 2");
     expect(message).toContain("<b>Private assignee nudges sent</b> 1");

@@ -1,6 +1,8 @@
 # Threadwise
 
-Threadwise is a private Telegram life inbox for capturing ideas, notes, tasks, searchable personal knowledge, and product implementation briefs.
+Threadwise turns Telegram messages into things people can find, remember, and finish.
+
+Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
 It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL persistence, Prisma schema management, Telegram webhooks for Render, and clear service boundaries for future contributors.
 
@@ -21,12 +23,9 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- Accepts photos and image documents, then offers clean buttons to keep the original, save it with an editable caption, save and extract in one step, extract text locally, or read a receipt. Extracted text can become a note, task, reminder, or expense; no OCR or OpenAI API key is required.
+- Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.
 - Searches saved images by caption, locally extracted OCR text, or filename with `/images <query>`, `/search images <query>`, and natural requests such as `find images captioned passport`.
 - Opens saved images with edit-caption and confirmed-delete controls. Deletion removes Threadwise's reusable file reference and search metadata, not the original Telegram message.
-- Stores confirmed expenses in Threadwise, supports manual text and receipt photos, and lists 10 newest-first rows per page with day, month, and year filters.
-- Gives each user a regional expense-currency default, accepts an explicit currency per expense, detects common currency codes/symbols/words on receipts, and lets saved expenses be corrected later.
-- Exports expenses as a standalone `.xlsx` file, or optionally creates and synchronizes a private workbook in the user's OneDrive through Microsoft OAuth.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
 - Schedules calendar-aware daily, weekly-on-a-weekday, monthly, and yearly reminders with natural phrases such as "remind me to sleep at 12am daily", "remind me to take out the trash every Friday at 7pm", "remind me to pay rent on the 1st of every month at 9am", and "remind me of Mum's birthday on 26 July every year".
 - Sends the first due reminder at the scheduled time, even during quiet hours; later repeat nudges use the current repeat setting and respect quiet hours and the daily safety limit.
@@ -50,7 +49,7 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting with content first, then IDs/dates/settings metadata below.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, cleanup, Calendar, Excel, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
+- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, Calendar, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
 - Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
 - Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
 - Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
@@ -58,17 +57,16 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Scores ideas with `/score`, including buildability, usefulness, novelty, portfolio value, monetization, difficulty, risk, competition notes, and dos/donts.
 - Generates copy-paste implementation prompts for Codex or Claude Code with `/brief`.
 - Connects Google Calendar from Telegram or the dashboard, optionally backfills and automatically synchronizes dated tasks, and keeps one durable event updated after task edits.
-- Connects Microsoft Excel from Telegram or the dashboard, creates a recommended expense workbook with existing rows, and optionally keeps new expenses synchronized.
 - Shows release, AI, and reminder delivery status with `/version`.
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
-- Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, expenses, and reminders. In groups, slash commands open compact group-specific menus, while addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
+- Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, and reminders. In groups, slash commands open compact group-specific menus, while addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
 - Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
 - Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Lets assignees accept, decline, block, unblock, or hand work to another group member through compact buttons, slash commands, or natural phrases such as `I'll take task 2`, `I'm blocked on task 2 because I need access`, and `hand off task 2 to @alex`.
-- Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people, while Expenses and personal integrations stay in private workspaces.
+- Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
 
 ## Commands
@@ -145,14 +143,6 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 /calendar
 /googlecal TASK-1
 /googlecal 1
-/expense spent $18.40 on lunch at Toast Box today using Visa
-/expense edit EXP-2 currency MMK
-/expenses
-/expenses today
-/expenses this month
-/expenses 2026
-/excel
-/excel export
 /images
 /images passport
 /image 1
@@ -241,9 +231,9 @@ Enable the Google Calendar API in the same Google Cloud project and add `https:/
 
 ## Image Text Extraction
 
-Send Threadwise a photo or an image document without a caption and it first offers `Save image`, `Extract text`, `Read as receipt`, and `Discard`. Saving keeps a reusable Telegram file reference rather than copying the image bytes into PostgreSQL. Browse saved images 10 per page with `/images`, say `show my saved images`, or reopen one with `/image IMG-1`.
+Send Threadwise a photo or an image document without a caption and it first offers `Save image`, `Save with caption`, `Extract text`, `Save + extract`, and `Discard`. Saving keeps a reusable Telegram file reference rather than copying the image bytes into PostgreSQL. Browse saved images 10 per page with `/images`, say `show my saved images`, or reopen one with `/image IMG-1`.
 
-Choosing extraction reads printed English, Burmese, or mixed text locally and shows a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Save expense`, `Show full text`, and `Discard`. A caption can perform an action immediately:
+Choosing extraction reads printed English, Burmese, or mixed text locally and shows a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Show full text`, and `Discard`. A caption can perform an action immediately:
 
 ```text
 extract the text
@@ -251,54 +241,11 @@ keep this image
 save this as a note
 turn this into a task
 remind me about this tomorrow at 9
-save this receipt as an expense
-read this in Burmese and save as an expense
 ```
 
 OCR uses bundled English and Burmese Tesseract language data and Sharp image cleanup on the Render server. It does not send the image to OpenAI or another OCR API and needs no API key. Choose a saved default with `read images in Burmese`, `read images in English and Burmese`, or `/settings ocr ...`; an individual image caption can override it. Images are rotated, resized, converted to grayscale, normalized, and sharpened before recognition. The safety limits are 10 MB and 20 megapixels, and recognition times out after 60 seconds. The first image after a deployment or language change may be slower while the OCR worker starts.
 
-For the best result, use a bright, straight, tightly cropped photo with sharp printed text. Screenshots and clear receipts work best. Handwriting, curved or blurred receipts, unusual fonts, multiple languages, and complex tables may need manual correction. Threadwise always shows a confirmation preview before saving a parsed receipt.
-
-## Expenses
-
-Threadwise's database is the source of truth. Excel is an optional mirror, so a Microsoft outage or a spreadsheet edit cannot make a newly confirmed expense disappear.
-
-Manual examples include:
-
-```text
-spent $18.40 on lunch at Toast Box today using Visa
-record an expense of SGD 25 for groceries
-paid 12.50 for parking yesterday
-bought printer paper for $9.90
-spent 12000 kyat on groceries
-```
-
-Threadwise extracts the transaction date, merchant, category, description, subtotal, tax, discount, total, currency, and payment method when they are present. New users get a best-effort regional currency based on their Threadwise timezone; set it explicitly with `set my expense currency to MMK` or `/settings currency MMK`. An explicit currency in a message or a recognizable receipt marker overrides that default. Burmese receipt amounts using Myanmar digits are normalized before parsing. It shows a draft first. Use the buttons to save it, save and sync it to Excel, edit fields, or discard it. Receipt images also retain the OCR confidence and original extracted text. Re-sending the same Telegram receipt is detected so it is not saved twice accidentally.
-
-Correct a confirmed expense with natural language such as `change currency of EXP-2 to USD`, `update EXP-2 total 18.50`, or `/expense edit EXP-2 currency USD`. Threadwise and future `.xlsx` exports use the correction. If the old row was already synchronized into a linked OneDrive workbook, change or remove that existing workbook row manually; Threadwise deliberately does not append a duplicate correction row.
-
-Browse expenses with `/expenses`, `/expenses today`, `/expenses 12 July 2026`, `/expenses this month`, `/expenses June 2026`, or `/expenses 2026`. Natural requests such as `what did I spend this month?` work too. Results are ordered from most recent to oldest, 10 per page, with Prev and Next buttons. Year filtering is already implemented.
-
-Every expense uses these predefined Excel columns: Expense ID, Transaction Date, Merchant, Category, Description, Subtotal, Tax, Discount, Total, Currency, Payment Method, Source, OCR Confidence, Notes, and Added At.
-
-## Microsoft Excel
-
-Excel is optional. The simplest no-login option is `/excel export`, which sends the user a ready-to-open `.xlsx` file containing all saved expenses.
-
-For ongoing synchronization, open `/excel`, the Integrations menu, Expenses, or the dashboard's Connections tab and choose `Connect Excel`. After OAuth, Threadwise creates a recommended workbook in the user's OneDrive, adds the predefined table and columns, and imports existing expenses. The same panel can open the workbook, synchronize waiting rows, enable automatic synchronization for new expenses, recreate/select a workbook, or disconnect. Plain requests such as `connect Excel`, `open my expense workbook`, and `sync my expenses` use the same actions.
-
-Advanced users can still select an existing OneDrive or SharePoint `.xlsx` file through the compatibility command, but it must contain an Excel table named `Expenses` with the exact Threadwise columns in the documented order. Disconnecting removes stored Microsoft tokens but does not delete the workbook or any Threadwise expenses. A standalone `/excel export` remains available without OAuth.
-
-To enable Microsoft sign-in on Render, create a Microsoft Entra app registration, add a Web redirect URI of `https://threadwise-90du.onrender.com/excel/oauth/callback`, and grant delegated `User.Read` and `Files.ReadWrite` permissions. `offline_access` is requested during sign-in so synchronization can continue after the initial connection. Then set:
-
-```text
-MICROSOFT_CLIENT_ID=<Application client ID>
-MICROSOFT_CLIENT_SECRET=<client secret value>
-MICROSOFT_REDIRECT_URI=https://threadwise-90du.onrender.com/excel/oauth/callback
-MICROSOFT_TOKEN_ENCRYPTION_KEY=<long random secret>
-```
-
-Generate the encryption key with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep it stable: changing it makes existing encrypted Microsoft tokens unreadable, and affected users will need to reconnect. The integration only accesses files the signed-in user can access; it does not require a separate Excel API key.
+For the best result, use a bright, straight, tightly cropped photo with sharp printed text. Screenshots and clear documents work best. Handwriting, curved or blurred photos, unusual fonts, multiple languages, and complex tables may need manual correction.
 
 ## Tech Stack
 
@@ -456,7 +403,7 @@ Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find t
 
 ## Authenticated Dashboard API
 
-`GET /api/v1/dashboard` remains the fast server-to-server snapshot for the separate Threadwise dashboard. `GET /api/v1/dashboard/workspaces` lists the signed-in person's available personal and recorded group workspaces. Other authenticated routes beneath `/api/v1/dashboard/*` add paginated collections, CRUD actions, search, settings, image delivery, integration disconnects, privacy export, and confirmed account deletion. They do not enable browser database access and never return OAuth tokens, embeddings, Telegram file identifiers, receipt identifiers, expense raw text, or provider credentials.
+`GET /api/v1/dashboard` remains the fast server-to-server snapshot for the separate Threadwise dashboard. `GET /api/v1/dashboard/workspaces` lists the signed-in person's available personal and recorded group workspaces. Other authenticated routes beneath `/api/v1/dashboard/*` add paginated collections, CRUD actions, search, settings, image delivery, integration disconnects, privacy export, and confirmed account deletion. They do not enable browser database access and never return OAuth tokens, embeddings, Telegram file identifiers, or provider credentials.
 
 The first-party dashboard verification key is bundled as public-only trust material. Rotate that reviewed source value and the matching Vercel private secret together. Render does not accept an environment override, so a stale multiline variable cannot silently shadow the deployed key. Keep the private key only in the dashboard service; do not add it to this repository or Render.
 

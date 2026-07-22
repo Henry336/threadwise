@@ -2,11 +2,11 @@ import { InputFile, type Bot, type Context } from "grammy";
 import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, findTaskReference, formatTaskCreated, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
-import { createIdea, formatIdeaCreated, scoreIdea } from "../services/ideas";
-import { archiveNote, createNote, formatNoteCreated } from "../services/notes";
+import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
+import { archiveNote, createNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
@@ -20,7 +20,7 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, 
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, itemCreatedKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, taskCreatedKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -36,6 +36,7 @@ import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
+import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
@@ -272,7 +273,9 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "expenses") {
-    await editOrReplyHtml(ctx, `${bold(group ? "💰 Shared expenses" : "💰 Expenses")}\n${group ? "Record and review spending saved for this group." : "Record spending, review recent entries, or export to Excel."}`, { reply_markup: group ? groupExpensesModeKeyboard() : expensesModeKeyboard() });
+    await editOrReplyHtml(ctx, group
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone)
+      : formatMainMenuText(user.settings?.timezone), { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
   if (action === "search") {
@@ -316,10 +319,10 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "integrations") {
     if (group) {
-      await editOrReplyHtml(ctx, `${bold("🔌 Personal integrations stay private")}\nCalendar and Excel connections are managed in your private Threadwise chat.`, { reply_markup: menuBackKeyboard("‹ Group settings", "menu:settings") });
+      await editOrReplyHtml(ctx, `${bold("📅 Google Calendar stays personal")}\nConnect Calendar from your private Threadwise settings.`, { reply_markup: menuBackKeyboard("‹ Group settings", "menu:settings") });
       return;
     }
-    await editOrReplyHtml(ctx, `${bold("🔌 Connections")}\nCalendar for dated tasks. Excel for expenses.`, { reply_markup: integrationsSettingsKeyboard() });
+    await editOrReplyHtml(ctx, `${bold("📅 Google Calendar")}\nOptionally keep dated tasks on your calendar.`, { reply_markup: integrationsSettingsKeyboard() });
     return;
   }
   if (action === "calendar-settings") {
@@ -327,7 +330,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "excel" || action === "excel-settings") {
-    await showExcelPanel(ctx, user.id, user.telegramId);
+    await editOrReplyHtml(ctx, await formatSettings(user.id), { reply_markup: settingsModeKeyboard() });
     return;
   }
   if (action === "privacy") {
@@ -470,7 +473,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     await ctx.answerCallbackQuery({ text: "Saving" });
     if (action === "note") {
       const note = await createNote(user.id, consumed.extractedText, ai);
-      await editOrReplyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+      await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
     const task = await createTask(user.id, consumed.extractedText, ai);
@@ -478,7 +481,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
@@ -1001,25 +1004,19 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await editOrReplyHtml(ctx, `${formatTaskCreated(task, user.settings?.timezone)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx))
-    });
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
     return;
   }
 
   if (action === "idea") {
     const idea = await createIdea(user.id, pending.sourceText, ai);
-    await editOrReplyHtml(ctx, `${formatIdeaCreated(idea)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: itemCreatedKeyboard("idea", idea)
-    });
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
     return;
   }
 
   if (action === "note") {
     const note = await createNote(user.id, pending.sourceText, ai);
-    await editOrReplyHtml(ctx, `${formatNoteCreated(note)}\n\n${code("/undo")} if this was the wrong bucket.`, {
-      reply_markup: itemCreatedKeyboard("note", note)
-    });
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
     return;
   }
 

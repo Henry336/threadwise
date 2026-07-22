@@ -3,7 +3,7 @@ import { bold, code, h } from "../utils/html";
 import type { ReminderDiagnostics } from "./reminders";
 
 const startedAt = new Date();
-const fallbackVersion = "0.19.0";
+const fallbackVersion = "0.24.0";
 
 export type VersionStatus = {
   ai: AiProviderStatus;
@@ -32,7 +32,6 @@ export function formatVersionStatus(status: VersionStatus, now = new Date()): st
     "",
     `${bold("AI")} ${h(aiLine)}`,
     `${bold("Google Calendar")} ${status.calendarConfigured ? "configured" : "not configured"}`,
-    `${bold("Microsoft Excel")} ${status.excelConfigured ? "configured" : "not configured"}`,
     "",
     bold("Reminders"),
     `${bold("Last run")} ${h(status.reminders.lastFinishedAt ?? status.reminders.lastStartedAt ?? "never")}`,

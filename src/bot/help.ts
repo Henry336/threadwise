@@ -53,10 +53,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Connect Google Calendar or add/update a dated task as an event.", example: "/calendar 1" },
   { command: "/googlecal", description: "Get only the Google Calendar link for a dated task.", example: "/googlecal 1" },
-  { command: "/expense", description: "Prepare a manual expense for confirmation.", example: "/expense spent $18.40 on lunch at Toast Box today" },
-  { command: "/expenses", description: "Browse saved expenses with date, month, or year filters.", example: "/expenses this month" },
-  { command: "/excel", description: "Open Excel connection, sync, and export controls.", example: "/excel" },
-  { command: "/settings", description: "Edit timezone, expense currency, OCR languages, quiet hours, and reminder behavior.", example: "/settings currency MMK" },
+  { command: "/settings", description: "Edit timezone, OCR languages, quiet hours, and reminder behavior.", example: "/settings timezone Singapore" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" },
   { command: "/groupcheck", description: "Diagnose bot identity and allowlist access inside a Telegram group.", example: "/groupcheck" },
@@ -145,14 +142,12 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "images",
     title: "🖼️ Images And OCR",
-    description: "Keep the original, add an editable caption, extract searchable text locally, or read a receipt.",
+    description: "Keep the original, add an editable caption, or extract searchable text locally.",
     natural: [
       "send any image, then tap Save image or Extract text",
       "send an image with: save this as Mum's passport scan",
       "send an image with: save this image and extract the text",
       "send an image with: extract the text",
-      "send a receipt with: save this as an expense",
-      "send a Burmese receipt with: read this in Burmese and save as expense",
       "send a screenshot with: turn this into a task",
       "send an image with: remind me about this tomorrow at 9",
       "show my saved images",
@@ -172,7 +167,6 @@ const HELP_SECTIONS: HelpSection[] = [
     natural: [
       "spent $18.40 on lunch at Toast Box today using Visa",
       "record an expense of SGD 25 for groceries",
-      "set my expense currency to MMK",
       "change currency of EXP-2 to USD",
       "show my expenses today",
       "what did I spend this month",
@@ -213,7 +207,6 @@ const HELP_SECTIONS: HelpSection[] = [
     description: "Change reminder behavior without scheduler jargon.",
     natural: [
       "change timezone to Singapore",
-      "set my expense currency to MMK",
       "read images in English and Burmese",
       "use compact reminders",
       "quiet hours off",
@@ -222,7 +215,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "start warning me 10 mins before due tasks",
       "allow up to 200 reminders per day"
     ],
-    commands: ["/settings timezone Singapore", "/settings currency MMK", "/settings ocr English and Burmese", "/settings mode compact", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
+    commands: ["/settings timezone Singapore", "/settings ocr English and Burmese", "/settings mode compact", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
   },
   {
     topic: "cleanup",
@@ -241,43 +234,45 @@ const HELP_SECTIONS: HelpSection[] = [
 ];
 
 export function formatStartShortcutText(): string {
-  return "☰ Menu and 🌐 Dashboard are pinned below.";
+  return "Menu and Dashboard stay within reach below.";
 }
 
 export function formatMainMenuText(timezone = "Asia/Singapore"): string {
   return [
     bold("Threadwise"),
-    "What would you like to work with?",
-    `Timezone: ${code(timezone)}`,
+    "Capture. Coordinate. Recall.",
+    `Times use ${code(timezone)}.`,
     "",
-    "You can also type any request naturally."
+    "Choose below or type naturally."
   ].join("\n");
 }
 
 export function formatGroupMainMenuText(groupName: string, timezone = "Asia/Singapore"): string {
   return [
     bold(`Threadwise · ${groupName}`),
-    "This group has its own shared workspace.",
-    `Times use ${code(timezone)}. Mention me or reply to one of my messages to add something naturally.`
+    "Capture. Coordinate. Recall—together.",
+    `Times use ${code(timezone)}. Mention me, reply to me, or choose below.`
   ].join("\n");
 }
 
 export function formatGroupHelpGuide(botUsername?: string): string {
   const mention = botUsername ? `@${botUsername.replace(/^@/, "")}` : "@ThreadwiseBot";
   return [
-    bold("❓ Threadwise in this group"),
-    "Everything created here stays in this group's shared workspace. It never mixes with anyone's private Threadwise account.",
+    bold("Threadwise in this group"),
+    "Messages become shared things the group can find, remember, and finish.",
     "",
-    bold("Create together"),
+    bold("Capture"),
     `${code(`${mention} remind us to submit the form Friday at 5pm`)}`,
     `${code(`${mention} save note: the venue code is 1842`)}`,
     `${code(`${mention} idea: run a monthly demo night`)}`,
     "",
-    bold("Browse and manage"),
-    `${code("/tasks")} · ${code("/notes")} · ${code("/ideas")} · ${code("/images")} · ${code("/expenses")}`,
-    `${code("/menu")} opens the shared menu. ${code("/commands")} shows the compact group reference.`,
+    bold("Coordinate"),
+    `${code("/tasks")} · ${code("/assign")} · ${code("/done")}`,
     "",
-    "Threadwise ignores ordinary conversation unless you mention it, reply to it, or use a slash command."
+    bold("Recall"),
+    `${code("/notes")} · ${code("/ideas")} · ${code("/images")} · ${code("/search")}`,
+    "",
+    `${code("/menu")} opens the shared menu. Ordinary conversation is ignored unless you mention or reply to Threadwise.`
   ].join("\n");
 }
 
@@ -285,17 +280,11 @@ export function formatGroupHelpTopic(topic: HelpTopic, botUsername?: string): st
   if (topic === "general") return formatGroupHelpGuide(botUsername);
   if (topic === "commands") return formatGroupCommandReference();
   if (topic === "privacy") return formatGroupPrivacyText();
-  if (topic === "excel") {
-    return [
-      bold("Excel stays personal"),
-      "A person's Excel connection is never shared with a Telegram group.",
-      "Group expenses still stay available in chat and in the shared dashboard. Open Threadwise privately to connect or export Excel."
-    ].join("\n");
-  }
+  if (topic === "excel" || topic === "expenses") return formatGroupHelpGuide(botUsername);
   if (topic === "settings") {
     return [
       bold("Group settings"),
-      "Timezone, currency, OCR language, quiet hours, and reminder defaults belong to this group workspace.",
+      "Timezone, OCR language, quiet hours, and reminder defaults belong to this group workspace.",
       `A Telegram group admin can change them with ${code("/settings")} or the Group settings buttons.`
     ].join("\n");
   }
@@ -320,11 +309,6 @@ export function formatGroupHelpTopic(topic: HelpTopic, botUsername?: string): st
       "Mention Threadwise in the image caption or send the image while replying to one of its messages, then choose how to save or extract it.",
       `Browse with ${code("/images")} or search with ${code("/images passport")}.`
     ].join("\n"),
-    expenses: [
-      bold("Shared expenses"),
-      `Record with ${code("/expense spent $18.40 on lunch")} and review with ${code("/expenses this month")}.`,
-      "The shared dashboard adds group totals and visual breakdowns; personal Excel connections stay private."
-    ].join("\n"),
     search: [
       bold("Search the group workspace"),
       `Use ${code("/search prototype")} across shared tasks, notes, and ideas, or use the shared dashboard for live filters.`
@@ -345,8 +329,8 @@ export function formatGroupCommandReference(): string {
     `${code("/menu")} shared menu · ${code("/help")} group guide · ${code("/dashboard")} shared dashboard`,
     `${code("/add")} task · ${code("/remind")} reminder · ${code("/tasks")} open tasks · ${code("/done")} complete`,
     `${code("/note")} save note · ${code("/notes")} browse notes · ${code("/idea")} save idea · ${code("/ideas")} browse ideas`,
-    `${code("/images")} saved images · ${code("/expense")} add spending · ${code("/expenses")} browse spending`,
-    `${code("/search")} find shared content · ${code("/assign")} assign a task · ${code("/settings")} group defaults`,
+    `${code("/images")} saved images · ${code("/search")} find shared content`,
+    `${code("/assign")} assign a task · ${code("/settings")} group defaults`,
     "",
     `Example: ${code("/remind tomorrow at 9am | bring the prototype")}`,
     "Group settings are restricted to Telegram group admins."
@@ -389,13 +373,18 @@ export const HELP_TEXT = formatHelpGuide();
 
 export function formatHelpGuide(): string {
   return [
-    bold("❓ Threadwise help"),
-    "Type naturally—I will do my best to understand. Pick a topic below for detailed examples.",
+    bold("Threadwise help"),
+    "Threadwise turns Telegram messages into things people can find, remember, and finish.",
     "",
-    ...HELP_SECTIONS.map(formatHelpSectionSummary),
+    bold("Capture"),
+    "Tasks, notes, ideas, and searchable images.",
+    bold("Coordinate"),
+    "Reminders, assignees, and shared group work.",
+    bold("Recall"),
+    "Search, pins, archives, and your dashboard.",
     "",
-    `Prefer slash commands? Type ${code("/commands")} for the full reference.`
-  ].join("\n\n");
+    `Choose a topic below, or use ${code("/commands")}.`
+  ].join("\n");
 }
 
 function formatHelpSectionSummary(section: HelpSection): string {
@@ -418,6 +407,10 @@ export function formatHelpTopic(topic: HelpTopic): string {
 
   if (topic === "privacy") {
     return formatPrivacyText();
+  }
+
+  if (topic === "expenses" || topic === "excel") {
+    return formatHelpGuide();
   }
 
   const section = HELP_SECTIONS.find((item) => item.topic === topic);

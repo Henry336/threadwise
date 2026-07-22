@@ -19,7 +19,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (!setting) {
     return {
       message:
-        "Try: set my expense currency to MMK, read images in Burmese, change timezone to Myanmar, remind me again every 3 hours, or quiet hours off."
+        "Try: read images in Burmese, change timezone to Myanmar, remind me again every 3 hours, or quiet hours off."
     };
   }
 
@@ -83,7 +83,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     });
 
     const aliasNote = parsed.wasAlias ? ` (${value} -> ${parsed.timezone})` : "";
-    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders. Your expense currency follows the new region unless you previously chose a custom currency.` };
+    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders.` };
   }
 
   if (setting === "currency" || setting === "expense-currency") {
@@ -218,7 +218,7 @@ export async function formatRegionSettings(userId: string): Promise<string> {
   const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
   return [
     bold("🌍 Region & language"),
-    `${h(settings.timezone)} · ${bold(h(settings.expenseCurrency))}`,
+    h(settings.timezone),
     `Image text: ${h(formatOcrLanguages(settings.ocrLanguages))}`,
     `Private assignee nudges: ${settings.directNudgesEnabled ? "on" : "off"}`,
     "Timezone controls how Threadwise reads dates and reminder times."

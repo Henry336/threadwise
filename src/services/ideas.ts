@@ -217,6 +217,10 @@ export function formatIdeaCreated(idea: { publicId: string; title: string; conce
   ]);
 }
 
+export function formatIdeaSavedAcknowledgement(idea: { title: string }): string {
+  return `${bold("Idea saved")} · ${h(idea.title)}`;
+}
+
 export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (ideas.length === 0) {
     return "No ideas saved yet—send one over when something starts to take shape.";

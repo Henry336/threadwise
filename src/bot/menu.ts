@@ -47,7 +47,7 @@ export async function showDashboardLink(ctx: Context): Promise<void> {
     }
     await replyHtml(ctx, [
       `<b>🌐 ${workspace.title} dashboard</b>`,
-      "A separate shared workspace for this group's tasks, notes, ideas, images, and expenses.",
+      "A separate shared workspace for the group's tasks, notes, ideas, and searchable images.",
       verificationCopy,
       "Personal workspaces and personal integrations stay separate."
     ].join("\n"), { reply_markup: groupDashboardLinkKeyboard(workspace.id) });
@@ -55,7 +55,7 @@ export async function showDashboardLink(ctx: Context): Promise<void> {
   }
   await replyHtml(ctx, [
     "<b>🌐 Your Threadwise dashboard</b>",
-    "See and manage your tasks, notes, ideas, images, and expenses in one live workspace.",
+    "See what you have captured, coordinate what comes next, and recall anything quickly.",
     "Sign in securely with the same Telegram account you use here.",
     "",
     DASHBOARD_URL

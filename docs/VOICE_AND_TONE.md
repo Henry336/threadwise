@@ -10,6 +10,10 @@ Threadwise should feel calm, capable, and quietly human. It helps without soundi
 - Acknowledge errors without blaming the user. Say what remains safe and how to recover.
 - Keep group reminders especially restrained. Shared chats need clarity more than personality.
 - Vary a small number of harmless assistant lines deterministically; never vary IDs, dates, warnings, or instructions.
+- Treat routine capture like quiet infrastructure: acknowledge a successful task, note, or idea briefly, then remove that acknowledgement after roughly three seconds.
+- Keep parsed dates, time zones, recurrence, and assignees visible in the brief task acknowledgement. They are confirmations of interpretation, not conversational fluff.
+- Never auto-remove errors, warnings, item details, menus, destructive confirmations, or controls the user may still need.
+- Use Ari sparingly for onboarding, empty states, and friendly recovery. Ari does not decorate routine work or replace precise status language.
 
 ## Emoji
 
@@ -24,4 +28,5 @@ Threadwise should feel calm, capable, and quietly human. It helps without soundi
 - Empty: `Nothing saved here yet—send a note when something is worth keeping.`
 - Error: `I couldn't find that task. Open /tasks and try its current number or Task ID.`
 - Confirmation: `Ready to merge these notes? Nothing changes until you confirm.`
-- Success: `✅ Note saved` followed by the note content and stable ID.
+- Quiet success: `Note saved · Deployment notes` (self-cleaning).
+- Interpreted success: `Saved · Submit the form` followed only by `When`, `Repeats`, or `For` when present.

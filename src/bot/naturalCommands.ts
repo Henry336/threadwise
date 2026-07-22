@@ -8,15 +8,15 @@ import {
   createIdea,
   createImplementationBrief,
   findIdeaReference,
-  formatIdeaCreated,
+  formatIdeaSavedAcknowledgement,
   formatIdeaDetail,
   renameIdeaTitle,
   scoreIdea,
   updateIdeaConcept
 } from "../services/ideas";
-import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteCreated, formatNoteDetail, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteDetail, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
+import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
@@ -29,7 +29,7 @@ import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl,
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -49,6 +49,7 @@ import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { userFacingError } from "./errorResponses";
+import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { prisma } from "../db/prisma";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
@@ -802,7 +803,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
     return true;
   }
 
@@ -819,7 +820,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const ideaBody = parseNaturalIdeaBody(trimmed);
   if (ideaBody) {
     const idea = await createIdea(user.id, ideaBody, ai);
-    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
     return true;
   }
 
@@ -830,14 +831,14 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
     return true;
   }
 
   const noteBody = parseNaturalNoteBody(trimmed);
   if (noteBody) {
     const note = await createNote(user.id, noteBody, ai);
-    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
     return true;
   }
 

@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
-import { createNote, formatNoteCreated } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskCreated } from "../services/tasks";
+import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
+import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
 import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
@@ -10,10 +10,11 @@ import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, itemCreatedKeyboard, menuBackKeyboard, taskCreatedKeyboard } from "./keyboards";
+import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
+import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
@@ -64,7 +65,7 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
     }
     await replyHtml(ctx, [
       bold("🖼️ Image received"),
-      "Would you like to keep the original, add a caption, extract its text locally, save and extract, or read it as a receipt?",
+      "Keep the original, add a caption, or extract searchable text.",
       "Nothing is saved until you choose."
     ].join("\n"), { reply_markup: incomingImageKeyboard(pending.id) });
     return;
@@ -174,14 +175,14 @@ async function processImageOcr(
 
     if (intent === "note") {
       const note = await createNote(user.id, extracted.text, ai);
-      await editOrReplyHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+      await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
 
     if (intent === "task") {
       const task = await createTask(user.id, extracted.text, ai);
       await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-      await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+      await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
       return;
     }
 
@@ -190,7 +191,7 @@ async function processImageOcr(
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
         const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-        await editOrReplyHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+        await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
         return;
       }
     }

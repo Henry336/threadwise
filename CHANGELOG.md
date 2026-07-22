@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.24.0 - 2026-07-22
+
+### Product focus
+- Established **Capture, Coordinate, Recall** as Threadwise's product hierarchy and adopted: “Threadwise turns Telegram messages into things people can find, remember, and finish.”
+- Removed Expenses and Excel from active menus, help, settings, image actions, status, and dashboard navigation while preserving their implementation and stored data for later evaluation.
+- Kept Google Calendar available as a secondary task integration rather than a headline product category.
+
+### Quiet capture
+- Replaced routine task, note, and idea result cards with compact acknowledgements that remove themselves after about 3.5 seconds.
+- Kept parsed dates, time zones, recurrence, and assignees visible when confirming tasks so users can still catch an incorrect interpretation.
+- Limited self-cleaning behavior to successful capture acknowledgements; errors, warnings, item details, menus, and actionable controls remain visible.
+
+### Identity
+- Introduced the faceless threaded-path product mark and Ari, the related Threadwise mascot, as a two-part identity system.
+- Reserved Ari for onboarding, empty states, and friendly recovery moments; normal product chrome uses the quieter corporate mark.
+- Added scalable light/dark/full mascot artwork and a Telegram-ready 512×512 avatar asset in the dashboard repository.
+
+### Quality and records
+- Added timer and callback regression coverage for self-cleaning acknowledgements plus focused-copy, hidden-feature, and interpretation-preservation assertions.
+- Recorded the observed capture friction, scope decisions, brand rationale, safeguards, and follow-up in the product journal.
+- Verified the release with all 520 backend tests in a single worker, TypeScript typechecking, and a clean production build.
+
 ## v0.23.0 - 2026-07-22
 
 ### Integration lifecycle

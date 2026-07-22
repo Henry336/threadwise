@@ -43,7 +43,9 @@ describe("interactive keyboard navigation", () => {
     expect(callbackData(groupHelpTopicsKeyboard(workspaceId))).toContain("menu:commands");
     expect(formatGroupHelpGuide("threadwise_1_bot").length).toBeLessThan(1_500);
     expect(formatGroupHelpTopic("settings")).toContain("group admin");
-    expect(formatGroupHelpTopic("excel")).toContain("never shared");
+    expect(formatGroupHelpTopic("excel")).toContain("<b>Capture</b>");
+    expect(formatGroupHelpTopic("excel")).not.toContain("Excel");
+    expect(menu).not.toContainEqual(expect.objectContaining({ callback_data: "menu:expenses" }));
     expect(formatGroupCommandReference()).toContain("/dashboard");
   });
 

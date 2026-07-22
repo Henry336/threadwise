@@ -9,7 +9,7 @@ import {
   createIdea,
   createImplementationBrief,
   findIdeaReference,
-  formatIdeaCreated,
+  formatIdeaSavedAcknowledgement,
   formatIdeaDetail,
   renameIdeaTitle,
   scoreIdea,
@@ -25,7 +25,7 @@ import {
   formatAssignee,
   formatTaskAlreadyCompleted,
   formatTaskCompleted,
-  formatTaskCreated,
+  formatTaskSavedAcknowledgement,
   listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
@@ -40,7 +40,7 @@ import {
   findAnyNote,
   findNoteReference,
   formatNoteAnalysis,
-  formatNoteCreated,
+  formatNoteSavedAcknowledgement,
   formatNoteDetail,
   formatRecentNotes,
   renameNoteTitle,
@@ -59,7 +59,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemCreatedKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCreatedKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -79,6 +79,7 @@ import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
+import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -160,7 +161,7 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
 
   try {
     const idea = await createIdea(user.id, text, ai);
-    await replyControlCardHtml(ctx, formatIdeaCreated(idea), { reply_markup: itemCreatedKeyboard("idea", idea) });
+    await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't save that idea. Try again in a moment."));
   }
@@ -191,7 +192,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
 
   try {
     const note = await createNote(user.id, text, ai);
-    await replyControlCardHtml(ctx, formatNoteCreated(note), { reply_markup: itemCreatedKeyboard("note", note) });
+    await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't save that note. Try again in a moment."));
   }
@@ -311,7 +312,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyControlCardHtml(ctx, formatTaskCreated(task, user.settings?.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't add that task. Try again in a moment."));
   }
@@ -360,7 +361,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyControlCardHtml(ctx, formatTaskCreated(task, settings.timezone), { reply_markup: taskCreatedKeyboard(task, isGroupChat(ctx)) });
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, settings.timezone));
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't save that reminder. Try again in a moment."));
   }

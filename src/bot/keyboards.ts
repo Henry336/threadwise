@@ -16,22 +16,21 @@ export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("📋 Tasks", "menu:tasks").text("📝 Notes", "menu:notes").row()
     .text("💡 Ideas", "menu:ideas").text("🖼️ Images", "menu:images").row()
-    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row()
-    .webApp("🌐 Dashboard", DASHBOARD_URL).text("⚙️ Settings", "menu:settings").row()
-    .text("❓ Help", "menu:help");
+    .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
+    .webApp("🌐 Dashboard", DASHBOARD_URL).text("❓ Help", "menu:help");
 }
 
 export function groupStartMenuKeyboard(workspaceId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text("📋 Shared tasks", "menu:tasks").text("📝 Shared notes", "menu:notes").row()
     .text("💡 Shared ideas", "menu:ideas").text("🖼️ Shared images", "menu:images").row()
-    .text("💰 Expenses", "menu:expenses").text("🔎 Search", "menu:search").row();
+    .text("🔎 Search", "menu:search").text("❓ Group help", "menu:help").row();
   if (workspaceId) {
     keyboard.url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).text("⚙️ Group settings", "menu:settings").row();
   } else {
     keyboard.text("⚙️ Group settings", "menu:settings").row();
   }
-  return keyboard.text("❓ Group help", "menu:help");
+  return keyboard;
 }
 
 export const PRIVATE_MENU_LABELS = {
@@ -122,7 +121,7 @@ export function archivedKindsKeyboard(): InlineKeyboard {
 export function settingsModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
-    .text("🔌 Integrations", "menu:integrations").text("🔐 Data & privacy", "menu:privacy").row()
+    .text("📅 Google Calendar", "menu:calendar-settings").text("🔐 Data & privacy", "menu:privacy").row()
     .webApp("🌐 Dashboard settings", `${DASHBOARD_URL}/dashboard?view=settings`).row()
     .text("‹ Main menu", "menu:home");
 }
@@ -146,8 +145,8 @@ export function reminderSettingsKeyboard(): InlineKeyboard {
 
 export function regionSettingsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🌍 Timezone", "setting:pick:timezone").text("💱 Currency", "setting:pick:currency").row()
-    .text("🖼 Image language", "setting:pick:ocr").text("📩 Private nudges", "setting:pick:dm").row()
+    .text("🌍 Timezone", "setting:pick:timezone").text("🖼 Image language", "setting:pick:ocr").row()
+    .text("📩 Private nudges", "setting:pick:dm").row()
     .text("‹ Settings", "menu:settings");
 }
 
@@ -194,7 +193,6 @@ export function settingInputKeyboard(parent: "reminders" | "region"): InlineKeyb
 export function integrationsSettingsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("📅 Google Calendar", "menu:calendar-settings").row()
-    .text("📊 Microsoft Excel", "menu:excel-settings").row()
     .text("‹ Settings", "menu:settings");
 }
 
@@ -272,7 +270,6 @@ export function helpTopicsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("⏰ Reminders", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
-    .text("💰 Expenses", "menu:expenses").text("📊 Excel", "menu:excel").row()
     .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
     .text("🔐 Privacy", "menu:privacy").webApp("🌐 Dashboard", DASHBOARD_URL).row()
     .text("⌨️ Commands", "menu:commands")
@@ -501,9 +498,7 @@ export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
     .text("📝 Save note", `image:note:${pendingId}`)
     .text("📋 Create task", `image:task:${pendingId}`)
     .row()
-    .text("⏰ Set reminder", `image:reminder:${pendingId}`)
-    .text("💰 Save expense", `image:expense:${pendingId}`)
-    .row()
+    .text("⏰ Set reminder", `image:reminder:${pendingId}`).row()
     .text("🔎 Show full text", `image:text:${pendingId}`)
     .text("✕ Discard", `image:discard:${pendingId}`);
 }
@@ -519,7 +514,6 @@ export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
     .text("🔎 Extract text", `image-upload:extract:${pendingId}`)
     .text("✅ Save + extract", `image-upload:save-extract:${pendingId}`)
     .row()
-    .text("🧾 Read as receipt", `image-upload:expense:${pendingId}`)
     .text("✕ Discard", `image-upload:discard:${pendingId}`);
 }
 
