@@ -73,6 +73,27 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 ## Contemporary decisions
 
+### 23 July 2026 — Find a time without leaving the group
+
+**Friction discovered:** Agreeing on a meeting time inside Telegram fragments one decision across many replies. Members miss earlier messages, the organiser manually compares answers, and an external polling link loses the group context. Ordinary inline buttons are suitable for a few actions but not a two-dimensional availability grid. A new bot message for every response would recreate the chat-clutter problem Threadwise already reduced elsewhere.
+
+**Decision:** Add **Find a time** as a focused Coordinate capability, not a calendar replacement. Keep one compact status card in the Telegram group and move the touch-heavy grid into the shared Mini App/dashboard. Let every active member submit only their own availability; reserve creation, nudging, finalization, and closure for freshly verified Telegram owners/admins. Show aggregate overlaps and response progress without revealing another member's raw selected cells. Calendar remains an optional per-person destination after a time is finalized.
+
+**Implemented:**
+
+- `/findtime`, `/schedule`, the group menu, and focused natural-language requests create or open availability polls.
+- Polls support a bounded date range, meeting duration, organiser time zone, daily window, 30-minute availability cells, response count, pending members, ranked contiguous overlaps, and one finalized time.
+- Telegram posts one compact card and edits it as the shared state changes. Buttons open the correct group workspace and poll through a signed Telegram Mini App start parameter.
+- The dashboard adds a responsive Find a time view, touch-safe availability grid, organiser controls, active-poll overview card, and confirmed meetings in Group Work.
+- The service handles duplicate saves, stale revision conflicts, closed polls, removed members, concurrent finalization, reminder cooldowns, and recoverable Telegram reminder delivery.
+- Finalized meetings can be added to each participant's own Google Calendar. OAuth tokens and event URLs remain personal; shared cards never expose them.
+
+**Outcome/evidence:** Pure service tests cover slot generation, same-local-day contiguous-duration overlap ranking, parsing, intent boundaries, and input limits. Bot tests protect compact-card behavior, direct-link fallback routing, and Calendar-link privacy. Dashboard contract tests reject malformed windows and preserve only the viewer's raw response. Mini App redirect tests prove that valid start parameters select the intended opaque group workspace and poll while invalid parameters fall back safely. The release gate passed all 528 backend tests in one worker, backend typechecking and production build, all 10 dashboard tests, dashboard lint and TypeScript checks, and the dashboard production build. Desktop and 500 px mobile browser checks covered the complete scheduling layout; the mobile pass caught and corrected a clipped create action before release.
+
+**Scope intentionally excluded:** appointment-booking pages, video calls, rooms/resources, recurring polls, a full calendar replacement, and automatic reading of participants' calendars.
+
+**Follow-up:** Validate with real study, project, club, and friend groups. Measure invited-member response rate, time to finalization, whether the organiser confirms a slot, and repeat use before expanding the feature or monetizing advanced scheduling controls.
+
 ### 22 July 2026 — Focus, quiet capture, and the Ari identity
 
 **Friction discovered:**

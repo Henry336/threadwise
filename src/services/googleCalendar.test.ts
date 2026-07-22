@@ -46,4 +46,20 @@ describe("Google Calendar integration", () => {
 
     expect(event.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=FR"]);
   });
+
+  it("builds a group meeting with its exact duration", async () => {
+    const { buildGoogleCalendarMeeting } = await import("./googleCalendar");
+    expect(buildGoogleCalendarMeeting({
+      title: "Project rehearsal",
+      details: "Finalized with Threadwise.",
+      startAt: new Date("2026-07-24T01:00:00.000Z"),
+      endAt: new Date("2026-07-24T02:30:00.000Z"),
+      timezone: "Asia/Singapore",
+    })).toMatchObject({
+      summary: "Project rehearsal",
+      start: { dateTime: "2026-07-24T09:00:00.000+08:00" },
+      end: { dateTime: "2026-07-24T10:30:00.000+08:00" },
+      extendedProperties: { private: { threadwiseKind: "group-meeting" } },
+    });
+  });
 });

@@ -48,6 +48,14 @@ export type GoogleCalendarEventInput = {
   recurrenceRule?: RecurrenceRule | null;
 };
 
+export type GoogleCalendarMeetingInput = {
+  title: string;
+  details?: string | null;
+  startAt: Date;
+  endAt: Date;
+  timezone: string;
+};
+
 export type CalendarConnectOptions = {
   taskId?: string;
   enableAutoSync?: boolean;
@@ -289,6 +297,53 @@ export async function syncTaskToGoogleCalendar(userId: string, task: CalendarTas
   return { created, eventId: response.id, eventUrl: response.htmlLink };
 }
 
+export async function syncMeetingToGoogleCalendar(
+  userId: string,
+  input: GoogleCalendarMeetingInput,
+  existingEventId?: string | null,
+): Promise<{ created: boolean; eventId: string; eventUrl: string } | undefined> {
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
+  if (!connection) return undefined;
+  const accessToken = await validAccessToken(connection);
+  const payload = buildGoogleCalendarMeeting(input);
+  let created = !existingEventId;
+  const target = existingEventId
+    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(existingEventId)}`
+    : "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+  let response: GoogleCalendarEventResponse;
+  try {
+    response = await googleRequest<GoogleCalendarEventResponse>(accessToken, target, {
+      method: created ? "POST" : "PATCH",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (!existingEventId || !(error instanceof Error) || !error.message.endsWith(": 404")) throw error;
+    created = true;
+    response = await googleRequest<GoogleCalendarEventResponse>(
+      accessToken,
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+  if (!response.id || !response.htmlLink) throw new Error("Google Calendar did not return an event link.");
+  return { created, eventId: response.id, eventUrl: response.htmlLink };
+}
+
+export async function removeMeetingFromGoogleCalendar(userId: string, eventId: string): Promise<void> {
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
+  if (!connection) throw new Error("Reconnect Google Calendar before removing this event.");
+  const accessToken = await validAccessToken(connection);
+  try {
+    await googleRequest<void>(
+      accessToken,
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { method: "DELETE" },
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.endsWith(": 404")) throw error;
+  }
+}
+
 export async function removeTaskFromGoogleCalendar(userId: string, task: CalendarTask): Promise<{ removed: boolean }> {
   if (!task.calendarEventId) return { removed: false };
   const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
@@ -362,6 +417,19 @@ export function buildGoogleCalendarEvent(input: GoogleCalendarEventInput) {
     end: { dateTime: end.toISO(), timeZone: input.timezone },
     ...(input.recurrenceRule ? { recurrence: [googleRecurrenceRule(input.recurrenceRule, start)] } : {}),
     extendedProperties: { private: { threadwise: "true" } }
+  };
+}
+
+export function buildGoogleCalendarMeeting(input: GoogleCalendarMeetingInput) {
+  const start = DateTime.fromJSDate(input.startAt).setZone(input.timezone);
+  const end = DateTime.fromJSDate(input.endAt).setZone(input.timezone);
+  if (!start.isValid || !end.isValid || end <= start) throw new Error("The meeting time is invalid.");
+  return {
+    summary: input.title,
+    description: input.details ?? "",
+    start: { dateTime: start.toISO(), timeZone: input.timezone },
+    end: { dateTime: end.toISO(), timeZone: input.timezone },
+    extendedProperties: { private: { threadwise: "true", threadwiseKind: "group-meeting" } },
   };
 }
 

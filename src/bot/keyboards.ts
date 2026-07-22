@@ -22,6 +22,7 @@ export function startMenuKeyboard(): InlineKeyboard {
 
 export function groupStartMenuKeyboard(workspaceId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
+    .text("Find a time", "menu:find-time").row()
     .text("📋 Shared tasks", "menu:tasks").text("📝 Shared notes", "menu:notes").row()
     .text("💡 Shared ideas", "menu:ideas").text("🖼️ Shared images", "menu:images").row()
     .text("🔎 Search", "menu:search").text("❓ Group help", "menu:help").row();

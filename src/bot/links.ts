@@ -9,6 +9,31 @@ export function groupDashboardUrl(workspaceId: string, view?: string): string {
   return url.toString();
 }
 
+export function groupScheduleMiniAppUrl(
+  botUsername: string | undefined,
+  workspaceId: string,
+  pollPublicId?: string,
+  create = false,
+): string {
+  if (!botUsername) {
+    const dashboard = new URL("/dashboard", DASHBOARD_URL);
+    dashboard.searchParams.set("view", "schedule");
+    if (pollPublicId) dashboard.searchParams.set("poll", pollPublicId);
+    else if (create) dashboard.searchParams.set("new", "1");
+    const select = new URL("/api/workspace/select", DASHBOARD_URL);
+    select.searchParams.set("workspace", workspaceId);
+    select.searchParams.set("next", `${dashboard.pathname}${dashboard.search}`);
+    return select.toString();
+  }
+  const compactWorkspace = workspaceId.replace(/-/g, "");
+  const payload = pollPublicId
+    ? `ftp_${compactWorkspace}_${pollPublicId.replace(/-/g, "")}`
+    : create
+      ? `ftn_${compactWorkspace}`
+      : `fts_${compactWorkspace}`;
+  return `https://t.me/${botUsername.replace(/^@/, "")}?startapp=${encodeURIComponent(payload)}`;
+}
+
 function normalizeDashboardUrl(value: string | undefined): string {
   const candidate = value?.trim() || DEFAULT_DASHBOARD_URL;
   try {

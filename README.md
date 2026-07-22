@@ -67,6 +67,7 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Lets assignees accept, decline, block, unblock, or hand work to another group member through compact buttons, slash commands, or natural phrases such as `I'll take task 2`, `I'm blocked on task 2 because I need access`, and `hand off task 2 to @alex`.
 - Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people.
+- Lets a group agree on a meeting time with `/findtime`, `/schedule`, or natural requests such as `find a time for rehearsal next week for 90 minutes`. Members mark availability in a touch-friendly Mini App, one Telegram card updates with response progress and best overlaps, and a verified owner/admin finalizes the time.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
 
 ## Commands
@@ -151,6 +152,8 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 /image delete IMG-1
 /version
 /groupcheck
+/findtime project rehearsal next week for 1 hour
+/schedule
 /settings
 /settings interval 180
 /settings timezone Asia/Singapore
@@ -174,9 +177,9 @@ Normal Telegram messages are also supported. Threadwise checks deterministic com
 
 In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` now use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode.
 
-`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings and assigning work to other members require a currently verified owner or administrator; each active member can still respond to or hand off their own assignment. Shared captures and collection actions are available to verified active members. Expenses, Calendar, Excel, personal export, and account deletion remain personal-only in the web app.
+`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings, assigning work to other members, and availability-poll management require a currently verified owner or administrator. Each active member can still respond to their own assignments and availability. Expenses, the frozen Excel surface, personal export, and account deletion remain personal-only. A finalized group meeting may be copied to each member's own connected Google Calendar without exposing that connection to the group.
 
-The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, unassigned, awaiting-reply, and blocked work; **People** shows assignment load without ranking people; **Progress** derives done, next, and blocked items; **Activity** records meaningful task movement; and **Resources** brings the group's notes, ideas, and visual references into one concise library. Task changes made on the web use the same database rows queried by the bot and are quietly mirrored into the Telegram group.
+The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, unassigned, awaiting-reply, blocked work, and active availability polls; **Work** includes confirmed meetings; **People** shows assignment load without ranking people; **Progress** derives done, next, and blocked items; **Activity** records meaningful movement; **Resources** collects shared notes, ideas, and visual references; and **Find a time** provides the full availability grid. Web changes use the same database rows queried by the bot and update the compact Telegram card without adding chat clutter.
 
 Private assignee nudges are deliberately opt-in. Each person opens the bot privately once and sends `/settings dm on` (or starts the bot through its `start=dm` link). When a shared assigned task becomes due, Threadwise still posts the normal group reminder and separately DMs every opted-in assignee it can match. Someone who has not started the bot, has disabled DMs, or was entered only as a plain name is skipped without blocking anyone else's reminder. Send `/settings dm off` privately to stop the extra nudges.
 

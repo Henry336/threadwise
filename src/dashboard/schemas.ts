@@ -156,6 +156,36 @@ export const calendarTaskIntegrationSchema = z.object({
   action: z.enum(["sync", "remove"])
 }).strict();
 
+export const availabilityPollCreateSchema = z.object({
+  title: trimmed(160),
+  startDate: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/),
+  timezone: trimmed(100),
+  durationMinutes: z.number().int().min(15).max(240),
+  dayStartMinutes: z.number().int().min(0).max(1_425).optional(),
+  dayEndMinutes: z.number().int().min(15).max(1_440).optional(),
+  slotMinutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
+}).strict();
+
+export const availabilityResponseSchema = z.object({
+  timezone: trimmed(100),
+  availableStarts: z.array(dateTime).max(2_000),
+  wantsCalendar: z.boolean().optional(),
+}).strict();
+
+export const availabilityFinalizeSchema = z.object({
+  startAt: dateTime,
+  expectedRevision: z.number().int().positive(),
+}).strict();
+
+export const availabilityCloseSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+}).strict();
+
+export const availabilityCalendarSchema = z.object({
+  action: z.enum(["sync", "remove"]),
+}).strict();
+
 export const deleteAccountSchema = z.object({
   confirmation: z.literal("DELETE MY THREADWISE DATA")
 }).strict();

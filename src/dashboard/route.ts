@@ -72,7 +72,12 @@ import {
   taskCreateSchema,
   taskCollaborationSchema,
   taskListQuerySchema,
-  taskUpdateSchema
+  taskUpdateSchema,
+  availabilityPollCreateSchema,
+  availabilityResponseSchema,
+  availabilityFinalizeSchema,
+  availabilityCloseSchema,
+  availabilityCalendarSchema,
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
@@ -86,6 +91,25 @@ import {
   resolveDashboardWorkspace,
   type DashboardWorkspaceScope
 } from "./workspaces";
+import {
+  GroupSchedulingError,
+  cancelAvailabilityPoll,
+  createAvailabilityPoll,
+  finalizeAvailabilityPoll,
+  getAvailabilityPoll,
+  listAvailabilityPolls,
+  prepareAvailabilityReminder,
+  releaseAvailabilityReminderReservation,
+  resolveSchedulingActor,
+  submitAvailability,
+  updateAvailabilityCalendar,
+  type SchedulingScope,
+} from "../services/groupScheduling";
+import {
+  publishAvailabilityPollCardWithToken,
+  refreshAvailabilityPollCardWithToken,
+  sendAvailabilityReminderWithToken,
+} from "../bot/scheduling";
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
@@ -189,15 +213,17 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   };
 
   const loadScopedSnapshot: RouteWork = async (telegramId, scope) => {
-    const [snapshot, collaboration] = await Promise.all([
+    const [snapshot, collaboration, scheduling] = await Promise.all([
       loadSnapshot(telegramId),
       getDashboardGroupCollaboration(scope),
+      scope.workspace.kind === "GROUP" ? listAvailabilityPolls(schedulingScope(scope)) : Promise.resolve(undefined),
     ]);
     return {
       ...snapshot,
       ...(scope.workspace.kind === "GROUP" ? { expenses: [], integrations: [] } : {}),
       workspace: scope.workspace,
       ...(collaboration ? { collaboration } : {}),
+      ...(scheduling ? { scheduling: { polls: scheduling } } : {}),
     };
   };
 
@@ -250,6 +276,78 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       return sendDashboardError(reply, error, "live_sync");
     }
   });
+
+  server.get("/api/v1/dashboard/scheduling/polls", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    return { polls: await listAvailabilityPolls(schedulingScope(scope)) };
+  }, "list_availability_polls"));
+
+  server.get("/api/v1/dashboard/scheduling/polls/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { poll: await getAvailabilityPoll(schedulingScope(scope), id) };
+  }, "get_availability_poll"));
+
+  server.post("/api/v1/dashboard/scheduling/polls", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    await assertWorkspaceManager(scope, options.telegramBotToken);
+    const scheduleScope = schedulingScope(scope);
+    const poll = await createAvailabilityPoll(scheduleScope, await resolveSchedulingActor(scheduleScope), availabilityPollCreateSchema.parse(request.body));
+    await bestEffortScheduleNotification("publish", options.telegramBotToken, scheduleScope, poll);
+    return { poll };
+  }, "create_availability_poll"));
+
+  server.patch("/api/v1/dashboard/scheduling/polls/:id/availability", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const scheduleScope = schedulingScope(scope);
+    const poll = await submitAvailability(scheduleScope, id, availabilityResponseSchema.parse(request.body));
+    await bestEffortScheduleNotification("refresh", options.telegramBotToken, scheduleScope, poll);
+    return { poll };
+  }, "submit_availability"));
+
+  server.post("/api/v1/dashboard/scheduling/polls/:id/finalize", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    await assertWorkspaceManager(scope, options.telegramBotToken);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const input = availabilityFinalizeSchema.parse(request.body);
+    const scheduleScope = schedulingScope(scope);
+    const poll = await finalizeAvailabilityPoll(scheduleScope, await resolveSchedulingActor(scheduleScope), id, input.startAt, input.expectedRevision);
+    await bestEffortScheduleNotification("refresh", options.telegramBotToken, scheduleScope, poll);
+    return { poll };
+  }, "finalize_availability_poll"));
+
+  server.post("/api/v1/dashboard/scheduling/polls/:id/remind", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    await assertWorkspaceManager(scope, options.telegramBotToken);
+    if (!options.telegramBotToken) throw new DashboardConfigurationError("Telegram delivery is temporarily unavailable.");
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const scheduleScope = schedulingScope(scope);
+    const result = await prepareAvailabilityReminder(scheduleScope, id);
+    if (result.pendingMembers.length > 0) {
+      try {
+        await sendAvailabilityReminderWithToken(options.telegramBotToken, scheduleScope, result.poll, result.pendingMembers);
+      } catch (error) {
+        await releaseAvailabilityReminderReservation(scheduleScope, result.poll.id, result.reservationAt);
+        throw error;
+      }
+      await bestEffortScheduleNotification("refresh", options.telegramBotToken, scheduleScope, result.poll);
+    }
+    return result;
+  }, "remind_availability_poll"));
+
+  server.post("/api/v1/dashboard/scheduling/polls/:id/cancel", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    await assertWorkspaceManager(scope, options.telegramBotToken);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const input = availabilityCloseSchema.parse(request.body);
+    const scheduleScope = schedulingScope(scope);
+    const poll = await cancelAvailabilityPoll(scheduleScope, await resolveSchedulingActor(scheduleScope), id, input.expectedRevision);
+    await bestEffortScheduleNotification("refresh", options.telegramBotToken, scheduleScope, poll);
+    return { poll };
+  }, "cancel_availability_poll"));
+
+  server.post("/api/v1/dashboard/scheduling/polls/:id/calendar", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const input = availabilityCalendarSchema.parse(request.body);
+    const scheduleScope = schedulingScope(scope);
+    const poll = await updateAvailabilityCalendar(scheduleScope, id, input.action);
+    await bestEffortScheduleNotification("refresh", options.telegramBotToken, scheduleScope, poll);
+    return { poll };
+  }, "update_availability_calendar"));
 
   server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     if (!options.ai) throw new DashboardConfigurationError("Dashboard capture intelligence is not configured.");
@@ -474,6 +572,38 @@ function dashboardWorkspaceHeader(request: FastifyRequest): string | undefined {
   return typeof workspace === "string" && workspace.trim() ? workspace.trim() : undefined;
 }
 
+function schedulingScope(scope: DashboardWorkspaceScope): SchedulingScope {
+  if (scope.workspace.kind !== "GROUP" || !scope.telegramChatId) {
+    throw new DashboardGroupAccessError("Find a time is available in shared group workspaces.");
+  }
+  return {
+    workspaceId: scope.workspace.id,
+    ownerTelegramId: scope.ownerTelegramId,
+    telegramChatId: scope.telegramChatId,
+    viewerTelegramId: scope.principalTelegramId,
+    viewerRole: scope.workspace.role,
+  };
+}
+
+async function bestEffortScheduleNotification(
+  action: "publish" | "refresh",
+  botToken: string | undefined,
+  scope: SchedulingScope,
+  poll: Awaited<ReturnType<typeof getAvailabilityPoll>>,
+): Promise<void> {
+  if (!botToken) return;
+  try {
+    if (action === "publish") await publishAvailabilityPollCardWithToken(botToken, scope, poll);
+    else await refreshAvailabilityPollCardWithToken(botToken, scope, poll);
+  } catch (error) {
+    logger.warn("Scheduling changed but its Telegram card could not be updated.", {
+      action,
+      pollId: poll.publicId,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
 function searchKinds(value: string | undefined): DashboardSearchKind[] {
   if (!value?.trim()) return [];
   const allowed = new Set<DashboardSearchKind>(["task", "note", "idea", "image", "expense"]);
@@ -493,6 +623,14 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
   }
   if (error instanceof DashboardGroupAccessError) {
     return reply.code(403).send({ error: "group_access_denied", message: error.message });
+  }
+  if (error instanceof GroupSchedulingError) {
+    const status = error.code === "not_found" ? 404
+      : error.code === "forbidden" ? 403
+        : error.code === "conflict" || error.code === "cooldown" ? 409
+          : error.code === "not_connected" ? 412
+            : 400;
+    return reply.code(status).send({ error: `scheduling_${error.code}`, message: error.message });
   }
   if (error instanceof DashboardConfigurationError) {
     logger.error("Dashboard API is not configured correctly.", { errorType: error.name });

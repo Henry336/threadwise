@@ -35,6 +35,10 @@ Group routing lives in `src/bot/groupRouting.ts`. Slash commands are treated as 
 
 Group task assignment is task metadata, not just title text. `Task.assignedUsername`, `Task.assignedTelegramId`, and `Task.assignedDisplayName` are set from leading `@username` mentions or Telegram text-mention entities when available. The reminder and task formatters show `Assigned To`, and natural commands such as `assign task 2 to @henry_derek` update the stored assignee.
 
+Group availability is modeled separately from tasks. `AvailabilityPoll` owns the shared scheduling window and optimistic revision; `AvailabilityResponse` is unique per poll and human Telegram id; `AvailabilityCalendarEvent` records only that human's optional provider event. `src/services/groupScheduling.ts` generates the bounded grid, verifies every selected cell, ranks only contiguous windows long enough for the requested duration, filters responses to current active members, and never places another member's raw cell choices in the returned view.
+
+Telegram cannot attach a `web_app` inline button to a normal group message, so Find a time uses the bot's Main Mini App with a short `startapp` parameter. Vercel validates Telegram's signed init data, selects the opaque group workspace, and then opens the requested poll. Telegram retains one compact poll card; availability responses, live dashboard events, manager actions, and finalization refresh that card rather than posting one message per response.
+
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
@@ -108,6 +112,8 @@ Handlers should never look up tasks, notes, ideas, calendar links, pins, or arch
 
 In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Human Telegram ids may be stored on task assignment fields, but item lookup and mutation still stay scoped to the group owner id.
 
+Availability management has an additional human boundary. Poll creation, reminders, finalization, and closure require a fresh Telegram owner/admin check. Each active member may write only the response keyed by their verified Telegram id. Shared views contain aggregate overlap counts and response identities, while only the viewer receives their own raw availability cells. Finalized Calendar events remain linked to the real personal user rather than the synthetic group owner.
+
 Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
 
 When `BOT_ALLOWED_TELEGRAM_IDS` is configured, access can be granted by sender id or group chat id. A group chat id may be written as the raw Telegram chat id or as `chat:<id>`. Blocked private users receive a private-bot notice; blocked group messages are ignored silently to avoid leaking bot presence into unrelated group conversations.
@@ -137,6 +143,8 @@ Archive fields hide items from active views without hard-deleting them. `archive
 Google Calendar and Microsoft Excel are personal-workspace mirrors. Threadwise's PostgreSQL rows remain authoritative, so a provider outage never rejects or removes a task or expense that was successfully captured.
 
 Google Calendar stores encrypted per-user OAuth tokens and one durable provider event ID on each synchronized task. The public task ID plus `userId` is the lookup key. Creating, renaming, rescheduling, or changing recurrence patches the same primary-calendar event. Removing an event clears the provider linkage without deleting the Threadwise task. The optional `calendarAutoSync` setting applies best-effort synchronization after task writes; an explicit bulk sync backfills eligible dated tasks.
+
+For a finalized group availability poll, Calendar is an explicit per-member mirror. A member can opt in or add/remove the meeting after finalization; the shared poll remains authoritative and unaffected by provider failure. Each `(pollId, telegramId)` pair maps to at most one Google event, and its URL is returned only to that signed-in member.
 
 Microsoft Excel stores encrypted OAuth tokens plus the selected workbook, worksheet, and table identifiers. First connection can create the recommended workbook and import existing expenses. The optional `excelAutoSync` setting mirrors new confirmed expenses best-effort, while manual sync retries waiting rows. The standalone `.xlsx` export does not require OAuth.
 

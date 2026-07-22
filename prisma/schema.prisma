@@ -75,6 +75,15 @@ enum GroupActivityType {
   TASK_BLOCKED
   TASK_UNBLOCKED
   TASK_HANDED_OFF
+  SCHEDULE_CREATED
+  SCHEDULE_FINALIZED
+  SCHEDULE_CANCELED
+}
+
+enum AvailabilityPollStatus {
+  OPEN
+  FINALIZED
+  CANCELED
 }
 
 model User {
@@ -110,6 +119,7 @@ model User {
   microsoftConnection   MicrosoftConnection?
   reminderHistory       ReminderDelivery[]
   auditLogs             AuditLog[]
+  availabilityCalendarEvents AvailabilityCalendarEvent[]
   groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
 }
 
@@ -127,8 +137,78 @@ model GroupWorkspace {
   ownerUser User              @relation("GroupWorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   members   GroupMembership[]
   activity  GroupActivity[]
+  availabilityPolls AvailabilityPoll[]
 
   @@index([isActive, updatedAt])
+}
+
+model AvailabilityPoll {
+  id                    String                 @id @default(uuid())
+  workspaceId           String
+  publicId              String
+  title                 String
+  startDate             String
+  endDate               String
+  timezone              String
+  durationMinutes       Int
+  dayStartMinutes       Int                    @default(480)
+  dayEndMinutes         Int                    @default(1320)
+  slotMinutes           Int                    @default(30)
+  status                AvailabilityPollStatus @default(OPEN)
+  createdByTelegramId   String
+  createdByName         String
+  telegramMessageId     String?
+  revision              Int                    @default(1)
+  finalStartAt          DateTime?
+  finalEndAt            DateTime?
+  finalizedByTelegramId String?
+  finalizedAt           DateTime?
+  lastReminderAt        DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  workspace      GroupWorkspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  responses      AvailabilityResponse[]
+  calendarEvents AvailabilityCalendarEvent[]
+
+  @@unique([workspaceId, publicId])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, createdAt])
+}
+
+model AvailabilityResponse {
+  id              String   @id @default(uuid())
+  pollId          String
+  telegramId      String
+  timezone        String
+  availableStarts DateTime[]
+  wantsCalendar   Boolean  @default(false)
+  respondedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  poll AvailabilityPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, telegramId])
+  @@index([pollId, updatedAt])
+}
+
+model AvailabilityCalendarEvent {
+  id         String   @id @default(uuid())
+  pollId     String
+  userId     String
+  telegramId String
+  eventId    String
+  eventUrl   String?
+  syncedAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  poll AvailabilityPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, telegramId])
+  @@index([userId, syncedAt])
 }
 
 model GroupActivity {

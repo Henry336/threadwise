@@ -473,6 +473,7 @@ describe("bot formatters", () => {
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/googlecal");
     expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
+    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/findtime");
     expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expense");
     expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expenses");
     expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/excel");

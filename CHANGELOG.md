@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.25.0 - 2026-07-23
+
+### Find a time
+- Added focused group availability polls through `/findtime`, `/schedule`, the group menu, and natural requests such as “find a time for rehearsal next week for 90 minutes.”
+- Added a shared, touch-friendly Mini App grid with date range, duration, time-zone handling, response progress, ranked overlaps, and explicit availability saving.
+- Kept Telegram compact: one poll card is edited as responses arrive, managers can remind pending members or finalize a suggested slot, and the full grid stays in the Mini App/dashboard.
+- Added active polls to Group Overview and confirmed meetings to Group Work without introducing a generic calendar or booking product.
+
+### Permissions, privacy, and reliability
+- Restricted poll creation, reminders, finalization, and closure to freshly verified Telegram owners/admins; active members can submit or revise only their own availability.
+- Exposed aggregate overlaps and respondent names without returning another member's raw selected cells.
+- Added optimistic revision checks, idempotent response updates, active-member filtering, local-day boundary protection, reminder cooldowns with recoverable delivery reservations, and graceful stale/closed-poll failures.
+- Added optional per-member Google Calendar sync after finalization while keeping private event links out of the shared Telegram card.
+
+### Quality
+- Added the availability data model, migration, live dashboard revision tracking, authenticated scheduling API, safe Telegram Mini App deep links, and regression coverage for parsing, overlap ranking, card privacy, and snapshot validation.
+- Avoided per-card Calendar lookups in poll lists and duplicate Telegram role checks in privileged callback paths.
+- Passed 528 backend tests in one worker, backend typechecking and production build, 10 dashboard tests, dashboard lint and TypeScript checks, and the dashboard production build.
+- Updated help, architecture, handoff notes, and the product journal with the Telegram coordination friction and deliberately limited scope.
+
 ## v0.24.0 - 2026-07-22
 
 ### Product focus

@@ -31,6 +31,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/reschedule", description: "Move a dated task to another time.", example: "/reschedule 1 tomorrow at 10am" },
   { command: "/assign", description: "Add one or more people to a group task.", example: "/assign 1 @alex and @sam" },
   { command: "/unassign", description: "Remove one assignee, or everyone when no name is given.", example: "/unassign 1 @alex" },
+  { command: "/findtime", description: "Start or open a group availability poll.", example: "/findtime project rehearsal next week for 1 hour" },
   { command: "/images", description: "Browse or search saved images by caption, OCR text, or filename.", example: "/images passport" },
   { command: "/image", description: "Open, caption, or request deletion of one saved image.", example: "/image caption IMG-2 Mum's passport" },
   { command: "/cancel", description: "Cancel one task, or preview and confirm several.", example: "/cancel 1 2 3" },
@@ -267,7 +268,7 @@ export function formatGroupHelpGuide(botUsername?: string): string {
     `${code(`${mention} idea: run a monthly demo night`)}`,
     "",
     bold("Coordinate"),
-    `${code("/tasks")} · ${code("/assign")} · ${code("/done")}`,
+    `${code("/tasks")} · ${code("/assign")} · ${code("/done")} · ${code("/findtime")}`,
     "",
     bold("Recall"),
     `${code("/notes")} · ${code("/ideas")} · ${code("/images")} · ${code("/search")}`,
@@ -330,9 +331,9 @@ export function formatGroupCommandReference(): string {
     `${code("/add")} task · ${code("/remind")} reminder · ${code("/tasks")} open tasks · ${code("/done")} complete`,
     `${code("/note")} save note · ${code("/notes")} browse notes · ${code("/idea")} save idea · ${code("/ideas")} browse ideas`,
     `${code("/images")} saved images · ${code("/search")} find shared content`,
-    `${code("/assign")} assign a task · ${code("/settings")} group defaults`,
+    `${code("/assign")} assign a task · ${code("/findtime")} agree on a time · ${code("/settings")} group defaults`,
     "",
-    `Example: ${code("/remind tomorrow at 9am | bring the prototype")}`,
+    `Examples: ${code("/remind tomorrow at 9am | bring the prototype")} · ${code("/findtime rehearsal next week for 1 hour")}`,
     "Group settings are restricted to Telegram group admins."
   ].join("\n");
 }
