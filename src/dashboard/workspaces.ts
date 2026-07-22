@@ -28,7 +28,7 @@ export class DashboardGroupAccessError extends Error {
   }
 }
 
-type MembershipVerifier = (botToken: string, chatId: string, telegramId: string) => Promise<GroupMemberRole>;
+type MembershipVerifier = (botToken: string, chatId: string, telegramId: string, forceRefresh?: boolean) => Promise<GroupMemberRole>;
 const membershipCache = new Map<string, { expiresAt: number; role: GroupMemberRole }>();
 let cachedBotToken: string | undefined;
 let cachedApi: Api | undefined;
@@ -41,10 +41,15 @@ function telegramApi(botToken: string): Api {
   return cachedApi;
 }
 
-export async function verifyTelegramGroupMembership(botToken: string, chatId: string, telegramId: string): Promise<GroupMemberRole> {
+export async function verifyTelegramGroupMembership(
+  botToken: string,
+  chatId: string,
+  telegramId: string,
+  forceRefresh = false
+): Promise<GroupMemberRole> {
   const key = `${chatId}:${telegramId}`;
   const cached = membershipCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.role;
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.role;
 
   let member;
   try {
@@ -170,8 +175,15 @@ export function assertPersonalWorkspace(scope: DashboardWorkspaceScope): void {
   }
 }
 
-export function assertWorkspaceManager(scope: DashboardWorkspaceScope): void {
-  if (scope.workspace.kind === "GROUP" && scope.workspace.role === "MEMBER") {
-    throw new DashboardGroupAccessError("Only a Telegram group admin can change shared workspace settings.");
+export async function assertWorkspaceManager(
+  scope: DashboardWorkspaceScope,
+  botToken: string | undefined,
+  verifyMembership: MembershipVerifier = verifyTelegramGroupMembership
+): Promise<void> {
+  if (scope.workspace.kind !== "GROUP") return;
+  if (!botToken || !scope.telegramChatId) throw new DashboardGroupAccessError();
+  const currentRole = await verifyMembership(botToken, scope.telegramChatId, scope.principalTelegramId, true);
+  if (currentRole !== GroupMemberRole.OWNER && currentRole !== GroupMemberRole.ADMIN) {
+    throw new DashboardGroupAccessError("Only a Telegram group owner or administrator can manage this shared workspace.");
   }
 }

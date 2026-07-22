@@ -10,7 +10,7 @@ import { Api } from "grammy";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import type { DashboardWorkspaceScope } from "./workspaces";
-import { DashboardGroupAccessError } from "./workspaces";
+import { assertWorkspaceManager, DashboardGroupAccessError } from "./workspaces";
 
 const ACTIVITY_LIMIT = 60;
 
@@ -172,7 +172,6 @@ export async function updateDashboardTaskCollaboration(
   if (!workspace) throw new DashboardGroupAccessError();
   const actor = workspace.members.find((member) => member.telegramId === scope.principalTelegramId);
   if (!actor) throw new DashboardGroupAccessError();
-  const manager = scope.workspace.role === "OWNER" || scope.workspace.role === "ADMIN";
   const task = await database.task.findFirst({
     where: {
       userId: workspace.ownerUser.id,
@@ -187,6 +186,18 @@ export async function updateDashboardTaskCollaboration(
   const now = new Date();
   const reason = input.reason?.replace(/\s+/g, " ").trim().slice(0, 500) || undefined;
   let bridgeMessage = "";
+  const assignment = input.action === "assign"
+    ? undefined
+    : input.assigneeId
+      ? task.assignees.find((item) => item.id === input.assigneeId)
+      : task.assignees.find((item) => assigneeIsActor(item, actor));
+
+  if (input.action === "assign") {
+    await assertWorkspaceManager(scope, botToken);
+  } else {
+    if (!assignment) throw new DashboardGroupAccessError("That assignment no longer exists.");
+    if (!assigneeIsActor(assignment, actor)) await assertWorkspaceManager(scope, botToken);
+  }
 
   await database.$transaction(async (tx) => {
     if (input.action === "assign") {
@@ -212,11 +223,7 @@ export async function updateDashboardTaskCollaboration(
       bridgeMessage = `${actorName} assigned ${task.publicId} to ${memberName(target)}.`;
       await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_ASSIGNED, task, bridgeMessage);
     } else {
-      const assignment = input.assigneeId
-        ? task.assignees.find((item) => item.id === input.assigneeId)
-        : task.assignees.find((item) => assigneeIsActor(item, actor));
       if (!assignment) throw new DashboardGroupAccessError("That assignment no longer exists.");
-      if (!manager && !assigneeIsActor(assignment, actor)) throw new DashboardGroupAccessError("You can only update your own assignment.");
 
       if (input.action === "unassign") {
         await tx.taskAssignee.delete({ where: { id: assignment.id } });

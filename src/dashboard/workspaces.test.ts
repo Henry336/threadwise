@@ -1,6 +1,6 @@
 import { GroupMemberRole, GroupMemberStatus, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
-import { DashboardGroupAccessError, resolveDashboardWorkspace } from "./workspaces";
+import { assertWorkspaceManager, DashboardGroupAccessError, resolveDashboardWorkspace } from "./workspaces";
 
 describe("dashboard group workspace authorization", () => {
   const workspaceId = "6cd8f630-05f4-48c0-b7fb-ffacbc4ff1a2";
@@ -41,5 +41,23 @@ describe("dashboard group workspace authorization", () => {
   it("fails closed when the opaque workspace does not exist", async () => {
     const database = { groupWorkspace: { findUnique: vi.fn(async () => null) } } as unknown as PrismaClient;
     await expect(resolveDashboardWorkspace("123456789", workspaceId, "bot-token", database)).rejects.toBeInstanceOf(DashboardGroupAccessError);
+  });
+
+  it("freshly verifies Telegram authority before a privileged group mutation", async () => {
+    const scope = {
+      principalTelegramId: "123456789",
+      ownerTelegramId: "chat:-100456789",
+      telegramChatId: "-100456789",
+      workspace: { id: workspaceId, kind: "GROUP" as const, name: "Launch team", role: "ADMIN" as const }
+    };
+    const demoted = vi.fn(async () => GroupMemberRole.MEMBER);
+
+    await expect(assertWorkspaceManager(scope, "bot-token", demoted)).rejects.toThrow(
+      "Only a Telegram group owner or administrator"
+    );
+    expect(demoted).toHaveBeenCalledWith("bot-token", "-100456789", "123456789", true);
+
+    const owner = vi.fn(async () => GroupMemberRole.OWNER);
+    await expect(assertWorkspaceManager(scope, "bot-token", owner)).resolves.toBeUndefined();
   });
 });

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.22.0 - 2026-07-22
+
+### Group workspace boundaries
+- Revalidated Telegram owner and administrator status at the moment a privileged dashboard action is attempted, so a recently demoted manager immediately loses access instead of inheriting a cached role.
+- Restricted assigning or reassigning other people to Telegram group owners and administrators while preserving each member's ability to accept, decline, block, unblock, remove, or hand off their own assignment.
+- Kept Expenses and personal integrations out of group dashboard snapshots, search, capture, and mutation routes; they remain private-workspace features.
+
+### Quality
+- Added regression coverage for live role demotion and unauthorized assignment creation, and verified the dashboard collaboration boundary against the shared Telegram records.
+
 ## v0.21.2 - 2026-07-21
 
 ### Fixed

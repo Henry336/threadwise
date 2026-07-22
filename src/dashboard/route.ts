@@ -181,6 +181,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     ]);
     return {
       ...snapshot,
+      ...(scope.workspace.kind === "GROUP" ? { expenses: [], integrations: [] } : {}),
       workspace: scope.workspace,
       ...(collaboration ? { collaboration } : {}),
     };
@@ -236,9 +237,13 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     }
   });
 
-  server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     if (!options.ai) throw new DashboardConfigurationError("Dashboard capture intelligence is not configured.");
-    return { preview: await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai) };
+    const preview = await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai);
+    if (scope.workspace.kind === "GROUP" && preview.kind === "expense") {
+      throw new DashboardGroupAccessError("Expenses stay in personal Threadwise workspaces. Switch to Personal to capture this expense.");
+    }
+    return { preview };
   }, "capture_preview"));
 
   server.get("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => {
@@ -327,21 +332,25 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return actions.analyzeIdea(telegramId, id, options.ai);
   }, "analyze_idea"));
 
-  server.post("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId) => ({
-    expense: await actions.createExpense(telegramId, expenseCreateSchema.parse(request.body))
-  }), "create_expense"));
+  server.post("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return { expense: await actions.createExpense(telegramId, expenseCreateSchema.parse(request.body)) };
+  }, "create_expense"));
 
-  server.get("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.get("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     const query = expenseListQuerySchema.parse(request.query);
     return { expenses: await actions.listExpenses(telegramId, query) };
   }, "list_expenses"));
 
-  server.patch("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.patch("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
     return { expense: await actions.updateExpense(telegramId, id, expenseUpdateSchema.parse(request.body)) };
   }, "update_expense"));
 
-  server.delete("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.delete("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
     await actions.deleteExpense(telegramId, id);
     return { deleted: true };
@@ -373,9 +382,13 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { deleted: true };
   }, "delete_image"));
 
-  server.get("/api/v1/dashboard/search", async (request, reply) => run(request, reply, async (telegramId) => {
+  server.get("/api/v1/dashboard/search", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     const query = searchQuerySchema.parse(request.query);
-    const kinds = searchKinds(query.kinds);
+    let kinds = searchKinds(query.kinds);
+    if (scope.workspace.kind === "GROUP") {
+      if (kinds.includes("expense")) throw new DashboardGroupAccessError("Expenses are available only in personal workspaces.");
+      if (kinds.length === 0) kinds = ["task", "note", "idea", "image"];
+    }
     return { query: query.q, results: await actions.search(telegramId, query.q, kinds, query.limit) };
   }, "search"));
 
@@ -384,7 +397,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   }), "get_settings"));
 
   server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId, scope) => {
-    assertWorkspaceManager(scope);
+    await assertWorkspaceManager(scope, options.telegramBotToken);
     return { settings: await actions.updateSettings(telegramId, settingsUpdateSchema.parse(request.body)) };
   }, "update_settings"));
 
