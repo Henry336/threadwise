@@ -39,6 +39,11 @@ export const PRIVATE_MENU_LABELS = {
   dashboard: "🌐 Dashboard"
 } as const;
 
+export const NOTE_SESSION_LABELS = {
+  save: "Save note",
+  cancel: "Cancel"
+} as const;
+
 export function privateMenuKeyboard(): Keyboard {
   return new Keyboard()
     .text(PRIVATE_MENU_LABELS.menu)
@@ -46,6 +51,15 @@ export function privateMenuKeyboard(): Keyboard {
     .resized()
     .persistent()
     .placeholder("Tell Threadwise what you need…");
+}
+
+export function noteSessionKeyboard(): Keyboard {
+  return new Keyboard()
+    .text(NOTE_SESSION_LABELS.save)
+    .text(NOTE_SESSION_LABELS.cancel)
+    .resized()
+    .persistent()
+    .placeholder("Keep writing…");
 }
 
 export function dashboardLinkKeyboard(): InlineKeyboard {
@@ -65,8 +79,9 @@ export function tasksModeKeyboard(): InlineKeyboard {
 
 export function notesModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("＋ Add note", "menu:notes-add").text("📝 Recent notes", "menu:notes-list").row()
-    .text("🔎 Search notes", "menu:notes-search").text("🗃️ Archived", "menu:notes-archived").row()
+    .text("＋ Add note", "menu:notes-add").text("✍️ Note session", "menu:notes-session").row()
+    .text("📝 Recent notes", "menu:notes-list").text("🔎 Search notes", "menu:notes-search").row()
+    .text("🗃️ Archived", "menu:notes-archived").row()
     .text("‹ Main menu", "menu:home");
 }
 
@@ -384,11 +399,23 @@ export function editCancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("✕ Cancel edit", "edit:cancel");
 }
 
-export function itemActionsKeyboard(kind: ItemKind, item: ItemActionTarget, includeBack = true): InlineKeyboard {
+export function itemActionsKeyboard(
+  kind: ItemKind,
+  item: ItemActionTarget,
+  includeBack = true,
+  notePage?: { page: number; totalPages: number }
+): InlineKeyboard {
   const action = item.pinnedAt ? "unpin" : "pin";
   const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
   const bodyLabel = kind === "task" ? "details" : bodyField;
-  const keyboard = new InlineKeyboard()
+  const keyboard = new InlineKeyboard();
+  if (kind === "note" && notePage && notePage.totalPages > 1) {
+    if (notePage.page > 1) keyboard.text("←", `item:note:page:${item.id}:${notePage.page - 1}`);
+    keyboard.text(`${notePage.page}/${notePage.totalPages}`, `item:note:page:${item.id}:${notePage.page}`);
+    if (notePage.page < notePage.totalPages) keyboard.text("→", `item:note:page:${item.id}:${notePage.page + 1}`);
+    keyboard.row();
+  }
+  keyboard
     .text(item.pinnedAt ? "☆ Unstar" : "⭐ Star", `item:${kind}:${action}:${item.id}`)
     .text("✏️ Title", `item:${kind}:edit:title:${item.id}`)
     .text(`📝 ${bodyLabel.charAt(0).toUpperCase()}${bodyLabel.slice(1)}`, `item:${kind}:edit:${bodyField}:${item.id}`);
@@ -486,6 +513,21 @@ export function archivedPageKeyboard(kind: string, page: number, totalPages: num
   }
   keyboard.text("‹ Archived", "menu:archived");
   return keyboard;
+}
+
+export function archivedNoteDetailKeyboard(
+  publicId: string,
+  page: number,
+  totalPages: number
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (totalPages > 1) {
+    if (page > 1) keyboard.text("←", `archived-note:page:${publicId}:${page - 1}`);
+    keyboard.text(`${page}/${totalPages}`, `archived-note:page:${publicId}:${page}`);
+    if (page < totalPages) keyboard.text("→", `archived-note:page:${publicId}:${page + 1}`);
+    keyboard.row();
+  }
+  return keyboard.text("‹ Archived notes", "menu:notes-archived");
 }
 
 export function bulkActionConfirmationKeyboard(pendingId: string): InlineKeyboard {

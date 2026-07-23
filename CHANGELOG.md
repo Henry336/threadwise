@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.26.0 - 2026-07-23
+
+### Quiet note capture
+- Added private Note sessions: each message is durably stored as one exact paragraph, intermediate bot replies stay silent, and persistent Save note/Cancel controls remain beside the composer.
+- Added restart-safe 30-minute inactivity handling. Non-empty sessions auto-save; empty sessions close; both restore the normal Menu/Dashboard keyboard with a short self-cleaning acknowledgement.
+- Added long-note detail pagination that edits one Telegram card, splits at paragraph and sentence boundaries, preserves Unicode, and covers active and archived notes without truncating the stored body.
+
+### Immediate capture choices
+- Removed AI classification from the ambiguous-message critical path. Unclear text now immediately offers Task, Note, Idea, and Ignore actions.
+- Bound pending capture choices to the Telegram actor so one group member cannot apply another member's choice.
+- Kept routine save results ephemeral while leaving errors, parsed dates, recurrence, time zones, assignees, and useful item controls visible.
+
+### Per-member group interfaces
+- Adopted Telegram's receiver-bound ephemeral message flow for nested group menus, lists, pagination, prompts, and capture choices while preserving one public shared anchor and public shared-work cards.
+- Added receiver validation, private ForceReply prompts, explicit “Reply to this message…” wording, ephemeral edits/deletion, and a no-public-fallback rule if private delivery fails.
+- Recognized incoming ephemeral replies as explicitly addressed to Threadwise even when group privacy mode would otherwise ignore ordinary conversation.
+
+### Dashboard loading
+- Added the exact approved four-frame Ari untangling artwork as a route-loading sprite, including a static completed frame for reduced-motion users.
+- Kept the artwork at its native four equal 3:4 frames rather than redrawing or approximating it.
+
+### Quality and records
+- Added the durable note-capture schema and guarded migration, pagination/Unicode tests, actor-isolation checks, ephemeral transport tests, group-routing coverage, loader-asset assertions, and safe ephemeral error recovery.
+- Updated help, command references, README behavior notes, and the product journal with the observed friction, decisions, safeguards, and intended product effect.
+- Passed all 547 backend tests in one worker, backend typechecking, production build, and Prisma schema validation; the coordinated dashboard gate passed all 12 tests, lint, and its production build, with a mobile Chromium visual check of the approved loader sequence.
+
 ## v0.25.0 - 2026-07-23
 
 ### Find a time

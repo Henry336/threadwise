@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import { editOrReplyHtml, replyHtml } from "../utils/html";
+import { deleteEphemeralMessage, ephemeralDeletionTarget } from "./ephemeral";
 
 export const QUIET_ACKNOWLEDGEMENT_TTL_MS = 3_500;
 
@@ -24,6 +25,19 @@ function messageTarget(ctx: Context, result: unknown): { chatId: number | string
 }
 
 function removeSoon(ctx: Context, result: unknown, ttlMs: number): void {
+  const ephemeral = ephemeralDeletionTarget(ctx, result);
+  if (ephemeral) {
+    const timer = setTimeout(() => {
+      void deleteEphemeralMessage(
+        ephemeral.chatId,
+        ephemeral.receiverUserId,
+        ephemeral.ephemeralMessageId
+      ).catch(() => undefined);
+    }, ttlMs);
+    timer.unref?.();
+    return;
+  }
+
   const target = messageTarget(ctx, result);
   if (!target) return;
 
@@ -41,9 +55,10 @@ function removeSoon(ctx: Context, result: unknown, ttlMs: number): void {
 export async function replyQuietAcknowledgementHtml(
   ctx: Context,
   content: string,
-  ttlMs = QUIET_ACKNOWLEDGEMENT_TTL_MS
+  ttlMs = QUIET_ACKNOWLEDGEMENT_TTL_MS,
+  options: Record<string, unknown> = {}
 ): Promise<unknown> {
-  const message = await replyHtml(ctx, content);
+  const message = await replyHtml(ctx, content, options);
   removeSoon(ctx, message, ttlMs);
   return message;
 }

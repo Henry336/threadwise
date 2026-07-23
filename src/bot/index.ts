@@ -11,9 +11,12 @@ import { registerImageMessages } from "./imageMessages";
 import { updateGroupBotStatus, updateGroupMemberFromTelegram } from "../services/groupWorkspaces";
 import { errorLogMetadata, respondToUnhandledBotError } from "./errorResponses";
 import { registerGroupScheduling } from "./scheduling";
+import { callbackMatchesEphemeralReceiver, configureEphemeralTransport } from "./ephemeral";
+import { registerNoteSessions } from "./noteSessions";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
+  configureEphemeralTransport(token);
   const allowlist = allowedTelegramIds();
 
   bot.use(async (ctx, next) => {
@@ -51,6 +54,18 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await next();
   });
 
+  bot.use(async (ctx, next) => {
+    if (!callbackMatchesEphemeralReceiver(ctx)) {
+      await ctx.answerCallbackQuery({
+        text: "This private Threadwise view belongs to someone else.",
+        show_alert: true
+      });
+      return;
+    }
+    await next();
+  });
+
+  registerNoteSessions(bot);
   registerCommands(bot, ai);
   registerGroupScheduling(bot);
   registerCallbacks(bot, ai);

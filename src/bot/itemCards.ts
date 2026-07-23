@@ -5,9 +5,19 @@ import { formatDateTimeForUser } from "../utils/dates";
 import { bold, h } from "../utils/html";
 import { joinBlocks } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
-import { itemActionsKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedNoteDetailKeyboard, itemActionsKeyboard, taskActionsKeyboard } from "./keyboards";
+import { boundedNotePage, paginateNoteBody } from "./notePagination";
 
 export type CardItemKind = "task" | "note" | "idea";
+
+type ArchivedNoteCardRecord = {
+  publicId: string;
+  title: string;
+  body: string;
+  summary: string;
+  tags: string[];
+  archivedAt?: Date | null;
+};
 
 export async function buildItemCard(
   userId: string,
@@ -15,7 +25,8 @@ export async function buildItemCard(
   reference: string,
   timezone = "UTC",
   heading?: string,
-  includeDefaultBack = true
+  includeDefaultBack = true,
+  requestedNotePage = 1
 ) {
   if (kind === "task") {
     const task = await findTaskReference(userId, reference);
@@ -39,15 +50,24 @@ export async function buildItemCard(
   if (kind === "note") {
     const note = await findNoteReference(userId, reference);
     const body = withoutRepeatedTitle(note.title, note.body || note.summary);
+    const pages = paginateNoteBody(body ?? "");
+    const page = boundedNotePage(requestedNotePage, pages.length);
     const text = joinBlocks([
       heading ? bold(heading) : undefined,
-      bold("📝 Note"),
-      bold(note.title),
-      body ? h(truncate(body, 900)) : undefined,
+      pages.length > 1 ? bold(`📝 Note · ${page}/${pages.length}`) : bold("📝 Note"),
+      bold(truncate(note.title, 300)),
+      body ? h(pages[page - 1] ?? "") : undefined,
       note.tags.length ? `#${note.tags.map((tag) => h(tag)).join("  #")}` : undefined,
       note.pinnedAt ? "⭐ Starred" : undefined
     ]);
-    return { text, keyboard: itemActionsKeyboard("note", note, includeDefaultBack) };
+    return {
+      text,
+      keyboard: itemActionsKeyboard("note", note, includeDefaultBack, {
+        page,
+        totalPages: pages.length
+      }),
+      notePage: { page, totalPages: pages.length }
+    };
   }
 
   const idea = await findIdeaReference(userId, reference);
@@ -61,6 +81,27 @@ export async function buildItemCard(
     idea.pinnedAt ? "⭐ Starred" : undefined
   ]);
   return { text, keyboard: itemActionsKeyboard("idea", idea, includeDefaultBack) };
+}
+
+export function buildArchivedNoteCard(
+  note: ArchivedNoteCardRecord,
+  requestedPage = 1
+) {
+  const body = withoutRepeatedTitle(note.title, note.body || note.summary);
+  const pages = paginateNoteBody(body ?? "");
+  const page = boundedNotePage(requestedPage, pages.length);
+  const text = joinBlocks([
+    pages.length > 1 ? bold(`📝 Note · ${page}/${pages.length}`) : bold("📝 Note"),
+    bold(truncate(note.title, 300)),
+    body ? h(pages[page - 1] ?? "") : undefined,
+    note.tags.length ? `#${note.tags.map((tag) => h(tag)).join("  #")}` : undefined,
+    note.archivedAt ? "🗃 Archived" : undefined
+  ]);
+  return {
+    text,
+    keyboard: archivedNoteDetailKeyboard(note.publicId, page, pages.length),
+    notePage: { page, totalPages: pages.length }
+  };
 }
 
 function withoutRepeatedTitle(title: string, body?: string | null): string | undefined {

@@ -41,7 +41,6 @@ import {
   findNoteReference,
   formatNoteAnalysis,
   formatNoteSavedAcknowledgement,
-  formatNoteDetail,
   formatRecentNotes,
   renameNoteTitle,
   searchNotes,
@@ -80,6 +79,7 @@ import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorks
 import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
 
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
@@ -178,11 +178,13 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^(\d+|NOTE-\d+)$/i.test(text)) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
-      await replyControlCardHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
+      const card = await buildItemCard(user.id, "note", note.publicId, user.settings?.timezone ?? "UTC");
+      await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
       try {
         const archivedNote = await findAnyNote(user.id, normalizePublicId(text));
-        await replyHtml(ctx, `${formatNoteDetail(archivedNote, user.settings?.timezone)}\n\n${code(archivedNote.archivedAt ? "/restore " + archivedNote.publicId : "/notes")}`);
+        const card = buildArchivedNoteCard(archivedNote);
+        await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
       } catch {
         await ctx.reply("I couldn't find that note. /notes will show the recent ones.");
       }

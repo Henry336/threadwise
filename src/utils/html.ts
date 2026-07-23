@@ -1,4 +1,5 @@
 import type { Context } from "grammy";
+import { editOrSendEphemeral, replyToIncomingEphemeral } from "../bot/ephemeral";
 
 export const HTML_REPLY = { parse_mode: "HTML" as const };
 
@@ -22,6 +23,8 @@ export function code(value: unknown): string {
 }
 
 export async function replyHtml(ctx: Context, text: string, options: Record<string, unknown> = {}): Promise<unknown> {
+  const ephemeral = await replyToIncomingEphemeral(ctx, text, { ...options, ...HTML_REPLY });
+  if (ephemeral !== undefined) return ephemeral;
   return ctx.reply(text, { ...options, ...HTML_REPLY });
 }
 
@@ -41,6 +44,8 @@ async function editCallbackMessageOrReply(
 ): Promise<unknown> {
   const message = ctx.callbackQuery?.message;
   const format = html ? HTML_REPLY : {};
+  const ephemeral = await editOrSendEphemeral(ctx, text, { ...options, ...format });
+  if (ephemeral !== undefined) return ephemeral;
 
   if (message) {
     try {

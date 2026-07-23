@@ -14,7 +14,7 @@ import {
   scoreIdea,
   updateIdeaConcept
 } from "../services/ideas";
-import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteDetail, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
+import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
 import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
@@ -51,6 +51,7 @@ import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorks
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { prisma } from "../db/prisma";
+import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
 
 export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
@@ -419,10 +420,19 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
-      await replyControlCardHtml(ctx, formatNoteDetail(note, user.settings?.timezone), { reply_markup: itemActionsKeyboard("note", note) });
+      const card = await buildItemCard(
+        user.id,
+        "note",
+        note.publicId,
+        user.settings?.timezone ?? "UTC"
+      );
+      await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
       try {
-        await replyHtml(ctx, formatNoteDetail(await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1])), user.settings?.timezone));
+        const card = buildArchivedNoteCard(
+          await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))
+        );
+        await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
       } catch {
         await ctx.reply("I couldn't find that note. Show notes will list the recent ones.");
       }

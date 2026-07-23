@@ -158,6 +158,39 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 **Follow-up:** Observe real OAuth failure rates and sync latency before adding more providers. If Gmail tables are later removed, first confirm no production runtime references or retained user data requirement remains, then ship a separate reviewed migration and retention note.
 
+### 23 July 2026 — Quiet writing, complete notes, and private group interaction
+
+**Friction discovered:**
+
+- A long-form note is not naturally one Telegram message. Saving every paragraph separately forces the writer to reassemble it later, while acknowledging every paragraph doubles chat volume and makes a capture tool feel as if it is talking over the person using it.
+- A temporary session held only in process memory would lose text during a deploy or restart. A persistent inline Save card would also move upward as ordinary chat continued, making it easy to forget.
+- The stored note body could be complete while the Telegram detail view truncated it. Near Telegram's message limit, headings and controls made the presentation exceed the limit even when the user's original message fit.
+- Ambiguous text waited for AI classification and a low-confidence private branch deliberately returned without a reply. The visible result was either latency or silence at exactly the moment a user needed a fast choice.
+- Group prompts said “Send your answer as the next message,” although privacy-mode groups only reliably route mentions and replies to the bot. Shared inline menus also let several people overwrite the same interface, making simultaneous use chaotic.
+- Generic loading feedback missed an opportunity to make Ari useful as a product character. The approved four-frame untangling sequence already communicates Threadwise's purpose more clearly than a standard spinner.
+
+**Decision:**
+
+- Treat multi-message writing as a private, temporary **Note session**, not a permanent global mode.
+- Store each paragraph before producing no response. Keep Save note and Cancel as a persistent reply keyboard; auto-save non-empty sessions after 30 minutes of inactivity; retain slash fallbacks.
+- Preserve full note bodies in storage and paginate only the Telegram presentation. Edit one detail card in place and split at natural boundaries.
+- Keep AI off the ambiguity response-critical path. Deterministic intent remains first; otherwise show immediate Task, Note, Idea, and Ignore choices.
+- Keep one public group anchor and public shared-work results, but make each member's nested interface receiver-bound and ephemeral. Word prompts as explicit replies. Never fall back from a failed private journey to editing the shared card.
+- Use the supplied Ari frame sheet exactly as the dashboard loading sequence and show its completed frame when reduced motion is requested.
+
+**Implemented:**
+
+- Added `NoteCaptureSession` and `NoteCaptureSegment` rows with cascading ownership, message-id idempotency, rolling expiry, exact paragraph text, and a restart-safe expiry loop.
+- Added Notes → Note session, `/note_session`, `/save_note`, and `/cancel_note`; start/save/cancel/auto-save acknowledgements remove themselves after a short visibility window.
+- Added HTML-budgeted, grapheme-safe note pagination for active and archived notes with in-place previous/page/next controls.
+- Replaced awaited ambiguity classification with immediate actor-scoped pending captures. A second group member cannot consume or ignore the first person's pending choice.
+- Added Telegram Bot API receiver/callback-scoped ephemeral send, edit, ForceReply, ownership validation, deletion, and incoming-reply routing. Errors prefer a private direct-message recovery and never expose the failed private action to the group.
+- Added the exact 2,172×724 Ari artwork as four native 543×724 frames, stepped through in the dashboard loading route without regenerating the art.
+
+**Outcome/evidence:** Focused regression coverage exercises durable paragraph writes, exact combined bodies, Unicode-safe title and page boundaries, archived pagination controls, actor ownership, receiver validation, private failure handling, incoming ephemeral routing, and the source dimensions/frame positions of the Ari loader. The release gate passed all 547 backend tests in one worker, backend typechecking, the production build, Prisma schema validation, all 12 dashboard tests, dashboard lint, and the dashboard production build. A mobile Chromium visual check confirmed the approved 3:4 crop and a later untangling frame without distortion.
+
+**Follow-up:** Observe Telegram's best-effort ephemeral delivery in real groups, especially members who are offline or using older clients. Track abandoned Note sessions and auto-save frequency to decide whether 30 minutes is the right timeout. Verify whether the 3.5-second acknowledgement window is long enough to inspect parsed dates without making capture noisy.
+
 ## Journal entry template
 
 ```markdown

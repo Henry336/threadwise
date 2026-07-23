@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, privateMenuKeyboard, PRIVATE_MENU_LABELS, reminderActionsKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
+import { archivedNoteDetailKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, menuBackKeyboard, noteSessionKeyboard, notesModeKeyboard, NOTE_SESSION_LABELS, privateMenuKeyboard, PRIVATE_MENU_LABELS, reminderActionsKeyboard, searchPageKeyboard, taskActionsKeyboard } from "./keyboards";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic } from "./help";
 
 describe("interactive keyboard navigation", () => {
@@ -32,6 +32,25 @@ describe("interactive keyboard navigation", () => {
       { text: PRIVATE_MENU_LABELS.dashboard }
     ]]);
     expect(keyboard.is_persistent).toBe(true);
+  });
+
+  it("keeps note-session Save and Cancel controls beside the private composer", () => {
+    expect(callbackData(notesModeKeyboard())).toContain("menu:notes-session");
+    const keyboard = noteSessionKeyboard();
+    expect(keyboard.keyboard).toEqual([[
+      { text: NOTE_SESSION_LABELS.save },
+      { text: NOTE_SESSION_LABELS.cancel }
+    ]]);
+    expect(keyboard.is_persistent).toBe(true);
+  });
+
+  it("keeps archived long-note pagination inside one Telegram card", () => {
+    expect(callbackData(archivedNoteDetailKeyboard("NOTE-14", 2, 3))).toEqual([
+      "archived-note:page:NOTE-14:1",
+      "archived-note:page:NOTE-14:2",
+      "archived-note:page:NOTE-14:3",
+      "menu:notes-archived"
+    ]);
   });
 
   it("keeps group help compact and routes every group surface through the shared workspace", () => {

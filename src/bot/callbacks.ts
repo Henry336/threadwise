@@ -6,7 +6,7 @@ import { cancelTask, completeTask, findTaskReference, formatTaskSavedAcknowledge
 import { formatReminderMessage } from "../services/reminders";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
-import { archiveNote, createNote, formatNoteSavedAcknowledgement } from "../services/notes";
+import { archiveNote, createNote, findAnyNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../services/archives";
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
@@ -29,7 +29,7 @@ import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic
 import { formatRegionSettings, formatReminderSettings, formatSettings, updateSetting } from "../services/settings";
 import { beginMenuInput, clearMenuInput, type MenuInputAction } from "./menuInputs";
 import { rememberCallbackControlCard } from "./controlCards";
-import { buildItemCard } from "./itemCards";
+import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
 import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationState";
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
@@ -37,6 +37,8 @@ import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorks
 import { collaborationActorFromContext, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import { preferEphemeralInteraction } from "./ephemeral";
+import { beginNoteSession } from "./noteSessions";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
@@ -50,6 +52,8 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
   bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1], ctx.match[2], ctx.match[3]));
+  bot.callbackQuery(/^item:note:page:([^:]+):(\d+)$/, async (ctx) => handleNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^archived-note:page:([^:]+):(\d+)$/, async (ctx) => handleArchivedNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]));
   bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
   bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
@@ -244,6 +248,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
   const group = isGroupChat(ctx);
+  if (group) preferEphemeralInteraction(ctx);
   const workspace = group ? await groupWorkspaceForContext(ctx) : undefined;
   await cancelTransientInteractions(user.id, ctx.from.id);
   await ctx.answerCallbackQuery();
@@ -262,6 +267,16 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "notes") {
     await editOrReplyHtml(ctx, `${bold("📝 Notes")}\nSave reference material, thoughts, and anything you want to find later.`, { reply_markup: notesModeKeyboard() });
+    return;
+  }
+  if (action === "notes-session") {
+    if (group) {
+      await editOrReplyHtml(ctx, `${bold("Note sessions are private")}\nOpen Threadwise directly, then choose Notes → Note session.`, {
+        reply_markup: menuBackKeyboard("‹ Shared notes", "menu:notes")
+      });
+      return;
+    }
+    await beginNoteSession(ctx, user.id);
     return;
   }
   if (action === "ideas") {
@@ -361,23 +376,25 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     });
     return;
   }
-  const inputs: Record<string, { action: MenuInputAction; title: string; prompt: string; back: string }> = {
-    "tasks-add": { action: "task", title: "＋ Add task", prompt: "What needs doing? A due date is optional.", back: "tasks" },
-    "tasks-reminder": { action: "reminder", title: "⏰ Set reminder", prompt: "What should I remind you about, and when?", back: "tasks" },
-    "notes-add": { action: "note", title: "＋ Add note", prompt: "Send the note you want to keep.", back: "notes" },
-    "ideas-add": { action: "idea", title: "＋ Add idea", prompt: "Send the idea you want to capture.", back: "ideas" },
-    "ideas-brief": { action: "idea-brief", title: "✨ Idea brief", prompt: "Which idea should I analyze? Send its list number or ID, such as 2 or IDEA-2.", back: "ideas" },
-    "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", back: "search" },
-    "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for in your notes?", back: "notes" },
-    "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for in your ideas?", back: "ideas" },
-    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "Describe the caption, filename, or text inside it.", back: "images" },
-    "expenses-add": { action: "expense", title: "＋ Add expense", prompt: "Describe the expense, including the amount. You can add merchant, date, category, or payment method too.", back: "expenses" }
+  const inputs: Record<string, { action: MenuInputAction; title: string; prompt: string; replyObject: string; back: string }> = {
+    "tasks-add": { action: "task", title: "＋ Add task", prompt: "What needs doing? A due date is optional.", replyObject: "the task you want to add", back: "tasks" },
+    "tasks-reminder": { action: "reminder", title: "⏰ Set reminder", prompt: "What should I remind you about, and when?", replyObject: "the reminder and its time", back: "tasks" },
+    "notes-add": { action: "note", title: "＋ Add note", prompt: "What do you want to keep?", replyObject: "the note you want to save", back: "notes" },
+    "ideas-add": { action: "idea", title: "＋ Add idea", prompt: "What idea do you want to capture?", replyObject: "the idea you want to save", back: "ideas" },
+    "ideas-brief": { action: "idea-brief", title: "✨ Idea brief", prompt: "Which idea should I analyze?", replyObject: "its list number or ID, such as 2 or IDEA-2", back: "ideas" },
+    "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", replyObject: "what you want to find", back: "search" },
+    "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for?", replyObject: "the note words you remember", back: "notes" },
+    "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for?", replyObject: "the idea words you remember", back: "ideas" },
+    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "What do you remember about it?", replyObject: "a caption, filename, or text inside the image", back: "images" },
+    "expenses-add": { action: "expense", title: "＋ Add expense", prompt: "Describe the expense and amount.", replyObject: "the expense details", back: "expenses" }
   };
   const input = inputs[action];
   if (input) {
     beginMenuInput(user.id, ctx.from.id, input.action);
-    await editOrReplyHtml(ctx, `${bold(input.title)}\n${h(input.prompt)}\n\nSend your answer as the next message.`, {
-      reply_markup: menuInputCancelKeyboard(input.back)
+    await editOrReplyHtml(ctx, `${bold(input.title)}\n${h(input.prompt)}\n\n${h(group ? `Reply to this message with ${input.replyObject}.` : "Send your answer as the next message.")}`, {
+      reply_markup: group
+        ? { force_reply: true, selective: true, input_field_placeholder: input.prompt.slice(0, 64) }
+        : menuInputCancelKeyboard(input.back)
     });
     return;
   }
@@ -967,6 +984,37 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
+async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pageText: string | undefined) {
+  if (!itemId || !pageText) return;
+  const user = await ensureUser(ctx);
+  const requestedPage = Math.max(1, Number(pageText) || 1);
+  const card = await buildItemCard(
+    user.id,
+    "note",
+    itemId,
+    user.settings?.timezone ?? "UTC",
+    undefined,
+    false,
+    requestedPage
+  );
+  appendListOrigin(card.keyboard, user.id, "note");
+  await ctx.answerCallbackQuery({ text: `Page ${card.notePage?.page ?? 1}` });
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+}
+
+async function handleArchivedNoteDetailPage(
+  ctx: Context,
+  publicId: string | undefined,
+  pageText: string | undefined
+) {
+  if (!publicId || !pageText) return;
+  const user = await ensureUser(ctx);
+  const note = await findAnyNote(user.id, publicId);
+  const card = buildArchivedNoteCard(note, Number(pageText) || 1);
+  await ctx.answerCallbackQuery({ text: `Page ${card.notePage.page}` });
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+}
+
 function isEditableItemField(field: string | undefined): field is EditableItemField {
   return field === "title" || field === "description" || field === "body" || field === "concept" || field === "caption";
 }
@@ -989,13 +1037,21 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
 
   const user = await ensureUser(ctx);
   if (action === "ignore") {
-    await ignorePendingCapture(user.id, pendingId);
+    const ignored = await ignorePendingCapture(user.id, pendingId, ctx.from?.id);
+    if (!ignored) {
+      await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
+      return;
+    }
     await ctx.answerCallbackQuery({ text: "Ignored" });
-    await editOrReplyText(ctx, "Got it—I’ll leave that one alone.", { reply_markup: menuBackKeyboard() });
+    await editOrReplyQuietAcknowledgementHtml(ctx, "Ignored.");
     return;
   }
 
-  const pending = await consumePendingCapture(user.id, pendingId);
+  const pending = await consumePendingCapture(user.id, pendingId, ctx.from?.id);
+  if (!pending) {
+    await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
+    return;
+  }
   await ctx.answerCallbackQuery({ text: "Saving" });
 
   if (action === "task") {

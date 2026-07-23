@@ -45,6 +45,11 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
   }
 
   const bot = botInfo(ctx);
+  const ephemeralReceiverId = ephemeralReceiver(ctx);
+  if (bot?.id && ephemeralReceiverId === bot.id) {
+    return true;
+  }
+
   if (bot?.id && ctx.message?.reply_to_message?.from?.id === bot.id) {
     return true;
   }
@@ -165,6 +170,14 @@ type BotInfo = {
 
 function botInfo(ctx: Context): BotInfo | undefined {
   return (ctx as unknown as { me?: BotInfo }).me;
+}
+
+function ephemeralReceiver(ctx: Context): number | undefined {
+  const message = ctx.message as unknown as {
+    ephemeral_message_id?: number;
+    receiver_user?: { id?: number };
+  } | undefined;
+  return message?.ephemeral_message_id ? message.receiver_user?.id : undefined;
 }
 
 function sameUsername(mention: string, username: string): boolean {

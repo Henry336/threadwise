@@ -55,4 +55,24 @@ describe("Telegram error responses", () => {
 
     expect(reply).toHaveBeenCalledWith(DEFAULT_BOT_ERROR_MESSAGE);
   });
+
+  it("never leaks an ephemeral group failure into the shared chat", async () => {
+    const reply = vi.fn();
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const ctx = {
+      from: { id: 77 },
+      chat: { id: -1001, type: "supergroup" },
+      message: {
+        ephemeral_message_id: 31,
+        receiver_user: { id: 999 },
+      },
+      api: { sendMessage },
+      reply,
+    } as unknown as Context;
+
+    await respondToUnhandledBotError(ctx, new Error("unexpected internal failure"));
+
+    expect(sendMessage).toHaveBeenCalledWith(77, DEFAULT_BOT_ERROR_MESSAGE);
+    expect(reply).not.toHaveBeenCalled();
+  });
 });

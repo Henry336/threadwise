@@ -43,6 +43,9 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/brief", description: "Create an implementation prompt for a saved idea.", example: "/brief IDEA-1" },
   { command: "/note", description: "Save a cleaned searchable note, or open a note by number.", example: "/note 1" },
   { command: "/notes", description: "List or search saved notes.", example: "/notes deployment reliability" },
+  { command: "/note_session", description: "Capture several private messages silently as one note.", example: "/note_session" },
+  { command: "/save_note", description: "Save the active private note session.", example: "/save_note" },
+  { command: "/cancel_note", description: "Discard the active private note session.", example: "/cancel_note" },
   { command: "/note-analysis", description: "Analyze your saved notekeeping style.", example: "/note-analysis" },
   { command: "/merge", description: "Preview a merged note from related notes.", example: "/merge notes 1 2 3" },
   { command: "/search", description: "Semantic search across ideas, notes, and open tasks.", example: "/search notes deployment" },
@@ -111,7 +114,7 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "notes",
     title: "📝 Notes",
-    description: "Save, open, search, merge, archive, or restore notes.",
+    description: "Save, open, search, merge, archive, or restore notes. Note session captures several private messages silently as one note.",
     natural: [
       "note DATABASE_URL is stored in Render",
       "write this down: the spare key is in the blue drawer",
@@ -124,7 +127,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "delete notes 1, 2 and 3",
       "bring back note NOTE-2"
     ],
-    commands: ["/note DATABASE_URL is stored in Render", "/notes", "/note 3", "/search notes deployment", "/merge notes 1 2 3", "/archive notes 1 2 3", "/restore NOTE-2"]
+    commands: ["/note DATABASE_URL is stored in Render", "/note_session", "/save_note", "/cancel_note", "/notes", "/note 3", "/search notes deployment", "/merge notes 1 2 3", "/archive notes 1 2 3", "/restore NOTE-2"]
   },
   {
     topic: "ideas",

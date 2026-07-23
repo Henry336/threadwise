@@ -11,7 +11,7 @@ import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdi
 import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
-import { bold, h } from "../utils/html";
+import { bold, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
@@ -129,18 +129,35 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const deterministicClassification = classifyMessageDeterministically(text, user.settings?.timezone ?? "UTC");
-      const classification = deterministicClassification ?? await ai.classifyMessage(text);
+      if (!deterministicClassification) {
+        const pending = await createPendingCapture(user.id, text, {
+          kind: "noise",
+          confidence: 0,
+          reason: "The message needs an explicit capture choice."
+        }, ctx.from?.id);
+        logger.info("Natural-language message needs an explicit capture choice.", {
+          source: "instant-fallback",
+          addressedGroupMessage
+        });
+        await replyControlCardHtml(ctx, `${bold("Not sure what to do with that.")}\nChoose where it belongs.`, {
+          reply_markup: captureConfirmationKeyboard(pending.id)
+        });
+        return;
+      }
+
+      const classification = deterministicClassification;
       logger.info("Classified natural-language message.", {
-        source: deterministicClassification ? "deterministic" : "ai",
+        source: "deterministic",
         kind: classification.kind,
         confidence: classification.confidence,
         reason: classification.reason
       });
 
       if (classification.kind === "noise" || classification.confidence < 0.45) {
-        if (addressedGroupMessage) {
-          await ctx.reply("I saw your mention, but I’m not sure what you need yet. Try a full request, or send /help for examples.");
-        }
+        const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id);
+        await replyControlCardHtml(ctx, `${bold("Not sure what to do with that.")}\nChoose where it belongs.`, {
+          reply_markup: captureConfirmationKeyboard(pending.id)
+        });
         return;
       }
 
@@ -165,7 +182,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         }
       }
 
-      const pending = await createPendingCapture(user.id, text, classification);
+      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id);
       const hasReminderTime =
         classification.kind === "task" &&
         Boolean(parseDueDate(classification.dueDateText ?? text, user.settings?.timezone ?? "UTC"));
@@ -182,7 +199,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         reply_markup: captureConfirmationKeyboard(pending.id)
       });
     } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't handle that request. Try /help for examples."));
+      await replyHtml(ctx, h(userFacingError(error, "I couldn't handle that request. Try /help for examples.")));
     }
   });
 }
@@ -200,7 +217,7 @@ async function handlePendingMenuInput(
 
   if (/^(?:cancel|never mind|nevermind|stop)$/i.test(text.trim())) {
     clearMenuInput(user.id, actorId);
-    await ctx.reply("Canceled. Nothing was changed.");
+    await replyHtml(ctx, "Canceled. Nothing was changed.");
     return true;
   }
 
@@ -215,7 +232,7 @@ async function handlePendingMenuInput(
   if (action === "reminder") {
     const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
     if (!dueAt || dueAt.getTime() <= Date.now()) {
-      await ctx.reply("I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
+      await replyHtml(ctx, "I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
       return true;
     }
     const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));

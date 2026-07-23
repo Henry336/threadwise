@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import { truncate } from "../utils/text";
+import { isEphemeralInteractionContext } from "./ephemeral";
 
 export const DEFAULT_BOT_ERROR_MESSAGE = "I couldn't complete that request just now. Please try again in a moment.";
 
@@ -56,6 +57,18 @@ export async function respondToUnhandledBotError(ctx: Context, error: unknown): 
   }
 
   if (!ctx.chat) return;
+  if (isEphemeralInteractionContext(ctx)) {
+    if (!ctx.from?.id) return;
+    try {
+      await ctx.api.sendMessage(ctx.from.id, message);
+    } catch {
+      // A private recovery message is preferable to leaking the failed action
+      // into the shared group, but it is not guaranteed if the user has never
+      // opened the bot directly.
+    }
+    return;
+  }
+
   try {
     await ctx.reply(message);
   } catch {

@@ -18,7 +18,9 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 
 - Captures ideas with `/idea <text>`.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
+- Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph, Threadwise stays silent, and Save note combines them into one durable note. Inactive sessions auto-save after about 30 minutes; `/save_note` and `/cancel_note` are fallbacks for a hidden keyboard.
 - Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays three readable previews per mobile page, while `/notes <query>` searches notes.
+- Paginates long note details inside one edited Telegram card instead of truncating the saved body or posting another message for every page.
 - Lists saved ideas three readable previews per page with `/ideas` and opens one with `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
@@ -49,7 +51,7 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Browses archived notes, ideas, and tasks with paged `/archived <type>` views and restores items with `/restore`.
 - Uses clean Telegram HTML formatting with content first, then IDs/dates/settings metadata below.
 - Ignores duplicate Telegram webhook updates so retries do not send the same response twice.
-- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, Calendar, settings, and status. Clear requests work without an OpenAI token; ambiguous captures can still use AI or ask before saving.
+- Handles normal messages with deterministic command routing and first-pass classification for tasks, reminders, notes, ideas, lists, edits, search, Calendar, settings, and status. Clear requests work without an OpenAI token; an unclear message immediately offers Task, Note, Idea, and Ignore buttons instead of waiting for AI or remaining silent.
 - Searches ideas, notes, and tasks with local lexical and deterministic semantic scoring via `/search`.
 - Filters semantic search with `/search tasks <query>`, `/search notes <query>`, and `/search ideas <query>`.
 - Searches completed tasks explicitly with `/search done <query>`; normal search only includes open tasks.
@@ -61,7 +63,7 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
-- Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, and reminders. In groups, slash commands open compact group-specific menus, while addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
+- Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, and reminders. The group keeps one public Threadwise anchor; pressing it opens a receiver-bound ephemeral menu visible only to that member, so simultaneous navigation does not collide. Shared work cards remain public. Addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
 - Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
 - Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
@@ -85,6 +87,9 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 /note NOTE-1
 /notes
 /notes deployment reliability
+/note_session
+/save_note
+/cancel_note
 /note-analysis
 /ideas
 /ideas 1
@@ -173,7 +178,7 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 
 `/start` installs the two persistent private-chat shortcuts and opens the compact button menu without a separate onboarding wall of text. `/help` shows a full capability guide with topic buttons, natural examples, and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
-Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI classification. It understands broad variations including "what's on my plate?", "open my reminders", "keep this in mind: ...", "brainwave: ...", "put this on my list", "give me a heads-up at 1.30pm", "I finished task 2", "put off task 2", "task 2 is due Friday", "I don't need task 2 anymore", "where is the note about passports?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, dotted and spoken clocks, parts of day, day-after-tomorrow, noon/midnight, weekday shorthand, numeric day-first and named-month dates, EOD, next week, next month, and ordinals. If a message is not a recognized command-like request, Threadwise classifies it as a possible task, scheduled reminder, idea, note, or noise, then either saves a clear capture with an undo hint or asks for confirmation.
+Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI work. It understands broad variations including "what's on my plate?", "open my reminders", "keep this in mind: ...", "brainwave: ...", "put this on my list", "give me a heads-up at 1.30pm", "I finished task 2", "put off task 2", "task 2 is due Friday", "I don't need task 2 anymore", "where is the note about passports?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, dotted and spoken clocks, parts of day, day-after-tomorrow, noon/midnight, weekday shorthand, numeric day-first and named-month dates, EOD, next week, next month, and ordinals. If a message is not recognized confidently, Threadwise responds immediately with Task, Note, Idea, and Ignore choices; the selected action is actor-scoped in groups.
 
 In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` now use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the bot or reply to it, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode.
 
@@ -326,7 +331,7 @@ OPENAI_API_KEY=
 
 ### API cost behavior
 
-The normal command path does not need OpenAI. Command intent, reminder dates, tasks, short notes, settings, edits, lists, archives, calendar exports, embeddings, and search all run locally. If an OpenAI key is configured, chat calls are reserved for ambiguous message classification and synthesis-heavy features such as idea structuring, long or explicitly rewritten notes, note merging/analysis, idea scoring, and email summaries. Remove `OPENAI_API_KEY` to run the entire bot in local/heuristic mode; every command remains available.
+The normal command path does not need OpenAI. Command intent, reminder dates, first-pass classification, settings, edits, lists, archives, calendar exports, embeddings, and search all run locally. Unclear input receives immediate capture buttons rather than an AI call on the response-critical path. If an OpenAI key is configured, chat calls are reserved for synthesis-heavy work such as richer task/note/idea structuring, note merging/analysis, and idea scoring. Remove `OPENAI_API_KEY` to run the bot in local/heuristic mode; every core command remains available.
 
 4. Generate Prisma client:
 

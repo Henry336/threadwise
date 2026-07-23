@@ -237,4 +237,22 @@ describe("group routing", () => {
 
     expect(prepareNaturalLanguageText(ctx, "show tasks")).toBe("show tasks");
   });
+
+  it("accepts an ephemeral group reply addressed privately to the bot", () => {
+    const ctx = context({
+      from: { id: 456, is_bot: false, first_name: "Parent" },
+      chat: { id: -100456, type: "supergroup", title: "Family" },
+      message: {
+        message_id: 11,
+        ephemeral_message_id: 44,
+        receiver_user: bot,
+        date: 0,
+        chat: { id: -100456, type: "supergroup", title: "Family" },
+        text: "The note I want to save"
+      }
+    });
+
+    expect(shouldHandleGroupUpdate(ctx)).toBe(true);
+    expect(prepareNaturalLanguageText(ctx, "The note I want to save")).toBe("The note I want to save");
+  });
 });
