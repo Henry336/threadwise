@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+- Reconciled README, case study, architecture, project handoff, product journal, voice guide, and Supabase migration runbook with the v0.26.0 implementation.
+- Added a repository reading path, current module/data maps, dashboard authentication and scope flow, Note-session and ephemeral-group architecture, accurate deployment guidance, and the current 547-test baseline.
+- Corrected stale product claims: Gmail is retired; Expenses/Excel are frozen and hidden; Google Calendar is secondary; personal/group dashboards and Find a time are implemented; the Seoul-to-Singapore cutover is complete.
+- Documented the actual privacy boundary: normal users and groups are application-scoped, OAuth tokens are encrypted, and stored content is not end-to-end encrypted from the service operator.
+- Replaced obsolete roadmap items that had already shipped with current measurement, scale, Intelligence, monetization, privacy, OCR, and localization follow-ups.
+
 ## v0.26.0 - 2026-07-23
 
 ### Quiet note capture

@@ -1,5 +1,9 @@
 # Architecture Notes
 
+Updated: 2026-07-26
+
+Current backend release: v0.26.0
+
 Threadwise is intentionally split into small modules so future contributors can change one feature without reshaping the whole bot.
 
 ## Core Principles
@@ -8,9 +12,11 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Store all durable state in PostgreSQL.
 - Treat AI as an adapter, not the center of the app.
 - Parse command-like natural language locally before attempting AI classification.
-- Ask before saving ambiguous natural-language messages.
+- Resolve clear natural language locally; offer immediate Task/Note/Idea/Ignore choices for ambiguous private messages.
 - Auto-save only high-confidence task, note, and idea captures, and make them undoable.
 - Treat destructive-looking operations, such as note merging, as preview-and-confirm flows.
+- Keep personal data scoped to a human owner and shared data scoped to one verified group workspace.
+- Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
 ## Request Flow
@@ -27,7 +33,7 @@ Telegram copy follows a small convention: show the saved content first, then a c
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `help me with notes`, `show me the notes`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `remind me again every 3 hours`, `warn me 10 mins before due tasks`, `allow up to 200 reminders per day`, `quiet hours off`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. AI classification is only used when the deterministic score is not confident enough.
+Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `warn me 10 mins before due tasks`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. A low-confidence private message is persisted briefly as a `PendingCapture` and immediately receives actor-bound Task, Note, Idea, and Ignore buttons. It does not wait for AI on the response-critical path. Low-confidence group conversation remains ignored unless it was explicitly addressed to Threadwise.
 
 Group routing lives in `src/bot/groupRouting.ts`. Slash commands are treated as explicit bot requests. Plain natural-language messages in group chats are ignored unless they mention the bot or reply to one of its messages; the mention is stripped before normal parsing so `@ThreadwiseBot remind me to...` follows the same deterministic path as a private message. This keeps group conversations quiet and prevents accidental captures from unrelated chat.
 
@@ -39,17 +45,38 @@ Group availability is modeled separately from tasks. `AvailabilityPoll` owns the
 
 Telegram cannot attach a `web_app` inline button to a normal group message, so Find a time uses the bot's Main Mini App with a short `startapp` parameter. Vercel validates Telegram's signed init data, selects the opaque group workspace, and then opens the requested poll. Telegram retains one compact poll card; availability responses, live dashboard events, manager actions, and finalization refresh that card rather than posting one message per response.
 
+Shared group control panels use Telegram Bot API receiver-bound ephemeral delivery (`src/bot/ephemeral.ts`). The group keeps one public anchor, but each member receives their own private menu surface. Callback data is still bound to the acting Telegram identity. Shared task, reminder, and scheduling cards remain public because they represent group state.
+
+Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSession` records the owner and expiry; each incoming message is appended immediately as an ordered `NoteCaptureSegment`. While active, ordinary classification pauses and the reply keyboard contains Save note and Cancel. Save joins exact segments with blank lines; the background sweep auto-saves non-empty inactive sessions after roughly 30 minutes and discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence, then safe character boundaries while leaving the stored note unchanged.
+
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
+## Dashboard Flow
+
+The dashboard is a separate Next.js/Vercel client. It never connects directly to PostgreSQL or receives a database credential.
+
+1. Telegram Login or signed Mini App init data establishes the human Telegram identity on Vercel.
+2. The dashboard signs a short-lived EdDSA JWT with `iss=threadwise-dashboard`, `aud=threadwise-api`, a positive Telegram `sub`, a unique `jti`, and a lifetime no longer than 120 seconds.
+3. `src/dashboard/auth.ts` verifies the bundled public key and claims.
+4. Personal calls resolve the human's owner scope. Group calls also carry `X-Threadwise-Workspace`, an opaque UUID.
+5. `src/dashboard/workspaces.ts` resolves that UUID and revalidates Telegram membership before entering the synthetic group owner scope.
+6. Route handlers validate payloads with the schemas in `src/dashboard/schemas.ts` and call the same domain services used by Telegram.
+7. Mutation paths publish scoped events through `src/dashboard/realtime.ts`; `/api/v1/dashboard/events` streams them with private/no-store semantics so the client can refresh the affected data.
+
+Group authorization has two layers. Current members may read shared data and mutate only their own availability/assignment state. Owner/admin operations—such as changing group settings or finalizing a scheduling poll—perform a fresh Telegram role check. The server fails closed when a required check cannot establish the privilege.
+
+The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusable file IDs, raw group chat IDs, or another member's availability cells. Saved image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup.
+
 ## Reminder Flow
 
 1. The reminder loop periodically queries open tasks where `nextReminderAt <= now`.
-2. It checks quiet hours and the daily reminder safety limit.
-3. It sends a Telegram DM with inline buttons.
-4. It records `ReminderDelivery`.
-5. It advances `nextReminderAt` using the user's current repeat timing.
+2. It distinguishes an explicit first due delivery from later repeat nudges.
+3. It applies quiet hours and the daily reminder safety limit where the current delivery type requires them.
+4. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
+5. It records `ReminderDelivery` and only then attempts to remove the previous main-chat reminder for that task.
+6. It advances `nextReminderAt` or the recurring calendar occurrence.
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
@@ -91,7 +118,7 @@ Approximate per-request work:
 - Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
 - Simple note capture: `O(L) + DB create + Telegram reply`
 - Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
-- Calendar/Excel auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
+- Calendar auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
 - Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: local cache lookup is `O(1)`; cache misses pay OpenAI latency and provider rate limits.
 
 Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` identical synthesis requests arrive at the same time, the cache stores the in-flight promise so they share one OpenAI call; if they are all different synthesis requests, OpenAI becomes the bottleneck.
@@ -140,16 +167,16 @@ Archive fields hide items from active views without hard-deleting them. `archive
 
 ## Integration Lifecycle
 
-Google Calendar and Microsoft Excel are personal-workspace mirrors. Threadwise's PostgreSQL rows remain authoritative, so a provider outage never rejects or removes a task or expense that was successfully captured.
+Google Calendar is the only active personal-workspace mirror. Threadwise's PostgreSQL rows remain authoritative, so a provider outage never rejects or removes a task that was successfully captured.
 
 Google Calendar stores encrypted per-user OAuth tokens and one durable provider event ID on each synchronized task. The public task ID plus `userId` is the lookup key. Creating, renaming, rescheduling, or changing recurrence patches the same primary-calendar event. Removing an event clears the provider linkage without deleting the Threadwise task. The optional `calendarAutoSync` setting applies best-effort synchronization after task writes; an explicit bulk sync backfills eligible dated tasks.
 
 For a finalized group availability poll, Calendar is an explicit per-member mirror. A member can opt in or add/remove the meeting after finalization; the shared poll remains authoritative and unaffected by provider failure. Each `(pollId, telegramId)` pair maps to at most one Google event, and its URL is returned only to that signed-in member.
 
-Microsoft Excel stores encrypted OAuth tokens plus the selected workbook, worksheet, and table identifiers. First connection can create the recommended workbook and import existing expenses. The optional `excelAutoSync` setting mirrors new confirmed expenses best-effort, while manual sync retries waiting rows. The standalone `.xlsx` export does not require OAuth.
+Microsoft Excel and Expenses are frozen experiments. Their services, schema, OAuth records, and stored data remain intact to avoid destructive cleanup, but active menus, onboarding, help, search, settings, and dashboard navigation must not expose them. The retained compatibility code stores encrypted Microsoft OAuth tokens plus workbook metadata and can mirror confirmed expenses; it is not part of the current product promise.
 
 OAuth pending-state rows bind the signed-in Telegram user, expire, and can preserve a selected task or requested auto-sync setting across the provider redirect. Dashboard callbacks return to the Connections tab; Telegram-initiated callbacks send a concise completion message. Provider status and mutations are exposed through the signed dashboard API, never directly to the browser database layer.
 
-Normal task cards do not display long template URLs. Users interact through a contextual Calendar button, the integration panels, dashboard Connections, or plain-language requests. `/calendar` and `/excel` open the same panels; older subcommands remain compatibility fallbacks.
+Normal task cards do not display long template URLs. Users interact through a contextual Calendar button, dashboard Connections, or plain-language requests. `/calendar` remains a compatibility entry point.
 
 Gmail was removed from the active runtime in July 2026. Its legacy schema objects are retained inertly to avoid destructive data removal during the lifecycle revamp and should only be dropped in a separately reviewed retention migration.

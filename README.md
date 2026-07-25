@@ -4,7 +4,11 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-It is built as a portfolio-ready backend service: typed TypeScript, PostgreSQL persistence, Prisma schema management, Telegram webhooks for Render, and clear service boundaries for future contributors.
+Current backend release: **v0.26.0**
+
+Documentation verified against the repository: **2026-07-26**
+
+This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
 Current deployment: https://threadwise-90du.onrender.com
 
@@ -13,6 +17,33 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE.md)
 
 Product decisions, observed friction, and implementation rationale: [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md)
+
+## Read The Repository
+
+If you are learning Threadwise from its own code, use this order:
+
+1. Read this README for behavior, setup, and boundaries.
+2. Read [CASE_STUDY.md](CASE_STUDY.md) for the product problem, decisions, and outcomes.
+3. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for request flow, data scoping, reminders, scheduling, and dashboard authentication.
+4. Read [prisma/schema.prisma](prisma/schema.prisma) to see the durable state.
+5. Start at `src/main.ts`, then `src/server.ts` and `src/bot/index.ts`.
+6. Follow a feature from its bot handler into `src/services/`; domain rules belong in services.
+7. Read adjacent `*.test.ts` files as executable examples.
+8. Use [CHANGELOG.md](CHANGELOG.md) for release history and [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md) for the reason behind changes.
+
+```text
+Telegram or dashboard request
+        ↓
+authentication, access, and group-addressing checks
+        ↓
+deterministic command/natural-language routing
+        ↓
+domain service
+        ↓
+Prisma + PostgreSQL
+        ↓
+small Telegram edit/reply or authenticated dashboard response
+```
 
 ## What It Does
 
@@ -190,7 +221,7 @@ Private assignee nudges are deliberately opt-in. Each person opens the bot priva
 
 Telegram's privacy-enabled bots do not receive ordinary messages merely because the text contains their `@username`; they receive bot commands and replies instead. To enable Threadwise's natural addressed messages, open BotFather, run `/setprivacy`, select the Threadwise bot, and choose `Disable`. Threadwise has its own centralized address gate: unaddressed group text, photos, image documents, and captions are discarded before capture, OCR, editing, or natural-language handling. Slash commands, replies to Threadwise, and messages that mention Threadwise are allowed. If an existing group does not reflect the BotFather change immediately, remove and re-add the bot once.
 
-The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, expenses, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
+The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
@@ -258,52 +289,59 @@ For the best result, use a bright, straight, tightly cropped photo with sharp pr
 ## Tech Stack
 
 - Node.js + TypeScript
-- grammY for Telegram bot handling
-- Fastify for webhook and health endpoints
-- PostgreSQL for durable storage
+- grammY for Telegram updates, commands, callbacks, reply keyboards, and Mini App links
+- Fastify for webhooks, OAuth callbacks, health/admin endpoints, and the dashboard API
+- PostgreSQL/Supabase for durable storage
 - Prisma for schema and migrations
 - Zod for environment validation
 - OpenAI-compatible adapter for synthesis tasks, plus local deterministic classification and embeddings
+- Tesseract.js with bundled English/Burmese data and Sharp preprocessing for local OCR
+- EdDSA JWT verification for short-lived dashboard requests
+- Server-sent events for dashboard synchronization
 - Private admin endpoints for checking AI status and triggering reminder fallback runs
 - Vitest for unit tests
-- Render for deployment
+- Render for the backend; Vercel hosts the separate dashboard
 
 ## Architecture
 
 ```text
 src/
   ai/                 AI provider interface, OpenAI implementation, local heuristic fallback
-  bot/                Telegram commands, callbacks, natural command parsing, keyboards, formatting
+  bot/                Telegram routing, callbacks, cards, Note sessions, ephemeral UI
   config/             Environment parsing
-  db/                 Prisma client
-  services/           Domain logic for users, tasks, ideas, reminders, search, settings
-  utils/              Date parsing, text utilities, vector helpers
+  dashboard/          Authenticated API, workspaces, CRUD, scheduling, realtime events
+  db/                 Prisma client and connection-pool normalization
+  services/           Domain logic and provider integrations
+  utils/              Dates, time zones, OCR languages, HTML, text, and vectors
   main.ts             Application entrypoint
-  server.ts           Fastify health endpoint and webhook route
+  server.ts           Fastify routes, Telegram webhook, OAuth callbacks
 prisma/
   schema.prisma       PostgreSQL data model
+  migrations/         Ordered production migrations
+docs/
+  ARCHITECTURE.md     Detailed technical design
+  PRODUCT_JOURNAL.md  Friction, decisions, implementation, evidence
 ```
 
-The important design choice is that commands and reminders are deterministic. Common command-like text, settings changes, list/detail requests, classification, task extraction, reminder parsing, simple note structuring, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, and idea scoring. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
+The important design choice is deterministic-first execution. Common command-like text, settings changes, list/detail requests, classification, task extraction, reminder parsing, simple note structuring, and embeddings are local and quota-proof. AI is reserved for higher-value synthesis such as complex note/idea structuring, note merges, note analysis, and idea scoring. Repeated synthesis calls are cached in memory by content hash so accidental retries do not spend extra quota.
+
+Private users own their own scope. A Telegram group uses a synthetic `chat:<id>` owner for shared data plus human membership/role records for permissions. Dashboard requests always begin with a short-lived signed human identity and only enter a group scope after the opaque workspace and live membership are verified.
 
 ## Data Model
 
 Threadwise stores:
 
-- Users and per-user settings
-- Ideas
-- Notes
-- Tasks
-- Saved image references and pending image choices
-- Pending natural-language captures
-- Pending note merge previews
-- Processed Telegram update IDs for webhook de-duplication
-- Reminder delivery history
-- Audit logs
-- Pin and archive timestamps, archive reasons, and note merge links for durable undo and priority/archive views
-- Embeddings/search vectors as JSON for personal-scale semantic search
+- Users, personal settings, group workspaces, memberships, and group activity
+- Tasks, multiple assignees, reminders, recurrence, and delivery history
+- Notes, durable Note sessions/segments, ideas, and reflections
+- Availability polls, per-member responses, and optional Calendar events
+- Stored image references, captions, OCR text, and pending image choices
+- Pending captures, edits, merges, bulk actions, and paginated searches
+- Calendar connections and encrypted OAuth tokens
+- Audit logs and processed Telegram update IDs
+- Frozen Expense/Excel records and inert legacy Gmail records retained for data safety
 
-The schema is designed so future work can add external search-backed market research, a dashboard, and richer semantic search without replacing the core tables.
+Most removals are soft archives. Search vectors are stored as JSON and scored app-side for personal/small-group scale. See the schema itself for field-level truth.
 
 ## Local Setup
 
@@ -315,8 +353,8 @@ npm install
 
 2. Copy environment variables:
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
 3. Fill in:
@@ -328,6 +366,8 @@ OPENAI_API_KEY=
 ```
 
 `OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses deterministic local behavior plus heuristic fallbacks for synthesis features such as scoring and note analysis.
+
+`DASHBOARD_URL`, Google OAuth values, `ADMIN_STATUS_TOKEN`, and allowlist settings are optional unless you are testing those features. Never copy production secrets into documentation or commit `.env`.
 
 ### API cost behavior
 
@@ -363,21 +403,27 @@ Set these Render environment variables:
 
 ```text
 TELEGRAM_BOT_TOKEN
+DATABASE_URL
+DATABASE_CONNECTION_LIMIT
+DATABASE_POOL_TIMEOUT_SECONDS
+SUPABASE_RUNTIME_POOL_MODE
 OPENAI_API_KEY
 OPENAI_MODEL
 OPENAI_MODEL_FALLBACKS
 ADMIN_STATUS_TOKEN
 WEBHOOK_URL
+WEBHOOK_SECRET_PATH
 BOT_ALLOWED_TELEGRAM_IDS
-MICROSOFT_CLIENT_ID
-MICROSOFT_CLIENT_SECRET
-MICROSOFT_REDIRECT_URI
-MICROSOFT_TOKEN_ENCRYPTION_KEY
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_CALENDAR_REDIRECT_URI
+GOOGLE_TOKEN_ENCRYPTION_KEY
+DASHBOARD_URL
 ```
 
-`DATABASE_URL` is a secret configured in the Render dashboard. Threadwise only requires a PostgreSQL-compatible database, so the database does not need to be hosted by Render. For Supabase on an IPv4 Render service, use the Supavisor session-pooler connection string on port `5432`.
+The Microsoft variables remain in `render.yaml` only to preserve the frozen Excel implementation. They are not required for the active product. Gmail has no active runtime configuration.
 
-For the prepared Seoul-to-Singapore Supabase cutover, see [docs/SUPABASE_REGION_MIGRATION.md](docs/SUPABASE_REGION_MIGRATION.md). The guarded workflow copies only Threadwise's application database, verifies every table exactly, and keeps the old project as the rollback source.
+`DATABASE_URL` is a Render secret. Threadwise only requires PostgreSQL. The production database was migrated from Supabase Seoul to Singapore in July 2026; [docs/SUPABASE_REGION_MIGRATION.md](docs/SUPABASE_REGION_MIGRATION.md) is retained as the completed, reusable runbook. For an IPv4 Render service, use the appropriate Supavisor pooler connection rather than assuming the direct hostname is reachable.
 
 `WEBHOOK_URL` should be the public Render service URL, for example:
 
@@ -388,16 +434,18 @@ https://threadwise-90du.onrender.com
 Render should run:
 
 ```bash
-npm run db:migrate && npm start
+npm start
 ```
 
-Use an always-on Render plan if you want reminders to be reliable. If the service sleeps, the database keeps tasks safe, but reminders will only be sent after the process wakes back up.
+`render.yaml` runs `npm run db:migrate` as a pre-deploy command and `npm start` as the start command. Use an always-on Render plan if you want reminders to be reliable. If the service sleeps, the database keeps tasks safe, but reminders will only be sent after the process wakes back up.
 
 ## Privacy And Access
 
 Threadwise stores private-chat data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, and settings. They do not see another user's saved data through normal bot commands.
 
 In group chats, Threadwise stores data by chat id instead. Everyone who can use the bot in that group sees the same group tasks, notes, ideas, settings, and reminders. The database represents that shared owner as a synthetic user id such as `chat:-1001234567890`, so the existing service layer can keep enforcing scoped lookups without duplicating every table.
+
+This is application-level isolation, not end-to-end encryption. Content is stored in PostgreSQL in a form the service can process, so the deployment/database operator can technically access it. OAuth refresh tokens are encrypted separately. Do not claim that Threadwise is operator-unreadable unless a future client-side or user-held-key design actually provides that property.
 
 If the deployment should be private to only one person or a small team, set:
 
@@ -487,22 +535,24 @@ npm run typecheck
 npm test
 npm run build
 npm audit
+git diff --check
 ```
 
-Current validation status at initial implementation:
+Verified for v0.26.0 on 2026-07-26:
 
-- Typecheck: passing
-- Unit tests: passing
-- Production build: passing
-- npm audit: 0 vulnerabilities
+- 58 test files passed
+- 547 tests passed
+- TypeScript typecheck passed
+- Production build passed
+
+`npm audit` and live deployment health are environment/network checks; run them when preparing a release rather than assuming a historical result remains current.
 
 ## Future Improvements
 
-- External search provider for live market/competition research.
-- Web dashboard for reviewing ideas and tasks.
-- Weekly digest.
-- Richer idea selection-to-implementation workflow.
-- Per-user privacy controls and export/delete flows.
-- Receipt review learning: remember a user's merchant/category corrections locally.
-- Additional local OCR languages beyond English and Burmese, plus multi-receipt batch import.
-- Full Burmese UI localization: translated message catalog, Burmese deterministic commands, Burmese date phrasing, and native-speaker QA.
+- Quantified activation, retention, scheduling-response, and repeat-use analytics.
+- Stronger search infrastructure when datasets exceed the current bounded app-side window.
+- Threadwise Intelligence, introduced only where it strengthens Capture, Coordinate, or Recall.
+- Monetization and entitlement controls based on validated usage rather than arbitrary feature locks.
+- Optional privacy architecture for content that the service operator cannot read; the current product is not end-to-end encrypted.
+- Additional local OCR languages beyond English and Burmese.
+- Full Burmese UI localization: translated copy, deterministic commands, date phrasing, and native-speaker QA.

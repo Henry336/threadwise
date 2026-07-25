@@ -1,5 +1,7 @@
 # Threadwise Product Journal
 
+Updated: 2026-07-26
+
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
 ## Evidence and maintenance
@@ -190,6 +192,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 **Outcome/evidence:** Focused regression coverage exercises durable paragraph writes, exact combined bodies, Unicode-safe title and page boundaries, archived pagination controls, actor ownership, receiver validation, private failure handling, incoming ephemeral routing, and the source dimensions/frame positions of the Ari loader. The release gate passed all 547 backend tests in one worker, backend typechecking, the production build, Prisma schema validation, all 12 dashboard tests, dashboard lint, and the dashboard production build. A mobile Chromium visual check confirmed the approved 3:4 crop and a later untangling frame without distortion.
 
 **Follow-up:** Observe Telegram's best-effort ephemeral delivery in real groups, especially members who are offline or using older clients. Track abandoned Note sessions and auto-save frequency to decide whether 30 minutes is the right timeout. Verify whether the 3.5-second acknowledgement window is long enough to inspect parsed dates without making capture noisy.
+
+### 26 July 2026 — Make the repository teach the product that actually exists
+
+**Friction discovered:** The owner wanted to learn Threadwise by reading its repository, but the case study still described the early personal bot, advertised retired Gmail and frozen Expenses/Excel, omitted the synchronized dashboards and group scheduling, and claimed that a full dashboard did not exist. The handoff called v0.25.0 current while the package was v0.26.0, the validation baseline was from v0.17.1, the deployment instructions duplicated migration work now handled by Render pre-deploy, and the migration guide still read as a future task after the successful Singapore cutover.
+
+**Decision:** Treat documentation as an executable product surface with clear ownership: README for current behavior and learning order, CASE_STUDY for the product narrative and honest limitations, ARCHITECTURE for technical invariants, PRODUCT_JOURNAL for rationale, CHANGELOG for release inventory, PROJECT_CONTEXT for handoff state, VOICE_AND_TONE for copy rules, and the migration document as a completed operational record. Preserve historical release entries rather than rewriting history.
+
+**Implemented:** Reconciled all repository-owned Markdown documents with package v0.26.0, the Prisma schema, current routes/commands, recent feature commits, and the 547-test suite. Added a code-reading path, current module map, dashboard authentication/scope flow, Note-session and ephemeral-delivery architecture, accurate privacy language, current deployment variables, completed Singapore migration status, current limitations, and the Ari/group-reply copy rules.
+
+**Outcome/evidence:** The documentation now distinguishes implemented behavior, frozen/inert code, and future work; records that Threadwise is application-isolated but not end-to-end encrypted; and removes already-shipped dashboard/privacy features from the roadmap. Validation for the documentation refresh uses the same v0.26.0 baseline: 58 test files and 547 tests, followed by typecheck, production build, link/reference checks, and diff whitespace checks.
+
+**Follow-up:** Update the relevant documents in the same commit as every future product release. Add a lightweight documentation consistency check if package versions, route lists, or validation counts become stale repeatedly.
 
 ## Journal entry template
 

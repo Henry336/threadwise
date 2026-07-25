@@ -1,6 +1,14 @@
-# Supabase Seoul → Singapore migration
+# Supabase Seoul → Singapore Migration
 
-Supabase projects cannot change region in place. Threadwise therefore moves to a new project created in **Southeast Asia (Singapore)** (`ap-southeast-1`) and keeps the Seoul project untouched as the rollback source.
+Status: **completed in production in July 2026**
+
+Document reviewed: **2026-07-26**
+
+Threadwise moved from a Supabase project in Seoul (`ap-northeast-2`) to a new project in Singapore (`ap-southeast-1`). Supabase projects cannot change region in place, so this was a database-to-database migration followed by a Render connection-string cutover.
+
+The migration verified exact application-table row counts and sequence state before production resumed. Telegram queries that had often taken roughly 1–2.5 seconds became near-immediate after the application and database were in the same region.
+
+This file is retained as an operational record and reusable runbook. **Do not run it against production merely because it is in the repository.** A future migration requires a new backup, an empty target, fresh credentials, and an approved maintenance window.
 
 Official references:
 
@@ -9,55 +17,79 @@ Official references:
 - [Backup and Restore using the CLI](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore)
 - [Available regions](https://supabase.com/docs/guides/platform/regions)
 
-## What this migration copies
+## Scope
 
-Threadwise uses Supabase only as PostgreSQL. It does not use Supabase Auth, Storage, Edge Functions, Realtime, or browser-side Supabase keys. The migration therefore copies the complete Threadwise `public` schema and data, including Prisma migration history, while leaving Supabase-managed internal schemas alone.
+Threadwise uses Supabase as PostgreSQL. It does not depend on Supabase Auth, Storage, Edge Functions, Realtime, or browser-side Supabase keys.
 
-Only Render's `DATABASE_URL` changes at cutover. The Telegram bot token, dashboard authentication, Vercel variables, OAuth credentials, and Supabase publishable key do not change.
+The workflow copies:
 
-## What is already prepared
+- The complete Threadwise `public` schema
+- All application rows
+- Prisma migration history
+- Application sequence state
 
-- `scripts/migrate-supabase-seoul-to-singapore.ps1` validates both regions and invokes the proven PostgreSQL migrator.
-- The migrator performs a transaction-consistent source backup, deploys the repository's Prisma schema, imports all application data in one transaction, and compares every public table row count and sequence state exactly.
-- It accepts an empty target or an empty Prisma schema left by a previous failed attempt; it refuses to overwrite different or non-empty target data.
-- `.github/workflows/migrate-supabase-region.yml` runs the migration from GitHub's network, avoiding campus Wi-Fi blocks on PostgreSQL port 5432.
-- GitHub receives only a non-sensitive verification report. Database dump files are not uploaded as artifacts.
-- The Seoul project remains unchanged until it is deliberately deleted later, so it is the immediate rollback source.
+It deliberately leaves Supabase-managed internal schemas alone.
 
-## Your minimal steps when you return
+Only Render's `DATABASE_URL` changes at cutover. Telegram, dashboard signing, Vercel, OpenAI, and OAuth credentials are independent of the database region.
 
-1. In Supabase, create a new project in **Southeast Asia (Singapore)**. Do not create tables manually.
-2. In each Supabase project, open **Connect → Session pooler → URI** and copy the port `5432` connection string:
-   - current Seoul source (`ap-northeast-2`)
-   - new Singapore target (`ap-southeast-1`)
-3. Give both URLs to Codex in this task. They will be stored temporarily as encrypted GitHub Actions secrets, never committed, and removed after cutover.
-4. When prompted, suspend the Render `threadwise` service. Codex can then run the guarded migration.
-5. Replace Render's `DATABASE_URL` with the Singapore Session pooler URL, save, and resume the service. If Render API access is available at that time, Codex can perform this step too.
+## Migration Assets
 
-That is all the manual setup required. Do not delete the Seoul project during the migration.
+- `scripts/migrate-supabase-seoul-to-singapore.ps1` validates expected source/target regions and invokes the PostgreSQL migrator.
+- The migrator takes a transaction-consistent source backup, deploys the repository Prisma schema, imports application data in one transaction, and compares public table row counts and sequence state.
+- It accepts an empty target or an empty Prisma schema from a failed attempt and refuses to overwrite different non-empty target data.
+- `.github/workflows/migrate-supabase-region.yml` can run from GitHub's network when a local network blocks PostgreSQL port 5432.
+- GitHub receives only a non-sensitive report. Database dumps are not uploaded as artifacts.
 
-## Prepared operator runbook
+## Completed Procedure
 
-These steps are for Codex/the operator; the user does not need to type them manually.
+The production migration followed this order:
 
-### 1. Store temporary encrypted URLs
+1. Create an empty Supabase project in Singapore.
+2. Obtain the source and target Session pooler URIs on port `5432`.
+3. Store them temporarily as encrypted GitHub Actions secrets, never in Git or command history.
+4. Run the non-mutating preflight.
+5. Suspend Render to stop writes.
+6. Run the guarded migration.
+7. Verify table counts and sequences.
+8. Replace Render's `DATABASE_URL` with the Singapore pooler URI.
+9. Resume and verify the bot and dashboard.
+10. Remove temporary GitHub secrets and retain the source through the rollback window.
 
-Run `gh secret set SOURCE_SUPABASE_DATABASE_URL` and `gh secret set TARGET_SUPABASE_DATABASE_URL`, entering each value at the hidden prompt. Do not pass URLs as command-line arguments.
+No real connection string or password belongs in this document.
 
-### 2. Run the live-safe preflight
+## Reusable Operator Runbook
+
+### 1. Prepare
+
+- Take a fresh source backup.
+- Confirm the target is empty.
+- Confirm both connection strings are pooler URLs reachable from the chosen runner.
+- Confirm the source and target regions.
+- Do not delete or modify the source project during the rollback window.
+
+### 2. Store Temporary Encrypted URLs
+
+Use hidden input rather than passing URLs as command-line arguments:
+
+```powershell
+gh secret set SOURCE_SUPABASE_DATABASE_URL
+gh secret set TARGET_SUPABASE_DATABASE_URL
+```
+
+### 3. Run The Preflight
 
 ```powershell
 gh workflow run migrate-supabase-region.yml -f mode=preflight
 gh run watch
 ```
 
-Preflight verifies connectivity, PostgreSQL versions, source data, target emptiness/retry safety, Seoul/Singapore host regions, and trigger-bypass permission. It makes no database changes.
+The preflight checks connectivity, PostgreSQL versions, source data, target retry safety, source/target regions, and required permissions. It must not change database data.
 
-### 3. Quiesce writes
+### 4. Quiesce Writes
 
-Suspend the Render web service. The dashboard may briefly show its connection fallback while the service is suspended; this is expected. Do not send Telegram writes after suspension.
+Suspend the Render service. Do not use Telegram or dashboard mutation flows after suspension.
 
-### 4. Run the guarded migration
+### 5. Run The Guarded Migration
 
 ```powershell
 gh workflow run migrate-supabase-region.yml `
@@ -66,40 +98,46 @@ gh workflow run migrate-supabase-region.yml `
 gh run watch
 ```
 
-The workflow fails closed unless the source and target secrets exist, the exact confirmation matches, the source is Seoul, and the target is Singapore.
+The workflow fails closed unless the secrets exist, the confirmation matches, the source is Seoul, and the target is Singapore.
 
-### 5. Cut Render over
+### 6. Cut Over
 
-Set Render `DATABASE_URL` to the target Session pooler URI, save, and resume. Wait for `/health` to report healthy.
+Set Render's `DATABASE_URL` to the target Session pooler URI, save, and resume the service. `render.yaml` runs Prisma migrations in its pre-deploy step.
 
-### 6. Verify production
+### 7. Verify Production
 
-- Confirm `/health` is healthy and Prisma migrations complete.
-- In Telegram, create a uniquely named temporary note or task, list/open it, then delete/archive it.
-- Open the dashboard and confirm the same user data appears.
-- Confirm a normal query is faster from Render Singapore.
+- Confirm `/health` is healthy and reports the expected version/commit.
+- Confirm Prisma migrations completed.
+- Create a uniquely named temporary note or task in Telegram.
+- List/open it and archive it.
+- Confirm the same data appears in the dashboard.
+- Check reminders and any enabled Calendar flow.
+- Compare representative latency with the previous region.
 
-### 7. Remove temporary secrets
+### 8. Remove Temporary Secrets
 
 ```powershell
 gh secret delete SOURCE_SUPABASE_DATABASE_URL
 gh secret delete TARGET_SUPABASE_DATABASE_URL
 ```
 
-Keep the Seoul project for at least 48 hours after successful production verification. Delete it only after the bot, reminders, dashboard, integrations, and a fresh backup have been checked.
+Keep the source and a verified backup through the rollback window.
 
-## Rollback
+## Rollback Pattern
 
-- **Migration fails before Render changes:** resume Render unchanged; it still points to Seoul.
-- **Production verification fails after cutover:** suspend Render, restore its old Seoul `DATABASE_URL`, save, and resume. Any writes made only in Singapore after cutover must be reconciled before a later retry.
-- Never delete or modify the Seoul project during the rollback window.
+- If migration fails before Render changes, resume Render with the source unchanged.
+- If verification fails after cutover, suspend Render, restore the old source `DATABASE_URL`, and resume.
+- Reconcile any writes made only in the target before retrying.
+- Never delete the source during the rollback window.
 
-## Optional local preflight
+## Optional Local Preflight
 
-Campus Wi-Fi previously blocked database port 5432, so GitHub Actions is preferred. On a network that permits PostgreSQL, copy `.env.region-migration.example` to the ignored `.env.region-migration`, fill both URLs, and run:
+Some campus networks block PostgreSQL port `5432`. Prefer GitHub Actions in that environment. On a network that permits PostgreSQL, copy `.env.region-migration.example` to the ignored `.env.region-migration`, fill both URLs, and run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate-supabase-seoul-to-singapore.ps1 -EnvFile .\.env.region-migration
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\migrate-supabase-seoul-to-singapore.ps1 `
+  -EnvFile .\.env.region-migration
 ```
 
-The local migration command additionally requires `-Migrate -SourceQuiesced` and should only run after Render is suspended.
+The local migration additionally requires `-Migrate -SourceQuiesced` and must run only while writes are stopped.
