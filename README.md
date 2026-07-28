@@ -313,6 +313,7 @@ src/
   db/                 Prisma client and connection-pool normalization
   services/           Domain logic and provider integrations
   utils/              Dates, time zones, OCR languages, HTML, text, and vectors
+  codexWorker.ts       Local Codex SDK worker and project discovery
   main.ts             Application entrypoint
   server.ts           Fastify routes, Telegram webhook, OAuth callbacks
 prisma/
@@ -339,6 +340,7 @@ Threadwise stores:
 - Pending captures, edits, merges, bulk actions, and paginated searches
 - Calendar connections and encrypted OAuth tokens
 - Audit logs and processed Telegram update IDs
+- Private Codex project registry, active-project state, jobs, thread ids, and report-message routing
 - Frozen Expense/Excel records and inert legacy Gmail records retained for data safety
 
 Most removals are soft archives. Search vectors are stored as JSON and scored app-side for personal/small-group scale. See the schema itself for field-level truth.
@@ -414,6 +416,10 @@ ADMIN_STATUS_TOKEN
 WEBHOOK_URL
 WEBHOOK_SECRET_PATH
 BOT_ALLOWED_TELEGRAM_IDS
+CODEX_OWNER_TELEGRAM_ID
+CODEX_TELEGRAM_CHAT_ID
+CODEX_WORKER_TOKEN
+CODEX_JOB_LEASE_SECONDS
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
 GOOGLE_CALENDAR_REDIRECT_URI
@@ -456,6 +462,77 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 You can also allow a whole group by adding its chat id, either as `-1001234567890` or `chat:-1001234567890`. If a group is allowlisted, any member of that group can use the shared group scope. If only individual Telegram ids are allowlisted, group messages from non-allowlisted people are ignored silently so the bot does not clutter the chat.
 
 Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
+
+## Private Codex Mode
+
+Private Codex mode is a two-part integration:
+
+1. The Render service receives the owner's Telegram prompts, persists jobs, and delivers final reports.
+2. A local Windows worker uses the official `@openai/codex-sdk` package and the laptop's existing Codex authentication. Render never receives Codex credentials and never needs direct access to local project folders.
+
+The mode is disabled unless all of these Render values are configured:
+
+```text
+CODEX_OWNER_TELEGRAM_ID=YOUR_TELEGRAM_USER_ID
+CODEX_TELEGRAM_CHAT_ID=YOUR_TWO_MEMBER_GROUP_ID
+CODEX_WORKER_TOKEN=A_LONG_RANDOM_SHARED_SECRET
+CODEX_JOB_LEASE_SECONDS=3600
+```
+
+For a bot deployment intended only for this owner, also set `BOT_ALLOWED_TELEGRAM_IDS` to the same owner user id. Do not allowlist the Codex group id: allowing only the owner id means other group members are rejected by the global bot gate as well as the Codex-specific gate.
+
+The handler checks both the exact user id and exact chat id on every prompt and callback. Unauthorized `/codex` attempts are ignored without a response. The command is intentionally absent from the public command/help menus. Before showing any Codex UI or report, Threadwise verifies that the configured owner is still an active member and that the group contains only that owner and the bot. If either check fails, group delivery fails closed and a completed report is sent to the owner's private bot chat instead. Telegram may expose older group history to someone added later, depending on the group's history setting, so keep the group private and hide history from new members if the reports must remain owner-only.
+
+After deploying the migration and Render configuration, create an ignored `.env.codex-worker` file on the Windows computer:
+
+```text
+THREADWISE_CODEX_URL=https://threadwise-90du.onrender.com
+THREADWISE_CODEX_WORKER_TOKEN=THE_SAME_LONG_RANDOM_SHARED_SECRET
+CODEX_WORKER_ID=my-laptop
+CODEX_WORKER_POLL_MS=3000
+CODEX_WORKER_SYNC_MS=300000
+CODEX_WORKER_HEARTBEAT_MS=30000
+CODEX_WORKER_NETWORK_ACCESS=false
+CODEX_WORKER_MAX_ATTACHMENT_BYTES=26214400
+```
+
+If the worker is not inheriting the same Codex home as the desktop app, also set:
+
+```text
+CODEX_HOME=D:\CodexData\home
+```
+
+Start the worker from this repository:
+
+```powershell
+npm install
+npm run codex:worker
+```
+
+On startup and every five minutes, the worker reads only `session_meta` records from Codex session logs. It registers unique, existing Git repositories and excludes Codex-managed worktrees, missing folders, and non-Git directories. No prompt bodies or credentials are uploaded during discovery.
+
+Inside the configured Telegram group:
+
+```text
+/codex projects
+/codex use threadwise
+Fix the reminder bug
+in subscription-radar Review the renewal calculation
+new Start a separate Codex task
+continue a1b2c3d4 Add regression tests
+in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI
+/codex status
+```
+
+`/codex projects` shows the current laptop project aliases and paths in paginated cards. Tap an alias to make it active. Plain text uses that project, while `in <alias>` targets any other project for one task. Every queued task and report shows a short task id and project alias. Continue work by replying to its report—even after changing report pages—or with `continue <task-id> <prompt>`. `new` starts a fresh thread.
+
+Use `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` anywhere before the prompt to override one task. Omitted controls inherit the resumed thread or local Codex defaults.
+
+Long final responses are stored intact and shown as one Telegram report card with project, folder, task, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
+
+Photos and image documents are downloaded by the authenticated worker and passed to the SDK as native `local_image` inputs. Other Telegram documents are downloaded to a unique temporary directory, exposed to that Codex turn as an additional readable directory, and named explicitly in the prompt. The temporary files are deleted when the turn finishes. The laptop never receives the Telegram bot token; it downloads each attachment through a worker-authenticated Threadwise endpoint that only serves files belonging to its currently claimed job.
+
+The worker runs Codex with a workspace-write sandbox, no interactive approvals, and network access disabled by default. Enable `CODEX_WORKER_NETWORK_ACCESS` only when the tasks genuinely need outbound network access. Prompts and final reports are stored in PostgreSQL as part of the durable job queue. While Codex is running, lease heartbeats prevent a long task from being claimed twice. Terminal results retry with bounded exponential backoff until the server accepts them, and the server independently retries completed-but-undelivered Telegram reports. A completely empty project-discovery pass preserves the previous registry instead of erasing it.
 
 ## Authenticated Dashboard API
 

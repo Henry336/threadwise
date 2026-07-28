@@ -1,0 +1,96 @@
+# Private Codex Mode: Implementation and Audit Notes
+
+Date audited: 2026-07-29
+
+## Intended private deployment
+
+- Telegram owner user: deployment-only configuration
+- Dedicated Telegram group: deployment-only configuration
+- Recommended global bot allowlist: the same owner user id
+- Required private-mode values:
+  - `CODEX_OWNER_TELEGRAM_ID=<owner user id>`
+  - `CODEX_TELEGRAM_CHAT_ID=<dedicated two-member group id>`
+  - `CODEX_WORKER_TOKEN=<a unique random value of at least 24 characters>`
+
+The IDs remain deployment configuration rather than source-code constants. The mode is completely disabled unless the owner id, group id, and worker token are all present.
+
+## What was implemented
+
+- A private Telegram Codex mode backed by the official `@openai/codex-sdk`.
+- Owner-and-chat scoped project registry, chat state, job queue, task/thread relationships, attachments, and report-message mappings in PostgreSQL.
+- Local project discovery from Codex `session_meta` records. It lists unique, existing Git repositories, ignores missing/non-Git folders, and excludes Codex-managed worktrees.
+- `/codex projects` provides a paginated, tap-to-select list of aliases and full local paths.
+- Plain text uses the selected project. `in <project-alias> <prompt>` explicitly targets another project.
+- Replying to a completion report resumes that exact Codex thread and project. `continue <task-id> <prompt>` provides the same behavior without locating the report.
+- `new <prompt>` deliberately starts a fresh thread.
+- Per-task `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` controls.
+- Telegram photos and image documents are passed to Codex as native `local_image` inputs.
+- Other documents are downloaded into a unique temporary directory, provided as an additional readable directory, named in the prompt, and removed after the turn.
+- Every completion/failure report identifies project, task, folder, model, reasoning level, and current report page.
+- Long reports are kept intact and shown through Previous/Next controls that edit one Telegram message, preserving reply-to-task routing.
+
+## Privacy and authorization safeguards
+
+- Prompt and project controls require both the exact configured Telegram user id and exact configured group id.
+- Unauthorized `/codex` attempts are silent, and Codex is absent from general command/help menus.
+- Before any private-mode interaction, Threadwise asks Telegram to prove:
+  - the exact owner is an active member; and
+  - the group member count is exactly two (owner plus bot).
+- Restricted owners are accepted only when Telegram explicitly says they are still a member.
+- Membership lookup failures fail closed.
+- If the group is no longer private, reports are not posted there. Delivery falls back to the owner's private bot chat.
+- Report pagination in fallback direct messages is usable only by the owner. Prompting remains restricted to the configured group.
+- Worker endpoints require the shared secret, compare it using a timing-safe equality check, and scope every claim, attachment, heartbeat, completion, and failure operation to the configured owner and group.
+- The worker never receives the Telegram bot token.
+- The recommended global allowlist contains only the owner user id, not the group id, so another group member is blocked by both the global gate and Codex-specific checks.
+
+## Reliability and correctness fixes from the audit
+
+- Added renewable job leases and worker heartbeats so long Codex turns do not become claimable merely because the initial lease elapsed.
+- Separated Codex execution failures from completion-relay failures. A successful Codex result can no longer be mislabeled as failed because of a temporary network or Telegram problem.
+- Terminal completion/failure callbacks retry with bounded exponential backoff until accepted by the server.
+- Completed-but-undelivered reports are retried independently by the bot service.
+- Added delivery deduplication using the persisted report-message mapping.
+- Made worker terminal callbacks idempotent when the database already contains a terminal result.
+- Prevented an empty or temporarily unreadable discovery pass from erasing the server's known project registry.
+- Excluded `.codex/worktrees` regardless of which valid `CODEX_HOME` path spelling produced the session.
+- Added immediate 25 MB upload rejection, server-side metadata checks, content-length checks, and streaming byte limits. This avoids buffering an unbounded response before checking its size.
+- Added filename sanitization and unique temporary directories to prevent attachment path traversal or collisions.
+- Added safe cleanup handling so a temporary-directory cleanup problem does not rewrite a successful task outcome.
+- Corrected incomplete `in <project>` and `continue <task-id>` commands so they request a prompt instead of submitting the command text itself.
+- Explicit `in <project> ...` targeting now wins over an incidental reply to an older report.
+- A continuation without a resumable thread is rejected with actionable guidance instead of silently creating an unrelated thread.
+- Report page splitting is Unicode-code-point safe and reassembles to the exact original response.
+
+## Verification performed
+
+- TypeScript typecheck: passed.
+- Production TypeScript build: passed.
+- Prisma schema validation: passed.
+- Focused Codex tests: 18 passed.
+- Entire Threadwise test suite: 62 files and 565 tests passed.
+- Real local project-discovery smoke test: 25 usable Git projects found.
+- Official SDK smoke test with explicit model/reasoning controls: passed and returned a real Codex thread id.
+- Production dependency audit:
+  - Safe non-breaking updates were applied, including patched `fast-uri` and `find-my-way`.
+  - Nine reported high-severity findings remain in the old archive/glob chain transitively required by `exceljs@4.4.0`.
+  - npm's only automatic remedy is `--force`, which proposes a breaking downgrade to `exceljs@4.1.1`; that unsafe forced change was intentionally not applied.
+
+## Before it is live
+
+1. Deploy the included Prisma migration and current Render service build.
+2. Set the exact owner, group, allowlist, and shared worker-token environment values shown above on Render.
+3. Create the ignored local `.env.codex-worker` with the Render URL, the same worker token, and (if necessary) `CODEX_HOME=D:\CodexData\home`.
+4. Start the laptop worker with `npm run codex:worker` and keep it running while remote tasks are expected.
+5. In Telegram, run `/codex projects`, select a project, and submit a harmless end-to-end smoke task.
+6. Keep the Telegram group at exactly the owner and Threadwise bot. Disable group history for newly added members if old reports must never become visible later.
+
+No default project path needs to be configured. The active project is chosen in Telegram and persisted. The earlier `RemoteCodex` folder is not treated as a Codex project merely because that folder exists; it will appear only after it is an actual Git project represented in local Codex session metadata.
+
+## Residual operational constraints
+
+- The laptop and local worker must be on for Codex to execute a queued task.
+- A bot can use the private-message privacy fallback only after Telegram permits that bot to message the owner; opening the bot's direct chat once is recommended.
+- Telegram group-history behavior is controlled by Telegram, not Threadwise.
+- Delivery is effectively deduplicated once the Telegram message mapping is persisted. As with any external API, a process crash in the tiny interval after Telegram accepts a message but before its message id is committed could produce one duplicate on retry.
+- This audit validates the implementation and local build. It does not claim the feature is deployed until the migration, Render variables, and Windows worker setup above are completed.

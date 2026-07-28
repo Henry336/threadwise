@@ -13,6 +13,7 @@ import { errorLogMetadata, respondToUnhandledBotError } from "./errorResponses";
 import { registerGroupScheduling } from "./scheduling";
 import { callbackMatchesEphemeralReceiver, configureEphemeralTransport } from "./ephemeral";
 import { registerNoteSessions } from "./noteSessions";
+import { privateCodexScopeForContext, registerCodexMode } from "./codex";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -41,7 +42,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   });
 
   bot.use(async (ctx, next) => {
-    if (!shouldHandleGroupUpdate(ctx)) {
+    if (!privateCodexScopeForContext(ctx) && !shouldHandleGroupUpdate(ctx)) {
       return;
     }
 
@@ -67,6 +68,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
 
   registerNoteSessions(bot);
   registerCommands(bot, ai);
+  registerCodexMode(bot);
   registerGroupScheduling(bot);
   registerCallbacks(bot, ai);
   registerImageMessages(bot, ai, token);

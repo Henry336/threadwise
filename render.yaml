@@ -54,3 +54,11 @@ services:
         value: "180"
       - key: BOT_ALLOWED_TELEGRAM_IDS
         sync: false
+      - key: CODEX_OWNER_TELEGRAM_ID
+        sync: false
+      - key: CODEX_TELEGRAM_CHAT_ID
+        sync: false
+      - key: CODEX_WORKER_TOKEN
+        sync: false
+      - key: CODEX_JOB_LEASE_SECONDS
+        value: "3600"
