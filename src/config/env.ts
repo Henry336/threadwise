@@ -32,7 +32,11 @@ const envSchema = z.object({
   DEFAULT_REMINDER_INTERVAL_MINUTES: z.coerce.number().int().positive().default(180),
   DEFAULT_QUIET_HOURS_START: clock.default("22:00"),
   DEFAULT_QUIET_HOURS_END: clock.default("08:00"),
-  BOT_ALLOWED_TELEGRAM_IDS: z.string().optional()
+  BOT_ALLOWED_TELEGRAM_IDS: z.string().optional(),
+  CODEX_OWNER_TELEGRAM_ID: z.string().regex(/^\d+$/).optional(),
+  CODEX_TELEGRAM_CHAT_ID: z.string().regex(/^-?\d+$/).optional(),
+  CODEX_WORKER_TOKEN: z.string().min(24).optional(),
+  CODEX_JOB_LEASE_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3_600)
 });
 
 export const env = envSchema.parse(process.env);
@@ -47,4 +51,24 @@ export function allowedTelegramIds(): Set<string> | undefined {
       .map((id) => id.trim())
       .filter(Boolean)
   );
+}
+
+export type PrivateCodexConfig = {
+  ownerTelegramId: string;
+  telegramChatId: string;
+  workerToken: string;
+  jobLeaseSeconds: number;
+};
+
+export function privateCodexConfig(): PrivateCodexConfig | undefined {
+  if (!env.CODEX_OWNER_TELEGRAM_ID || !env.CODEX_TELEGRAM_CHAT_ID || !env.CODEX_WORKER_TOKEN) {
+    return undefined;
+  }
+
+  return {
+    ownerTelegramId: env.CODEX_OWNER_TELEGRAM_ID,
+    telegramChatId: env.CODEX_TELEGRAM_CHAT_ID,
+    workerToken: env.CODEX_WORKER_TOKEN,
+    jobLeaseSeconds: env.CODEX_JOB_LEASE_SECONDS
+  };
 }

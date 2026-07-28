@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Bot } from "grammy";
 import { webhookCallback } from "grammy";
@@ -9,6 +10,19 @@ import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 import { appVersion } from "./services/version";
+import { privateCodexConfig } from "./config/env";
+import {
+  codexAttachmentForWorker,
+  claimCodexJob,
+  completeCodexJob,
+  completedCodexJobForWorker,
+  failCodexJob,
+  renewCodexJobLease,
+  syncCodexProjects
+} from "./services/codex";
+import { deliverCodexJobOnce } from "./bot/codex";
+
+const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export async function startServer(
   bot: Bot,
@@ -97,6 +111,157 @@ export async function startServer(
   server.get("/admin/reminders/run", runRemindersNow);
   server.post("/admin/reminders/run", runRemindersNow);
 
+  server.post("/codex/worker/sync", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const body = request.body as { workerId?: unknown; projects?: unknown } | undefined;
+    if (!validWorkerId(body?.workerId) || !validProjectList(body?.projects)) {
+      return reply.code(400).send({ error: "invalid_worker_sync" });
+    }
+
+    const projects = await syncCodexProjects(codexScope(config!), body.projects);
+    return {
+      ok: true,
+      projects: projects.map((project) => ({
+        alias: project.alias,
+        path: project.path,
+        lastSeenAt: project.lastSeenAt.toISOString()
+      }))
+    };
+  });
+
+  server.post("/codex/worker/claim", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_worker_id" });
+    }
+
+    const job = await claimCodexJob(codexScope(config!), body.workerId, config!.jobLeaseSeconds);
+    if (!job) return reply.code(204).send();
+    return {
+      id: job.id,
+      prompt: job.prompt,
+      threadId: job.threadId,
+      model: job.model,
+      reasoningEffort: job.reasoningEffort,
+      project: { alias: job.project.alias, path: job.project.path },
+      attachments: job.attachments.map((attachment) => ({
+        id: attachment.id,
+        kind: attachment.kind,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        fileSize: attachment.fileSize
+      }))
+    };
+  });
+
+  server.get("/codex/worker/attachments/:id", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const workerId = headerToken(request.headers["x-threadwise-worker-id"]);
+    if (!params.id || !validWorkerId(workerId) || !options.telegramBotToken) {
+      return reply.code(400).send({ error: "invalid_attachment_request" });
+    }
+    const attachment = await codexAttachmentForWorker(codexScope(config!), params.id, workerId);
+    if (!attachment) return reply.code(404).send({ error: "attachment_not_found" });
+    if (attachment.fileSize && attachment.fileSize > MAX_CODEX_ATTACHMENT_BYTES) {
+      return reply.code(413).send({ error: "attachment_too_large" });
+    }
+
+    const telegramFile = await bot.api.getFile(attachment.telegramFileId);
+    if (!telegramFile.file_path) return reply.code(502).send({ error: "telegram_file_unavailable" });
+    const response = await fetch(`https://api.telegram.org/file/bot${options.telegramBotToken}/${telegramFile.file_path}`);
+    if (!response.ok) return reply.code(502).send({ error: "telegram_file_download_failed" });
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_CODEX_ATTACHMENT_BYTES) {
+      return reply.code(413).send({ error: "attachment_too_large" });
+    }
+    const buffer = await responseBufferWithinLimit(response, MAX_CODEX_ATTACHMENT_BYTES);
+    if (!buffer) {
+      return reply.code(413).send({ error: "attachment_too_large" });
+    }
+    return reply
+      .header("content-type", attachment.mimeType || "application/octet-stream")
+      .header("content-length", String(buffer.length))
+      .header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`)
+      .send(buffer);
+  });
+
+  server.post("/codex/worker/jobs/:id/complete", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; finalResponse?: unknown; threadId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || typeof body?.finalResponse !== "string" || !optionalString(body.threadId)) {
+      return reply.code(400).send({ error: "invalid_completion" });
+    }
+
+    const job = await completeCodexJob({
+      scope: codexScope(config!),
+      id: params.id,
+      workerId: body.workerId,
+      finalResponse: body.finalResponse,
+      threadId: body.threadId
+    }) ?? await completedCodexJobForWorker(codexScope(config!), params.id, body.workerId);
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverCodexJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/jobs/:id/fail", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; error?: unknown; threadId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || typeof body?.error !== "string" || !optionalString(body.threadId)) {
+      return reply.code(400).send({ error: "invalid_failure" });
+    }
+
+    const job = await failCodexJob({
+      scope: codexScope(config!),
+      id: params.id,
+      workerId: body.workerId,
+      error: body.error,
+      threadId: body.threadId
+    }) ?? await completedCodexJobForWorker(codexScope(config!), params.id, body.workerId);
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverCodexJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/jobs/:id/heartbeat", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_heartbeat" });
+    }
+    const renewed = await renewCodexJobLease({
+      scope: codexScope(config!),
+      id: params.id,
+      workerId: body.workerId,
+      leaseSeconds: config!.jobLeaseSeconds
+    });
+    if (!renewed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
   server.post(options.webhookPath, webhookCallback(bot, "fastify"));
 
   server.get("/calendar/oauth/callback", async (request, reply) => {
@@ -142,5 +307,57 @@ function isAdminAuthorized(authorization: string | undefined, adminHeader: strin
   }
 
   const token = authToken(authorization) ?? headerToken(adminHeader);
-  return token === expectedToken;
+  if (!token) return false;
+  const actual = Buffer.from(token);
+  const expected = Buffer.from(expectedToken);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function codexScope(config: { ownerTelegramId: string; telegramChatId: string }) {
+  return {
+    ownerTelegramId: config.ownerTelegramId,
+    telegramChatId: config.telegramChatId
+  };
+}
+
+async function responseBufferWithinLimit(response: Response, maxBytes: number): Promise<Buffer | undefined> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(chunks, total);
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function validWorkerId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 100;
+}
+
+function optionalString(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && value.length <= 200);
+}
+
+function validProjectList(value: unknown): value is Array<{ path: string; lastSeenAt?: string }> {
+  return Array.isArray(value)
+    && value.length <= 1_000
+    && value.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const project = item as { path?: unknown; lastSeenAt?: unknown };
+      return typeof project.path === "string"
+        && project.path.length > 0
+        && project.path.length <= 2_000
+        && optionalString(project.lastSeenAt);
+    });
 }

@@ -86,6 +86,13 @@ enum AvailabilityPollStatus {
   CANCELED
 }
 
+enum CodexJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -801,4 +808,101 @@ model ProcessedTelegramUpdate {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model CodexProject {
+  id               String   @id @default(uuid())
+  ownerTelegramId  String
+  telegramChatId   String
+  alias            String
+  path             String
+  enabled          Boolean  @default(true)
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  jobs       CodexJob[]
+  activeFor  CodexChatState[]
+
+  @@unique([ownerTelegramId, telegramChatId, alias])
+  @@unique([ownerTelegramId, telegramChatId, path])
+  @@index([ownerTelegramId, telegramChatId, enabled, lastSeenAt])
+}
+
+model CodexChatState {
+  id               String   @id @default(uuid())
+  ownerTelegramId  String
+  telegramChatId   String
+  activeProjectId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  activeProject CodexProject? @relation(fields: [activeProjectId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerTelegramId, telegramChatId])
+  @@index([activeProjectId])
+}
+
+model CodexJob {
+  id               String         @id @default(uuid())
+  ownerTelegramId  String
+  telegramChatId   String
+  projectId        String
+  status           CodexJobStatus @default(PENDING)
+  prompt           String
+  telegramRequestMessageId Int?
+  threadId         String?
+  model            String?
+  reasoningEffort  String?
+  replyToJobId     String?
+  workerId         String?
+  claimedAt        DateTime?
+  leaseExpiresAt   DateTime?
+  finalResponse    String?
+  error            String?
+  createdAt        DateTime       @default(now())
+  startedAt        DateTime?
+  completedAt      DateTime?
+  deliveredAt      DateTime?
+  updatedAt        DateTime       @updatedAt
+
+  project     CodexProject      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  replyToJob  CodexJob?         @relation("CodexJobReplies", fields: [replyToJobId], references: [id], onDelete: SetNull)
+  replies     CodexJob[]        @relation("CodexJobReplies")
+  messages    CodexJobMessage[]
+  attachments CodexJobAttachment[]
+
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([ownerTelegramId, telegramChatId, createdAt])
+  @@index([threadId])
+  @@index([replyToJobId])
+}
+
+model CodexJobAttachment {
+  id                   String   @id @default(uuid())
+  jobId                String
+  kind                 String
+  telegramFileId       String
+  telegramFileUniqueId String?
+  fileName             String
+  mimeType             String?
+  fileSize             Int?
+  createdAt            DateTime @default(now())
+
+  job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+model CodexJobMessage {
+  id          String   @id @default(uuid())
+  jobId       String
+  chatId      String
+  messageId   Int
+  createdAt   DateTime @default(now())
+
+  job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, messageId])
+  @@index([jobId])
 }

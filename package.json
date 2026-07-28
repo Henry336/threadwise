@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "smoke:ocr": "tsx scripts/ocr-smoke.ts",
+    "codex:worker": "tsx src/codexWorker.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "node scripts/migrate-deploy.mjs",
@@ -27,6 +28,7 @@
     "uuid": "11.1.1"
   },
   "dependencies": {
+    "@openai/codex-sdk": "^0.145.0",
     "@prisma/client": "^6.1.0",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/mya": "^1.0.0",
