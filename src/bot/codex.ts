@@ -30,6 +30,7 @@ import {
 } from "../services/codex";
 import { logger } from "../logger";
 import { localWorkerReadiness } from "../services/geminiIdeas";
+import { detectTrustedPublishIntent } from "../services/trustedGitPublisher";
 import { bold, code, h, HTML_REPLY, replyHtml } from "../utils/html";
 import { commandBody } from "../utils/text";
 
@@ -49,6 +50,8 @@ type RunCommand = {
   forceNewThread: boolean;
   model?: string;
   reasoningEffort?: ReasoningLevel;
+  publishRequested?: boolean;
+  publishAutoMerge?: boolean;
 };
 
 export type ParsedCodexCommand =
@@ -359,6 +362,7 @@ function parseRunCommand(input: string): ParsedCodexCommand {
 
   const prompt = value.trim();
   if (!prompt) return { action: "error", message: "Add a prompt for Codex to work on." };
+  const publish = detectTrustedPublishIntent(prompt);
   return {
     action: "run",
     prompt,
@@ -367,7 +371,10 @@ function parseRunCommand(input: string): ParsedCodexCommand {
     threadRef: threadRef?.trim(),
     forceNewThread,
     model: modelFlag.value,
-    reasoningEffort: reasoningFlag.value?.toLowerCase() as ReasoningLevel | undefined
+    reasoningEffort: reasoningFlag.value?.toLowerCase() as ReasoningLevel | undefined,
+    ...(publish.requested
+      ? { publishRequested: true, publishAutoMerge: publish.autoMerge }
+      : {})
   };
 }
 
@@ -406,7 +413,8 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       "",
       `Example: ${code("in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI")}`,
       "Reply to any Codex report—on any page—to continue that exact task and folder.",
-      "Send an image or document with a caption to include it in the task."
+      "Send an image or document with a caption to include it in the task.",
+      `Trusted publishing: ${code("Implement this, verify it, publish it, and auto-merge when CI passes.")}`
     ].join("\n"));
     return;
   }
@@ -577,7 +585,9 @@ async function queuePromptFromContext(
     attachments,
     replyToJob: continuation,
     targetThread,
-    forceNewThread: command.forceNewThread
+    forceNewThread: command.forceNewThread,
+    publishRequested: command.publishRequested,
+    publishAutoMerge: command.publishAutoMerge
   });
   const threadId = job.threadId ? shortCodexThreadId(job.threadId) : "new";
   await replyHtml(ctx, renderCodexQueuedMessage({
@@ -588,7 +598,9 @@ async function queuePromptFromContext(
     model: job.model,
     reasoningEffort: job.reasoningEffort,
     attachmentCount: attachments.length,
-    continuing: Boolean((continuation?.threadId || targetThread) && !command.forceNewThread)
+    continuing: Boolean((continuation?.threadId || targetThread) && !command.forceNewThread),
+    publishRequested: job.publishRequested,
+    publishAutoMerge: job.publishAutoMerge
   }));
 }
 
@@ -739,11 +751,13 @@ export function renderReportPage(job: CodexJobWithProject, pages: string[], page
     job.reasoningEffort ? `${job.reasoningEffort} reasoning` : undefined,
     pages.length > 1 ? `page ${page + 1}/${pages.length}` : undefined
   ].filter(Boolean).join(" · ");
+  const publishing = publishReportLines(job);
   return [
     job.status === CodexJobStatus.COMPLETED ? "✅ Codex finished" : "❌ Codex failed",
     title,
     context,
     controls || undefined,
+    ...publishing,
     "",
     pages[page] ?? ""
   ].filter((line) => line !== undefined).join("\n");
@@ -758,6 +772,8 @@ export function renderCodexQueuedMessage(input: {
   reasoningEffort?: string | null;
   attachmentCount?: number;
   continuing: boolean;
+  publishRequested?: boolean;
+  publishAutoMerge?: boolean;
 }): string {
   const context = [
     code(input.projectAlias),
@@ -775,8 +791,26 @@ export function renderCodexQueuedMessage(input: {
     bold("⏳ Codex is working"),
     h(input.title),
     context,
-    controls || undefined
+    controls || undefined,
+    input.publishRequested
+      ? input.publishAutoMerge
+        ? "Publishing: verify -> commit -> agent/* -> PR -> CI -> auto-merge"
+        : "Publishing: verify -> commit -> agent/* -> PR"
+      : undefined
   ].filter(Boolean).join("\n");
+}
+
+function publishReportLines(job: CodexJobWithProject): Array<string | undefined> {
+  if (!job.publishRequested) return [];
+  return [
+    `Publishing: ${job.publishStatus ?? "not completed"}`,
+    job.publishBranch ? `Branch: ${job.publishBranch}` : undefined,
+    job.publishCommitSha ? `Commit: ${job.publishCommitSha.slice(0, 12)}` : undefined,
+    job.publishPrUrl ? `PR: ${job.publishPrUrl}` : undefined,
+    job.publishChecks ? `Checks: ${job.publishChecks}` : undefined,
+    job.publishMergeCommitSha ? `Merge: ${job.publishMergeCommitSha.slice(0, 12)}` : undefined,
+    job.publishBlocker ? `Blocked: ${job.publishBlocker}` : undefined
+  ];
 }
 
 export function reportKeyboard(jobId: string, page: number, totalPages: number): InlineKeyboard | undefined {

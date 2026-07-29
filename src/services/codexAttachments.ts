@@ -2,7 +2,7 @@ import type { UserInput } from "@openai/codex-sdk";
 import { basename } from "node:path";
 
 export function safeCodexAttachmentName(fileName: string, index: number): string {
-  const cleaned = basename(fileName)
+  const cleaned = basename(fileName.replace(/\\/g, "/"))
     .replace(/[^a-z0-9._-]+/gi, "_")
     .replace(/^\.+/, "")
     .slice(0, 160);

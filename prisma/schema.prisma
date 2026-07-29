@@ -922,6 +922,17 @@ model CodexJob {
   newThread        Boolean        @default(false)
   model            String?
   reasoningEffort  String?
+  publishRequested Boolean        @default(false)
+  publishAutoMerge Boolean        @default(false)
+  publishStatus    String?
+  publishBranch    String?
+  publishCommitSha String?
+  publishPrNumber  Int?
+  publishPrUrl     String?
+  publishChecks    String?
+  publishMergeCommitSha String?
+  publishBlocker   String?
+  publishCompletedAt DateTime?
   replyToJobId     String?
   workerId         String?
   claimedAt        DateTime?
@@ -939,11 +950,35 @@ model CodexJob {
   replies     CodexJob[]        @relation("CodexJobReplies")
   messages    CodexJobMessage[]
   attachments CodexJobAttachment[]
+  publishAudits CodexPublishAudit[]
 
   @@index([status, leaseExpiresAt, createdAt])
   @@index([ownerTelegramId, telegramChatId, createdAt])
   @@index([threadId])
   @@index([replyToJobId])
+}
+
+model CodexPublishAudit {
+  id               String   @id @default(uuid())
+  jobId            String
+  ownerTelegramId  String
+  telegramChatId   String
+  workerId         String
+  eventKey         String
+  action           String
+  status           String
+  branch           String?
+  commitSha        String?
+  prNumber         Int?
+  prUrl             String?
+  details          Json?
+  createdAt        DateTime @default(now())
+
+  job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, eventKey])
+  @@index([ownerTelegramId, telegramChatId, createdAt])
+  @@index([jobId, createdAt])
 }
 
 model CodexJobAttachment {

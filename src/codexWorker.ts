@@ -7,6 +7,13 @@ import { discoverCodexProjects } from "./services/codexDiscovery";
 import { codexInputWithAttachments, safeCodexAttachmentName } from "./services/codexAttachments";
 import { discoverCodexThreads } from "./services/codexThreadDiscovery";
 import { detectGeminiCli, runGeminiIdeaPrompt } from "./services/geminiCli";
+import {
+  captureTrustedGitSnapshot,
+  publishTrustedCodexChanges,
+  type TrustedGitSnapshot,
+  type TrustedPublishEvent,
+  type TrustedPublishResult
+} from "./services/trustedGitPublisher";
 
 type WorkerConfig = {
   serviceUrl: string;
@@ -20,6 +27,8 @@ type WorkerConfig = {
   geminiModel: string;
   geminiTimeoutMs: number;
   geminiWorkingDirectory: string;
+  publishCheckTimeoutMs: number;
+  publishGithubTimeoutMs: number;
 };
 
 type WorkerJob = {
@@ -28,6 +37,9 @@ type WorkerJob = {
   threadId?: string | null;
   model?: string | null;
   reasoningEffort?: ModelReasoningEffort | null;
+  threadTitle?: string | null;
+  publishRequested?: boolean;
+  publishAutoMerge?: boolean;
   project: { alias: string; path: string };
   attachments: Array<{
     id: string;
@@ -151,8 +163,18 @@ async function executeJob(job: WorkerJob): Promise<void> {
   const heartbeat = startJobHeartbeat(job.id);
   try {
     let finalResponse: string;
+    let publishSnapshot: TrustedGitSnapshot | undefined;
+    let publishPreflightError: string | undefined;
+    let publishResult: TrustedPublishResult | undefined;
     try {
       assertRunnableProject(job.project.path);
+      if (job.publishRequested) {
+        try {
+          publishSnapshot = await captureTrustedGitSnapshot(job.project.path);
+        } catch (error) {
+          publishPreflightError = errorMessage(error);
+        }
+      }
       const prepared = await prepareJobInput(job);
       attachmentDirectory = prepared.directory;
       const options = {
@@ -165,8 +187,36 @@ async function executeJob(job: WorkerJob): Promise<void> {
         additionalDirectories: attachmentDirectory ? [attachmentDirectory] : undefined
       };
       thread = job.threadId ? codex.resumeThread(job.threadId, options) : codex.startThread(options);
-      const result = await thread.run(prepared.input);
+      const result = await thread.run(job.publishRequested
+        ? trustedPublishingInput(prepared.input)
+        : prepared.input);
       finalResponse = result.finalResponse;
+
+      if (job.publishRequested) {
+        if (!publishSnapshot) {
+          publishResult = {
+            status: "BLOCKED",
+            blocker: `Trusted publishing preflight failed: ${publishPreflightError || "unknown error"}`
+          };
+          await reportPublishEvent(job.id, {
+            eventKey: "01-blocked",
+            action: "BLOCKED",
+            status: "BLOCKED",
+            details: { message: publishResult.blocker }
+          });
+        } else {
+          publishResult = await publishTrustedCodexChanges({
+            cwd: job.project.path,
+            jobId: job.id,
+            title: job.threadTitle || job.prompt,
+            autoMerge: Boolean(job.publishAutoMerge),
+            snapshot: publishSnapshot,
+            checkTimeoutMs: config.publishCheckTimeoutMs,
+            githubTimeoutMs: config.publishGithubTimeoutMs,
+            report: async (event) => await reportPublishEvent(job.id, event)
+          });
+        }
+      }
     } catch (error) {
       const message = errorMessage(error);
       console.error(`[codex-worker] Job ${job.id} failed: ${message}`);
@@ -181,7 +231,8 @@ async function executeJob(job: WorkerJob): Promise<void> {
     await terminalRequestUntilAccepted(`/codex/worker/jobs/${encodeURIComponent(job.id)}/complete`, {
       workerId: config.workerId,
       finalResponse,
-      threadId: thread.id ?? undefined
+      threadId: thread.id ?? undefined,
+      publishResult
     }, job.id, "completion");
     console.log(`[codex-worker] Completed ${job.id}.`);
   } finally {
@@ -234,7 +285,7 @@ async function terminalRequestUntilAccepted(
   path: string,
   body: unknown,
   jobId: string,
-  outcome: "completion" | "failure"
+  outcome: string
 ): Promise<void> {
   let retryMs = 1_000;
   while (!stopping) {
@@ -375,8 +426,43 @@ function workerConfig(): WorkerConfig {
     maxAttachmentBytes: positiveInteger(process.env.CODEX_WORKER_MAX_ATTACHMENT_BYTES, 25 * 1024 * 1024, 1_024),
     geminiModel: process.env.GEMINI_WORKER_MODEL?.trim() || "gemini-3.1-pro-preview",
     geminiTimeoutMs: positiveInteger(process.env.GEMINI_WORKER_TIMEOUT_MS, 600_000, 30_000),
-    geminiWorkingDirectory: resolve(process.env.GEMINI_WORKER_WORKING_DIRECTORY?.trim() || process.cwd())
+    geminiWorkingDirectory: resolve(process.env.GEMINI_WORKER_WORKING_DIRECTORY?.trim() || process.cwd()),
+    publishCheckTimeoutMs: positiveInteger(
+      process.env.CODEX_PUBLISH_CHECK_TIMEOUT_MS,
+      15 * 60_000,
+      30_000
+    ),
+    publishGithubTimeoutMs: positiveInteger(
+      process.env.CODEX_PUBLISH_GITHUB_TIMEOUT_MS,
+      30 * 60_000,
+      60_000
+    )
   };
+}
+
+function trustedPublishingInput(input: string | UserInput[]): string | UserInput[] {
+  const instruction = [
+    "",
+    "",
+    "Trusted publishing was requested.",
+    "Make the requested implementation and verify it, but do not run git commit, git push, gh, or merge commands.",
+    "After this sandboxed turn ends, the trusted Threadwise laptop worker will review only your new diff, run checks, commit it on an agent/* branch, open a PR to main, and handle auto-merge."
+  ].join("\n");
+  if (typeof input === "string") return `${input}${instruction}`;
+  return input.map((item, index) =>
+    index === 0 && item.type === "text"
+      ? { ...item, text: `${item.text}${instruction}` }
+      : item
+  );
+}
+
+async function reportPublishEvent(jobId: string, event: TrustedPublishEvent): Promise<void> {
+  await terminalRequestUntilAccepted(
+    `/codex/worker/jobs/${encodeURIComponent(jobId)}/publish-events`,
+    { workerId: config.workerId, event },
+    jobId,
+    `publish ${event.action.toLowerCase()} audit`
+  );
 }
 
 function loadLocalWorkerEnv(): void {

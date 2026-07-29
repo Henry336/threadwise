@@ -64,6 +64,17 @@ describe("private Codex command parsing", () => {
     });
   });
 
+  it("recognizes trusted publishing and auto-merge without changing the prompt", () => {
+    const prompt = "Implement this, verify it, publish it, and auto-merge when CI passes.";
+    expect(parseCodexCommand(prompt)).toEqual({
+      action: "run",
+      prompt,
+      forceNewThread: false,
+      publishRequested: true,
+      publishAutoMerge: true
+    });
+  });
+
   it("targets an existing desktop task by project and title", () => {
     expect(parseCodexCommand(
       'in threadwise task "Add Telegram Codex mode": finish the task picker'
@@ -170,6 +181,18 @@ describe("Codex Telegram report pagination", () => {
       "How fast do you respond?",
       "<code>bell-app</code> · new task · request <code>64475759</code>"
     ].join("\n"));
+  });
+
+  it("shows the trusted publishing pipeline in the queue acknowledgement", () => {
+    expect(renderCodexQueuedMessage({
+      projectAlias: "threadwise",
+      title: "Publish trusted worker",
+      threadId: "new",
+      requestId: "12345678",
+      continuing: false,
+      publishRequested: true,
+      publishAutoMerge: true
+    })).toContain("Publishing: verify -> commit -> agent/* -> PR -> CI -> auto-merge");
   });
 });
 

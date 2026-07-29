@@ -23,9 +23,12 @@ import {
   completeCodexJob,
   completedCodexJobForWorker,
   failCodexJob,
+  recordCodexPublishAudit,
   renewCodexJobLease,
   syncCodexProjects,
-  syncCodexThreads
+  syncCodexThreads,
+  type CodexPublishAuditInput,
+  type CodexPublishResultInput
 } from "./services/codex";
 import { deliverCodexJobOnce } from "./bot/codex";
 import { deliverGeminiIdeaJobOnce } from "./bot/geminiIdeas";
@@ -194,8 +197,11 @@ export async function startServer(
       id: job.id,
       prompt: job.prompt,
       threadId: job.threadId,
+      threadTitle: job.threadTitle,
       model: job.model,
       reasoningEffort: job.reasoningEffort,
+      publishRequested: job.publishRequested,
+      publishAutoMerge: job.publishAutoMerge,
       project: { alias: job.project.alias, path: job.project.path },
       attachments: job.attachments.map((attachment) => ({
         id: attachment.id,
@@ -242,14 +248,45 @@ export async function startServer(
       .send(buffer);
   });
 
+  server.post("/codex/worker/jobs/:id/publish-events", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; event?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || !validCodexPublishAudit(body?.event)) {
+      return reply.code(400).send({ error: "invalid_publish_audit" });
+    }
+    const recorded = await recordCodexPublishAudit({
+      scope: codexScope(config!),
+      jobId: params.id,
+      workerId: body.workerId,
+      event: body.event
+    });
+    if (!recorded) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
   server.post("/codex/worker/jobs/:id/complete", async (request, reply) => {
     const config = privateCodexConfig();
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
       return reply.code(404).send({ error: "not_found" });
     }
     const params = request.params as { id?: string };
-    const body = request.body as { workerId?: unknown; finalResponse?: unknown; threadId?: unknown } | undefined;
-    if (!params.id || !validWorkerId(body?.workerId) || typeof body?.finalResponse !== "string" || !optionalString(body.threadId)) {
+    const body = request.body as {
+      workerId?: unknown;
+      finalResponse?: unknown;
+      threadId?: unknown;
+      publishResult?: unknown;
+    } | undefined;
+    if (
+      !params.id
+      || !validWorkerId(body?.workerId)
+      || typeof body?.finalResponse !== "string"
+      || !optionalString(body.threadId)
+      || (body.publishResult !== undefined && !validCodexPublishResult(body.publishResult))
+    ) {
       return reply.code(400).send({ error: "invalid_completion" });
     }
 
@@ -258,7 +295,8 @@ export async function startServer(
       id: params.id,
       workerId: body.workerId,
       finalResponse: body.finalResponse,
-      threadId: body.threadId
+      threadId: body.threadId,
+      publishResult: body.publishResult
     }) ?? await completedCodexJobForWorker(codexScope(config!), params.id, body.workerId);
     if (!job) return reply.code(409).send({ error: "job_not_claimed" });
     await deliverCodexJobOnce(bot, job);
@@ -565,6 +603,67 @@ function validWorkerCapabilities(value: unknown): value is {
     && optionalBoundedString(capabilities.geminiVersion, 200)
     && optionalBoundedString(capabilities.geminiModel, 200)
     && optionalBoundedString(capabilities.error, 1_000);
+}
+
+function validCodexPublishResult(value: unknown): value is CodexPublishResultInput {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Record<string, unknown>;
+  return ["BLOCKED", "PR_OPEN", "AUTO_MERGE_ENABLED", "MERGED"].includes(String(result.status))
+    && optionalAgentBranch(result.branch)
+    && optionalCommitSha(result.commitSha)
+    && (result.prNumber === undefined || (
+      typeof result.prNumber === "number"
+      && Number.isInteger(result.prNumber)
+      && result.prNumber > 0
+    ))
+    && optionalGithubPrUrl(result.prUrl)
+    && optionalBoundedString(result.checks, 2_000)
+    && optionalCommitSha(result.mergeCommitSha)
+    && optionalBoundedString(result.blocker, 4_000);
+}
+
+function validCodexPublishAudit(value: unknown): value is CodexPublishAuditInput {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  const details = event.details;
+  return boundedString(event.eventKey, 1, 120)
+    && /^[a-z0-9-]+$/i.test(event.eventKey as string)
+    && ["COMMIT", "PUSH", "PR", "CHECKS", "AUTO_MERGE", "MERGE", "BLOCKED"].includes(String(event.action))
+    && boundedString(event.status, 1, 80)
+    && optionalAgentBranch(event.branch)
+    && optionalCommitSha(event.commitSha)
+    && (event.prNumber === undefined || (
+      typeof event.prNumber === "number"
+      && Number.isInteger(event.prNumber)
+      && event.prNumber > 0
+    ))
+    && optionalGithubPrUrl(event.prUrl)
+    && (details === undefined || (
+      Boolean(details)
+      && typeof details === "object"
+      && !Array.isArray(details)
+      && JSON.stringify(details).length <= 8_000
+    ));
+}
+
+function optionalAgentBranch(value: unknown): value is string | undefined {
+  return value === undefined || (
+    boundedString(value, 7, 160)
+    && /^agent\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value)
+    && !value.includes("..")
+    && !value.includes("//")
+  );
+}
+
+function optionalCommitSha(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && /^[0-9a-f]{7,64}$/i.test(value));
+}
+
+function optionalGithubPrUrl(value: unknown): value is string | undefined {
+  return value === undefined || (
+    typeof value === "string"
+    && /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+$/i.test(value)
+  );
 }
 
 function boundedString(value: unknown, minimum: number, maximum: number): value is string {

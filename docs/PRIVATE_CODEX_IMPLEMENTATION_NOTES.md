@@ -28,6 +28,7 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Replying to a completion report resumes that exact Codex thread and project. `continue <task-id> <prompt>` provides the same behavior without locating the report.
 - `new <prompt>` deliberately starts a fresh thread.
 - Per-task `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` controls.
+- Owner-only trusted publishing phrases hand the completed sandbox diff to the laptop worker for validation, an `agent/*` commit, PR creation against `main`, GitHub checks, and optional auto-merge.
 - Telegram photos and image documents are passed to Codex as native `local_image` inputs.
 - Other documents are downloaded into a unique temporary directory, provided as an additional readable directory, named in the prompt, and removed after the turn.
 - Every completion/failure report identifies project, Codex task title/id, separate request id, folder, model, reasoning level, and current report page.
@@ -48,6 +49,9 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Project/task catalog sync also accepts a dedicated Ed25519 signature from the local metadata sidecar. The signed request binds its method, exact path, worker id, and canonical body and expires after two minutes. This public-key path is accepted only by `POST /codex/worker/sync`; it cannot claim or complete jobs, fetch attachments, or authenticate any other route.
 - The signing private key is stored only on the laptop with protected Windows ACLs for the owner, SYSTEM, and administrators. Render contains only the non-secret public key. Its SHA-256 public-key fingerprint is `1a336d43e8866f2d2e967bfe16165a3af7e6f787cc1436e1593de2c71ad65730`.
 - The worker never receives the Telegram bot token.
+- Sandboxed Codex turns do not receive GitHub credentials and are instructed not to run commit, push, PR, or merge commands. Those operations run afterward in the trusted Windows worker.
+- Pre-existing staged changes, overlap with pre-existing dirty files, sensitive paths/content, a moved `main`, failed checks, conflicts, unsupported remotes, and GitHub authentication failures stop publishing without force-pushing or touching `main`.
+- Every successful commit, push, PR, check gate, auto-merge request, and merge is recorded in an owner/chat/job-scoped audit table.
 - Codex privacy does not depend on the global Threadwise allowlist. The exact owner/chat and two-member-group checks protect Codex mode without hiding ordinary Threadwise features from other users.
 
 ## Reliability and correctness fixes from the audit
