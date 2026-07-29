@@ -3,6 +3,7 @@ import {
   isPrivateCodexActor,
   isPrivateCodexReportActor,
   projectAlias,
+  RESUMABLE_CODEX_THREAD_SOURCES,
   splitTelegramReport,
   taskTitleFromPrompt
 } from "./codex";
@@ -72,5 +73,12 @@ describe("Codex task titles", () => {
   it("creates a stable concise title for a task started from Telegram", () => {
     expect(taskTitleFromPrompt("Fix the task router\nThen deploy it")).toBe("Fix the task router");
     expect(Array.from(taskTitleFromPrompt("x".repeat(200))).length).toBe(80);
+  });
+});
+
+describe("Codex resumable task sources", () => {
+  it("includes desktop app and exec-created tasks", () => {
+    expect(RESUMABLE_CODEX_THREAD_SOURCES).toContain("vscode");
+    expect(RESUMABLE_CODEX_THREAD_SOURCES).toContain("exec");
   });
 });

@@ -22,6 +22,15 @@ export type DiscoveredCodexThread = {
   updatedAt?: string;
 };
 
+export const RESUMABLE_CODEX_THREAD_SOURCES = [
+  "vscode",
+  "cli",
+  "exec",
+  "appServer",
+  "unknown",
+  "telegram"
+] as const;
+
 export type CodexJobWithProject = Prisma.CodexJobGetPayload<{
   include: { project: true; attachments: true };
 }>;
@@ -300,7 +309,7 @@ export async function listCodexThreads(
         ...scope,
         projectId,
         enabled: true,
-        source: { in: ["vscode", "cli", "appServer", "unknown", "telegram"] }
+        source: { in: [...RESUMABLE_CODEX_THREAD_SOURCES] }
       },
       include: { project: true },
       orderBy: [{ threadUpdatedAt: "desc" }, { lastSeenAt: "desc" }]
