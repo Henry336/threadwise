@@ -22,6 +22,15 @@ import {
   syncCodexThreads
 } from "./services/codex";
 import { deliverCodexJobOnce } from "./bot/codex";
+import { deliverGeminiIdeaJobOnce } from "./bot/geminiIdeas";
+import {
+  claimGeminiIdeaJob,
+  completeGeminiIdeaJob,
+  failGeminiIdeaJob,
+  recordLocalWorkerHeartbeat,
+  renewGeminiIdeaJobLease,
+  terminalGeminiIdeaJobForWorker
+} from "./services/geminiIdeas";
 
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
@@ -117,11 +126,17 @@ export async function startServer(
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
       return reply.code(404).send({ error: "not_found" });
     }
-    const body = request.body as { workerId?: unknown; projects?: unknown; threads?: unknown } | undefined;
+    const body = request.body as {
+      workerId?: unknown;
+      projects?: unknown;
+      threads?: unknown;
+      capabilities?: unknown;
+    } | undefined;
     if (
       !validWorkerId(body?.workerId)
       || !validProjectList(body?.projects)
       || (body.threads !== undefined && !validThreadList(body.threads))
+      || (body.capabilities !== undefined && !validWorkerCapabilities(body.capabilities))
     ) {
       return reply.code(400).send({ error: "invalid_worker_sync" });
     }
@@ -130,6 +145,11 @@ export async function startServer(
     const threads = body.threads === undefined
       ? undefined
       : await syncCodexThreads(codexScope(config!), body.threads);
+    await recordLocalWorkerHeartbeat(
+      codexScope(config!),
+      body.workerId,
+      body.capabilities
+    );
     return {
       ok: true,
       projects: projects.map((project) => ({
@@ -271,6 +291,97 @@ export async function startServer(
     return { ok: true };
   });
 
+  server.post("/codex/worker/idea-jobs/claim", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_worker_id" });
+    }
+    const job = await claimGeminiIdeaJob(body.workerId, config!.jobLeaseSeconds);
+    if (!job) return reply.code(204).send();
+    return {
+      id: job.id,
+      prompt: job.prompt,
+      model: job.model
+    };
+  });
+
+  server.post("/codex/worker/idea-jobs/:id/complete", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; finalResponse?: unknown; model?: unknown } | undefined;
+    if (
+      !params.id
+      || !validWorkerId(body?.workerId)
+      || typeof body?.finalResponse !== "string"
+      || body.finalResponse.length > 40_000
+      || !optionalBoundedString(body.model, 200)
+    ) {
+      return reply.code(400).send({ error: "invalid_completion" });
+    }
+    const job = await completeGeminiIdeaJob({
+      id: params.id,
+      workerId: body.workerId,
+      finalResponse: body.finalResponse,
+      model: body.model
+    }) ?? await terminalGeminiIdeaJobForWorker(params.id, body.workerId);
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverGeminiIdeaJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/idea-jobs/:id/fail", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; error?: unknown; model?: unknown } | undefined;
+    if (
+      !params.id
+      || !validWorkerId(body?.workerId)
+      || typeof body?.error !== "string"
+      || body.error.length > 8_000
+      || !optionalBoundedString(body.model, 200)
+    ) {
+      return reply.code(400).send({ error: "invalid_failure" });
+    }
+    const job = await failGeminiIdeaJob({
+      id: params.id,
+      workerId: body.workerId,
+      error: body.error,
+      model: body.model
+    }) ?? await terminalGeminiIdeaJobForWorker(params.id, body.workerId);
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverGeminiIdeaJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/idea-jobs/:id/heartbeat", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_heartbeat" });
+    }
+    const renewed = await renewGeminiIdeaJobLease(
+      params.id,
+      body.workerId,
+      config!.jobLeaseSeconds
+    );
+    if (!renewed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
   server.post(options.webhookPath, webhookCallback(bot, "fastify"));
 
   server.get("/calendar/oauth/callback", async (request, reply) => {
@@ -396,6 +507,20 @@ function validThreadList(value: unknown): value is Array<{
         && optionalBoundedString(thread.createdAt, 200)
         && optionalBoundedString(thread.updatedAt, 200);
     });
+}
+
+function validWorkerCapabilities(value: unknown): value is {
+  geminiAvailable: boolean;
+  geminiVersion?: string;
+  geminiModel?: string;
+  error?: string;
+} {
+  if (!value || typeof value !== "object") return false;
+  const capabilities = value as Record<string, unknown>;
+  return typeof capabilities.geminiAvailable === "boolean"
+    && optionalBoundedString(capabilities.geminiVersion, 200)
+    && optionalBoundedString(capabilities.geminiModel, 200)
+    && optionalBoundedString(capabilities.error, 1_000);
 }
 
 function boundedString(value: unknown, minimum: number, maximum: number): value is string {

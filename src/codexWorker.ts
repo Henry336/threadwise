@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { discoverCodexProjects } from "./services/codexDiscovery";
 import { codexInputWithAttachments, safeCodexAttachmentName } from "./services/codexAttachments";
 import { discoverCodexThreads } from "./services/codexThreadDiscovery";
+import { detectGeminiCli, runGeminiIdeaPrompt } from "./services/geminiCli";
 
 type WorkerConfig = {
   serviceUrl: string;
@@ -16,6 +17,9 @@ type WorkerConfig = {
   heartbeatMs: number;
   networkAccessEnabled: boolean;
   maxAttachmentBytes: number;
+  geminiModel: string;
+  geminiTimeoutMs: number;
+  geminiWorkingDirectory: string;
 };
 
 type WorkerJob = {
@@ -32,6 +36,12 @@ type WorkerJob = {
     mimeType?: string | null;
     fileSize?: number | null;
   }>;
+};
+
+type GeminiIdeaWorkerJob = {
+  id: string;
+  prompt: string;
+  model?: string | null;
 };
 
 loadLocalWorkerEnv();
@@ -63,38 +73,44 @@ async function runWorker(): Promise<void> {
     try {
       if (Date.now() >= nextSyncAt) {
         const projects = await discoverCodexProjects();
+        let threads;
         if (projects.length === 0) {
           console.warn("[codex-worker] Discovery returned no projects; keeping the server registry unchanged.");
         } else {
-          let threads;
           try {
             threads = await discoverCodexThreads(projects.map((project) => project.path));
           } catch (error) {
             console.warn(`[codex-worker] Task discovery failed; keeping the server task registry unchanged: ${errorMessage(error)}`);
           }
-          const response = await workerRequest<{
-            projects: Array<{ alias: string; path: string }>;
-            threadCount?: number;
-          }>("/codex/worker/sync", {
-            workerId: config.workerId,
-            projects,
-            threads
-          });
-          console.log(`[codex-worker] Synced ${response.projects.length} projects.`);
-          if (response.threadCount !== undefined) {
-            console.log(`[codex-worker] Synced ${response.threadCount} Codex tasks.`);
-          }
+        }
+        const capabilities = await detectGeminiCli(config.geminiModel);
+        const response = await workerRequest<{
+          projects: Array<{ alias: string; path: string }>;
+          threadCount?: number;
+        }>("/codex/worker/sync", {
+          workerId: config.workerId,
+          projects,
+          threads,
+          capabilities
+        });
+        console.log(`[codex-worker] Synced ${response.projects.length} projects.`);
+        if (response.threadCount !== undefined) {
+          console.log(`[codex-worker] Synced ${response.threadCount} Codex tasks.`);
         }
         nextSyncAt = Date.now() + config.syncMs;
       }
 
       const job = await claimJob();
-      if (!job) {
-        await delay(config.pollMs);
+      if (job) {
+        await executeJob(job);
         continue;
       }
-
-      await executeJob(job);
+      const ideaJob = await claimGeminiIdeaJob();
+      if (ideaJob) {
+        await executeGeminiIdeaJob(ideaJob);
+        continue;
+      }
+      await delay(config.pollMs);
     } catch (error) {
       console.error(`[codex-worker] Relay error: ${errorMessage(error)}`);
       await delay(Math.max(config.pollMs, 5_000));
@@ -113,6 +129,19 @@ async function claimJob(): Promise<WorkerJob | undefined> {
   if (response.status === 204) return undefined;
   if (!response.ok) throw new Error(`Claim failed (${response.status}): ${await safeResponseText(response)}`);
   return await response.json() as WorkerJob;
+}
+
+async function claimGeminiIdeaJob(): Promise<GeminiIdeaWorkerJob | undefined> {
+  const response = await fetch(workerUrl("/codex/worker/idea-jobs/claim"), {
+    method: "POST",
+    headers: workerHeaders(),
+    body: JSON.stringify({ workerId: config.workerId })
+  });
+  if (response.status === 204) return undefined;
+  if (!response.ok) {
+    throw new Error(`Gemini idea claim failed (${response.status}): ${await safeResponseText(response)}`);
+  }
+  return await response.json() as GeminiIdeaWorkerJob;
 }
 
 async function executeJob(job: WorkerJob): Promise<void> {
@@ -167,6 +196,40 @@ async function executeJob(job: WorkerJob): Promise<void> {
   }
 }
 
+async function executeGeminiIdeaJob(job: GeminiIdeaWorkerJob): Promise<void> {
+  const model = job.model?.trim() || config.geminiModel;
+  console.log(`[codex-worker] Running Gemini idea job ${job.id} with ${model}.`);
+  const heartbeat = startJobHeartbeat(job.id, "idea-jobs");
+  try {
+    try {
+      const finalResponse = await runGeminiIdeaPrompt({
+        prompt: job.prompt,
+        model,
+        timeoutMs: config.geminiTimeoutMs,
+        workingDirectory: config.geminiWorkingDirectory
+      });
+      await terminalRequestUntilAccepted(
+        `/codex/worker/idea-jobs/${encodeURIComponent(job.id)}/complete`,
+        { workerId: config.workerId, finalResponse, model },
+        job.id,
+        "completion"
+      );
+      console.log(`[codex-worker] Completed Gemini idea job ${job.id}.`);
+    } catch (error) {
+      const message = errorMessage(error);
+      console.error(`[codex-worker] Gemini idea job ${job.id} failed: ${message}`);
+      await terminalRequestUntilAccepted(
+        `/codex/worker/idea-jobs/${encodeURIComponent(job.id)}/fail`,
+        { workerId: config.workerId, error: message, model },
+        job.id,
+        "failure"
+      );
+    }
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
 async function terminalRequestUntilAccepted(
   path: string,
   body: unknown,
@@ -207,12 +270,12 @@ function isNetworkError(error: Error): boolean {
   return error instanceof TypeError || /fetch|network|socket|connect|timed?\s*out/i.test(error.message);
 }
 
-function startJobHeartbeat(jobId: string): NodeJS.Timeout {
+function startJobHeartbeat(jobId: string, jobKind = "jobs"): NodeJS.Timeout {
   let active = false;
   return setInterval(() => {
     if (active) return;
     active = true;
-    void workerRequest(`/codex/worker/jobs/${encodeURIComponent(jobId)}/heartbeat`, {
+    void workerRequest(`/codex/worker/${jobKind}/${encodeURIComponent(jobId)}/heartbeat`, {
       workerId: config.workerId
     }).catch((error) => {
       console.warn(`[codex-worker] Heartbeat failed for ${jobId}: ${errorMessage(error)}`);
@@ -309,7 +372,10 @@ function workerConfig(): WorkerConfig {
     syncMs: positiveInteger(process.env.CODEX_WORKER_SYNC_MS, 300_000, 30_000),
     heartbeatMs: positiveInteger(process.env.CODEX_WORKER_HEARTBEAT_MS, 30_000, 5_000),
     networkAccessEnabled: /^(?:1|true|yes|on)$/i.test(process.env.CODEX_WORKER_NETWORK_ACCESS ?? ""),
-    maxAttachmentBytes: positiveInteger(process.env.CODEX_WORKER_MAX_ATTACHMENT_BYTES, 25 * 1024 * 1024, 1_024)
+    maxAttachmentBytes: positiveInteger(process.env.CODEX_WORKER_MAX_ATTACHMENT_BYTES, 25 * 1024 * 1024, 1_024),
+    geminiModel: process.env.GEMINI_WORKER_MODEL?.trim() || "gemini-3.1-pro-preview",
+    geminiTimeoutMs: positiveInteger(process.env.GEMINI_WORKER_TIMEOUT_MS, 600_000, 30_000),
+    geminiWorkingDirectory: resolve(process.env.GEMINI_WORKER_WORKING_DIRECTORY?.trim() || process.cwd())
   };
 }
 

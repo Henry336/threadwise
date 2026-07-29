@@ -72,6 +72,12 @@ export function projectAlias(path: string): string {
 
 export async function syncCodexProjects(scope: CodexScope, discovered: DiscoveredCodexProject[]): Promise<CodexProject[]> {
   const unique = uniqueProjectPaths(discovered);
+  if (unique.length === 0) {
+    return prisma.codexProject.findMany({
+      where: { ...scope, enabled: true },
+      orderBy: [{ lastSeenAt: "desc" }, { alias: "asc" }]
+    });
+  }
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.codexProject.findMany({

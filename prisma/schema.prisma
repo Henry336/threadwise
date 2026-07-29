@@ -129,6 +129,7 @@ model User {
   auditLogs             AuditLog[]
   availabilityCalendarEvents AvailabilityCalendarEvent[]
   groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
+  geminiIdeaJobs        GeminiIdeaJob[]
 }
 
 model GroupWorkspace {
@@ -302,7 +303,8 @@ model Idea {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  geminiJobs GeminiIdeaJob[]
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
@@ -837,6 +839,12 @@ model CodexChatState {
   activeProjectId  String?
   activeThreadId   String?
   pendingThreadJobId String?
+  workerId          String?
+  workerLastSeenAt  DateTime?
+  geminiAvailable   Boolean  @default(false)
+  geminiVersion     String?
+  geminiModel       String?
+  workerLastError   String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -846,6 +854,36 @@ model CodexChatState {
   @@unique([ownerTelegramId, telegramChatId])
   @@index([activeProjectId])
   @@index([activeThreadId])
+}
+
+model GeminiIdeaJob {
+  id                       String         @id @default(uuid())
+  userId                   String
+  ideaId                   String
+  requesterTelegramId      String
+  telegramChatId           String
+  telegramRequestMessageId Int?
+  action                   String
+  status                   CodexJobStatus @default(PENDING)
+  prompt                   String
+  model                    String?
+  workerId                 String?
+  claimedAt                DateTime?
+  leaseExpiresAt           DateTime?
+  finalResponse            String?
+  error                    String?
+  createdAt                DateTime       @default(now())
+  startedAt                DateTime?
+  completedAt              DateTime?
+  deliveredAt              DateTime?
+  updatedAt                DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idea Idea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([userId, ideaId, createdAt])
+  @@index([requesterTelegramId, telegramChatId, createdAt])
 }
 
 model CodexThread {

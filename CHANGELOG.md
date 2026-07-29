@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Telegram intelligence worker
+- Added owner-only Gemini Ideas Intelligence actions for saved ideas: Develop, Challenge, Next steps, and a suggested Now/Next/Later task plan.
+- Kept Gemini scoped to individual Idea-mode actions with no general `/gemini` command; `/codex` remains exclusively for Codex work.
+- Routed Gemini analysis through the official locally authenticated Gemini CLI in read-only plan mode, with durable jobs, leases, retry delivery, paginated Telegram reports, and no cloud-side credential storage.
+- Added worker freshness/capability diagnostics to `/codex status` and clearer task-sync empty states.
+- Added Windows sign-in startup installation with Scheduled Task and current-user Run-key fallback; the runner restarts after failures and one process serves both Codex and Gemini.
+- Added local Codex project/task discovery sync so Telegram can select pre-existing Codex tasks by project and resume the exact thread.
+- Simplified Codex Telegram acknowledgements and reports so the task and answer lead, repeated prompts and folder paths are removed, defaults stay hidden, and pagination/model details appear only when useful.
+
 ### Documentation
 - Reconciled README, case study, architecture, project handoff, product journal, voice guide, and Supabase migration runbook with the v0.26.0 implementation.
 - Added a repository reading path, current module/data maps, dashboard authentication and scope flow, Note-session and ephemeral-group architecture, accurate deployment guidance, and the current 547-test baseline.

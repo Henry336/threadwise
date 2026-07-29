@@ -1,9 +1,13 @@
+import { CodexJobStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
+import type { CodexJobWithProject } from "../services/codex";
 import {
   CODEX_REPORT_PAGE_CHARS,
   isSoleOwnerMembership,
   paginateCodexReport,
   parseCodexCommand,
+  renderCodexQueuedMessage,
+  renderReportPage,
   reportKeyboard
 } from "./codex";
 
@@ -128,6 +132,44 @@ describe("Codex Telegram report pagination", () => {
       "codex:report:019faa1e-8e4c-71f2-b417-9485acdd2637:0",
       "codex:report:019faa1e-8e4c-71f2-b417-9485acdd2637:2"
     ]);
+  });
+
+  it("keeps the completed answer above optional technical details", () => {
+    const job = {
+      id: "64475759-aaaa-bbbb-cccc-dddddddddddd",
+      status: CodexJobStatus.COMPLETED,
+      prompt: "How fast do you respond?",
+      threadTitle: "How fast do you respond?",
+      threadId: "019facfb-aaaa-bbbb-cccc-dddddddddddd",
+      model: null,
+      reasoningEffort: null,
+      project: {
+        alias: "bell-app",
+        path: "C:\\Users\\Henry\\OneDrive\\Documents\\Bell App"
+      }
+    } as CodexJobWithProject;
+
+    expect(renderReportPage(job, ["Usually within a few seconds."], 0)).toBe([
+      "✅ Codex finished",
+      "How fast do you respond?",
+      "bell-app · task 019facfb · request 64475759",
+      "",
+      "Usually within a few seconds."
+    ].join("\n"));
+  });
+
+  it("keeps queue acknowledgements short and hides inherited defaults", () => {
+    expect(renderCodexQueuedMessage({
+      projectAlias: "bell-app",
+      title: "How fast do you respond?",
+      threadId: "new",
+      requestId: "64475759",
+      continuing: false
+    })).toBe([
+      "<b>⏳ Codex is working</b>",
+      "How fast do you respond?",
+      "<code>bell-app</code> · new task · request <code>64475759</code>"
+    ].join("\n"));
   });
 });
 

@@ -247,6 +247,14 @@ describe("bot formatters", () => {
     });
     expect(ideaKeyboard.inline_keyboard[1]).toEqual([
       { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" },
+      { text: "🧠 Develop", callback_data: "gemini-idea:develop:idea-uuid-1" }
+    ]);
+    expect(ideaKeyboard.inline_keyboard[2]).toEqual([
+      { text: "🥊 Challenge", callback_data: "gemini-idea:challenge:idea-uuid-1" },
+      { text: "➡️ Next steps", callback_data: "gemini-idea:next:idea-uuid-1" }
+    ]);
+    expect(ideaKeyboard.inline_keyboard[3]).toEqual([
+      { text: "☑️ Task plan", callback_data: "gemini-idea:tasks:idea-uuid-1" },
       { text: "‹ Ideas", callback_data: "menu:ideas" }
     ]);
   });

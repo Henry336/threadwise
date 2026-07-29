@@ -8,6 +8,7 @@ import { startReminderLoop } from "./services/reminders";
 import { startNoteCaptureExpiryLoop } from "./services/noteCaptureSessions";
 import { startServer } from "./server";
 import { startCodexDeliveryLoop } from "./bot/codex";
+import { startGeminiIdeaDeliveryLoop } from "./bot/geminiIdeas";
 
 async function main() {
   const ai = createAiProvider();
@@ -15,6 +16,7 @@ async function main() {
   const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
   const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);
   const codexDeliveryLoop = startCodexDeliveryLoop(bot);
+  const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
@@ -22,6 +24,7 @@ async function main() {
     clearInterval(reminderLoop);
     clearInterval(noteCaptureLoop);
     if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
+    if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
     await server?.close();
     await bot.stop();
     await prisma.$disconnect();
