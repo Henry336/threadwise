@@ -76,6 +76,10 @@ export function isFreshCodexTaskSyncTimestamp(
     && Math.abs(nowMs - timestampMs) <= maxClockSkewMs;
 }
 
+export function shouldReplaceCodexTaskCatalog(signedCatalogSync: boolean): boolean {
+  return signedCatalogSync;
+}
+
 function canonicalJson(value: unknown): string {
   if (value === undefined) return "null";
   if (value === null || typeof value === "boolean" || typeof value === "string") {

@@ -15,6 +15,7 @@ import { CODEX_TASK_SYNC_PUBLIC_KEY_DER_BASE64 } from "./config/codexTaskSyncPub
 import {
   CODEX_TASK_SYNC_PATH,
   isFreshCodexTaskSyncTimestamp,
+  shouldReplaceCodexTaskCatalog,
   verifyCodexTaskSyncRequest
 } from "./services/codexTaskSyncAuth";
 import {
@@ -178,7 +179,10 @@ export async function startServer(
     }
 
     const projects = await syncCodexProjects(codexScope(config!), body.projects);
+    // Only the least-privilege Ed25519 sidecar owns the task catalog. The full
+    // token worker may run an older discovery build and must not overwrite it.
     const threads = body.threads === undefined
+      || !shouldReplaceCodexTaskCatalog(signedAuthorized)
       ? undefined
       : await syncCodexThreads(codexScope(config!), body.threads);
     if (tokenAuthorized) {
