@@ -14,6 +14,13 @@ import {
   type TrustedPublishEvent,
   type TrustedPublishResult
 } from "./services/trustedGitPublisher";
+import {
+  createSafeFileSnapshot,
+  parseFileRoots,
+  searchLaptopFiles,
+  validateConfiguredFileRoots,
+  type LocalFileMetadata
+} from "./services/fileCourierLocal";
 
 type WorkerConfig = {
   serviceUrl: string;
@@ -29,6 +36,9 @@ type WorkerConfig = {
   geminiWorkingDirectory: string;
   publishCheckTimeoutMs: number;
   publishGithubTimeoutMs: number;
+  fileRoots: string[];
+  fileMaxBytes: number;
+  fileScanLimit: number;
 };
 
 type WorkerJob = {
@@ -56,11 +66,31 @@ type GeminiIdeaWorkerJob = {
   model?: string | null;
 };
 
+type FileCourierWorkerJob = {
+  id: string;
+  kind: "SEARCH" | "RECENT" | "LOOKUP" | "SEND";
+  query?: string | null;
+  sortLatest: boolean;
+  maxBytes: number;
+  selected?: {
+    path: string;
+    fileName: string;
+    parentPath?: string | null;
+    sizeBytes: number;
+    modifiedAt: string;
+    identityKey: string;
+    mimeType?: string | null;
+    fileType?: string | null;
+  };
+};
+
 loadLocalWorkerEnv();
 
 const config = workerConfig();
 let codex: CodexClient;
 let stopping = false;
+let fileCourierAvailable = false;
+let fileCourierError: string | undefined;
 
 process.once("SIGINT", () => {
   stopping = true;
@@ -79,6 +109,8 @@ async function runWorker(): Promise<void> {
   codex = new Codex();
   console.log(`[codex-worker] Starting ${config.workerId}.`);
   console.log(`[codex-worker] Relay: ${config.serviceUrl}`);
+  await refreshFileCourierReadiness();
+  const fileCourierLoop = runFileCourierLoop();
   let nextSyncAt = 0;
 
   while (!stopping) {
@@ -95,7 +127,15 @@ async function runWorker(): Promise<void> {
             console.warn(`[codex-worker] Task discovery failed; keeping the server task registry unchanged: ${errorMessage(error)}`);
           }
         }
-        const capabilities = await detectGeminiCli(config.geminiModel);
+        await refreshFileCourierReadiness();
+        const geminiCapabilities = await detectGeminiCli(config.geminiModel);
+        const capabilities = {
+          ...geminiCapabilities,
+          fileCourierAvailable,
+          fileRootCount: config.fileRoots.length,
+          fileCourierMaxBytes: config.fileMaxBytes,
+          fileCourierError
+        };
         const response = await workerRequest<{
           projects: Array<{ alias: string; path: string }>;
           threadCount?: number;
@@ -129,6 +169,7 @@ async function runWorker(): Promise<void> {
     }
   }
 
+  await fileCourierLoop;
   console.log("[codex-worker] Stopped.");
 }
 
@@ -141,6 +182,153 @@ async function claimJob(): Promise<WorkerJob | undefined> {
   if (response.status === 204) return undefined;
   if (!response.ok) throw new Error(`Claim failed (${response.status}): ${await safeResponseText(response)}`);
   return await response.json() as WorkerJob;
+}
+
+async function runFileCourierLoop(): Promise<void> {
+  while (!stopping) {
+    if (!fileCourierAvailable) {
+      await delay(Math.max(config.pollMs, 5_000));
+      continue;
+    }
+    try {
+      const job = await claimFileCourierJob();
+      if (!job) {
+        await delay(config.pollMs);
+        continue;
+      }
+      await executeFileCourierJob(job);
+    } catch (error) {
+      console.error(`[file-courier] Relay error: ${errorMessage(error)}`);
+      await delay(Math.max(config.pollMs, 5_000));
+    }
+  }
+}
+
+async function claimFileCourierJob(): Promise<FileCourierWorkerJob | undefined> {
+  const response = await fetch(workerUrl("/files/worker/claim"), {
+    method: "POST",
+    headers: workerHeaders(),
+    body: JSON.stringify({ workerId: config.workerId })
+  });
+  if (response.status === 204) return undefined;
+  if (!response.ok) {
+    throw new Error(`File claim failed (${response.status}): ${await safeResponseText(response)}`);
+  }
+  return await response.json() as FileCourierWorkerJob;
+}
+
+async function executeFileCourierJob(job: FileCourierWorkerJob): Promise<void> {
+  console.log(`[file-courier] Running ${job.kind.toLowerCase()} request ${job.id}.`);
+  const heartbeat = startFileCourierHeartbeat(job.id);
+  try {
+    if (job.kind === "SEND") {
+      await executeFileSend(job);
+    } else {
+      const results = await searchLaptopFiles({
+        roots: config.fileRoots,
+        kind: job.kind,
+        query: job.query ?? undefined,
+        maxBytes: effectiveFileLimit(job),
+        scanLimit: config.fileScanLimit,
+        take: 8
+      });
+      await terminalRequestUntilAccepted(
+        `/files/worker/jobs/${encodeURIComponent(job.id)}/complete`,
+        { workerId: config.workerId, results: results.map(serializableFileMetadata) },
+        job.id,
+        "file lookup completion"
+      );
+      console.log(`[file-courier] Found ${results.length} result(s) for ${job.id}.`);
+    }
+  } catch (error) {
+    const message = errorMessage(error);
+    console.error(`[file-courier] Request ${job.id} failed: ${message}`);
+    await terminalRequestUntilAccepted(
+      `/files/worker/jobs/${encodeURIComponent(job.id)}/fail`,
+      { workerId: config.workerId, error: message },
+      job.id,
+      "file failure"
+    );
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+async function executeFileSend(job: FileCourierWorkerJob): Promise<void> {
+  if (!job.selected) throw new Error("The server did not provide selected file metadata.");
+  const snapshot = await createSafeFileSnapshot({
+    path: job.selected.path,
+    roots: config.fileRoots,
+    maxBytes: effectiveFileLimit(job),
+    expected: {
+      sizeBytes: job.selected.sizeBytes,
+      modifiedAt: job.selected.modifiedAt,
+      identityKey: job.selected.identityKey
+    }
+  });
+  try {
+    const response = await fetch(
+      workerUrl(`/files/worker/jobs/${encodeURIComponent(job.id)}/content`),
+      {
+        method: "POST",
+        headers: {
+          ...workerAuthHeaders(),
+          "content-type": "application/x-threadwise-file",
+          "content-length": String(snapshot.metadata.sizeBytes)
+        },
+        body: snapshot.stream(),
+        duplex: "half"
+      } as RequestInit & { duplex: "half" }
+    );
+    if (!response.ok) {
+      throw new Error(`File delivery failed (${response.status}): ${await safeResponseText(response)}`);
+    }
+    await snapshot.verifyUnchanged();
+    console.log(`[file-courier] Delivered ${snapshot.metadata.fileName} for ${job.id}.`);
+  } finally {
+    await snapshot.cleanup();
+  }
+}
+
+function effectiveFileLimit(job: FileCourierWorkerJob): number {
+  return Number.isSafeInteger(job.maxBytes) && job.maxBytes >= 1_024
+    ? Math.min(config.fileMaxBytes, job.maxBytes)
+    : config.fileMaxBytes;
+}
+
+function serializableFileMetadata(metadata: LocalFileMetadata): LocalFileMetadata {
+  return metadata;
+}
+
+function startFileCourierHeartbeat(jobId: string): NodeJS.Timeout {
+  let active = false;
+  return setInterval(() => {
+    if (active) return;
+    active = true;
+    void workerRequest(`/files/worker/jobs/${encodeURIComponent(jobId)}/heartbeat`, {
+      workerId: config.workerId
+    }).catch((error) => {
+      console.warn(`[file-courier] Heartbeat failed for ${jobId}: ${errorMessage(error)}`);
+    }).finally(() => {
+      active = false;
+    });
+  }, config.heartbeatMs);
+}
+
+async function refreshFileCourierReadiness(): Promise<void> {
+  if (!config.fileRoots.length) {
+    fileCourierAvailable = false;
+    fileCourierError = "THREADWISE_FILE_ROOTS is empty.";
+    return;
+  }
+  try {
+    await validateConfiguredFileRoots(config.fileRoots);
+    fileCourierAvailable = true;
+    fileCourierError = undefined;
+  } catch (error) {
+    fileCourierAvailable = false;
+    fileCourierError = errorMessage(error);
+  }
 }
 
 async function claimGeminiIdeaJob(): Promise<GeminiIdeaWorkerJob | undefined> {
@@ -399,9 +587,15 @@ async function workerRequest<T = { ok: true }>(path: string, body: unknown): Pro
 
 function workerHeaders(): Record<string, string> {
   return {
-    authorization: `Bearer ${config.token}`,
-    "x-threadwise-worker-id": config.workerId,
+    ...workerAuthHeaders(),
     "content-type": "application/json"
+  };
+}
+
+function workerAuthHeaders(): Record<string, string> {
+  return {
+    authorization: `Bearer ${config.token}`,
+    "x-threadwise-worker-id": config.workerId
   };
 }
 
@@ -436,7 +630,15 @@ function workerConfig(): WorkerConfig {
       process.env.CODEX_PUBLISH_GITHUB_TIMEOUT_MS,
       30 * 60_000,
       60_000
-    )
+    ),
+    fileRoots: parseFileRoots(process.env.THREADWISE_FILE_ROOTS),
+    fileMaxBytes: positiveInteger(
+      process.env.THREADWISE_FILE_MAX_BYTES,
+      50_000_000,
+      1_024,
+      50_000_000
+    ),
+    fileScanLimit: positiveInteger(process.env.THREADWISE_FILE_SCAN_LIMIT, 50_000, 1_000, 1_000_000)
   };
 }
 
@@ -491,9 +693,14 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-function positiveInteger(value: string | undefined, fallback: number, minimum: number): number {
+function positiveInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER
+): number {
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= minimum ? parsed : fallback;
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
 }
 
 async function safeResponseText(response: Response): Promise<string> {

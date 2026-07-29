@@ -9,6 +9,7 @@ import { startNoteCaptureExpiryLoop } from "./services/noteCaptureSessions";
 import { startServer } from "./server";
 import { startCodexDeliveryLoop } from "./bot/codex";
 import { startGeminiIdeaDeliveryLoop } from "./bot/geminiIdeas";
+import { startFileCourierDeliveryLoop } from "./bot/files";
 
 async function main() {
   const ai = createAiProvider();
@@ -17,6 +18,7 @@ async function main() {
   const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);
   const codexDeliveryLoop = startCodexDeliveryLoop(bot);
   const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
+  const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
@@ -25,6 +27,7 @@ async function main() {
     clearInterval(noteCaptureLoop);
     if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
     if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
+    if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);
     await server?.close();
     await bot.stop();
     await prisma.$disconnect();

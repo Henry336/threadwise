@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { Bot } from "grammy";
+import { InputFile, type Bot } from "grammy";
 import { webhookCallback } from "grammy";
 import type { AiProvider } from "./ai/types";
 import { registerDashboardRoute } from "./dashboard/route";
@@ -10,7 +10,7 @@ import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 import { appVersion } from "./services/version";
-import { privateCodexConfig } from "./config/env";
+import { env, privateCodexConfig } from "./config/env";
 import { CODEX_TASK_SYNC_PUBLIC_KEY_DER_BASE64 } from "./config/codexTaskSyncPublicKey";
 import {
   CODEX_TASK_SYNC_PATH,
@@ -40,8 +40,21 @@ import {
   renewGeminiIdeaJobLease,
   terminalGeminiIdeaJobForWorker
 } from "./services/geminiIdeas";
+import {
+  claimFileCourierJob,
+  completeFileCourierDelivery,
+  completeFileCourierLookup,
+  failFileCourierJob,
+  fileCourierJobForUpload,
+  recordFileCourierAudit,
+  renewFileCourierJobLease,
+  terminalFileCourierJobForWorker,
+  type FileCourierResultInput
+} from "./services/fileCourier";
+import { deliverFileCourierJobOnce } from "./bot/files";
 
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const FILE_COURIER_CONTENT_TYPE = "application/x-threadwise-file";
 
 export async function startServer(
   bot: Bot,
@@ -49,6 +62,9 @@ export async function startServer(
   options: { port: number; webhookPath: string; adminStatusToken?: string; dashboardPublicKey?: string; telegramBotToken?: string }
 ) {
   const server = Fastify({ logger: false });
+  server.addContentTypeParser(FILE_COURIER_CONTENT_TYPE, (_request, payload, done) => {
+    done(null, payload);
+  });
 
   server.get("/health", async () => ({
     ok: true,
@@ -165,11 +181,13 @@ export async function startServer(
     const threads = body.threads === undefined
       ? undefined
       : await syncCodexThreads(codexScope(config!), body.threads);
-    await recordLocalWorkerHeartbeat(
-      codexScope(config!),
-      body.workerId,
-      body.capabilities
-    );
+    if (tokenAuthorized) {
+      await recordLocalWorkerHeartbeat(
+        codexScope(config!),
+        body.workerId,
+        body.capabilities
+      );
+    }
     return {
       ok: true,
       projects: projects.map((project) => ({
@@ -437,6 +455,189 @@ export async function startServer(
     return { ok: true };
   });
 
+  server.post("/files/worker/claim", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_worker_id" });
+    }
+    const job = await claimFileCourierJob(codexScope(config!), body.workerId, config!.jobLeaseSeconds);
+    if (!job) return reply.code(204).send();
+    return {
+      id: job.id,
+      kind: job.kind,
+      query: job.query,
+      sortLatest: job.sortLatest,
+      maxBytes: env.FILE_COURIER_MAX_BYTES,
+      selected: job.kind === "SEND" && job.selectedPath && job.selectedFileName
+        && job.selectedSizeBytes !== null && job.selectedModifiedAt && job.selectedIdentityKey
+        ? {
+            path: job.selectedPath,
+            fileName: job.selectedFileName,
+            parentPath: job.selectedParentPath,
+            sizeBytes: Number(job.selectedSizeBytes),
+            modifiedAt: job.selectedModifiedAt.toISOString(),
+            identityKey: job.selectedIdentityKey,
+            mimeType: job.selectedMimeType,
+            fileType: job.selectedFileType
+          }
+        : undefined
+    };
+  });
+
+  server.post("/files/worker/jobs/:id/complete", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; results?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || !validFileCourierResults(body?.results)) {
+      return reply.code(400).send({ error: "invalid_file_completion" });
+    }
+    const job = await completeFileCourierLookup({
+      scope: codexScope(config!),
+      jobId: params.id,
+      workerId: body.workerId,
+      results: body.results
+    }) ?? await terminalFileCourierJobForWorker(codexScope(config!), params.id, body.workerId);
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverFileCourierJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/files/worker/jobs/:id/fail", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; error?: unknown } | undefined;
+    if (
+      !params.id
+      || !validWorkerId(body?.workerId)
+      || typeof body?.error !== "string"
+      || body.error.length > 8_000
+    ) {
+      return reply.code(400).send({ error: "invalid_file_failure" });
+    }
+    const job = await failFileCourierJob({
+      scope: codexScope(config!),
+      jobId: params.id,
+      workerId: body.workerId,
+      error: body.error
+    });
+    if (!job) return reply.code(409).send({ error: "job_not_claimed" });
+    await deliverFileCourierJobOnce(bot, job);
+    return { ok: true };
+  });
+
+  server.post("/files/worker/jobs/:id/heartbeat", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId)) {
+      return reply.code(400).send({ error: "invalid_file_heartbeat" });
+    }
+    const renewed = await renewFileCourierJobLease({
+      scope: codexScope(config!),
+      jobId: params.id,
+      workerId: body.workerId,
+      leaseSeconds: config!.jobLeaseSeconds
+    });
+    if (!renewed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
+  server.post("/files/worker/jobs/:id/content", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const workerId = headerToken(request.headers["x-threadwise-worker-id"]);
+    if (!params.id || !validWorkerId(workerId)) {
+      return reply.code(400).send({ error: "invalid_file_upload" });
+    }
+    const job = await fileCourierJobForUpload(codexScope(config!), params.id, workerId);
+    if (
+      !job
+      || !job.selectedFileName
+      || job.selectedSizeBytes === null
+      || !job.selectedModifiedAt
+      || !job.selectedIdentityKey
+    ) {
+      return reply.code(409).send({ error: "job_not_claimed" });
+    }
+    const expectedBytes = Number(job.selectedSizeBytes);
+    const declaredBytes = Number(request.headers["content-length"]);
+    if (
+      !Number.isSafeInteger(expectedBytes)
+      || expectedBytes < 0
+      || expectedBytes > env.FILE_COURIER_MAX_BYTES
+      || !Number.isSafeInteger(declaredBytes)
+      || declaredBytes !== expectedBytes
+    ) {
+      return reply.code(413).send({
+        error: "file_size_rejected",
+        maxBytes: env.FILE_COURIER_MAX_BYTES
+      });
+    }
+    await recordFileCourierAudit(job.id, "UPLOAD_STARTED", "RUNNING", {
+      workerId,
+      sizeBytes: expectedBytes
+    });
+    try {
+      const body = request.body as AsyncIterable<Uint8Array>;
+      const sent = await bot.api.sendDocument(
+        job.telegramChatId,
+        new InputFile(exactLengthStream(body, expectedBytes, env.FILE_COURIER_MAX_BYTES), job.selectedFileName),
+        {
+          caption: [
+            `📎 ${job.selectedFileName}`,
+            job.selectedParentPath ? `From ${truncateServerText(job.selectedParentPath, 700)}` : undefined,
+            `Laptop file request ${job.id.slice(0, 8)}`
+          ].filter(Boolean).join("\n"),
+          ...(job.telegramRequestMessageId
+            ? { reply_parameters: { message_id: job.telegramRequestMessageId, allow_sending_without_reply: true } }
+            : {})
+        }
+      );
+      const completed = await completeFileCourierDelivery({
+        scope: codexScope(config!),
+        jobId: job.id,
+        workerId,
+        telegramMessageId: sent.message_id
+      });
+      if (!completed) {
+        return reply.code(409).send({ error: "delivery_state_changed" });
+      }
+      return { ok: true, telegramMessageId: sent.message_id };
+    } catch (error) {
+      const failed = await failFileCourierJob({
+        scope: codexScope(config!),
+        jobId: job.id,
+        workerId,
+        error: `File delivery failed: ${String(error)}`
+      });
+      if (failed) {
+        await deliverFileCourierJobOnce(bot, failed).catch((deliveryError) => {
+          logger.warn("File courier failure notice could not be delivered.", {
+            jobId: job.id,
+            error: String(deliveryError)
+          });
+        });
+      }
+      return reply.code(502).send({ error: "telegram_file_delivery_failed" });
+    }
+  });
+
   server.post(options.webhookPath, webhookCallback(bot, "fastify"));
 
   server.get("/calendar/oauth/callback", async (request, reply) => {
@@ -543,6 +744,50 @@ async function responseBufferWithinLimit(response: Response, maxBytes: number): 
   }
 }
 
+export async function* exactLengthStream(
+  source: AsyncIterable<Uint8Array>,
+  expectedBytes: number,
+  maxBytes: number
+): AsyncGenerator<Uint8Array> {
+  let received = 0;
+  for await (const chunk of source) {
+    received += chunk.byteLength;
+    if (received > expectedBytes || received > maxBytes) {
+      throw new Error("The worker uploaded more bytes than the validated file snapshot.");
+    }
+    yield chunk;
+  }
+  if (received !== expectedBytes) {
+    throw new Error(`The worker upload ended at ${received} bytes; expected ${expectedBytes}.`);
+  }
+}
+
+function validFileCourierResults(value: unknown): value is FileCourierResultInput[] {
+  return Array.isArray(value)
+    && value.length <= 10
+    && value.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const result = item as Record<string, unknown>;
+      return boundedString(result.absolutePath, 1, 2_000)
+        && boundedString(result.fileName, 1, 500)
+        && boundedString(result.parentPath, 1, 2_000)
+        && typeof result.sizeBytes === "number"
+        && Number.isSafeInteger(result.sizeBytes)
+        && result.sizeBytes >= 0
+        && result.sizeBytes <= env.FILE_COURIER_MAX_BYTES
+        && boundedString(result.modifiedAt, 1, 100)
+        && Number.isFinite(Date.parse(result.modifiedAt as string))
+        && boundedString(result.identityKey, 1, 500)
+        && optionalBoundedString(result.mimeType, 200)
+        && boundedString(result.fileType, 1, 100);
+    });
+}
+
+function truncateServerText(value: string, maximum: number): string {
+  const points = Array.from(value);
+  return points.length <= maximum ? value : `${points.slice(0, maximum - 1).join("")}…`;
+}
+
 function validWorkerId(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= 100;
 }
@@ -596,13 +841,31 @@ function validWorkerCapabilities(value: unknown): value is {
   geminiVersion?: string;
   geminiModel?: string;
   error?: string;
+  fileCourierAvailable?: boolean;
+  fileRootCount?: number;
+  fileCourierMaxBytes?: number;
+  fileCourierError?: string;
 } {
   if (!value || typeof value !== "object") return false;
   const capabilities = value as Record<string, unknown>;
   return typeof capabilities.geminiAvailable === "boolean"
     && optionalBoundedString(capabilities.geminiVersion, 200)
     && optionalBoundedString(capabilities.geminiModel, 200)
-    && optionalBoundedString(capabilities.error, 1_000);
+    && optionalBoundedString(capabilities.error, 1_000)
+    && (capabilities.fileCourierAvailable === undefined || typeof capabilities.fileCourierAvailable === "boolean")
+    && (capabilities.fileRootCount === undefined || (
+      typeof capabilities.fileRootCount === "number"
+      && Number.isInteger(capabilities.fileRootCount)
+      && capabilities.fileRootCount >= 0
+      && capabilities.fileRootCount <= 100
+    ))
+    && (capabilities.fileCourierMaxBytes === undefined || (
+      typeof capabilities.fileCourierMaxBytes === "number"
+      && Number.isSafeInteger(capabilities.fileCourierMaxBytes)
+      && capabilities.fileCourierMaxBytes >= 1_024
+      && capabilities.fileCourierMaxBytes <= 50_000_000
+    ))
+    && optionalBoundedString(capabilities.fileCourierError, 1_000);
 }
 
 function validCodexPublishResult(value: unknown): value is CodexPublishResultInput {

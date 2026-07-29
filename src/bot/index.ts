@@ -15,6 +15,7 @@ import { callbackMatchesEphemeralReceiver, configureEphemeralTransport } from ".
 import { registerNoteSessions } from "./noteSessions";
 import { privateCodexScopeForContext, registerCodexMode } from "./codex";
 import { registerGeminiIdeas } from "./geminiIdeas";
+import { registerFileCourier } from "./files";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -69,6 +70,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
 
   registerNoteSessions(bot);
   registerCommands(bot, ai);
+  registerFileCourier(bot);
   registerCodexMode(bot);
   registerGeminiIdeas(bot);
   registerGroupScheduling(bot);
