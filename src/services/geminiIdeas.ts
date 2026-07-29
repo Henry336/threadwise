@@ -14,6 +14,10 @@ export type LocalWorkerCapabilities = {
   geminiVersion?: string;
   geminiModel?: string;
   error?: string;
+  fileCourierAvailable?: boolean;
+  fileRootCount?: number;
+  fileCourierMaxBytes?: number;
+  fileCourierError?: string;
 };
 
 export function isGeminiIdeaAction(value: string): value is GeminiIdeaAction {
@@ -39,7 +43,13 @@ export async function recordLocalWorkerHeartbeat(
     geminiAvailable: capabilities?.geminiAvailable ?? false,
     geminiVersion: cleanOptional(capabilities?.geminiVersion, 200),
     geminiModel: cleanOptional(capabilities?.geminiModel, 200),
-    workerLastError: cleanOptional(capabilities?.error, 1_000)
+    workerLastError: cleanOptional(capabilities?.error, 1_000),
+    fileCourierAvailable: Boolean(capabilities?.fileCourierAvailable),
+    fileRootCount: capabilities?.fileRootCount ?? 0,
+    fileCourierMaxBytes: capabilities?.fileCourierMaxBytes
+      ? BigInt(capabilities.fileCourierMaxBytes)
+      : null,
+    fileCourierLastError: cleanOptional(capabilities?.fileCourierError, 1_000)
   };
   await prisma.codexChatState.upsert({
     where: { ownerTelegramId_telegramChatId: scope },
@@ -56,6 +66,10 @@ export async function localWorkerReadiness(scope: CodexScope): Promise<{
   geminiVersion?: string;
   geminiModel?: string;
   error?: string;
+  fileCourierAvailable: boolean;
+  fileRootCount: number;
+  fileCourierMaxBytes?: number;
+  fileCourierError?: string;
 }> {
   const state = await prisma.codexChatState.findUnique({
     where: { ownerTelegramId_telegramChatId: scope }
@@ -68,7 +82,13 @@ export async function localWorkerReadiness(scope: CodexScope): Promise<{
     geminiAvailable: Boolean(state?.geminiAvailable),
     geminiVersion: state?.geminiVersion ?? undefined,
     geminiModel: state?.geminiModel ?? undefined,
-    error: state?.workerLastError ?? undefined
+    error: state?.workerLastError ?? undefined,
+    fileCourierAvailable: Boolean(state?.fileCourierAvailable),
+    fileRootCount: state?.fileRootCount ?? 0,
+    fileCourierMaxBytes: state?.fileCourierMaxBytes === null || state?.fileCourierMaxBytes === undefined
+      ? undefined
+      : Number(state.fileCourierMaxBytes),
+    fileCourierError: state?.fileCourierLastError ?? undefined
   };
 }
 

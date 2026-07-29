@@ -36,7 +36,8 @@ const envSchema = z.object({
   CODEX_OWNER_TELEGRAM_ID: z.string().regex(/^\d+$/).optional(),
   CODEX_TELEGRAM_CHAT_ID: z.string().regex(/^-?\d+$/).optional(),
   CODEX_WORKER_TOKEN: z.string().min(24).optional(),
-  CODEX_JOB_LEASE_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3_600)
+  CODEX_JOB_LEASE_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3_600),
+  FILE_COURIER_MAX_BYTES: z.coerce.number().int().min(1_024).max(50_000_000).default(50_000_000)
 });
 
 export const env = envSchema.parse(process.env);

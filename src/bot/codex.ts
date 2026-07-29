@@ -888,7 +888,7 @@ async function codexGroupIsPrivate(ctx: Context, scope: CodexScope): Promise<boo
   return false;
 }
 
-async function soleOwnerGroup(api: Bot["api"], chatId: string, ownerTelegramId: string): Promise<boolean> {
+export async function soleOwnerGroup(api: Bot["api"], chatId: string, ownerTelegramId: string): Promise<boolean> {
   try {
     const [memberCount, owner] = await Promise.all([
       api.getChatMemberCount(chatId),

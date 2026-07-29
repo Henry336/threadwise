@@ -62,3 +62,5 @@ services:
         sync: false
       - key: CODEX_JOB_LEASE_SECONDS
         value: "3600"
+      - key: FILE_COURIER_MAX_BYTES
+        value: "50000000"

@@ -93,6 +93,21 @@ enum CodexJobStatus {
   FAILED
 }
 
+enum FileCourierJobKind {
+  SEARCH
+  RECENT
+  LOOKUP
+  SEND
+}
+
+enum FileCourierJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -845,6 +860,10 @@ model CodexChatState {
   geminiVersion     String?
   geminiModel       String?
   workerLastError   String?
+  fileCourierAvailable Boolean @default(false)
+  fileRootCount         Int     @default(0)
+  fileCourierMaxBytes   BigInt?
+  fileCourierLastError  String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1008,4 +1027,72 @@ model CodexJobMessage {
 
   @@unique([chatId, messageId])
   @@index([jobId])
+}
+
+model FileCourierJob {
+  id                        String               @id @default(uuid())
+  ownerTelegramId           String
+  telegramChatId            String
+  requesterTelegramId       String
+  telegramRequestMessageId  Int?
+  kind                      FileCourierJobKind
+  status                    FileCourierJobStatus @default(PENDING)
+  query                     String?
+  sortLatest                Boolean              @default(false)
+  selectedPath              String?
+  selectedFileName          String?
+  selectedParentPath        String?
+  selectedSizeBytes         BigInt?
+  selectedModifiedAt        DateTime?
+  selectedIdentityKey       String?
+  selectedMimeType          String?
+  selectedFileType          String?
+  workerId                  String?
+  claimedAt                 DateTime?
+  leaseExpiresAt            DateTime?
+  error                     String?
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  deliveredAt               DateTime?
+  telegramDeliveryMessageId Int?
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+
+  results FileCourierResult[]
+  audits  FileCourierAudit[]
+
+  @@index([ownerTelegramId, telegramChatId, status, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+}
+
+model FileCourierResult {
+  id           String   @id @default(uuid())
+  jobId        String
+  absolutePath String
+  fileName     String
+  parentPath   String
+  sizeBytes    BigInt
+  modifiedAt   DateTime
+  identityKey  String
+  mimeType     String?
+  fileType     String
+  createdAt    DateTime @default(now())
+
+  job FileCourierJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, modifiedAt])
+}
+
+model FileCourierAudit {
+  id        String   @id @default(uuid())
+  jobId     String
+  action    String
+  status    String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  job FileCourierJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([action, createdAt])
 }

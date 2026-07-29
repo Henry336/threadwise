@@ -605,6 +605,37 @@ Photos and image documents are downloaded by the authenticated worker and passed
 
 The worker runs Codex with a workspace-write sandbox, no interactive approvals, and network access disabled by default. Enable `CODEX_WORKER_NETWORK_ACCESS` only when the tasks genuinely need outbound network access. Prompts and final reports are stored in PostgreSQL as part of the durable job queue. While Codex is running, lease heartbeats prevent a long task from being claimed twice. Terminal results retry with bounded exponential backoff until the server accepts them, and the server independently retries completed-but-undelivered Telegram reports. A completely empty project-discovery pass preserves the previous registry instead of erasing it.
 
+## Owner-only laptop file courier
+
+The private `/files` capability is a separate Telegram surface from `/codex` and Ideas Intelligence. It is enabled only for the exact `CODEX_OWNER_TELEGRAM_ID` inside the exact `CODEX_TELEGRAM_CHAT_ID`, and the same two-member Telegram check fails closed if anyone else joins that group. It never appears in public help or command menus.
+
+Configure explicit laptop roots in `.env.codex-worker`; no folder or drive is inferred:
+
+```text
+THREADWISE_FILE_ROOTS=C:\Users\Henry\Documents;C:\Users\Henry\OneDrive\Desktop
+THREADWISE_FILE_MAX_BYTES=50000000
+THREADWISE_FILE_SCAN_LIMIT=50000
+```
+
+Separate roots with semicolons. Full-drive access is supported only when deliberately configured, such as `THREADWISE_FILE_ROOTS=C:\;D:\`. Windows Search is tried first; a bounded traversal covers roots that are not indexed. The worker advertises whether its roots are valid, so Telegram refuses requests rather than leaving them queued when file courier is unconfigured.
+
+Use:
+
+```text
+/files find curriculum PDF
+/files recent
+/files get "C:\Users\Henry\Documents\curriculum.pdf"
+Send me the latest curriculum PDF from my laptop.
+```
+
+Search and exact-path requests return filename, parent folder, size, modified time, and type. They do not transfer content. The owner must tap **Send** on one exact result, and may cancel a request before the worker claims it.
+
+Immediately before sending, the laptop resolves the path beneath an explicit root, rejects directories, Windows device paths, symlinks and junction/reparse escapes, compares file identity/size/time with the selected result, and creates a private local transfer snapshot. The worker streams that snapshot through the web process directly into Telegram; PostgreSQL stores only job, file metadata, state, and audits, and Render never writes a temporary file. The laptop snapshot is deleted after success or failure.
+
+`FILE_COURIER_MAX_BYTES` is the cloud-side cap and `THREADWISE_FILE_MAX_BYTES` is the laptop-side cap; the lower effective limit wins. The standard hosted Telegram Bot API currently accepts documents up to 50 MB (50,000,000 bytes), while a self-hosted Local Bot API server supports larger uploads. Threadwise uses the standard hosted API and therefore caps configuration at 50,000,000 bytes. See the official [Telegram Bot API `sendDocument` documentation](https://core.telegram.org/bots/api#senddocument).
+
+File jobs use renewable leases, recover after worker restarts or expired claims, and write audit events for queueing, claiming, completion, cancellation, upload start, delivery, and failure. A Telegram delivery error becomes a failed job and owner-visible report instead of retaining a server copy.
+
 ## Authenticated Dashboard API
 
 `GET /api/v1/dashboard` remains the fast server-to-server snapshot for the separate Threadwise dashboard. `GET /api/v1/dashboard/workspaces` lists the signed-in person's available personal and recorded group workspaces. Other authenticated routes beneath `/api/v1/dashboard/*` add paginated collections, CRUD actions, search, settings, image delivery, integration disconnects, privacy export, and confirmed account deletion. They do not enable browser database access and never return OAuth tokens, embeddings, Telegram file identifiers, or provider credentials.
