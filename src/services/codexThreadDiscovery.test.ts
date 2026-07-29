@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAppServerThreads, shortThreadId, threadTitle } from "./codexThreadDiscovery";
+import {
+  normalizeAppServerThreads,
+  reconcileThreadProjectPaths,
+  shortThreadId,
+  threadTitle
+} from "./codexThreadDiscovery";
 
 describe("Codex app-server task discovery", () => {
   it("normalizes the same named tasks shown by the desktop app", () => {
@@ -39,5 +44,52 @@ describe("Codex app-server task discovery", () => {
       { id: "thread", cwd: "" },
       null
     ])).toEqual([]);
+  });
+
+  it("maps final redirected paths back to the configured project path", async () => {
+    const configured = "C:\\Users\\Henry\\Documents\\Codex\\Threadwise";
+    const canonical = "D:\\CodexData\\WindowsDocuments\\Codex\\Threadwise";
+    const unrelated = "D:\\Other\\Project";
+    const resolver = async (path: string) => path === configured ? canonical : path;
+    const threads = await reconcileThreadProjectPaths([
+      {
+        threadId: "desktop-thread",
+        path: canonical,
+        title: "Desktop task",
+        source: "vscode"
+      },
+      {
+        threadId: "unrelated-thread",
+        path: unrelated,
+        title: "Unrelated task",
+        source: "vscode"
+      }
+    ], [configured], resolver);
+
+    expect(threads).toEqual([{
+      threadId: "desktop-thread",
+      path: configured,
+      title: "Desktop task",
+      source: "vscode"
+    }]);
+  });
+
+  it("falls back to literal path matching if canonicalization is unavailable", async () => {
+    const configured = "C:\\repo\\Threadwise";
+    const resolver = async () => {
+      throw new Error("access denied");
+    };
+
+    await expect(reconcileThreadProjectPaths([{
+      threadId: "thread",
+      path: "c:/repo/Threadwise/",
+      title: "Task",
+      source: "exec"
+    }], [configured], resolver)).resolves.toEqual([{
+      threadId: "thread",
+      path: configured,
+      title: "Task",
+      source: "exec"
+    }]);
   });
 });

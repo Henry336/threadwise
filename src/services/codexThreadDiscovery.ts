@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 
@@ -13,6 +14,8 @@ export type DiscoveredCodexThread = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+export type CanonicalPathResolver = (path: string) => Promise<string>;
 
 type AppServerThread = {
   id?: unknown;
@@ -69,10 +72,54 @@ export async function discoverCodexThreads(
         : undefined;
     } while (cursor && found.length < MAX_DISCOVERED_THREADS);
 
-    return deduplicateThreads(found).slice(0, MAX_DISCOVERED_THREADS);
+    return reconcileThreadProjectPaths(
+      deduplicateThreads(found).slice(0, MAX_DISCOVERED_THREADS),
+      paths
+    );
   } finally {
     client.close();
   }
+}
+
+/**
+ * Codex app-server returns final filesystem paths. On Windows, a saved project
+ * can use a friendly redirected path such as C:\Users\...\Documents while the
+ * same task is reported from its final D:\ location. Reconcile both forms on
+ * the trusted host, where the filesystem can prove that they are equivalent,
+ * and keep the configured path in the payload sent to the server.
+ */
+export async function reconcileThreadProjectPaths(
+  threads: DiscoveredCodexThread[],
+  projectPaths: string[],
+  canonicalize: CanonicalPathResolver = realpath
+): Promise<DiscoveredCodexThread[]> {
+  const configuredPaths = uniquePaths(projectPaths);
+  const configuredByCanonicalPath = new Map<string, string>();
+  const configuredByLiteralPath = new Map<string, string>();
+  const canonicalKeys = new Map<string, Promise<string>>();
+  const resolveCanonicalKey = (path: string): Promise<string> => {
+    const literalKey = normalizedPathKey(path);
+    const pending = canonicalKeys.get(literalKey) ?? canonicalPathKey(path, canonicalize);
+    canonicalKeys.set(literalKey, pending);
+    return pending;
+  };
+
+  for (const configuredPath of configuredPaths) {
+    configuredByLiteralPath.set(normalizedPathKey(configuredPath), configuredPath);
+    const canonicalKey = await resolveCanonicalKey(configuredPath);
+    if (!configuredByCanonicalPath.has(canonicalKey)) {
+      configuredByCanonicalPath.set(canonicalKey, configuredPath);
+    }
+  }
+
+  const reconciled: DiscoveredCodexThread[] = [];
+  for (const thread of threads) {
+    const configuredPath = configuredByLiteralPath.get(normalizedPathKey(thread.path))
+      ?? configuredByCanonicalPath.get(await resolveCanonicalKey(thread.path));
+    if (!configuredPath) continue;
+    reconciled.push({ ...thread, path: configuredPath });
+  }
+  return reconciled;
 }
 
 export function normalizeAppServerThreads(value: unknown): DiscoveredCodexThread[] {
@@ -259,6 +306,21 @@ function uniquePaths(paths: string[]): string[] {
     seen.add(key);
     return [normalizedPath];
   });
+}
+
+async function canonicalPathKey(
+  path: string,
+  canonicalize: CanonicalPathResolver
+): Promise<string> {
+  try {
+    return normalizedPathKey(await canonicalize(path));
+  } catch {
+    return normalizedPathKey(path);
+  }
+}
+
+function normalizedPathKey(path: string): string {
+  return normalize(path.trim()).replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
 }
 
 function deduplicateThreads(threads: DiscoveredCodexThread[]): DiscoveredCodexThread[] {
