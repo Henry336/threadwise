@@ -11,6 +11,12 @@ import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 import { appVersion } from "./services/version";
 import { privateCodexConfig } from "./config/env";
+import { CODEX_TASK_SYNC_PUBLIC_KEY_DER_BASE64 } from "./config/codexTaskSyncPublicKey";
+import {
+  CODEX_TASK_SYNC_PATH,
+  isFreshCodexTaskSyncTimestamp,
+  verifyCodexTaskSyncRequest
+} from "./services/codexTaskSyncAuth";
 import {
   codexAttachmentForWorker,
   claimCodexJob,
@@ -114,10 +120,20 @@ export async function startServer(
 
   server.post("/codex/worker/sync", async (request, reply) => {
     const config = privateCodexConfig();
-    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+    const body = request.body as { workerId?: unknown; projects?: unknown; threads?: unknown } | undefined;
+    const validBody = validWorkerId(body?.workerId)
+      && validProjectList(body?.projects)
+      && (body.threads === undefined || validThreadList(body.threads));
+    const tokenAuthorized = isAdminAuthorized(
+      request.headers.authorization,
+      request.headers["x-threadwise-codex-token"],
+      config?.workerToken
+    );
+    const signedAuthorized = validBody
+      && isSignedCodexTaskSyncAuthorized(request, body!, CODEX_TASK_SYNC_PUBLIC_KEY_DER_BASE64);
+    if (!config || (!tokenAuthorized && !signedAuthorized)) {
       return reply.code(404).send({ error: "not_found" });
     }
-    const body = request.body as { workerId?: unknown; projects?: unknown; threads?: unknown } | undefined;
     if (
       !validWorkerId(body?.workerId)
       || !validProjectList(body?.projects)
@@ -320,6 +336,33 @@ function isAdminAuthorized(authorization: string | undefined, adminHeader: strin
   const actual = Buffer.from(token);
   const expected = Buffer.from(expectedToken);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function isSignedCodexTaskSyncAuthorized(
+  request: FastifyRequest,
+  body: { workerId?: unknown; projects?: unknown; threads?: unknown },
+  publicKeyDerBase64: string
+): boolean {
+  if (!validWorkerId(body.workerId)) return false;
+  const workerId = headerToken(request.headers["x-threadwise-worker-id"]);
+  const timestamp = headerToken(request.headers["x-threadwise-sync-timestamp"]);
+  const signature = headerToken(request.headers["x-threadwise-sync-signature"]);
+  if (
+    workerId !== body.workerId
+    || !timestamp
+    || !signature
+    || !isFreshCodexTaskSyncTimestamp(timestamp)
+  ) {
+    return false;
+  }
+
+  return verifyCodexTaskSyncRequest(publicKeyDerBase64, {
+    timestamp,
+    method: request.method,
+    path: CODEX_TASK_SYNC_PATH,
+    workerId,
+    body
+  }, signature);
 }
 
 function codexScope(config: { ownerTelegramId: string; telegramChatId: string }) {

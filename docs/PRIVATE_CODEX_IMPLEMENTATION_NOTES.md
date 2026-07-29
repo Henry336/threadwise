@@ -44,7 +44,9 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Membership lookup failures fail closed.
 - If the group is no longer private, reports are not posted there. Delivery falls back to the owner's private bot chat.
 - Report pagination in fallback direct messages is usable only by the owner. Prompting remains restricted to the configured group.
-- Worker endpoints require the shared secret, compare it using a timing-safe equality check, and scope every claim, attachment, heartbeat, completion, and failure operation to the configured owner and group.
+- Job execution endpoints require the shared secret, compare it using a timing-safe equality check, and scope every claim, attachment, heartbeat, completion, and failure operation to the configured owner and group.
+- Project/task catalog sync also accepts a dedicated Ed25519 signature from the local metadata sidecar. The signed request binds its method, exact path, worker id, and canonical body and expires after two minutes. This public-key path is accepted only by `POST /codex/worker/sync`; it cannot claim or complete jobs, fetch attachments, or authenticate any other route.
+- The signing private key is stored only on the laptop with protected Windows ACLs for the owner, SYSTEM, and administrators. Render contains only the non-secret public key. Its SHA-256 public-key fingerprint is `1a336d43e8866f2d2e967bfe16165a3af7e6f787cc1436e1593de2c71ad65730`.
 - The worker never receives the Telegram bot token.
 - Codex privacy does not depend on the global Threadwise allowlist. The exact owner/chat and two-member-group checks protect Codex mode without hiding ordinary Threadwise features from other users.
 
@@ -72,7 +74,8 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Production TypeScript build: passed.
 - Prisma schema validation: passed.
 - Focused Codex tests: 22 passed.
-- Entire Threadwise test suite: 63 files and 571 tests passed.
+- Ed25519 signing/tamper/freshness tests: 8 passed.
+- Entire Threadwise test suite: 64 files and 579 tests passed.
 - Real local project-discovery smoke test: 25 usable Git projects found.
 - Real Codex app-server task-discovery smoke test: the three Threadwise desktop task titles and ids matched the Codex sidebar.
 - Official SDK smoke test with explicit model/reasoning controls: passed and returned a real Codex thread id.
@@ -81,13 +84,13 @@ The IDs remain deployment configuration rather than source-code constants. The m
   - Nine reported high-severity findings remain in the old archive/glob chain transitively required by `exceljs@4.4.0`.
   - npm's only automatic remedy is `--force`, which proposes a breaking downgrade to `exceljs@4.1.1`; that unsafe forced change was intentionally not applied.
 
-## Before it is live
+## Live operational setup
 
-1. Deploy the included Prisma migration and current Render service build.
-2. Set the exact owner, group, allowlist, and shared worker-token environment values shown above on Render.
-3. Create the ignored local `.env.codex-worker` with the Render URL, the same worker token, and (if necessary) `CODEX_HOME=D:\CodexData\home`.
-4. Start the laptop worker with `npm run codex:worker` and keep it running while remote tasks are expected.
-5. In Telegram, run `/codex projects`, select a project, and submit a harmless end-to-end smoke task.
+1. The migration and exact-task-selection service are deployed on Render.
+2. The token-authenticated local worker remains responsible for claims, attachments, Codex execution, heartbeats, and terminal reports.
+3. The `npm run codex:task-sync` sidecar refreshes only projects and desktop Codex task metadata using its dedicated signing key.
+4. Keep both local processes running while remote task execution and newly created desktop-task discovery are expected.
+5. In Telegram, run `/codex projects`, tap a project, and choose an existing Codex task or **New task**.
 6. Keep the Telegram group at exactly the owner and Threadwise bot. Disable group history for newly added members if old reports must never become visible later.
 
 No default project path needs to be configured. The active project is chosen in Telegram and persisted. The earlier `RemoteCodex` folder is not treated as a Codex project merely because that folder exists; it will appear only after it is an actual Git project represented in local Codex session metadata.
@@ -98,4 +101,4 @@ No default project path needs to be configured. The active project is chosen in 
 - A bot can use the private-message privacy fallback only after Telegram permits that bot to message the owner; opening the bot's direct chat once is recommended.
 - Telegram group-history behavior is controlled by Telegram, not Threadwise.
 - Delivery is effectively deduplicated once the Telegram message mapping is persisted. As with any external API, a process crash in the tiny interval after Telegram accepts a message but before its message id is committed could produce one duplicate on retry.
-- This audit validates the implementation and local build. It does not claim the feature is deployed until the migration, Render variables, and Windows worker setup above are completed.
+- The signed catalog sidecar is deliberately not a replacement for the token-authenticated execution worker.
