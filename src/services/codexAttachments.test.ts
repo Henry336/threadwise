@@ -4,6 +4,7 @@ import { codexInputWithAttachments, safeCodexAttachmentName } from "./codexAttac
 describe("Codex worker attachments", () => {
   it("prevents uploaded names from escaping the temporary attachment directory", () => {
     expect(safeCodexAttachmentName("..\\..\\design brief (final).pdf", 0)).toBe("1-design_brief_final_.pdf");
+    expect(safeCodexAttachmentName("../../design brief (final).pdf", 1)).toBe("2-design_brief_final_.pdf");
   });
 
   it("passes images as native local_image inputs and gives Codex direct file paths", () => {
