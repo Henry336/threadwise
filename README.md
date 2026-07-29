@@ -545,6 +545,15 @@ project folder and start at user sign-in rather than before sign-in, so the
 worker can access the owner's Codex and Gemini session stores. The runner also
 restarts a failed worker after 15 seconds, including when the Run-key fallback is used.
 
+For installations where the running worker token is intentionally unavailable to
+the startup environment, `npm run codex:task-sync` starts a separate,
+least-privilege catalog sidecar. Set `THREADWISE_CODEX_URL`,
+`CODEX_TASK_SYNC_PRIVATE_KEY_PATH`, `CODEX_WORKER_ID`, and optionally
+`CODEX_WORKER_SYNC_MS`. Its pinned Ed25519 key is accepted only by
+`POST /codex/worker/sync`; it cannot claim or complete jobs, download Telegram
+attachments, or access any other worker endpoint. Requests bind the method,
+path, worker id, and canonical body and expire after two minutes.
+
 On startup and every five minutes, the worker discovers project folders from Codex `session_meta` records and asks the local Codex app-server for the task names, ids, sources, and timestamps shown by Codex clients. It registers unique, existing Git repositories; excludes Codex-managed worktrees, missing folders, and non-Git directories; and syncs only the task metadata needed for Telegram selection. Codex credentials and session contents are never uploaded.
 
 Inside the configured Telegram group:
