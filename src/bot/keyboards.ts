@@ -137,6 +137,7 @@ export function archivedKindsKeyboard(): InlineKeyboard {
 export function settingsModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
+    .text("🎙️ Voice Capture", "setting:voice").row()
     .text("📅 Google Calendar", "menu:calendar-settings").text("🔐 Data & privacy", "menu:privacy").row()
     .webApp("🌐 Dashboard settings", `${DASHBOARD_URL}/dashboard?view=settings`).row()
     .text("‹ Main menu", "menu:home");
@@ -144,9 +145,21 @@ export function settingsModeKeyboard(): InlineKeyboard {
 
 export function groupSettingsModeKeyboard(workspaceId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row();
+    .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
+    .text("🎙️ Voice Capture", "setting:voice").row();
   if (workspaceId) keyboard.url("🌐 Shared dashboard", groupDashboardUrl(workspaceId, "settings")).row();
   return keyboard.text("❓ Group help", "menu:help").text("‹ Main menu", "menu:home");
+}
+
+export function voiceSettingsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Light cleanup", "setting:voice-apply:cleanup:light")
+    .text("Verbatim", "setting:voice-apply:cleanup:verbatim").row()
+    .text("Fast model", "setting:voice-apply:model:fast")
+    .text("Higher accuracy", "setting:voice-apply:model:accuracy").row()
+    .text("Audio files: On", "setting:voice-apply:audio:on")
+    .text("Audio files: Off", "setting:voice-apply:audio:off").row()
+    .text("‹ Settings", "menu:settings");
 }
 
 export type SettingChoiceField = "interval" | "mode" | "quiet" | "due-nudge" | "max" | "timezone" | "currency" | "ocr" | "dm";

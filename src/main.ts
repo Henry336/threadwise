@@ -10,6 +10,7 @@ import { startServer } from "./server";
 import { startCodexDeliveryLoop } from "./bot/codex";
 import { startGeminiIdeaDeliveryLoop } from "./bot/geminiIdeas";
 import { startFileCourierDeliveryLoop } from "./bot/files";
+import { startVoiceCaptureRecoveryLoop } from "./bot/voiceCapture";
 
 async function main() {
   const ai = createAiProvider();
@@ -19,6 +20,7 @@ async function main() {
   const codexDeliveryLoop = startCodexDeliveryLoop(bot);
   const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
   const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
+  const voiceCaptureLoop = startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
@@ -28,6 +30,7 @@ async function main() {
     if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
     if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
     if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);
+    clearInterval(voiceCaptureLoop);
     await server?.close();
     await bot.stop();
     await prisma.$disconnect();

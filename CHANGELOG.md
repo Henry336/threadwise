@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Voice Note Capture
+- Added restart-safe Telegram voice transcription with exact raw-transcript preservation, conservative light cleanup, verbatim fallback, normal Note creation, and paginated raw-text viewing.
+- Added Open/Edit/Undo/Keep verbatim result controls plus per-workspace cleanup, transcription model, language-hint, and ordinary-audio settings.
+- Added durable leased/idempotent transcription jobs, group scope enforcement, OpenAI/Telegram size and format validation, retryable result delivery, environment documentation, a Prisma migration, and regression coverage.
+
+### Owner file courier
+- Added the owner-only `/files` laptop courier with explicit roots, Windows-index-friendly search, result previews, Send confirmation, path revalidation, streamed Telegram delivery, cancellation, audits, and restart recovery.
+
 ### Trusted Codex publishing
 - Added owner-only Telegram publishing requests that hand completed Codex diffs to the trusted laptop worker.
 - Added pre-turn Git snapshots, unrelated-change preservation, sensitive-diff blocking, local validation, `agent/*`-only pushes, PR creation against `main`, GitHub check gating, and post-check auto-merge.

@@ -1,4 +1,4 @@
-import { Prisma, ReminderMode, TaskStatus } from "@prisma/client";
+import { Prisma, ReminderMode, TaskStatus, VoiceCleanupMode } from "@prisma/client";
 import { bold, h } from "../utils/html";
 import { prisma } from "../db/prisma";
 import { nextReminderAfterSettingChange } from "./reminders";
@@ -6,6 +6,7 @@ import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
 import { COMMON_CURRENCIES, defaultCurrencyForTimezone, normalizeCurrency } from "../utils/currencies";
 import { formatOcrLanguages, normalizeOcrLanguages } from "../utils/ocrLanguages";
 import { normalizeClock } from "../utils/clock";
+import { normalizeTranscriptionModel } from "./voiceTranscription";
 
 export type SettingsUpdateResult = {
   message: string;
@@ -20,6 +21,57 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     return {
       message:
         "Try: read images in Burmese, change timezone to Myanmar, remind me again every 3 hours, or quiet hours off."
+    };
+  }
+
+  if (setting === "voice" || setting === "transcription") {
+    const [voiceField, ...voiceRest] = rest;
+    const voiceValue = voiceRest.join(" ").trim();
+    const normalizedField = voiceField?.toLowerCase();
+    if (normalizedField === "cleanup") {
+      const cleanupMode = voiceValue.toLowerCase() === "verbatim"
+        ? VoiceCleanupMode.VERBATIM
+        : voiceValue.toLowerCase() === "light"
+          ? VoiceCleanupMode.LIGHT
+          : undefined;
+      if (!cleanupMode) return { message: "Choose light or verbatim. Try: /settings voice cleanup light" };
+      await prisma.userSettings.update({ where: { userId }, data: { voiceCleanupMode: cleanupMode } });
+      return { message: `Voice cleanup set to ${cleanupMode === VoiceCleanupMode.LIGHT ? "light" : "verbatim"}. Raw transcripts are always preserved.` };
+    }
+    if (normalizedField === "model") {
+      const model = normalizeTranscriptionModel(voiceValue);
+      if (!model) return { message: "Choose fast or accuracy. Try: /settings voice model accuracy" };
+      await prisma.userSettings.update({ where: { userId }, data: { voiceTranscriptionModel: model } });
+      return { message: `Voice transcription model set to ${model}.` };
+    }
+    if (normalizedField === "language") {
+      const language = /^(?:auto|off|none)$/i.test(voiceValue) ? null : voiceValue.toLowerCase();
+      if (language !== null && !/^[a-z]{2}$/.test(language)) {
+        return { message: "Use a two-letter ISO-639-1 language hint such as en, my, or ms, or choose auto." };
+      }
+      await prisma.userSettings.update({ where: { userId }, data: { voiceLanguageHint: language } });
+      return { message: language ? `Voice language hint set to ${language}.` : "Voice language detection set to automatic." };
+    }
+    if (["audio", "audio-files", "documents"].includes(normalizedField ?? "")) {
+      const enabled = /^(?:on|yes|true|enabled)$/i.test(voiceValue)
+        ? true
+        : /^(?:off|no|false|disabled)$/i.test(voiceValue)
+          ? false
+          : undefined;
+      if (enabled === undefined) return { message: "Choose on or off. Try: /settings voice audio on" };
+      await prisma.userSettings.update({ where: { userId }, data: { voiceAutoTranscribeAudio: enabled } });
+      return { message: enabled
+        ? "Supported audio files will now be transcribed automatically. Telegram voice messages are always transcribed."
+        : "Ordinary audio files will not be transcribed automatically. Telegram voice messages are still transcribed." };
+    }
+    return {
+      message: [
+        "Voice settings:",
+        "/settings voice cleanup light|verbatim",
+        "/settings voice model fast|accuracy",
+        "/settings voice language auto|en|my|…",
+        "/settings voice audio on|off"
+      ].join("\n")
     };
   }
 
@@ -222,6 +274,19 @@ export async function formatRegionSettings(userId: string): Promise<string> {
     `Image text: ${h(formatOcrLanguages(settings.ocrLanguages))}`,
     `Private assignee nudges: ${settings.directNudgesEnabled ? "on" : "off"}`,
     "Timezone controls how Threadwise reads dates and reminder times."
+  ].join("\n");
+}
+
+export async function formatVoiceSettings(userId: string): Promise<string> {
+  const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
+  return [
+    bold("🎙️ Voice Capture"),
+    `Cleanup: ${settings.voiceCleanupMode === VoiceCleanupMode.LIGHT ? "light" : "verbatim"}`,
+    `Model: ${h(settings.voiceTranscriptionModel)}`,
+    `Language: ${h(settings.voiceLanguageHint ?? "automatic")}`,
+    `Ordinary audio files: ${settings.voiceAutoTranscribeAudio ? "automatic" : "manual/off"}`,
+    "Raw transcripts are always preserved. Voice transcription is Capture, not Ideas Intelligence.",
+    "Language hint: /settings voice language en (or auto)"
   ].join("\n");
 }
 

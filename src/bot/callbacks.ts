@@ -20,13 +20,13 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, 
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, type SettingChoiceField } from "./keyboards";
+import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupMainMenuText, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
-import { formatRegionSettings, formatReminderSettings, formatSettings, updateSetting } from "../services/settings";
+import { formatRegionSettings, formatReminderSettings, formatSettings, formatVoiceSettings, updateSetting } from "../services/settings";
 import { beginMenuInput, clearMenuInput, type MenuInputAction } from "./menuInputs";
 import { rememberCallbackControlCard } from "./controlCards";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
@@ -154,6 +154,20 @@ async function handleSettingCallback(ctx: Context, action: string | undefined) {
   if (action === "reminders" || action === "region") {
     await ctx.answerCallbackQuery();
     await showSettingPanel(ctx, user.id, action);
+    return;
+  }
+
+  if (action === "voice") {
+    await ctx.answerCallbackQuery();
+    await editOrReplyHtml(ctx, await formatVoiceSettings(user.id), { reply_markup: voiceSettingsKeyboard() });
+    return;
+  }
+
+  const voiceApply = action.match(/^voice-apply:(cleanup|model|audio):(.+)$/);
+  if (voiceApply?.[1] && voiceApply[2]) {
+    await ctx.answerCallbackQuery({ text: "Saving…" });
+    await updateSetting(user.id, ["voice", voiceApply[1], voiceApply[2]]);
+    await editOrReplyHtml(ctx, await formatVoiceSettings(user.id), { reply_markup: voiceSettingsKeyboard() });
     return;
   }
 

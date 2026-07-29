@@ -108,6 +108,19 @@ enum FileCourierJobStatus {
   CANCELED
 }
 
+enum VoiceCleanupMode {
+  VERBATIM
+  LIGHT
+}
+
+enum VoiceTranscriptionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  UNDONE
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -145,6 +158,7 @@ model User {
   availabilityCalendarEvents AvailabilityCalendarEvent[]
   groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
   geminiIdeaJobs        GeminiIdeaJob[]
+  voiceTranscriptionJobs VoiceTranscriptionJob[]
 }
 
 model GroupWorkspace {
@@ -289,6 +303,10 @@ model UserSettings {
   directNudgesEnabled     Boolean      @default(false)
   calendarAutoSync        Boolean      @default(false)
   excelAutoSync           Boolean      @default(false)
+  voiceCleanupMode        VoiceCleanupMode @default(LIGHT)
+  voiceTranscriptionModel String       @default("gpt-4o-mini-transcribe")
+  voiceLanguageHint       String?
+  voiceAutoTranscribeAudio Boolean      @default(false)
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
@@ -414,6 +432,7 @@ model Note {
   user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   mergedIntoNote    Note?  @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
   mergedSourceNotes Note[] @relation("NoteMerge")
+  voiceTranscriptionJobs VoiceTranscriptionJob[]
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
@@ -1095,4 +1114,48 @@ model FileCourierAudit {
 
   @@index([jobId, createdAt])
   @@index([action, createdAt])
+}
+
+model VoiceTranscriptionJob {
+  id                        String                     @id @default(uuid())
+  userId                    String
+  requesterTelegramId       String
+  telegramChatId            String
+  telegramMessageId         Int
+  telegramFileId            String
+  telegramFileUniqueId      String?
+  sourceKind                String
+  durationSeconds           Int?
+  mimeType                  String?
+  fileName                  String?
+  fileSize                  Int?
+  cleanupMode               VoiceCleanupMode
+  transcriptionModel        String
+  languageHint              String?
+  status                    VoiceTranscriptionStatus   @default(PENDING)
+  processorId               String?
+  leaseExpiresAt            DateTime?
+  attemptCount              Int                        @default(0)
+  rawTranscript             String?
+  cleanedText               String?
+  cleanedNoteId             String?
+  cleanupError              String?
+  error                     String?
+  acknowledgementMessageId  Int?
+  telegramResultMessageId   Int?
+  deliveredAt               DateTime?
+  startedAt                 DateTime?
+  transcribedAt             DateTime?
+  completedAt               DateTime?
+  undoneAt                  DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cleanedNote Note? @relation(fields: [cleanedNoteId], references: [id], onDelete: SetNull)
+
+  @@unique([telegramChatId, telegramMessageId])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([userId, telegramChatId, createdAt])
+  @@index([telegramFileUniqueId])
 }

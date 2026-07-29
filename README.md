@@ -50,6 +50,7 @@ small Telegram edit/reply or authenticated dashboard response
 - Captures ideas with `/idea <text>`.
 - Develops an individual idea through the official local Gemini CLI with owner-only Telegram buttons for Develop, Challenge, Next steps, and Task plan. Gemini runs read-only on the laptop worker; suggested tasks are not saved automatically.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
+- Transcribes Telegram voice messages into normal Notes with an exact preserved raw transcript, conservative light cleanup or verbatim mode, restart-safe processing, paginated raw-text viewing, and Open/Edit/Undo/Keep verbatim controls. Supported audio files can be enabled separately.
 - Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph, Threadwise stays silent, and Save note combines them into one durable note. Inactive sessions auto-save after about 30 minutes; `/save_note` and `/cancel_note` are fallbacks for a hidden keyboard.
 - Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays three readable previews per mobile page, while `/notes <query>` searches notes.
 - Paginates long note details inside one edited Telegram card instead of truncating the saved body or posting another message for every page.
