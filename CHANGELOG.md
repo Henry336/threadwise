@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Trusted Codex publishing
+- Added owner-only Telegram publishing requests that hand completed Codex diffs to the trusted laptop worker.
+- Added pre-turn Git snapshots, unrelated-change preservation, sensitive-diff blocking, local validation, `agent/*`-only pushes, PR creation against `main`, GitHub check gating, and post-check auto-merge.
+- Added durable commit/push/PR/check/merge audit events and full publishing outcomes in Telegram reports.
+- Added the repository's PR CI workflow for tests, typechecking, production build, and Prisma validation.
+
 ### Telegram intelligence worker
 - Added owner-only Gemini Ideas Intelligence actions for saved ideas: Develop, Challenge, Next steps, and a suggested Now/Next/Later task plan.
 - Kept Gemini scoped to individual Idea-mode actions with no general `/gemini` command; `/codex` remains exclusively for Codex work.

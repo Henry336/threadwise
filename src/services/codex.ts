@@ -39,6 +39,28 @@ export type CodexAttachmentInput = {
   fileSize?: number;
 };
 
+export type CodexPublishResultInput = {
+  status: "BLOCKED" | "PR_OPEN" | "AUTO_MERGE_ENABLED" | "MERGED";
+  branch?: string;
+  commitSha?: string;
+  prNumber?: number;
+  prUrl?: string;
+  checks?: string;
+  mergeCommitSha?: string;
+  blocker?: string;
+};
+
+export type CodexPublishAuditInput = {
+  eventKey: string;
+  action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "BLOCKED";
+  status: string;
+  branch?: string;
+  commitSha?: string;
+  prNumber?: number;
+  prUrl?: string;
+  details?: Record<string, unknown>;
+};
+
 export function isPrivateCodexActor(
   actual: { telegramUserId?: string; telegramChatId?: string },
   expected: CodexScope | undefined
@@ -418,6 +440,8 @@ export async function queueCodexJob(input: {
   replyToJob?: CodexJobWithProject;
   targetThread?: CodexThreadWithProject;
   forceNewThread?: boolean;
+  publishRequested?: boolean;
+  publishAutoMerge?: boolean;
 }): Promise<CodexJobWithProject> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Codex prompt cannot be empty.");
@@ -444,6 +468,8 @@ export async function queueCodexJob(input: {
       telegramRequestMessageId: input.telegramRequestMessageId,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
+      publishRequested: Boolean(input.publishRequested),
+      publishAutoMerge: Boolean(input.publishRequested && input.publishAutoMerge),
       threadId: newThread ? null : resumedThreadId,
       threadTitle,
       newThread,
@@ -530,6 +556,7 @@ export async function completeCodexJob(input: {
   workerId: string;
   finalResponse: string;
   threadId?: string;
+  publishResult?: CodexPublishResultInput;
 }): Promise<CodexJobWithProject | undefined> {
   const updated = await prisma.codexJob.updateMany({
     where: { id: input.id, ...input.scope, workerId: input.workerId, status: CodexJobStatus.RUNNING },
@@ -537,6 +564,15 @@ export async function completeCodexJob(input: {
       status: CodexJobStatus.COMPLETED,
       finalResponse: input.finalResponse,
       threadId: input.threadId,
+      publishStatus: input.publishResult?.status,
+      publishBranch: input.publishResult?.branch,
+      publishCommitSha: input.publishResult?.commitSha,
+      publishPrNumber: input.publishResult?.prNumber,
+      publishPrUrl: input.publishResult?.prUrl,
+      publishChecks: input.publishResult?.checks,
+      publishMergeCommitSha: input.publishResult?.mergeCommitSha,
+      publishBlocker: input.publishResult?.blocker,
+      publishCompletedAt: input.publishResult ? new Date() : undefined,
       error: null,
       completedAt: new Date(),
       leaseExpiresAt: null
@@ -690,6 +726,49 @@ export function splitTelegramReport(text: string, maxLength = 3_900): string[] {
     chunks.push(codePoints.slice(offset, offset + maxLength).join(""));
   }
   return chunks;
+}
+
+export async function recordCodexPublishAudit(input: {
+  scope: CodexScope;
+  jobId: string;
+  workerId: string;
+  event: CodexPublishAuditInput;
+}): Promise<boolean> {
+  const job = await prisma.codexJob.findFirst({
+    where: {
+      id: input.jobId,
+      ...input.scope,
+      workerId: input.workerId,
+      status: CodexJobStatus.RUNNING,
+      publishRequested: true
+    },
+    select: { id: true }
+  });
+  if (!job) return false;
+
+  await prisma.codexPublishAudit.upsert({
+    where: {
+      jobId_eventKey: {
+        jobId: input.jobId,
+        eventKey: input.event.eventKey
+      }
+    },
+    create: {
+      jobId: input.jobId,
+      ...input.scope,
+      workerId: input.workerId,
+      eventKey: input.event.eventKey,
+      action: input.event.action,
+      status: input.event.status,
+      branch: input.event.branch,
+      commitSha: input.event.commitSha,
+      prNumber: input.event.prNumber,
+      prUrl: input.event.prUrl,
+      details: input.event.details as Prisma.InputJsonValue | undefined
+    },
+    update: {}
+  });
+  return true;
 }
 
 export function taskTitleFromPrompt(prompt: string): string {

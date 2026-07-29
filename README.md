@@ -578,6 +578,29 @@ Use `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` anywher
 
 Long final responses are stored intact and shown as one Telegram report card with project, folder, Codex task title/id, request id, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
 
+Owner-only trusted publishing is requested naturally from the private Codex group:
+
+```text
+Implement this, verify it, publish it, and auto-merge when CI passes.
+```
+
+The sandboxed Codex turn only edits the selected repository. After it ends, the
+trusted laptop worker snapshots and reviews the task's new diff, runs the
+repository's detected npm/Prisma checks, rejects sensitive files or overlap with
+pre-existing changes, creates a new `agent/*` branch, commits only the task
+files, pushes without force, and opens a PR against `main`. Auto-merge is
+requested only after the local gate and GitHub PR checks pass. A changed
+`main`, failed check, conflict, unauthenticated `gh`, unsupported remote,
+sensitive diff, or mixed pre-existing file stops publishing and is reported in
+Telegram. The worker never pushes directly to `main`.
+
+Commit, push, PR, check, auto-merge, merge, and blocker events are written to
+the owner/chat-scoped `CodexPublishAudit` table as they occur. Completion
+reports include the branch, commit, PR URL, check outcome, merge commit, or
+exact blocker. GitHub CLI must be authenticated for the Windows user running
+the worker (`gh auth login`), and the repository must have a PR check; this
+repository supplies `.github/workflows/ci.yml`.
+
 Photos and image documents are downloaded by the authenticated worker and passed to the SDK as native `local_image` inputs. Other Telegram documents are downloaded to a unique temporary directory, exposed to that Codex turn as an additional readable directory, and named explicitly in the prompt. The temporary files are deleted when the turn finishes. The laptop never receives the Telegram bot token; it downloads each attachment through a worker-authenticated Threadwise endpoint that only serves files belonging to its currently claimed job.
 
 The worker runs Codex with a workspace-write sandbox, no interactive approvals, and network access disabled by default. Enable `CODEX_WORKER_NETWORK_ACCESS` only when the tasks genuinely need outbound network access. Prompts and final reports are stored in PostgreSQL as part of the durable job queue. While Codex is running, lease heartbeats prevent a long task from being claimed twice. Terminal results retry with bounded exponential backoff until the server accepts them, and the server independently retries completed-but-undelivered Telegram reports. A completely empty project-discovery pass preserves the previous registry instead of erasing it.
