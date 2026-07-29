@@ -57,7 +57,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/restore", description: "Restore an archived item.", example: "/restore NOTE-1" },
   { command: "/calendar", description: "Connect Google Calendar or add/update a dated task as an event.", example: "/calendar 1" },
   { command: "/googlecal", description: "Get only the Google Calendar link for a dated task.", example: "/googlecal 1" },
-  { command: "/settings", description: "Edit timezone, OCR languages, quiet hours, and reminder behavior.", example: "/settings timezone Singapore" },
+  { command: "/settings", description: "Edit timezone, voice Capture, OCR languages, quiet hours, and reminder behavior.", example: "/settings voice cleanup light" },
   { command: "/undo", description: "Reverse the last supported change.", example: "/undo" },
   { command: "/version", description: "Show app version and delivery diagnostics.", example: "/version" },
   { command: "/groupcheck", description: "Diagnose bot identity and allowlist access inside a Telegram group.", example: "/groupcheck" },
@@ -219,7 +219,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "start warning me 10 mins before due tasks",
       "allow up to 200 reminders per day"
     ],
-    commands: ["/settings timezone Singapore", "/settings ocr English and Burmese", "/settings mode compact", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
+    commands: ["/settings voice cleanup light", "/settings voice model accuracy", "/settings voice language auto", "/settings voice audio on", "/settings timezone Singapore", "/settings ocr English and Burmese", "/settings mode compact", "/settings quiet off", "/settings quiet 22:00 08:00", "/settings interval 180", "/settings due-nudge 10", "/settings max 200"]
   },
   {
     topic: "cleanup",

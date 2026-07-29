@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../db/prisma", () => ({
-  prisma: { $transaction: mocks.transaction }
+  prisma: {
+    $transaction: mocks.transaction,
+    userSettings: { update: mocks.userSettingsUpdate }
+  }
 }));
 
 vi.mock("./reminders", () => ({
@@ -37,6 +40,34 @@ describe("settings updates", () => {
     expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
       where: { userId: "user-1" },
       data: { quietHoursStart: "03:00", quietHoursEnd: "06:00" }
+    });
+  });
+
+  it("stores voice cleanup, model, language, and audio-document preferences", async () => {
+    await expect(updateSetting("user-1", ["voice", "cleanup", "verbatim"]))
+      .resolves.toMatchObject({ message: expect.stringContaining("verbatim") });
+    await expect(updateSetting("user-1", ["voice", "model", "accuracy"]))
+      .resolves.toMatchObject({ message: expect.stringContaining("gpt-4o-transcribe") });
+    await expect(updateSetting("user-1", ["voice", "language", "my"]))
+      .resolves.toMatchObject({ message: expect.stringContaining("my") });
+    await expect(updateSetting("user-1", ["voice", "audio", "on"]))
+      .resolves.toMatchObject({ message: expect.stringContaining("automatically") });
+
+    expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { voiceCleanupMode: "VERBATIM" }
+    });
+    expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { voiceTranscriptionModel: "gpt-4o-transcribe" }
+    });
+    expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { voiceLanguageHint: "my" }
+    });
+    expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { voiceAutoTranscribeAudio: true }
     });
   });
 });
