@@ -618,7 +618,7 @@ function workerConfig(): WorkerConfig {
     heartbeatMs: positiveInteger(process.env.CODEX_WORKER_HEARTBEAT_MS, 30_000, 5_000),
     networkAccessEnabled: /^(?:1|true|yes|on)$/i.test(process.env.CODEX_WORKER_NETWORK_ACCESS ?? ""),
     maxAttachmentBytes: positiveInteger(process.env.CODEX_WORKER_MAX_ATTACHMENT_BYTES, 25 * 1024 * 1024, 1_024),
-    geminiModel: process.env.GEMINI_WORKER_MODEL?.trim() || "gemini-3.1-pro-preview",
+    geminiModel: process.env.GEMINI_WORKER_MODEL?.trim() || "auto",
     geminiTimeoutMs: positiveInteger(process.env.GEMINI_WORKER_TIMEOUT_MS, 600_000, 30_000),
     geminiWorkingDirectory: resolve(process.env.GEMINI_WORKER_WORKING_DIRECTORY?.trim() || process.cwd()),
     publishCheckTimeoutMs: positiveInteger(
@@ -675,7 +675,7 @@ function loadLocalWorkerEnv(): void {
 
 function isRunnableProject(path: string): boolean {
   try {
-    return statSync(path).isDirectory() && existsSync(join(path, ".git"));
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }
@@ -683,7 +683,7 @@ function isRunnableProject(path: string): boolean {
 
 function assertRunnableProject(path: string): void {
   if (!isRunnableProject(path)) {
-    throw new Error(`Project is missing or is no longer a Git repository: ${path}`);
+    throw new Error(`Project folder is missing or is no longer a directory: ${path}`);
   }
 }
 
