@@ -425,7 +425,13 @@ export function itemActionsKeyboard(
   }
 
   if (kind === "idea") {
-    keyboard.row().text("✨ Idea brief", `item:idea:brief:${item.id}`);
+    keyboard.row()
+      .text("✨ Idea brief", `item:idea:brief:${item.id}`)
+      .text("🧠 Develop", `gemini-idea:develop:${item.id}`);
+    keyboard.row()
+      .text("🥊 Challenge", `gemini-idea:challenge:${item.id}`)
+      .text("➡️ Next steps", `gemini-idea:next:${item.id}`);
+    keyboard.row().text("☑️ Task plan", `gemini-idea:tasks:${item.id}`);
   }
 
   if (includeBack) keyboard.text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);

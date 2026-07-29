@@ -4,7 +4,7 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.26.0**
+Current backend release: **v0.28.0**
 
 Documentation verified against the repository: **2026-07-26**
 
@@ -48,6 +48,7 @@ small Telegram edit/reply or authenticated dashboard response
 ## What It Does
 
 - Captures ideas with `/idea <text>`.
+- Develops an individual idea through the official local Gemini CLI with owner-only Telegram buttons for Develop, Challenge, Next steps, and Task plan. Gemini runs read-only on the laptop worker; suggested tasks are not saved automatically.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
 - Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph, Threadwise stays silent, and Save note combines them into one durable note. Inactive sessions auto-save after about 30 minutes; `/save_note` and `/cancel_note` are fallbacks for a hidden keyboard.
 - Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays three readable previews per mobile page, while `/notes <query>` searches notes.
@@ -494,6 +495,7 @@ CODEX_WORKER_SYNC_MS=300000
 CODEX_WORKER_HEARTBEAT_MS=30000
 CODEX_WORKER_NETWORK_ACCESS=false
 CODEX_WORKER_MAX_ATTACHMENT_BYTES=26214400
+GEMINI_WORKER_MODEL=gemini-3.1-pro-preview
 ```
 
 If the worker is not inheriting the same Codex home as the desktop app, also set:
@@ -508,6 +510,40 @@ Start the worker from this repository:
 npm install
 npm run codex:worker
 ```
+
+The same process handles Ideas Intelligence. On the laptop, install and authenticate
+the official Gemini CLI once:
+
+```powershell
+npm install -g @google/gemini-cli@latest
+gemini
+```
+
+Choose **Login with Google** in the CLI and complete the browser sign-in. Model access
+depends on the signed-in Google account; change `GEMINI_WORKER_MODEL` if
+`gemini-3.1-pro-preview` is not available. Threadwise invokes the official CLI in
+read-only plan mode and does not copy or upload Gemini credentials. After this
+one-time laptop sign-in, the owner can open any saved idea in Telegram and tap
+**Develop**, **Challenge**, **Next steps**, or **Task plan** from the phone.
+There is intentionally no general `/gemini` command, and `/codex` remains exclusively
+for Codex projects, tasks, threads, prompts, and status. Sharing one local background
+process is an implementation detail and does not combine their Telegram interfaces.
+
+To keep the worker active whenever the laptop owner is signed in, persist
+`THREADWISE_CODEX_URL`, `THREADWISE_CODEX_WORKER_TOKEN`, and (when used)
+`CODEX_HOME` as Windows user environment variables, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-codex-worker-startup.ps1 -StartNow
+```
+
+The installer prefers a Scheduled Task that restarts the worker after failures
+and runs on battery power. If Windows does not permit Scheduled Task
+registration, it falls back to the current user's `Run` registry key. Both
+methods write the local worker log to `.local/logs/codex-worker.log` in the
+project folder and start at user sign-in rather than before sign-in, so the
+worker can access the owner's Codex and Gemini session stores. The runner also
+restarts a failed worker after 15 seconds, including when the Run-key fallback is used.
 
 For installations where the running worker token is intentionally unavailable to
 the startup environment, `npm run codex:task-sync` starts a separate,

@@ -29,6 +29,7 @@ import {
   type CodexScope
 } from "../services/codex";
 import { logger } from "../logger";
+import { localWorkerReadiness } from "../services/geminiIdeas";
 import { bold, code, h, HTML_REPLY, replyHtml } from "../utils/html";
 import { commandBody } from "../utils/text";
 
@@ -440,13 +441,15 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
   }
 
   if (parsed.action === "status") {
-    const jobs = await recentCodexJobs(scope, 8);
-    if (jobs.length === 0) {
-      await ctx.reply("No Codex tasks have been queued yet.");
-      return;
-    }
-    await replyHtml(ctx, [
-      bold("Recent Codex tasks"),
+    const [jobs, worker] = await Promise.all([
+      recentCodexJobs(scope, 8),
+      localWorkerReadiness(scope)
+    ]);
+      await replyHtml(ctx, [
+        bold("Recent Codex tasks"),
+        `Codex worker: ${worker.online ? "online" : worker.lastSeenAt ? "stale" : "not checked in"}`,
+        worker.lastSeenAt ? `Last sync: ${h(worker.lastSeenAt.toISOString())}` : undefined,
+        jobs.length === 0 ? "No Codex requests have been queued yet." : undefined,
       ...jobs.map((job) => [
         `${jobStatusIcon(job.status)} ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))}`,
         `${code(job.project.alias)} · task ${code(job.threadId ? shortCodexThreadId(job.threadId) : "starting")} · request ${code(shortJobId(job.id))} · ${h(job.status.toLowerCase())}`,
@@ -577,18 +580,16 @@ async function queuePromptFromContext(
     forceNewThread: command.forceNewThread
   });
   const threadId = job.threadId ? shortCodexThreadId(job.threadId) : "new";
-  await replyHtml(ctx, [
-    bold("Codex queued"),
-    `Project: ${code(project.alias)}`,
-    `Task: ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))} · ${code(threadId)}`,
-    `Request: ${code(shortJobId(job.id))}`,
-    `${h(shortPrompt(job.prompt))}`,
-    `${h(job.model ?? "default/resumed model")} · reasoning ${h(job.reasoningEffort ?? "default/resumed")}`,
-    attachments.length ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"} included.` : undefined,
-    (continuation?.threadId || targetThread) && !command.forceNewThread
-      ? "Continuing the selected Codex task and project."
-      : "Starting a new Codex task in this project."
-  ].filter(Boolean).join("\n"));
+  await replyHtml(ctx, renderCodexQueuedMessage({
+    projectAlias: project.alias,
+    title: job.threadTitle ?? taskTitleFromPrompt(job.prompt),
+    threadId,
+    requestId: shortJobId(job.id),
+    model: job.model,
+    reasoningEffort: job.reasoningEffort,
+    attachmentCount: attachments.length,
+    continuing: Boolean((continuation?.threadId || targetThread) && !command.forceNewThread)
+  }));
 }
 
 async function sendProjectsPage(ctx: Context, scope: CodexScope, requestedPage: number): Promise<void> {
@@ -666,7 +667,10 @@ async function editTasksPage(
 }
 
 async function tasksPageData(scope: CodexScope, projectId: string, requestedPage: number) {
-  const { project, threads, activeThreadId } = await listCodexThreads(scope, projectId);
+  const [{ project, threads, activeThreadId }, worker] = await Promise.all([
+    listCodexThreads(scope, projectId),
+    localWorkerReadiness(scope)
+  ]);
   if (!project) return undefined;
   const pageCount = Math.max(1, Math.ceil(threads.length / THREADS_PER_PAGE));
   const page = clampPage(requestedPage, pageCount);
@@ -697,12 +701,17 @@ async function tasksPageData(scope: CodexScope, projectId: string, requestedPage
             `${thread.id === activeThreadId ? "●" : "○"} ${h(thread.title)}`,
             `${code(shortCodexThreadId(thread.id))} · ${h(threadSourceLabel(thread.source))}${thread.threadUpdatedAt ? ` · ${h(thread.threadUpdatedAt.toISOString().slice(0, 10))}` : ""}`
           ].join("\n"))
-        : ["No resumable Codex tasks have been found in this project yet."]),
+        : [
+            !worker.online
+              ? "No tasks are synced because the laptop worker is offline or stale."
+              : "The worker is online, but no resumable Codex tasks were found in this project."
+          ]),
       "",
+      worker.lastSeenAt ? `Worker sync: ${h(worker.lastSeenAt.toISOString())}` : undefined,
       activeThreadId
         ? "Tap a task to make it active. Plain messages resume the checked task."
         : "Tap a task, or choose “New task” and send your next prompt."
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     keyboard
   };
 }
@@ -718,20 +727,56 @@ export function paginateCodexReport(report: string): string[] {
   return splitTelegramReport(report, CODEX_REPORT_PAGE_CHARS);
 }
 
-function renderReportPage(job: CodexJobWithProject, pages: string[], page: number): string {
+export function renderReportPage(job: CodexJobWithProject, pages: string[], page: number): string {
   const title = job.threadTitle ?? taskTitleFromPrompt(job.prompt);
+  const context = [
+    job.project.alias,
+    job.threadId ? `task ${shortCodexThreadId(job.threadId)}` : "new task",
+    `request ${shortJobId(job.id)}`
+  ].join(" · ");
+  const controls = [
+    job.model,
+    job.reasoningEffort ? `${job.reasoningEffort} reasoning` : undefined,
+    pages.length > 1 ? `page ${page + 1}/${pages.length}` : undefined
+  ].filter(Boolean).join(" · ");
   return [
-    job.status === CodexJobStatus.COMPLETED ? "✅ Codex finished" : "❌ Codex task failed",
-    `Project: ${job.project.alias}`,
-    `Task: ${title}${job.threadId ? ` [${shortCodexThreadId(job.threadId)}]` : ""}`,
-    `Request: ${shortJobId(job.id)}`,
-    `Folder: ${displayPath(job.project.path, 500)}`,
-    `Model: ${job.model ?? "local/resumed default"}`,
-    `Reasoning: ${job.reasoningEffort ?? "local/resumed default"}`,
-    `Report page: ${page + 1}/${pages.length}`,
+    job.status === CodexJobStatus.COMPLETED ? "✅ Codex finished" : "❌ Codex failed",
+    title,
+    context,
+    controls || undefined,
     "",
     pages[page] ?? ""
-  ].join("\n");
+  ].filter((line) => line !== undefined).join("\n");
+}
+
+export function renderCodexQueuedMessage(input: {
+  projectAlias: string;
+  title: string;
+  threadId: string;
+  requestId: string;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  attachmentCount?: number;
+  continuing: boolean;
+}): string {
+  const context = [
+    code(input.projectAlias),
+    input.continuing ? `task ${code(input.threadId)}` : "new task",
+    `request ${code(input.requestId)}`
+  ].join(" · ");
+  const controls = [
+    input.model ? h(input.model) : undefined,
+    input.reasoningEffort ? `${h(input.reasoningEffort)} reasoning` : undefined,
+    input.attachmentCount
+      ? `${input.attachmentCount} attachment${input.attachmentCount === 1 ? "" : "s"}`
+      : undefined
+  ].filter(Boolean).join(" · ");
+  return [
+    bold("⏳ Codex is working"),
+    h(input.title),
+    context,
+    controls || undefined
+  ].filter(Boolean).join("\n");
 }
 
 export function reportKeyboard(jobId: string, page: number, totalPages: number): InlineKeyboard | undefined {
