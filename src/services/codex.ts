@@ -11,8 +11,23 @@ export type DiscoveredCodexProject = {
   lastSeenAt?: string;
 };
 
+export type DiscoveredCodexThread = {
+  threadId: string;
+  path: string;
+  title: string;
+  preview?: string;
+  source: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CodexJobWithProject = Prisma.CodexJobGetPayload<{
   include: { project: true; attachments: true };
+}>;
+
+export type CodexThreadWithProject = Prisma.CodexThreadGetPayload<{
+  include: { project: true };
 }>;
 
 export type CodexAttachmentInput = {
@@ -97,9 +112,103 @@ export async function syncCodexProjects(scope: CodexScope, discovered: Discovere
   });
 }
 
+export async function syncCodexThreads(
+  scope: CodexScope,
+  discovered: DiscoveredCodexThread[]
+): Promise<CodexThreadWithProject[]> {
+  const unique = uniqueThreads(discovered);
+
+  return prisma.$transaction(async (tx) => {
+    const projects = await tx.codexProject.findMany({ where: { ...scope, enabled: true } });
+    const projectsByPath = new Map(projects.map((project) => [normalizedPathKey(project.path), project]));
+    const validItems = unique.filter((item) => projectsByPath.has(normalizedPathKey(item.path)));
+    const threadIds = validItems.map((item) => item.threadId);
+
+    await tx.codexThread.updateMany({
+      where: scope,
+      data: { enabled: false }
+    });
+
+    const [knownJobs, existingThreads] = threadIds.length > 0
+      ? await Promise.all([
+          tx.codexJob.findMany({
+            where: { ...scope, threadId: { in: threadIds } },
+            select: { threadId: true, threadTitle: true, prompt: true },
+            orderBy: { createdAt: "desc" }
+          }),
+          tx.codexThread.findMany({
+            where: { id: { in: threadIds }, ...scope }
+          })
+        ])
+      : [[], []];
+    const jobByThreadId = new Map<string, typeof knownJobs[number]>();
+    for (const job of knownJobs) {
+      if (job.threadId && !jobByThreadId.has(job.threadId)) jobByThreadId.set(job.threadId, job);
+    }
+    const existingById = new Map(existingThreads.map((thread) => [thread.id, thread]));
+
+    for (const item of validItems) {
+      const project = projectsByPath.get(normalizedPathKey(item.path))!;
+      const knownJob = jobByThreadId.get(item.threadId);
+      const existing = existingById.get(item.threadId);
+      const isTelegramThread = Boolean(knownJob || existing?.source === "telegram");
+      const title = isTelegramThread
+        ? knownJob?.threadTitle || existing?.title || taskTitleFromPrompt(knownJob?.prompt || item.preview || item.title)
+        : item.title;
+      const lastSeenAt = validDate(item.updatedAt) ?? validDate(item.createdAt) ?? new Date();
+
+      await tx.codexThread.upsert({
+        where: { id: item.threadId },
+        create: {
+          id: item.threadId,
+          ...scope,
+          projectId: project.id,
+          title,
+          preview: item.preview,
+          source: isTelegramThread ? "telegram" : item.source,
+          status: item.status,
+          enabled: true,
+          threadCreatedAt: validDate(item.createdAt),
+          threadUpdatedAt: validDate(item.updatedAt),
+          lastSeenAt
+        },
+        update: {
+          projectId: project.id,
+          title,
+          preview: item.preview,
+          source: isTelegramThread ? "telegram" : item.source,
+          status: item.status,
+          enabled: true,
+          threadCreatedAt: validDate(item.createdAt),
+          threadUpdatedAt: validDate(item.updatedAt),
+          lastSeenAt
+        }
+      });
+    }
+
+    const inactiveState = await tx.codexChatState.findUnique({
+      where: { ownerTelegramId_telegramChatId: scope },
+      include: { activeThread: true }
+    });
+    if (inactiveState?.activeThread && !inactiveState.activeThread.enabled) {
+      await tx.codexChatState.update({
+        where: { id: inactiveState.id },
+        data: { activeThreadId: null }
+      });
+    }
+
+    return tx.codexThread.findMany({
+      where: { ...scope, enabled: true },
+      include: { project: true },
+      orderBy: [{ threadUpdatedAt: "desc" }, { lastSeenAt: "desc" }]
+    });
+  });
+}
+
 export async function listCodexProjects(scope: CodexScope): Promise<{
   projects: CodexProject[];
   activeProjectId?: string;
+  activeThreadId?: string;
 }> {
   const [projects, state] = await Promise.all([
     prisma.codexProject.findMany({
@@ -110,7 +219,11 @@ export async function listCodexProjects(scope: CodexScope): Promise<{
       where: { ownerTelegramId_telegramChatId: scope }
     })
   ]);
-  return { projects, activeProjectId: state?.activeProjectId ?? undefined };
+  return {
+    projects,
+    activeProjectId: state?.activeProjectId ?? undefined,
+    activeThreadId: state?.activeThreadId ?? undefined
+  };
 }
 
 export async function selectCodexProject(scope: CodexScope, alias: string): Promise<CodexProject | undefined> {
@@ -125,8 +238,8 @@ export async function selectCodexProject(scope: CodexScope, alias: string): Prom
 
   await prisma.codexChatState.upsert({
     where: { ownerTelegramId_telegramChatId: scope },
-    create: { ...scope, activeProjectId: project.id },
-    update: { activeProjectId: project.id }
+    create: { ...scope, activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null },
+    update: { activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null }
   });
   return project;
 }
@@ -138,10 +251,120 @@ export async function selectCodexProjectById(scope: CodexScope, projectId: strin
   if (!project) return undefined;
   await prisma.codexChatState.upsert({
     where: { ownerTelegramId_telegramChatId: scope },
-    create: { ...scope, activeProjectId: project.id },
-    update: { activeProjectId: project.id }
+    create: { ...scope, activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null },
+    update: { activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null }
   });
   return project;
+}
+
+export async function listCodexThreads(
+  scope: CodexScope,
+  projectId: string
+): Promise<{
+  project?: CodexProject;
+  threads: CodexThreadWithProject[];
+  activeThreadId?: string;
+}> {
+  const [project, threads, state] = await Promise.all([
+    prisma.codexProject.findFirst({ where: { id: projectId, ...scope, enabled: true } }),
+    prisma.codexThread.findMany({
+      where: {
+        ...scope,
+        projectId,
+        enabled: true,
+        source: { in: ["vscode", "cli", "appServer", "unknown", "telegram"] }
+      },
+      include: { project: true },
+      orderBy: [{ threadUpdatedAt: "desc" }, { lastSeenAt: "desc" }]
+    }),
+    prisma.codexChatState.findUnique({
+      where: { ownerTelegramId_telegramChatId: scope }
+    })
+  ]);
+  return { project: project ?? undefined, threads, activeThreadId: state?.activeThreadId ?? undefined };
+}
+
+export async function selectCodexThreadById(
+  scope: CodexScope,
+  threadId: string
+): Promise<CodexThreadWithProject | undefined> {
+  const thread = await prisma.codexThread.findFirst({
+    where: { id: threadId, ...scope, enabled: true, project: { enabled: true } },
+    include: { project: true }
+  });
+  if (!thread) return undefined;
+  await prisma.codexChatState.upsert({
+    where: { ownerTelegramId_telegramChatId: scope },
+    create: { ...scope, activeProjectId: thread.projectId, activeThreadId: thread.id, pendingThreadJobId: null },
+    update: { activeProjectId: thread.projectId, activeThreadId: thread.id, pendingThreadJobId: null }
+  });
+  return thread;
+}
+
+export async function clearActiveCodexThread(
+  scope: CodexScope,
+  projectId: string
+): Promise<CodexProject | undefined> {
+  const project = await prisma.codexProject.findFirst({
+    where: { id: projectId, ...scope, enabled: true }
+  });
+  if (!project) return undefined;
+  await prisma.codexChatState.upsert({
+    where: { ownerTelegramId_telegramChatId: scope },
+    create: { ...scope, activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null },
+    update: { activeProjectId: project.id, activeThreadId: null, pendingThreadJobId: null }
+  });
+  return project;
+}
+
+export async function findActiveCodexThread(
+  scope: CodexScope,
+  projectId?: string
+): Promise<CodexThreadWithProject | undefined> {
+  const state = await prisma.codexChatState.findUnique({
+    where: { ownerTelegramId_telegramChatId: scope },
+    include: { activeThread: { include: { project: true } } }
+  });
+  const thread = state?.activeThread;
+  if (!thread?.enabled || !thread.project.enabled) return undefined;
+  if (projectId && thread.projectId !== projectId) return undefined;
+  return thread;
+}
+
+export async function findCodexThreadByReference(
+  scope: CodexScope,
+  reference: string,
+  projectId?: string
+): Promise<CodexThreadWithProject | undefined> {
+  const value = reference.trim().replace(/^["']|["']$/g, "");
+  if (!value) return undefined;
+  const where = {
+    ...scope,
+    ...(projectId ? { projectId } : {}),
+    enabled: true,
+    project: { enabled: true }
+  };
+  const direct = await prisma.codexThread.findMany({
+    where: {
+      ...where,
+      OR: [
+        { id: { startsWith: value, mode: "insensitive" as const } },
+        { title: { equals: value, mode: "insensitive" as const } }
+      ]
+    },
+    include: { project: true },
+    take: 2
+  });
+  if (direct.length === 1) return direct[0];
+  if (direct.length > 1) return undefined;
+
+  const partial = await prisma.codexThread.findMany({
+    where: { ...where, title: { contains: value, mode: "insensitive" } },
+    include: { project: true },
+    orderBy: [{ threadUpdatedAt: "desc" }, { lastSeenAt: "desc" }],
+    take: 2
+  });
+  return partial.length === 1 ? partial[0] : undefined;
 }
 
 export async function findCodexProject(scope: CodexScope, alias?: string): Promise<CodexProject | undefined> {
@@ -187,10 +410,25 @@ export async function queueCodexJob(input: {
   reasoningEffort?: string;
   attachments?: CodexAttachmentInput[];
   replyToJob?: CodexJobWithProject;
+  targetThread?: CodexThreadWithProject;
   forceNewThread?: boolean;
 }): Promise<CodexJobWithProject> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Codex prompt cannot be empty.");
+  const resumedThreadId = input.replyToJob?.threadId ?? input.targetThread?.id;
+  const newThread = Boolean(input.forceNewThread || !resumedThreadId);
+  const threadTitle = newThread
+    ? taskTitleFromPrompt(prompt)
+    : input.replyToJob?.threadTitle
+      || (input.replyToJob ? taskTitleFromPrompt(input.replyToJob.prompt) : undefined)
+      || input.targetThread?.title
+      || taskTitleFromPrompt(prompt);
+  const knownThread = !newThread && resumedThreadId
+    ? input.targetThread ?? await prisma.codexThread.findFirst({
+        where: { id: resumedThreadId, ...input.scope, enabled: true },
+        include: { project: true }
+      }) ?? undefined
+    : undefined;
 
   const job = await prisma.codexJob.create({
     data: {
@@ -200,7 +438,9 @@ export async function queueCodexJob(input: {
       telegramRequestMessageId: input.telegramRequestMessageId,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
-      threadId: input.forceNewThread ? null : input.replyToJob?.threadId,
+      threadId: newThread ? null : resumedThreadId,
+      threadTitle,
+      newThread,
       replyToJobId: input.replyToJob?.id,
       attachments: input.attachments?.length ? { create: input.attachments } : undefined
     },
@@ -209,8 +449,17 @@ export async function queueCodexJob(input: {
 
   await prisma.codexChatState.upsert({
     where: { ownerTelegramId_telegramChatId: input.scope },
-    create: { ...input.scope, activeProjectId: input.project.id },
-    update: { activeProjectId: input.project.id }
+    create: {
+      ...input.scope,
+      activeProjectId: input.project.id,
+      activeThreadId: newThread ? null : knownThread?.id,
+      pendingThreadJobId: newThread ? job.id : null
+    },
+    update: {
+      activeProjectId: input.project.id,
+      activeThreadId: newThread ? null : knownThread?.id,
+      pendingThreadJobId: newThread ? job.id : null
+    }
   });
 
   return job;
@@ -288,10 +537,13 @@ export async function completeCodexJob(input: {
     }
   });
   if (updated.count === 0) return undefined;
-  return (await prisma.codexJob.findUnique({
+  const job = (await prisma.codexJob.findUnique({
     where: { id: input.id },
     include: { project: true, attachments: true }
   })) ?? undefined;
+  if (job && input.threadId) await recordCompletedCodexThread(job, input.threadId, "idle");
+  else if (job?.newThread) await clearPendingCodexThread(job);
+  return job;
 }
 
 export async function completedCodexJobForWorker(
@@ -328,10 +580,13 @@ export async function failCodexJob(input: {
     }
   });
   if (updated.count === 0) return undefined;
-  return (await prisma.codexJob.findUnique({
+  const job = (await prisma.codexJob.findUnique({
     where: { id: input.id },
     include: { project: true, attachments: true }
   })) ?? undefined;
+  if (job && input.threadId) await recordCompletedCodexThread(job, input.threadId, "systemError");
+  else if (job?.newThread) await clearPendingCodexThread(job);
+  return job;
 }
 
 export async function findCodexJobByReference(scope: CodexScope, reference: string): Promise<CodexJobWithProject | undefined> {
@@ -431,6 +686,71 @@ export function splitTelegramReport(text: string, maxLength = 3_900): string[] {
   return chunks;
 }
 
+export function taskTitleFromPrompt(prompt: string): string {
+  const firstLine = prompt.split(/\r?\n/, 1)[0]?.replace(/\s+/g, " ").trim() || "New Codex task";
+  const points = Array.from(firstLine);
+  return points.length <= 80 ? firstLine : `${points.slice(0, 77).join("")}...`;
+}
+
+async function recordCompletedCodexThread(
+  job: CodexJobWithProject,
+  threadId: string,
+  status: string
+): Promise<void> {
+  const now = job.completedAt ?? new Date();
+  const title = job.threadTitle || taskTitleFromPrompt(job.prompt);
+  await prisma.$transaction(async (tx) => {
+    await tx.codexThread.upsert({
+      where: { id: threadId },
+      create: {
+        id: threadId,
+        ownerTelegramId: job.ownerTelegramId,
+        telegramChatId: job.telegramChatId,
+        projectId: job.projectId,
+        title,
+        preview: job.prompt,
+        source: "telegram",
+        status,
+        enabled: true,
+        threadCreatedAt: job.startedAt ?? now,
+        threadUpdatedAt: now,
+        lastSeenAt: now
+      },
+      update: {
+        projectId: job.projectId,
+        title,
+        preview: job.prompt,
+        source: "telegram",
+        status,
+        enabled: true,
+        threadUpdatedAt: now,
+        lastSeenAt: now
+      }
+    });
+    if (job.newThread) {
+      const scope = {
+        ownerTelegramId: job.ownerTelegramId,
+        telegramChatId: job.telegramChatId
+      };
+      await tx.codexChatState.updateMany({
+        where: { ...scope, pendingThreadJobId: job.id },
+        data: { activeProjectId: job.projectId, activeThreadId: threadId, pendingThreadJobId: null }
+      });
+    }
+  });
+}
+
+async function clearPendingCodexThread(job: CodexJobWithProject): Promise<void> {
+  await prisma.codexChatState.updateMany({
+    where: {
+      ownerTelegramId: job.ownerTelegramId,
+      telegramChatId: job.telegramChatId,
+      pendingThreadJobId: job.id
+    },
+    data: { pendingThreadJobId: null }
+  });
+}
+
 function uniqueProjectPaths(items: DiscoveredCodexProject[]): DiscoveredCodexProject[] {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -441,6 +761,22 @@ function uniqueProjectPaths(items: DiscoveredCodexProject[]): DiscoveredCodexPro
     item.path = path;
     return true;
   });
+}
+
+function uniqueThreads(items: DiscoveredCodexThread[]): DiscoveredCodexThread[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const id = item.threadId.trim();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    item.threadId = id;
+    item.path = item.path.trim().replace(/[\\/]+$/, "");
+    return Boolean(item.path);
+  });
+}
+
+function normalizedPathKey(path: string): string {
+  return path.trim().replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
 }
 
 function uniqueAlias(base: string, aliases: Set<string>): string {

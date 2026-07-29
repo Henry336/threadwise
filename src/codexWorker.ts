@@ -5,6 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { discoverCodexProjects } from "./services/codexDiscovery";
 import { codexInputWithAttachments, safeCodexAttachmentName } from "./services/codexAttachments";
+import { discoverCodexThreads } from "./services/codexThreadDiscovery";
 
 type WorkerConfig = {
   serviceUrl: string;
@@ -65,11 +66,24 @@ async function runWorker(): Promise<void> {
         if (projects.length === 0) {
           console.warn("[codex-worker] Discovery returned no projects; keeping the server registry unchanged.");
         } else {
-          const response = await workerRequest<{ projects: Array<{ alias: string; path: string }> }>("/codex/worker/sync", {
+          let threads;
+          try {
+            threads = await discoverCodexThreads(projects.map((project) => project.path));
+          } catch (error) {
+            console.warn(`[codex-worker] Task discovery failed; keeping the server task registry unchanged: ${errorMessage(error)}`);
+          }
+          const response = await workerRequest<{
+            projects: Array<{ alias: string; path: string }>;
+            threadCount?: number;
+          }>("/codex/worker/sync", {
             workerId: config.workerId,
-            projects
+            projects,
+            threads
           });
           console.log(`[codex-worker] Synced ${response.projects.length} projects.`);
+          if (response.threadCount !== undefined) {
+            console.log(`[codex-worker] Synced ${response.threadCount} Codex tasks.`);
+          }
         }
         nextSyncAt = Date.now() + config.syncMs;
       }

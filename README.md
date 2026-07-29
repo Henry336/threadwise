@@ -479,7 +479,7 @@ CODEX_WORKER_TOKEN=A_LONG_RANDOM_SHARED_SECRET
 CODEX_JOB_LEASE_SECONDS=3600
 ```
 
-For a bot deployment intended only for this owner, also set `BOT_ALLOWED_TELEGRAM_IDS` to the same owner user id. Do not allowlist the Codex group id: allowing only the owner id means other group members are rejected by the global bot gate as well as the Codex-specific gate.
+Private Codex mode does not require `BOT_ALLOWED_TELEGRAM_IDS`. Leave that global setting unchanged unless the entire Threadwise bot—not merely Codex mode—should be restricted. Codex has its own exact owner-and-chat gate.
 
 The handler checks both the exact user id and exact chat id on every prompt and callback. Unauthorized `/codex` attempts are ignored without a response. The command is intentionally absent from the public command/help menus. Before showing any Codex UI or report, Threadwise verifies that the configured owner is still an active member and that the group contains only that owner and the bot. If either check fails, group delivery fails closed and a completed report is sent to the owner's private bot chat instead. Telegram may expose older group history to someone added later, depending on the group's history setting, so keep the group private and hide history from new members if the reports must remain owner-only.
 
@@ -509,26 +509,29 @@ npm install
 npm run codex:worker
 ```
 
-On startup and every five minutes, the worker reads only `session_meta` records from Codex session logs. It registers unique, existing Git repositories and excludes Codex-managed worktrees, missing folders, and non-Git directories. No prompt bodies or credentials are uploaded during discovery.
+On startup and every five minutes, the worker discovers project folders from Codex `session_meta` records and asks the local Codex app-server for the task names, ids, sources, and timestamps shown by Codex clients. It registers unique, existing Git repositories; excludes Codex-managed worktrees, missing folders, and non-Git directories; and syncs only the task metadata needed for Telegram selection. Codex credentials and session contents are never uploaded.
 
 Inside the configured Telegram group:
 
 ```text
 /codex projects
+/codex tasks threadwise
 /codex use threadwise
+/codex use task "Add Telegram Codex mode"
 Fix the reminder bug
 in subscription-radar Review the renewal calculation
+in threadwise task "Add Telegram Codex mode": Continue the implementation
 new Start a separate Codex task
 continue a1b2c3d4 Add regression tests
 in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI
 /codex status
 ```
 
-`/codex projects` shows the current laptop project aliases and paths in paginated cards. Tap an alias to make it active. Plain text uses that project, while `in <alias>` targets any other project for one task. Every queued task and report shows a short task id and project alias. Continue work by replying to its report—even after changing report pages—or with `continue <task-id> <prompt>`. `new` starts a fresh thread.
+`/codex projects` shows the current laptop project aliases and paths in paginated cards. Tapping a project opens `/codex tasks <alias>`, which lists the same named Codex tasks stored for that folder. Tap a task to make that exact thread active; plain messages resume it. Tap **New task** to clear the selection and make the next prompt start separately. You can also target a task directly with `in <alias> task "<title>": <prompt>` or `/codex use task "<title>"`. Every queue acknowledgement and report identifies the project, Codex task title/id, and separate Threadwise request id. Replying to a report resumes that exact task even after changing report pages; `continue <request-id> <prompt>` resumes it without locating the report.
 
 Use `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` anywhere before the prompt to override one task. Omitted controls inherit the resumed thread or local Codex defaults.
 
-Long final responses are stored intact and shown as one Telegram report card with project, folder, task, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
+Long final responses are stored intact and shown as one Telegram report card with project, folder, Codex task title/id, request id, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
 
 Photos and image documents are downloaded by the authenticated worker and passed to the SDK as native `local_image` inputs. Other Telegram documents are downloaded to a unique temporary directory, exposed to that Codex turn as an additional readable directory, and named explicitly in the prompt. The temporary files are deleted when the turn finishes. The laptop never receives the Telegram bot token; it downloads each attachment through a worker-authenticated Threadwise endpoint that only serves files belonging to its currently claimed job.
 

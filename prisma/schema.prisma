@@ -822,6 +822,7 @@ model CodexProject {
   updatedAt        DateTime @updatedAt
 
   jobs       CodexJob[]
+  threads    CodexThread[]
   activeFor  CodexChatState[]
 
   @@unique([ownerTelegramId, telegramChatId, alias])
@@ -834,13 +835,40 @@ model CodexChatState {
   ownerTelegramId  String
   telegramChatId   String
   activeProjectId  String?
+  activeThreadId   String?
+  pendingThreadJobId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   activeProject CodexProject? @relation(fields: [activeProjectId], references: [id], onDelete: SetNull)
+  activeThread  CodexThread?  @relation(fields: [activeThreadId], references: [id], onDelete: SetNull)
 
   @@unique([ownerTelegramId, telegramChatId])
   @@index([activeProjectId])
+  @@index([activeThreadId])
+}
+
+model CodexThread {
+  id               String   @id
+  ownerTelegramId  String
+  telegramChatId   String
+  projectId        String
+  title            String
+  preview          String?
+  source           String
+  status           String?
+  enabled          Boolean  @default(true)
+  threadCreatedAt  DateTime?
+  threadUpdatedAt  DateTime?
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project   CodexProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activeFor CodexChatState[]
+
+  @@index([ownerTelegramId, telegramChatId, projectId, enabled, threadUpdatedAt])
+  @@index([ownerTelegramId, telegramChatId, title])
 }
 
 model CodexJob {
@@ -852,6 +880,8 @@ model CodexJob {
   prompt           String
   telegramRequestMessageId Int?
   threadId         String?
+  threadTitle      String?
+  newThread        Boolean        @default(false)
   model            String?
   reasoningEffort  String?
   replyToJobId     String?

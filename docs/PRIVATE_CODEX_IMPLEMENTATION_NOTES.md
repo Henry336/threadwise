@@ -6,7 +6,7 @@ Date audited: 2026-07-29
 
 - Telegram owner user: deployment-only configuration
 - Dedicated Telegram group: deployment-only configuration
-- Recommended global bot allowlist: the same owner user id
+- Global bot allowlist: independent of Codex mode; leave unchanged unless all of Threadwise should be owner-only
 - Required private-mode values:
   - `CODEX_OWNER_TELEGRAM_ID=<owner user id>`
   - `CODEX_TELEGRAM_CHAT_ID=<dedicated two-member group id>`
@@ -20,13 +20,17 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Owner-and-chat scoped project registry, chat state, job queue, task/thread relationships, attachments, and report-message mappings in PostgreSQL.
 - Local project discovery from Codex `session_meta` records. It lists unique, existing Git repositories, ignores missing/non-Git folders, and excludes Codex-managed worktrees.
 - `/codex projects` provides a paginated, tap-to-select list of aliases and full local paths.
-- Plain text uses the selected project. `in <project-alias> <prompt>` explicitly targets another project.
+- The worker uses the official local Codex app-server `thread/list` interface to sync desktop task names and ids for every discovered project.
+- Tapping a project opens a paginated task picker. `/codex tasks <alias>` opens it directly.
+- Tapping a task makes that exact Codex thread active. Plain text resumes the checked task; **New task** clears it.
+- `/codex use task "<title>"` selects by title, while `in <alias> task "<title>": <prompt>` directly targets any unique task.
+- Plain text uses the selected project/task. `in <project-alias> <prompt>` explicitly targets another project.
 - Replying to a completion report resumes that exact Codex thread and project. `continue <task-id> <prompt>` provides the same behavior without locating the report.
 - `new <prompt>` deliberately starts a fresh thread.
 - Per-task `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` controls.
 - Telegram photos and image documents are passed to Codex as native `local_image` inputs.
 - Other documents are downloaded into a unique temporary directory, provided as an additional readable directory, named in the prompt, and removed after the turn.
-- Every completion/failure report identifies project, task, folder, model, reasoning level, and current report page.
+- Every completion/failure report identifies project, Codex task title/id, separate request id, folder, model, reasoning level, and current report page.
 - Long reports are kept intact and shown through Previous/Next controls that edit one Telegram message, preserving reply-to-task routing.
 
 ## Privacy and authorization safeguards
@@ -42,7 +46,7 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Report pagination in fallback direct messages is usable only by the owner. Prompting remains restricted to the configured group.
 - Worker endpoints require the shared secret, compare it using a timing-safe equality check, and scope every claim, attachment, heartbeat, completion, and failure operation to the configured owner and group.
 - The worker never receives the Telegram bot token.
-- The recommended global allowlist contains only the owner user id, not the group id, so another group member is blocked by both the global gate and Codex-specific checks.
+- Codex privacy does not depend on the global Threadwise allowlist. The exact owner/chat and two-member-group checks protect Codex mode without hiding ordinary Threadwise features from other users.
 
 ## Reliability and correctness fixes from the audit
 
@@ -67,9 +71,10 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - TypeScript typecheck: passed.
 - Production TypeScript build: passed.
 - Prisma schema validation: passed.
-- Focused Codex tests: 18 passed.
-- Entire Threadwise test suite: 62 files and 565 tests passed.
+- Focused Codex tests: 22 passed.
+- Entire Threadwise test suite: 63 files and 571 tests passed.
 - Real local project-discovery smoke test: 25 usable Git projects found.
+- Real Codex app-server task-discovery smoke test: the three Threadwise desktop task titles and ids matched the Codex sidebar.
 - Official SDK smoke test with explicit model/reasoning controls: passed and returned a real Codex thread id.
 - Production dependency audit:
   - Safe non-breaking updates were applied, including patched `fast-uri` and `find-my-way`.
