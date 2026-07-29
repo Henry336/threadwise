@@ -10,7 +10,13 @@ import {
 describe("private Codex command parsing", () => {
   it("parses project selection and discovery commands", () => {
     expect(parseCodexCommand("projects")).toEqual({ action: "projects" });
+    expect(parseCodexCommand("tasks threadwise")).toEqual({ action: "tasks", alias: "threadwise" });
+    expect(parseCodexCommand("tasks")).toEqual({ action: "tasks", alias: undefined });
     expect(parseCodexCommand("use Threadwise")).toEqual({ action: "use", alias: "Threadwise" });
+    expect(parseCodexCommand('use task "Add Telegram Codex mode"')).toEqual({
+      action: "useTask",
+      reference: "Add Telegram Codex mode"
+    });
     expect(parseCodexCommand("status")).toEqual({ action: "status" });
   });
 
@@ -50,6 +56,27 @@ describe("private Codex command parsing", () => {
       action: "run",
       taskRef: "a1b2c3d4",
       prompt: "add regression tests",
+      forceNewThread: false
+    });
+  });
+
+  it("targets an existing desktop task by project and title", () => {
+    expect(parseCodexCommand(
+      'in threadwise task "Add Telegram Codex mode": finish the task picker'
+    )).toMatchObject({
+      action: "run",
+      alias: "threadwise",
+      threadRef: "Add Telegram Codex mode",
+      prompt: "finish the task picker",
+      forceNewThread: false
+    });
+  });
+
+  it("targets a task in the active project by short thread id", () => {
+    expect(parseCodexCommand("task 019fa9fc: run all tests")).toMatchObject({
+      action: "run",
+      threadRef: "019fa9fc",
+      prompt: "run all tests",
       forceNewThread: false
     });
   });

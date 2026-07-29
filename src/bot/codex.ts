@@ -4,19 +4,25 @@ import { privateCodexConfig } from "../config/env";
 import {
   codexJobHasReportMessage,
   codexJobForReport,
+  clearActiveCodexThread,
+  findActiveCodexThread,
   findCodexJobByReference,
   findCodexProject,
   findCodexReplyJob,
+  findCodexThreadByReference,
   isPrivateCodexActor,
   isPrivateCodexReportActor,
   listCodexProjects,
+  listCodexThreads,
   queueCodexJob,
   recentCodexJobs,
   recordCodexReportMessage,
   markCodexJobDelivered,
   selectCodexProject,
   selectCodexProjectById,
+  selectCodexThreadById,
   splitTelegramReport,
+  taskTitleFromPrompt,
   undeliveredCodexJobs,
   type CodexAttachmentInput,
   type CodexJobWithProject,
@@ -28,6 +34,7 @@ import { commandBody } from "../utils/text";
 
 export const CODEX_REPORT_PAGE_CHARS = 2_800;
 const PROJECTS_PER_PAGE = 8;
+const THREADS_PER_PAGE = 6;
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const REASONING_LEVELS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 type ReasoningLevel = typeof REASONING_LEVELS[number];
@@ -37,6 +44,7 @@ type RunCommand = {
   prompt: string;
   alias?: string;
   taskRef?: string;
+  threadRef?: string;
   forceNewThread: boolean;
   model?: string;
   reasoningEffort?: ReasoningLevel;
@@ -45,9 +53,11 @@ type RunCommand = {
 export type ParsedCodexCommand =
   | { action: "help" }
   | { action: "projects" }
+  | { action: "tasks"; alias?: string }
   | { action: "models" }
   | { action: "status" }
   | { action: "use"; alias: string }
+  | { action: "useTask"; reference: string }
   | { action: "error"; message: string }
   | RunCommand;
 
@@ -97,8 +107,48 @@ export function registerCodexMode(bot: Bot): void {
       await ctx.answerCallbackQuery({ text: "That project is no longer available." });
       return;
     }
-    await editProjectsPage(ctx, scope, Number(ctx.match[2]));
+    await editTasksPage(ctx, scope, project.id, 0);
     await ctx.answerCallbackQuery({ text: `Using ${project.alias}` });
+  });
+
+  bot.callbackQuery(/^codex:tasks:([0-9a-f-]+):(\d+)$/, async (ctx) => {
+    const scope = privateCodexScopeForContext(ctx);
+    if (!scope || !await codexGroupIsPrivate(ctx, scope)) {
+      await silentlyAnswerCallback(ctx);
+      return;
+    }
+    await editTasksPage(ctx, scope, ctx.match[1]!, Number(ctx.match[2]));
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^codex:thread:([0-9a-f-]+):(\d+)$/, async (ctx) => {
+    const scope = privateCodexScopeForContext(ctx);
+    if (!scope || !await codexGroupIsPrivate(ctx, scope)) {
+      await silentlyAnswerCallback(ctx);
+      return;
+    }
+    const thread = await selectCodexThreadById(scope, ctx.match[1]!);
+    if (!thread) {
+      await ctx.answerCallbackQuery({ text: "That Codex task is no longer available." });
+      return;
+    }
+    await editTasksPage(ctx, scope, thread.projectId, Number(ctx.match[2]));
+    await ctx.answerCallbackQuery({ text: `Using ${buttonTitle(thread.title, 48)}` });
+  });
+
+  bot.callbackQuery(/^codex:newtask:([0-9a-f-]+):(\d+)$/, async (ctx) => {
+    const scope = privateCodexScopeForContext(ctx);
+    if (!scope || !await codexGroupIsPrivate(ctx, scope)) {
+      await silentlyAnswerCallback(ctx);
+      return;
+    }
+    const project = await clearActiveCodexThread(scope, ctx.match[1]!);
+    if (!project) {
+      await ctx.answerCallbackQuery({ text: "That project is no longer available." });
+      return;
+    }
+    await editTasksPage(ctx, scope, project.id, Number(ctx.match[2]));
+    await ctx.answerCallbackQuery({ text: "Your next prompt starts a new task." });
   });
 
   bot.on("message:photo", async (ctx, next) => {
@@ -167,7 +217,13 @@ export function parseCodexCommand(body: string): ParsedCodexCommand {
   if (!value || /^(?:help|\?)$/i.test(value)) return { action: "help" };
   if (/^(?:projects?|repos?)$/i.test(value)) return { action: "projects" };
   if (/^(?:models?|reasoning)$/i.test(value)) return { action: "models" };
-  if (/^(?:status|jobs?|tasks?)$/i.test(value)) return { action: "status" };
+  if (/^(?:status|jobs?)$/i.test(value)) return { action: "status" };
+
+  const tasks = value.match(/^tasks?(?:\s+([a-z0-9][a-z0-9-]*))?$/i);
+  if (tasks) return { action: "tasks", alias: tasks[1] };
+
+  const useTask = value.match(/^use\s+task\s+(.+)$/i);
+  if (useTask?.[1]) return { action: "useTask", reference: unquote(useTask[1].trim()) };
 
   const use = value.match(/^use\s+([a-z0-9][a-z0-9-]*)$/i);
   if (use?.[1]) return { action: "use", alias: use[1] };
@@ -263,8 +319,13 @@ function parseRunCommand(input: string): ParsedCodexCommand {
   value = value.replace(/^\s*--\s*/, "").trim();
   let alias: string | undefined;
   let taskRef: string | undefined;
+  let threadRef: string | undefined;
 
-  if (/^continue\s+[0-9a-f]{6,36}\s*$/i.test(value) || /^in\s+[a-z0-9][a-z0-9-]*\s*$/i.test(value)) {
+  if (
+    /^continue\s+[0-9a-f]{6,36}\s*$/i.test(value)
+    || /^in\s+[a-z0-9][a-z0-9-]*\s*$/i.test(value)
+    || /^(?:in\s+[a-z0-9][a-z0-9-]*\s+)?task\s+.+:\s*$/i.test(value)
+  ) {
     return { action: "error", message: "Add a prompt for Codex to work on." };
   }
 
@@ -273,10 +334,25 @@ function parseRunCommand(input: string): ParsedCodexCommand {
     taskRef = continuation[1];
     value = continuation[2];
   } else {
-    const inProject = value.match(/^in\s+([a-z0-9][a-z0-9-]*)\s+(.+)$/is);
-    if (inProject?.[1] && inProject[2]) {
-      alias = inProject[1];
-      value = inProject[2];
+    const inProjectTask = value.match(
+      /^in\s+([a-z0-9][a-z0-9-]*)\s+task\s+(?:"([^"]+)"|'([^']+)'|([^:]+?))\s*:\s*(.+)$/is
+    );
+    const activeProjectTask = value.match(
+      /^task\s+(?:"([^"]+)"|'([^']+)'|([^:]+?))\s*:\s*(.+)$/is
+    );
+    if (inProjectTask?.[1] && inProjectTask[5]) {
+      alias = inProjectTask[1];
+      threadRef = inProjectTask[2] || inProjectTask[3] || inProjectTask[4];
+      value = inProjectTask[5];
+    } else if (activeProjectTask?.[4]) {
+      threadRef = activeProjectTask[1] || activeProjectTask[2] || activeProjectTask[3];
+      value = activeProjectTask[4];
+    } else {
+      const inProject = value.match(/^in\s+([a-z0-9][a-z0-9-]*)\s+(.+)$/is);
+      if (inProject?.[1] && inProject[2]) {
+        alias = inProject[1];
+        value = inProject[2];
+      }
     }
   }
 
@@ -287,6 +363,7 @@ function parseRunCommand(input: string): ParsedCodexCommand {
     prompt,
     alias,
     taskRef,
+    threadRef: threadRef?.trim(),
     forceNewThread,
     model: modelFlag.value,
     reasoningEffort: reasoningFlag.value?.toLowerCase() as ReasoningLevel | undefined
@@ -314,8 +391,11 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       "Choose a project once, then send prompts naturally—just like a Codex chat.",
       "",
       `${code("/codex projects")} browse and tap a project`,
+      `${code("/codex tasks threadwise")} browse and tap that project's Codex tasks`,
       `${code("/codex use threadwise")} select by alias`,
+      `${code('/codex use task "Add Telegram Codex mode"')} select a task by title`,
       `${code("in threadwise Fix the bug")} target any project`,
+      `${code('in threadwise task "Add Telegram Codex mode": Continue it')} target any exact task`,
       `${code("continue a1b2c3d4 Add tests")} continue a task by id`,
       `${code("/codex new Start separately")} start a fresh thread`,
       `${code("/codex status")} see task ids and progress`,
@@ -347,6 +427,18 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
     return;
   }
 
+  if (parsed.action === "tasks") {
+    const project = await findCodexProject(scope, parsed.alias);
+    if (!project) {
+      await ctx.reply(parsed.alias
+        ? `I couldn't find "${parsed.alias}". Open /codex projects to see the available aliases.`
+        : "Choose a project first with /codex projects.");
+      return;
+    }
+    await sendTasksPage(ctx, scope, project.id, 0);
+    return;
+  }
+
   if (parsed.action === "status") {
     const jobs = await recentCodexJobs(scope, 8);
     if (jobs.length === 0) {
@@ -356,14 +448,15 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
     await replyHtml(ctx, [
       bold("Recent Codex tasks"),
       ...jobs.map((job) => [
-        `${jobStatusIcon(job.status)} ${code(shortJobId(job.id))} · ${code(job.project.alias)} · ${h(job.status.toLowerCase())}`,
+        `${jobStatusIcon(job.status)} ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))}`,
+        `${code(job.project.alias)} · task ${code(job.threadId ? shortCodexThreadId(job.threadId) : "starting")} · request ${code(shortJobId(job.id))} · ${h(job.status.toLowerCase())}`,
         `${h(shortPrompt(job.prompt))}`,
         job.model || job.reasoningEffort
           ? `${h(job.model ?? "default model")} · reasoning ${h(job.reasoningEffort ?? "default")}`
           : undefined
       ].filter(Boolean).join("\n")),
       "",
-      `Continue one with ${code("continue TASK_ID your prompt")} or reply to its report.`
+      `Continue a request with ${code("continue REQUEST_ID your prompt")}, select a desktop task with ${code("/codex tasks")}, or reply to its report.`
     ].join("\n"));
     return;
   }
@@ -374,7 +467,28 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       await ctx.reply(`I couldn't find "${parsed.alias}". Open /codex projects to see and tap an available alias.`);
       return;
     }
-    await replyHtml(ctx, `${bold("Active Codex project")} ${code(project.alias)}\n${code(project.path)}\n\nNow send a prompt normally.`);
+    await sendTasksPage(ctx, scope, project.id, 0);
+    return;
+  }
+
+  if (parsed.action === "useTask") {
+    const activeProject = await findCodexProject(scope);
+    const thread = await findCodexThreadByReference(scope, parsed.reference, activeProject?.id);
+    if (!thread) {
+      await ctx.reply(
+        `I couldn't find one unique task matching "${parsed.reference}"${activeProject ? ` in ${activeProject.alias}` : ""}. Open /codex tasks and tap it.`
+      );
+      return;
+    }
+    await selectCodexThreadById(scope, thread.id);
+    await replyHtml(ctx, [
+      bold("Active Codex task"),
+      `Project: ${code(thread.project.alias)}`,
+      `Task: ${h(thread.title)}`,
+      `ID: ${code(shortCodexThreadId(thread.id))}`,
+      "",
+      "Now send a prompt normally. It will resume this exact desktop task."
+    ].join("\n"));
     return;
   }
 
@@ -407,23 +521,46 @@ async function queuePromptFromContext(
   const repliedJob = repliedMessageId ? await findCodexReplyJob(scope, repliedMessageId) : undefined;
   const referencedJob = command.taskRef ? await findCodexJobByReference(scope, command.taskRef) : undefined;
   if (command.taskRef && !referencedJob) {
-    await ctx.reply(`I couldn't find a unique Codex task matching "${command.taskRef}". Use /codex status and copy its task id.`);
+    await ctx.reply(`I couldn't find a unique Codex request matching "${command.taskRef}". Use /codex status and copy its request id.`);
     return;
   }
 
-  const continuation = referencedJob ?? (command.alias ? undefined : repliedJob);
+  if (command.forceNewThread && command.threadRef) {
+    await ctx.reply("Choose either “new” or a specific existing task, not both.");
+    return;
+  }
+
+  const explicitProject = command.alias ? await findCodexProject(scope, command.alias) : undefined;
+  if (command.alias && !explicitProject) {
+    await ctx.reply(`I couldn't find "${command.alias}". Open /codex projects to see and tap an available alias.`);
+    return;
+  }
+  const explicitThread = command.threadRef
+    ? await findCodexThreadByReference(scope, command.threadRef, explicitProject?.id)
+    : undefined;
+  if (command.threadRef && !explicitThread) {
+    await ctx.reply(
+      `I couldn't find one unique Codex task matching "${command.threadRef}". Open ${command.alias ? `/codex tasks ${command.alias}` : "/codex tasks"} and tap it.`
+    );
+    return;
+  }
+
+  const continuation = referencedJob
+    ?? (!command.alias && !command.threadRef && !command.forceNewThread ? repliedJob : undefined);
   if (continuation && !continuation.threadId && !command.forceNewThread) {
     await ctx.reply(
       "That task does not have a resumable Codex thread yet. Wait for its report, or use “new” to start a fresh task in the same project."
     );
     return;
   }
-  const project = continuation?.project ?? await findCodexProject(scope, command.alias);
+  const selectedProject = explicitProject ?? await findCodexProject(scope);
+  const activeThread = !continuation && !explicitThread && !command.forceNewThread
+    ? await findActiveCodexThread(scope, selectedProject?.id)
+    : undefined;
+  const targetThread = explicitThread ?? activeThread;
+  const project = continuation?.project ?? targetThread?.project ?? selectedProject;
   if (!project) {
-    const message = command.alias
-      ? `I couldn't find "${command.alias}". Open /codex projects to see and tap an available alias.`
-      : "Choose a project first with /codex projects. After that, plain messages use it automatically.";
-    await ctx.reply(message);
+    await ctx.reply("Choose a project first with /codex projects. After that, choose a task or tap “New task”.");
     return;
   }
 
@@ -436,16 +573,21 @@ async function queuePromptFromContext(
     reasoningEffort: command.reasoningEffort,
     attachments,
     replyToJob: continuation,
+    targetThread,
     forceNewThread: command.forceNewThread
   });
+  const threadId = job.threadId ? shortCodexThreadId(job.threadId) : "new";
   await replyHtml(ctx, [
-    `${bold("Codex queued")} · ${code(project.alias)} · task ${code(shortJobId(job.id))}`,
+    bold("Codex queued"),
+    `Project: ${code(project.alias)}`,
+    `Task: ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))} · ${code(threadId)}`,
+    `Request: ${code(shortJobId(job.id))}`,
     `${h(shortPrompt(job.prompt))}`,
     `${h(job.model ?? "default/resumed model")} · reasoning ${h(job.reasoningEffort ?? "default/resumed")}`,
     attachments.length ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"} included.` : undefined,
-    continuation?.threadId && !command.forceNewThread
+    (continuation?.threadId || targetThread) && !command.forceNewThread
       ? "Continuing the selected Codex task and project."
-      : "A project-labelled completion report will appear here."
+      : "Starting a new Codex task in this project."
   ].filter(Boolean).join("\n"));
 }
 
@@ -492,7 +634,74 @@ async function projectsPageData(scope: CodexScope, requestedPage: number) {
         `${project.id === activeProjectId ? "●" : "○"} ${code(project.alias)}\n${code(displayPath(project.path, 240))}`
       ),
       "",
-      "Tap an alias to make it active. You can still target any alias with “in alias …”."
+      "Tap a project to choose one of its exact Codex tasks."
+    ].join("\n"),
+    keyboard
+  };
+}
+
+async function sendTasksPage(
+  ctx: Context,
+  scope: CodexScope,
+  projectId: string,
+  requestedPage: number
+): Promise<void> {
+  const data = await tasksPageData(scope, projectId, requestedPage);
+  if (!data) {
+    await ctx.reply("That Codex project is no longer available. Open /codex projects and choose another.");
+    return;
+  }
+  await replyHtml(ctx, data.text, { reply_markup: data.keyboard });
+}
+
+async function editTasksPage(
+  ctx: Context,
+  scope: CodexScope,
+  projectId: string,
+  requestedPage: number
+): Promise<void> {
+  const data = await tasksPageData(scope, projectId, requestedPage);
+  if (!data) return;
+  await ctx.editMessageText(data.text, { ...HTML_REPLY, reply_markup: data.keyboard });
+}
+
+async function tasksPageData(scope: CodexScope, projectId: string, requestedPage: number) {
+  const { project, threads, activeThreadId } = await listCodexThreads(scope, projectId);
+  if (!project) return undefined;
+  const pageCount = Math.max(1, Math.ceil(threads.length / THREADS_PER_PAGE));
+  const page = clampPage(requestedPage, pageCount);
+  const visible = threads.slice(page * THREADS_PER_PAGE, (page + 1) * THREADS_PER_PAGE);
+  const keyboard = new InlineKeyboard();
+
+  for (const thread of visible) {
+    keyboard
+      .text(
+        `${thread.id === activeThreadId ? "✓ " : ""}${buttonTitle(thread.title, 48)}`,
+        `codex:thread:${thread.id}:${page}`
+      )
+      .row();
+  }
+  if (page > 0) keyboard.text("‹ Tasks", `codex:tasks:${project.id}:${page - 1}`);
+  if (page + 1 < pageCount) keyboard.text("More ›", `codex:tasks:${project.id}:${page + 1}`);
+  if (page > 0 || page + 1 < pageCount) keyboard.row();
+  keyboard.text("＋ New task", `codex:newtask:${project.id}:${page}`).row();
+  keyboard.text("‹ Projects", "codex:projects:0");
+
+  return {
+    text: [
+      bold(`${project.alias} tasks · ${page + 1}/${pageCount}`),
+      code(displayPath(project.path, 240)),
+      "",
+      ...(visible.length > 0
+        ? visible.map((thread) => [
+            `${thread.id === activeThreadId ? "●" : "○"} ${h(thread.title)}`,
+            `${code(shortCodexThreadId(thread.id))} · ${h(threadSourceLabel(thread.source))}${thread.threadUpdatedAt ? ` · ${h(thread.threadUpdatedAt.toISOString().slice(0, 10))}` : ""}`
+          ].join("\n"))
+        : ["No resumable Codex tasks have been found in this project yet."]),
+      "",
+      activeThreadId
+        ? "Tap a task to make it active. Plain messages resume the checked task."
+        : "Tap a task, or choose “New task” and send your next prompt."
     ].join("\n"),
     keyboard
   };
@@ -510,10 +719,12 @@ export function paginateCodexReport(report: string): string[] {
 }
 
 function renderReportPage(job: CodexJobWithProject, pages: string[], page: number): string {
+  const title = job.threadTitle ?? taskTitleFromPrompt(job.prompt);
   return [
     job.status === CodexJobStatus.COMPLETED ? "✅ Codex finished" : "❌ Codex task failed",
     `Project: ${job.project.alias}`,
-    `Task: ${shortJobId(job.id)}`,
+    `Task: ${title}${job.threadId ? ` [${shortCodexThreadId(job.threadId)}]` : ""}`,
+    `Request: ${shortJobId(job.id)}`,
     `Folder: ${displayPath(job.project.path, 500)}`,
     `Model: ${job.model ?? "local/resumed default"}`,
     `Reasoning: ${job.reasoningEffort ?? "local/resumed default"}`,
@@ -538,6 +749,28 @@ function shortPrompt(prompt: string): string {
 
 function shortJobId(id: string): string {
   return id.replace(/-/g, "").slice(0, 8);
+}
+
+function shortCodexThreadId(id: string): string {
+  return id.replace(/-/g, "").slice(0, 8);
+}
+
+function buttonTitle(value: string, maximum: number): string {
+  const points = Array.from(value.replace(/\s+/g, " ").trim());
+  return points.length <= maximum ? points.join("") : `${points.slice(0, maximum - 1).join("")}…`;
+}
+
+function threadSourceLabel(source: string): string {
+  if (source === "telegram") return "Telegram";
+  if (source === "vscode") return "Codex app";
+  if (source === "cli") return "Codex CLI";
+  if (source === "appServer") return "Codex client";
+  return "Codex";
+}
+
+function unquote(value: string): string {
+  const match = value.match(/^(?:"([^"]+)"|'([^']+)')$/s);
+  return match ? (match[1] ?? match[2] ?? value) : value;
 }
 
 function jobStatusIcon(status: CodexJobStatus): string {

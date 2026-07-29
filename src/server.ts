@@ -18,7 +18,8 @@ import {
   completedCodexJobForWorker,
   failCodexJob,
   renewCodexJobLease,
-  syncCodexProjects
+  syncCodexProjects,
+  syncCodexThreads
 } from "./services/codex";
 import { deliverCodexJobOnce } from "./bot/codex";
 
@@ -116,19 +117,27 @@ export async function startServer(
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
       return reply.code(404).send({ error: "not_found" });
     }
-    const body = request.body as { workerId?: unknown; projects?: unknown } | undefined;
-    if (!validWorkerId(body?.workerId) || !validProjectList(body?.projects)) {
+    const body = request.body as { workerId?: unknown; projects?: unknown; threads?: unknown } | undefined;
+    if (
+      !validWorkerId(body?.workerId)
+      || !validProjectList(body?.projects)
+      || (body.threads !== undefined && !validThreadList(body.threads))
+    ) {
       return reply.code(400).send({ error: "invalid_worker_sync" });
     }
 
     const projects = await syncCodexProjects(codexScope(config!), body.projects);
+    const threads = body.threads === undefined
+      ? undefined
+      : await syncCodexThreads(codexScope(config!), body.threads);
     return {
       ok: true,
       projects: projects.map((project) => ({
         alias: project.alias,
         path: project.path,
         lastSeenAt: project.lastSeenAt.toISOString()
-      }))
+      })),
+      threadCount: threads?.length
     };
   });
 
@@ -360,4 +369,39 @@ function validProjectList(value: unknown): value is Array<{ path: string; lastSe
         && project.path.length <= 2_000
         && optionalString(project.lastSeenAt);
     });
+}
+
+function validThreadList(value: unknown): value is Array<{
+  threadId: string;
+  path: string;
+  title: string;
+  preview?: string;
+  source: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}> {
+  return Array.isArray(value)
+    && value.length <= 5_000
+    && value.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const thread = item as Record<string, unknown>;
+      return boundedString(thread.threadId, 1, 200)
+        && /^[0-9a-f-]{6,200}$/i.test(thread.threadId)
+        && boundedString(thread.path, 1, 2_000)
+        && boundedString(thread.title, 1, 500)
+        && optionalBoundedString(thread.preview, 4_000)
+        && boundedString(thread.source, 1, 80)
+        && optionalBoundedString(thread.status, 80)
+        && optionalBoundedString(thread.createdAt, 200)
+        && optionalBoundedString(thread.updatedAt, 200);
+    });
+}
+
+function boundedString(value: unknown, minimum: number, maximum: number): value is string {
+  return typeof value === "string" && value.length >= minimum && value.length <= maximum;
+}
+
+function optionalBoundedString(value: unknown, maximum: number): value is string | undefined {
+  return value === undefined || (typeof value === "string" && value.length <= maximum);
 }

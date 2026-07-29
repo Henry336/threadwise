@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPrivateCodexActor, isPrivateCodexReportActor, projectAlias, splitTelegramReport } from "./codex";
+import {
+  isPrivateCodexActor,
+  isPrivateCodexReportActor,
+  projectAlias,
+  splitTelegramReport,
+  taskTitleFromPrompt
+} from "./codex";
 
 describe("private Codex access", () => {
   const expected = {
@@ -59,5 +65,12 @@ describe("Codex report chunking", () => {
     const chunks = splitTelegramReport(report, 250);
     expect(chunks.every((chunk) => Array.from(chunk).length <= 250)).toBe(true);
     expect(chunks.join("")).toBe(report);
+  });
+});
+
+describe("Codex task titles", () => {
+  it("creates a stable concise title for a task started from Telegram", () => {
+    expect(taskTitleFromPrompt("Fix the task router\nThen deploy it")).toBe("Fix the task router");
+    expect(Array.from(taskTitleFromPrompt("x".repeat(200))).length).toBe(80);
   });
 });
