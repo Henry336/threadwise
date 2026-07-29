@@ -1,6 +1,6 @@
 import { CodexJobStatus } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
-import { privateCodexConfig } from "../config/env";
+import { env, privateCodexConfig } from "../config/env";
 import {
   codexJobHasReportMessage,
   codexJobForReport,
@@ -453,22 +453,7 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       recentCodexJobs(scope, 8),
       localWorkerReadiness(scope)
     ]);
-      await replyHtml(ctx, [
-        bold("Recent Codex tasks"),
-        `Codex worker: ${worker.online ? "online" : worker.lastSeenAt ? "stale" : "not checked in"}`,
-        worker.lastSeenAt ? `Last sync: ${h(worker.lastSeenAt.toISOString())}` : undefined,
-        jobs.length === 0 ? "No Codex requests have been queued yet." : undefined,
-      ...jobs.map((job) => [
-        `${jobStatusIcon(job.status)} ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))}`,
-        `${code(job.project.alias)} · task ${code(job.threadId ? shortCodexThreadId(job.threadId) : "starting")} · request ${code(shortJobId(job.id))} · ${h(job.status.toLowerCase())}`,
-        `${h(shortPrompt(job.prompt))}`,
-        job.model || job.reasoningEffort
-          ? `${h(job.model ?? "default model")} · reasoning ${h(job.reasoningEffort ?? "default")}`
-          : undefined
-      ].filter(Boolean).join("\n")),
-      "",
-      `Continue a request with ${code("continue REQUEST_ID your prompt")}, select a desktop task with ${code("/codex tasks")}, or reply to its report.`
-    ].join("\n"));
+    await replyHtml(ctx, renderCodexStatus(jobs, worker));
     return;
   }
 
@@ -711,7 +696,7 @@ async function tasksPageData(scope: CodexScope, projectId: string, requestedPage
       ...(visible.length > 0
         ? visible.map((thread) => [
             `${thread.id === activeThreadId ? "●" : "○"} ${h(thread.title)}`,
-            `${code(shortCodexThreadId(thread.id))} · ${h(threadSourceLabel(thread.source))}${thread.threadUpdatedAt ? ` · ${h(thread.threadUpdatedAt.toISOString().slice(0, 10))}` : ""}`
+            `${code(shortCodexThreadId(thread.id))} · ${h(threadSourceLabel(thread.source))}${thread.threadUpdatedAt ? ` · updated ${h(formatCodexTimestamp(thread.threadUpdatedAt))}` : ""}`
           ].join("\n"))
         : [
             !worker.online
@@ -719,7 +704,7 @@ async function tasksPageData(scope: CodexScope, projectId: string, requestedPage
               : "The worker is online, but no resumable Codex tasks were found in this project."
           ]),
       "",
-      worker.lastSeenAt ? `Worker sync: ${h(worker.lastSeenAt.toISOString())}` : undefined,
+      worker.lastSeenAt ? `Worker heartbeat: ${h(formatCodexTimestamp(worker.lastSeenAt))}` : undefined,
       activeThreadId
         ? "Tap a task to make it active. Plain messages resume the checked task."
         : "Tap a task, or choose “New task” and send your next prompt."
@@ -828,6 +813,79 @@ function shortPrompt(prompt: string): string {
 
 function shortJobId(id: string): string {
   return id.replace(/-/g, "").slice(0, 8);
+}
+
+type CodexWorkerReadiness = Awaited<ReturnType<typeof localWorkerReadiness>>;
+
+export function renderCodexStatus(
+  jobs: CodexJobWithProject[],
+  worker: CodexWorkerReadiness,
+  timezone = env.DEFAULT_TIMEZONE
+): string {
+  const groups = groupRecentCodexJobs(jobs);
+  return [
+    bold("Recent Codex requests"),
+    `Laptop worker: ${worker.online ? "online" : worker.lastSeenAt ? "stale" : "not checked in"}`,
+    worker.lastSeenAt
+      ? `Heartbeat: ${h(formatCodexTimestamp(worker.lastSeenAt, timezone))}`
+      : undefined,
+    jobs.length === 0 ? "No Codex requests have been queued yet." : undefined,
+    ...groups.map(({ latest, jobs: groupedJobs }) => [
+      "",
+      `${jobStatusIcon(latest.status)} ${code(latest.project.alias)} · ${h(latest.threadTitle ?? taskTitleFromPrompt(latest.prompt))}`,
+      `Task ${code(latest.threadId ? shortCodexThreadId(latest.threadId) : "starting")} · ${groupedJobs.length} recent ${groupedJobs.length === 1 ? "request" : "requests"}`,
+      `Latest ${code(shortJobId(latest.id))} · ${h(statusLabel(latest.status))} · ${h(formatCodexTimestamp(jobTimestamp(latest), timezone))}`,
+      `Prompt: ${h(shortPrompt(latest.prompt))}`,
+      latest.model || latest.reasoningEffort
+        ? `${h(latest.model ?? "default model")} · reasoning ${h(latest.reasoningEffort ?? "default")}`
+        : undefined,
+      groupedJobs.length > 1
+        ? `Requests: ${groupedJobs.map((job) => `${jobStatusIcon(job.status)} ${code(shortJobId(job.id))}`).join(" · ")}`
+        : undefined
+    ].filter(Boolean).join("\n")),
+    "",
+    `Continue with ${code("continue REQUEST_ID your prompt")}, choose a desktop task with ${code("/codex tasks")}, or reply to its report.`
+  ].filter((line) => line !== undefined).join("\n");
+}
+
+export function formatCodexTimestamp(
+  date: Date,
+  timezone = env.DEFAULT_TIMEZONE
+): string {
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short"
+  }).format(date);
+}
+
+function groupRecentCodexJobs(jobs: CodexJobWithProject[]): Array<{
+  latest: CodexJobWithProject;
+  jobs: CodexJobWithProject[];
+}> {
+  const groups = new Map<string, CodexJobWithProject[]>();
+  for (const job of jobs) {
+    const key = job.threadId ? `thread:${job.threadId}` : `request:${job.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(job);
+    groups.set(key, group);
+  }
+  return [...groups.values()].flatMap((group) =>
+    group[0] ? [{ latest: group[0], jobs: group }] : []
+  );
+}
+
+function jobTimestamp(job: CodexJobWithProject): Date {
+  return job.completedAt ?? job.startedAt ?? job.createdAt;
+}
+
+function statusLabel(status: CodexJobStatus): string {
+  return status.charAt(0) + status.slice(1).toLowerCase();
 }
 
 function shortCodexThreadId(id: string): string {

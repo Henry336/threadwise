@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 describe("Codex project discovery", () => {
-  it("finds live Git projects, deduplicates them, and excludes internal worktrees", async () => {
+  it("finds all live project folders, deduplicates them, and excludes internal worktrees", async () => {
     const root = await mkdtemp(join(tmpdir(), "threadwise-codex-discovery-"));
     temporaryRoots.push(root);
     const sessions = join(root, "sessions", "2026", "07", "29");
@@ -35,10 +35,16 @@ describe("Codex project discovery", () => {
       writeSession(join(sessions, "alternate-worktree.jsonl"), alternateHomeWorktree, "2026-07-29T05:00:00.000Z")
     ]);
 
-    expect(await discoverCodexProjects(root)).toEqual([{
-      path: project,
-      lastSeenAt: "2026-07-29T02:00:00.000Z"
-    }]);
+    expect(await discoverCodexProjects(root)).toEqual([
+      {
+        path: nonGit,
+        lastSeenAt: "2026-07-29T03:00:00.000Z"
+      },
+      {
+        path: project,
+        lastSeenAt: "2026-07-29T02:00:00.000Z"
+      }
+    ]);
   });
 });
 

@@ -22,7 +22,7 @@ export async function discoverCodexProjects(codexHome = configuredCodexHome()): 
     const projectPath = normalize(resolve(metadata.cwd));
     const key = projectPath.toLowerCase();
     if (isCodexManagedWorktree(key, worktreesRoot)) continue;
-    if (!isRunnableProject(projectPath)) continue;
+    if (!isExistingProjectDirectory(projectPath)) continue;
 
     const lastSeenAt = validIsoDate(metadata.timestamp) ?? (await stat(file)).mtime.toISOString();
     const previous = projects.get(key);
@@ -91,9 +91,9 @@ function configuredCodexHome(): string {
   return resolve(process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"));
 }
 
-function isRunnableProject(path: string): boolean {
+function isExistingProjectDirectory(path: string): boolean {
   try {
-    return statSync(path).isDirectory() && existsSync(join(path, ".git"));
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }

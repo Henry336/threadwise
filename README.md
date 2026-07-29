@@ -496,7 +496,7 @@ CODEX_WORKER_SYNC_MS=300000
 CODEX_WORKER_HEARTBEAT_MS=30000
 CODEX_WORKER_NETWORK_ACCESS=false
 CODEX_WORKER_MAX_ATTACHMENT_BYTES=26214400
-GEMINI_WORKER_MODEL=gemini-3.1-pro-preview
+GEMINI_WORKER_MODEL=auto
 ```
 
 If the worker is not inheriting the same Codex home as the desktop app, also set:
@@ -512,19 +512,31 @@ npm install
 npm run codex:worker
 ```
 
-The same process handles Ideas Intelligence. On the laptop, install and authenticate
-the official Gemini CLI once:
+The same process handles Ideas Intelligence. On the laptop, install the official
+Gemini CLI:
 
 ```powershell
 npm install -g @google/gemini-cli@latest
-gemini
 ```
 
-Choose **Login with Google** in the CLI and complete the browser sign-in. Model access
-depends on the signed-in Google account; change `GEMINI_WORKER_MODEL` if
-`gemini-3.1-pro-preview` is not available. Threadwise invokes the official CLI in
-read-only plan mode and does not copy or upload Gemini credentials. After this
-one-time laptop sign-in, the owner can open any saved idea in Telegram and tap
+For a personal account, create an API key in Google AI Studio and persist it only
+on the laptop as `GEMINI_API_KEY`. Do not put the key in Render, Telegram, source
+control, or this README. Consumer **Sign in with Google** access for Gemini CLI
+ended on June 18, 2026; a Gemini Code Assist Standard or Enterprise account may
+still use its supported organization authentication instead. The `auto` model
+setting uses the best model available to the configured key or account; a concrete
+preview model can be selected explicitly only when that credential has access.
+
+Verify the local headless path before starting Threadwise:
+
+```powershell
+gemini --version
+gemini --model auto --approval-mode plan -e none --output-format json -p "Reply with READY only."
+```
+
+Threadwise invokes the official CLI in read-only plan mode and does not copy or
+upload Gemini credentials. After local authentication succeeds, the owner can
+open any saved idea in Telegram and tap
 **Develop**, **Challenge**, **Next steps**, or **Task plan** from the phone.
 There is intentionally no general `/gemini` command, and `/codex` remains exclusively
 for Codex projects, tasks, threads, prompts, and status. Sharing one local background

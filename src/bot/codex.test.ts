@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { CodexJobWithProject } from "../services/codex";
 import {
   CODEX_REPORT_PAGE_CHARS,
+  formatCodexTimestamp,
   isSoleOwnerMembership,
   paginateCodexReport,
   parseCodexCommand,
   renderCodexQueuedMessage,
+  renderCodexStatus,
   renderReportPage,
   reportKeyboard
 } from "./codex";
@@ -193,6 +195,61 @@ describe("Codex Telegram report pagination", () => {
       publishRequested: true,
       publishAutoMerge: true
     })).toContain("Publishing: verify -> commit -> agent/* -> PR -> CI -> auto-merge");
+  });
+});
+
+describe("Codex mobile status", () => {
+  it("formats worker and request times explicitly in Singapore time", () => {
+    expect(formatCodexTimestamp(
+      new Date("2026-07-29T17:30:23.746Z"),
+      "Asia/Singapore"
+    )).toBe("30 Jul 2026, 1:30 am SGT");
+  });
+
+  it("groups repeated requests by exact project and task", () => {
+    const jobs = [
+      {
+        id: "db7822b2-aaaa-bbbb-cccc-dddddddddddd",
+        status: CodexJobStatus.COMPLETED,
+        prompt: "Continue the implementation",
+        threadTitle: "Add Telegram Codex mode",
+        threadId: "019fa9fc-aaaa-bbbb-cccc-dddddddddddd",
+        model: null,
+        reasoningEffort: null,
+        createdAt: new Date("2026-07-29T17:20:00.000Z"),
+        startedAt: new Date("2026-07-29T17:21:00.000Z"),
+        completedAt: new Date("2026-07-29T17:22:00.000Z"),
+        project: { alias: "threadwise" }
+      },
+      {
+        id: "da01e473-aaaa-bbbb-cccc-dddddddddddd",
+        status: CodexJobStatus.COMPLETED,
+        prompt: "Earlier prompt",
+        threadTitle: "Add Telegram Codex mode",
+        threadId: "019fa9fc-aaaa-bbbb-cccc-dddddddddddd",
+        model: null,
+        reasoningEffort: null,
+        createdAt: new Date("2026-07-29T17:10:00.000Z"),
+        startedAt: new Date("2026-07-29T17:11:00.000Z"),
+        completedAt: new Date("2026-07-29T17:12:00.000Z"),
+        project: { alias: "threadwise" }
+      }
+    ] as CodexJobWithProject[];
+    const worker = {
+      online: true,
+      lastSeenAt: new Date("2026-07-29T17:30:23.746Z"),
+      geminiAvailable: false,
+      fileCourierAvailable: false,
+      fileRootCount: 0
+    } as Parameters<typeof renderCodexStatus>[1];
+
+    const rendered = renderCodexStatus(jobs, worker, "Asia/Singapore");
+    expect(rendered).toContain("Heartbeat: 30 Jul 2026, 1:30 am SGT");
+    expect(rendered).toContain("<code>threadwise</code> · Add Telegram Codex mode");
+    expect(rendered).toContain("Task <code>019fa9fc</code> · 2 recent requests");
+    expect(rendered).toContain("Requests: ✅ <code>db7822b2</code> · ✅ <code>da01e473</code>");
+    expect(rendered.match(/Add Telegram Codex mode/g)).toHaveLength(1);
+    expect(rendered).not.toContain("2026-07-29T17:30:23.746Z");
   });
 });
 
