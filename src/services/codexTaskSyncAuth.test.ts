@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CODEX_TASK_SYNC_PATH,
   isFreshCodexTaskSyncTimestamp,
+  shouldReplaceCodexTaskCatalog,
   signCodexTaskSyncRequest,
   verifyCodexTaskSyncRequest
 } from "./codexTaskSyncAuth";
@@ -61,5 +62,15 @@ describe("Codex task-sync request signing", () => {
     expect(isFreshCodexTaskSyncTimestamp("1785330200000", 1785330000000)).toBe(false);
     expect(isFreshCodexTaskSyncTimestamp("1785330000", 1785330000000)).toBe(false);
     expect(isFreshCodexTaskSyncTimestamp("not-a-time", 1785330000000)).toBe(false);
+  });
+});
+
+describe("Codex task catalog replacement", () => {
+  it("does not let token-authenticated worker results overwrite the signed catalog", () => {
+    expect(shouldReplaceCodexTaskCatalog(false)).toBe(false);
+  });
+
+  it("accepts the least-privilege signed sidecar as the catalog authority", () => {
+    expect(shouldReplaceCodexTaskCatalog(true)).toBe(true);
   });
 });
