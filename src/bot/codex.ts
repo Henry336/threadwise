@@ -33,11 +33,18 @@ import { localWorkerReadiness } from "../services/geminiIdeas";
 import { detectTrustedPublishIntent } from "../services/trustedGitPublisher";
 import { bold, code, h, HTML_REPLY, replyHtml } from "../utils/html";
 import { commandBody } from "../utils/text";
+import {
+  TelegramAlbumBatcher,
+  type TelegramAlbumBatch
+} from "./codexAttachmentBatch";
 
 export const CODEX_REPORT_PAGE_CHARS = 2_800;
 const PROJECTS_PER_PAGE = 8;
 const THREADS_PER_PAGE = 6;
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_CODEX_ALBUM_ATTACHMENTS = 10;
+const MAX_CODEX_ALBUM_BYTES = 100 * 1024 * 1024;
+const CODEX_ALBUM_SETTLE_MS = 1_500;
 const REASONING_LEVELS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 type ReasoningLevel = typeof REASONING_LEVELS[number];
 
@@ -64,6 +71,26 @@ export type ParsedCodexCommand =
   | { action: "useTask"; reference: string }
   | { action: "error"; message: string }
   | RunCommand;
+
+const codexAlbumBatcher = new TelegramAlbumBatcher<CodexAttachmentInput, Context>({
+  settleMs: CODEX_ALBUM_SETTLE_MS,
+  maxItems: MAX_CODEX_ALBUM_ATTACHMENTS,
+  onFlush: flushCodexAlbum,
+  onError: (error, batch) => {
+    logger.error("Failed to queue Telegram Codex attachment album", {
+      error: String(error),
+      albumKey: batch.key
+    });
+    void batch.context.reply(
+      "I couldn't queue that attachment batch. Please send the album again."
+    ).catch((replyError) => {
+      logger.warn("Failed to report Codex album queue error", {
+        error: String(replyError),
+        albumKey: batch.key
+      });
+    });
+  }
+});
 
 export function registerCodexMode(bot: Bot): void {
   bot.command("codex", async (ctx) => {
@@ -413,7 +440,7 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       "",
       `Example: ${code("in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI")}`,
       "Reply to any Codex report—on any page—to continue that exact task and folder.",
-      "Send an image or document with a caption to include it in the task.",
+      "Send one image or document with a caption, or send up to 10 items as one Telegram album. The album caption becomes the prompt and every item goes to one Codex request.",
       `Trusted publishing: ${code("Implement this, verify it, publish it, and auto-merge when CI passes.")}`
     ].join("\n"));
     return;
@@ -497,14 +524,69 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
 }
 
 async function handleCodexUpload(ctx: Context, scope: CodexScope, attachment: CodexAttachmentInput): Promise<void> {
+  const mediaGroupId = ctx.message?.media_group_id;
+  const albumKey = mediaGroupId ? codexAlbumKey(scope, mediaGroupId) : undefined;
   if (attachment.fileSize && attachment.fileSize > MAX_CODEX_ATTACHMENT_BYTES) {
-    await ctx.reply("That attachment is larger than the 25 MB Codex upload limit.");
+    if (!albumKey || codexAlbumBatcher.block(albumKey)) {
+      await ctx.reply(
+        albumKey
+          ? "One item in that album is larger than the 25 MB Codex upload limit, so I did not queue the album."
+          : "That attachment is larger than the 25 MB Codex upload limit."
+      );
+    }
     return;
   }
-  const caption = ctx.message?.caption?.trim();
-  const input = caption?.replace(/^\/codex(?:@\w+)?\s*/i, "")
-    || "Inspect the attached file and help me with it. Report what you found and any work you completed.";
+
+  if (albumKey && ctx.message) {
+    const result = codexAlbumBatcher.add(albumKey, {
+      messageId: ctx.message.message_id,
+      attachment,
+      context: ctx,
+      caption: ctx.message.caption
+    });
+    if (result.status === "overflow") {
+      await ctx.reply(
+        `A Codex attachment album can contain at most ${MAX_CODEX_ALBUM_ATTACHMENTS} items, so I did not queue that album.`
+      );
+    }
+    return;
+  }
+
+  const input = codexUploadPrompt(ctx.message?.caption, 1);
   await handleCodexInput(ctx, input, [attachment]);
+}
+
+async function flushCodexAlbum(
+  batch: TelegramAlbumBatch<CodexAttachmentInput, Context>
+): Promise<void> {
+  const knownBytes = batch.attachments.reduce(
+    (total, attachment) => total + (attachment.fileSize ?? 0),
+    0
+  );
+  if (knownBytes > MAX_CODEX_ALBUM_BYTES) {
+    await batch.context.reply(
+      `That album is larger than the ${MAX_CODEX_ALBUM_BYTES / 1024 / 1024} MB combined Codex upload limit, so I did not queue it.`
+    );
+    return;
+  }
+
+  await handleCodexInput(
+    batch.context,
+    codexUploadPrompt(batch.caption, batch.attachments.length),
+    batch.attachments
+  );
+}
+
+function codexAlbumKey(scope: CodexScope, mediaGroupId: string): string {
+  return `${scope.ownerTelegramId}:${scope.telegramChatId}:${mediaGroupId}`;
+}
+
+export function codexUploadPrompt(caption: string | undefined, attachmentCount: number): string {
+  const prompt = caption?.trim().replace(/^\/codex(?:@\w+)?\s*/i, "").trim();
+  if (prompt) return prompt;
+  return attachmentCount === 1
+    ? "Inspect the attached file and help me with it. Report what you found and any work you completed."
+    : `Inspect all ${attachmentCount} attached files together and help me with them. Report what you found and any work you completed.`;
 }
 
 async function queuePromptFromContext(
