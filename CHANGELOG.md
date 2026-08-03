@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Complete Telegram TODO review
+- Replaced the seven-row TODO preview cutoff with six-task pages that edit the existing Telegram message, so every parsed task can be inspected without opening the dashboard.
+- Added previous/next navigation, preserved original task numbering and import-wide counts, and made `Import N` explicitly apply to the complete reviewed list rather than only the visible page.
+- Renamed the dashboard action from `Review` to `Edit details`; the dashboard remains available for correcting titles, assignees, dates, status, and inclusion but is no longer presented as required for inspection.
+- Added page clamping for rows omitted during review and focused coverage for multi-page and stale-page behavior.
+
 ### Quieter undated group reminders
 - Changed new and previously-defaulted group workspaces from three-hour to six-hour follow-ups for tasks without due dates; personal reminder defaults remain unchanged.
 - Combined simultaneously due undated group tasks into one compact public follow-up with direct task controls instead of sending one reminder card per task.

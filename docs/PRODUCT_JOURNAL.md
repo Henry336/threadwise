@@ -272,6 +272,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 **Follow-up:** Confirm the corrected preview against a real Telegram group after deployment and watch for historical reviews that were created before the fix; existing pending rows are not rewritten automatically.
 
+### 4 August 2026 — Keep complete TODO inspection inside Telegram
+
+**Friction discovered:** The group TODO preview displayed only the first seven parsed rows followed by `+N more`. A user could import the entire batch but could not inspect every row without opening the dashboard, making an optional rich editor feel mandatory and weakening confidence immediately before a multi-task write.
+
+**Decision:** Separate compactness from completeness. Keep the shared Telegram card small by paging six tasks at a time and editing that same message. Retain the dashboard only for rich field corrections; do not require it for reading or approving a correctly parsed list.
+
+**Implemented:** Added bounded previous/next page callbacks, a page indicator, page clamping after rows are omitted, complete global numbering and counts on every page, an explicit `Import N` action for the whole review, and renamed `Review` to `Edit details`. All members in the originating group can browse the shared pages; existing sender/admin authorization still protects edits, cancellation, and import.
+
+**Outcome/evidence:** An eight-row TODO now renders as six items on page one and two on page two without a hidden `+N more` remainder. Focused formatter/service coverage and TypeScript typechecking pass.
+
+**Follow-up:** Verify page editing and callback behavior in a live Telegram group after Render deploy, especially when two members browse the shared card concurrently.
+
 ## Journal entry template
 
 ```markdown

@@ -23,6 +23,8 @@ import { groupDashboardUrl, groupTaskImportReviewUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
+export const TASK_IMPORT_PAGE_SIZE = 6;
+
 export function registerTaskImports(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
     const sourceText = ctx.message.text;
@@ -47,8 +49,8 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
         mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
         telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
       });
-      const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC"), {
-        reply_markup: taskImportKeyboard(taskImport),
+      const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
+        reply_markup: taskImportKeyboard(taskImport, 0),
       }) as { message_id?: number };
       if (message.message_id) {
         try {
@@ -68,6 +70,40 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
     if (!importId || (action !== "import" && action !== "cancel" && action !== "refresh")) return;
     await handleTaskImportCallback(ctx, ai, action, importId);
   });
+
+  bot.callbackQuery(/^ti:page:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
+    const importId = ctx.match[1];
+    const page = Number(ctx.match[2]);
+    if (!importId || !Number.isSafeInteger(page) || page < 0) return;
+    await handleTaskImportPageCallback(ctx, importId, page);
+  });
+
+  bot.callbackQuery(/^ti:pageinfo:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
+    const page = Number(ctx.match[2]);
+    await ctx.answerCallbackQuery({ text: Number.isSafeInteger(page) ? `Page ${page + 1}` : "Task review" });
+  });
+}
+
+async function handleTaskImportPageCallback(ctx: Context, importId: string, requestedPage: number): Promise<void> {
+  if (!ctx.from) return;
+  try {
+    const taskImport = await getTaskImportReview(importId);
+    if (!isGroupChat(ctx) || !taskImportBelongsToChat(taskImport.workspace.telegramChatId, ctx.chat?.id)) {
+      throw new TaskImportError("This review belongs to another group.", "forbidden");
+    }
+    const page = clampTaskImportPage(taskImport, requestedPage);
+    await ctx.answerCallbackQuery({ text: `Page ${page + 1} of ${taskImportPageCount(taskImport)}` });
+    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), page), {
+      reply_markup: taskImportKeyboard(taskImport, page),
+    });
+  } catch (error) {
+    const message = error instanceof TaskImportError ? error.message : userFacingError(error, "That review page couldn't be opened just now.");
+    try {
+      await ctx.answerCallbackQuery({ text: message.slice(0, 180), show_alert: true });
+    } catch {
+      await ctx.reply(message);
+    }
+  }
 }
 
 async function handleTaskImportCallback(
@@ -88,8 +124,8 @@ async function handleTaskImportCallback(
     if (action === "refresh") {
       if (!sender && !isManager) throw new TaskImportError("Only the sender or a group administrator can open this review.", "forbidden");
       await ctx.answerCallbackQuery({ text: "Review refreshed" });
-      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
-        reply_markup: taskImportKeyboard(taskImport),
+      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), 0), {
+        reply_markup: taskImportKeyboard(taskImport, 0),
       });
       return;
     }
@@ -106,7 +142,7 @@ async function handleTaskImportCallback(
       await editOrReplyHtml(ctx, [
         bold("Some tasks need another look"),
         `${result.imported} imported · ${result.failed} need review${result.skipped ? ` · ${result.skipped} skipped` : ""}`,
-      ].join("\n"), { reply_markup: taskImportKeyboard(result.taskImport) });
+      ].join("\n"), { reply_markup: taskImportKeyboard(result.taskImport, 0) });
       return;
     }
     await editOrReplyQuietAcknowledgementHtml(
@@ -124,24 +160,25 @@ async function handleTaskImportCallback(
   }
 }
 
-export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string): string {
-  const included = taskImport.items.filter((item) => item.included && item.status !== TaskImportItemStatus.SKIPPED);
+export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string, requestedPage = 0): string {
+  const included = includedTaskImportItems(taskImport);
   const completed = included.filter((item) => item.initialStatus === TaskStatus.DONE).length;
   const assigned = included.filter((item) => Array.isArray(item.assignees) && item.assignees.length > 0).length;
   const teamOwned = included.filter((item) => item.teamOwnerLabel).length;
-  const rows = included.slice(0, 7).map((item) => {
+  const pageCount = taskImportPageCount(taskImport);
+  const page = clampTaskImportPage(taskImport, requestedPage);
+  const pageStart = page * TASK_IMPORT_PAGE_SIZE;
+  const rows = included.slice(pageStart, pageStart + TASK_IMPORT_PAGE_SIZE).map((item) => {
     const owner = importOwnerLabel(item.assignees, item.teamOwnerLabel);
     const due = item.dueAt ? ` · ${formatDateTimeForUser(item.dueAt, timezone)}` : "";
     const status = item.initialStatus === TaskStatus.DONE ? " · done" : "";
     return `${item.position}. ${h(item.title)}${owner ? ` — ${h(owner)}` : ""}${h(due + status)}`;
   });
-  if (included.length > rows.length) rows.push(`+${included.length - rows.length} more`);
-
   const state = taskImport.status === TaskImportStatus.PARTIAL
-    ? "Fix the failed rows in Review, then retry."
-    : "Review anything uncertain, then import once.";
+    ? "Fix the failed rows in Edit details, then retry."
+    : "Import when ready. Use Edit details only to make corrections.";
   return [
-    bold("TODO review"),
+    bold(`TODO review${pageCount > 1 ? ` · Page ${page + 1}/${pageCount}` : ""}`),
     `${included.length} task${included.length === 1 ? "" : "s"} found · ${assigned} assigned${teamOwned ? ` · ${teamOwned} team-owned` : ""}${completed ? ` · ${completed} done` : ""}`,
     "",
     ...rows,
@@ -150,15 +187,36 @@ export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezo
   ].join("\n");
 }
 
-function taskImportKeyboard(taskImport: TaskImportReview): InlineKeyboard {
-  const keyboard = new InlineKeyboard()
-    .url("Review", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
+function taskImportKeyboard(taskImport: TaskImportReview, requestedPage: number): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const page = clampTaskImportPage(taskImport, requestedPage);
+  const pageCount = taskImportPageCount(taskImport);
+  if (pageCount > 1) {
+    if (page > 0) keyboard.text("←", `ti:page:${taskImport.id}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `ti:pageinfo:${taskImport.id}:${page}`);
+    if (page < pageCount - 1) keyboard.text("→", `ti:page:${taskImport.id}:${page + 1}`);
+    keyboard.row();
+  }
+  keyboard.url("Edit details", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
   if (taskImport.status === TaskImportStatus.PENDING || taskImport.status === TaskImportStatus.PARTIAL) {
-    keyboard.text(taskImport.status === TaskImportStatus.PARTIAL ? "Retry ready rows" : "Import", `ti:import:${taskImport.id}`)
+    const includedCount = includedTaskImportItems(taskImport).length;
+    keyboard.text(taskImport.status === TaskImportStatus.PARTIAL ? "Retry ready rows" : `Import ${includedCount}`, `ti:import:${taskImport.id}`)
       .text("Cancel", `ti:cancel:${taskImport.id}`).row();
   }
   keyboard.url("Group work", groupDashboardUrl(taskImport.workspaceId, "work"));
   return keyboard;
+}
+
+function includedTaskImportItems(taskImport: TaskImportReview): TaskImportReview["items"] {
+  return taskImport.items.filter((item) => item.included && item.status !== TaskImportItemStatus.SKIPPED);
+}
+
+export function taskImportPageCount(taskImport: TaskImportReview): number {
+  return Math.max(1, Math.ceil(includedTaskImportItems(taskImport).length / TASK_IMPORT_PAGE_SIZE));
+}
+
+function clampTaskImportPage(taskImport: TaskImportReview, requestedPage: number): number {
+  return Math.min(Math.max(0, Math.trunc(requestedPage)), taskImportPageCount(taskImport) - 1);
 }
 
 function importOwnerLabel(value: unknown, teamOwnerLabel: string | null): string {
