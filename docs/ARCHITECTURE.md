@@ -80,9 +80,10 @@ The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusa
 1. The reminder loop periodically queries open tasks where `nextReminderAt <= now`.
 2. It distinguishes an explicit first due delivery from later repeat nudges.
 3. It applies quiet hours and the daily reminder safety limit where the current delivery type requires them.
-4. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
-5. It records `ReminderDelivery` and only then attempts to remove the previous main-chat reminder for that task.
-6. It advances `nextReminderAt` or the recurring calendar occurrence.
+4. It batches simultaneously eligible undated tasks for the same group into compact chunks of at most eight tasks; dated and personal reminders retain their normal cards.
+5. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
+6. It records one `ReminderDelivery` row per included task while counting the shared Telegram message only once against the daily message limit, then removes superseded main-chat reminders.
+7. It advances `nextReminderAt` or the recurring calendar occurrence. Undated group tasks use the group's configurable interval (six hours by default), slow to daily after three unanswered follow-ups, and reset that streak after meaningful task activity.
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
@@ -90,7 +91,7 @@ Scheduled reminders use a separate early-warning cadence. If `dueNudgeMinutes` i
 
 Daily and weekly recurring reminders store `recurrenceRule` plus `recurrenceIntervalDays` on the task row. After each recurring delivery, the reminder pass advances `dueAt` and `nextReminderAt` to the next future occurrence instead of creating another task row. This keeps recurring reminders O(1) per delivery and avoids duplicate task buildup.
 
-Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the user's setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminders/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
+Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the current personal or group workspace setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. New personal workspaces default to three hours; new group workspaces default to six. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminder messages/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
 
 Telegram does not provide an exact device timezone to bots during `/start`. New-user settings can only make a best-effort guess from Telegram language code, then users can correct the value with IANA names or common aliases such as `Myanmar`, `Yangon`, `Malaysia`, and `Singapore`.
 

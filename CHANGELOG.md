@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Quieter undated group reminders
+- Changed new and previously-defaulted group workspaces from three-hour to six-hour follow-ups for tasks without due dates; personal reminder defaults remain unchanged.
+- Combined simultaneously due undated group tasks into one compact public follow-up with direct task controls instead of sending one reminder card per task.
+- Added an ignored-follow-up guardrail: after three unanswered group nudges, an undated task slows to daily reminders until someone edits, assigns, accepts, blocks, pins, snoozes, or reschedules it.
+- Preserved group-admin configurability through the existing reminder interval controls, quiet hours, and message-based daily safety limit.
+- Added migration, scheduler, formatting, activity-reset, and regression coverage for the new cadence.
+
 ### Voice Note Capture
 - Added restart-safe Telegram voice transcription with exact raw-transcript preservation, conservative light cleanup, verbatim fallback, normal Note creation, and paginated raw-text viewing.
 - Added Open/Edit/Undo/Keep verbatim result controls plus per-workspace cleanup, transcription model, language-hint, and ordinary-audio settings.

@@ -278,6 +278,7 @@ export async function updateDashboardTaskCollaboration(
         assignedUsername: primary?.username ?? null,
         assignedDisplayName: primary?.displayName ?? null,
         updatedAt: now,
+        undatedNudgeCount: 0,
       },
     });
   });

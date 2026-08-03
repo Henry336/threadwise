@@ -550,6 +550,11 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
 
   if (Object.keys(data).length === 0) return taskView(task);
 
+  // Any deliberate task mutation counts as activity. Restart the undated
+  // group cadence so an old ignored-nudge streak cannot immediately slow a
+  // newly edited task to daily reminders.
+  data.undatedNudgeCount = 0;
+
   const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
   const revisionWhere: Prisma.TaskWhereUniqueInput = {
     id: task.id,
@@ -1128,6 +1133,7 @@ export async function updateDashboardSettings(
           data: {
             timezone: settings.timezone,
             ...(input.reminderIntervalMinutes !== undefined ? { reminderIntervalMinutes: interval } : {}),
+            ...(task.dueAt ? {} : { undatedNudgeCount: 0 }),
             nextReminderAt: nextReminder(task.dueAt, interval, settings.dueNudgeMinutes, now)
           }
         });

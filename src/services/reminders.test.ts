@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode } from "@prisma/client";
-import { dueNudgeStartAt, formatDirectAssigneeNudge, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -110,6 +110,31 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Assigned To:</b> @henry_derek");
     expect(message).toContain("<b>Repeats:</b> Daily");
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
+  });
+
+  it("keeps undated group follow-ups on their configured cadence before three unanswered nudges", () => {
+    expect(nextUndatedGroupReminderInterval(360, 1)).toBe(360);
+    expect(nextUndatedGroupReminderInterval(360, 2)).toBe(360);
+  });
+
+  it("slows ignored undated group follow-ups to daily after the third nudge", () => {
+    expect(nextUndatedGroupReminderInterval(360, 3)).toBe(1_440);
+    expect(nextUndatedGroupReminderInterval(180, 4)).toBe(1_440);
+    expect(nextUndatedGroupReminderInterval(2_880, 4)).toBe(2_880);
+  });
+
+  it("combines undated group tasks into one concise follow-up", () => {
+    const message = formatGroupUndatedReminderDigest([
+      { publicId: "TASK-1", title: "Confirm the venue", assignees: [{ username: "henry" }] },
+      { publicId: "TASK-2", title: "Share the deck", assignees: [{ displayName: "That Li" }] }
+    ]);
+
+    expect(message).toContain("<b>Group follow-up</b>");
+    expect(message).toContain("Confirm the venue");
+    expect(message).toContain("@henry");
+    expect(message).toContain("Share the deck");
+    expect(message).toContain("That Li");
+    expect(message).toContain("No deadlines were set");
   });
 
   it("labels yearly reminders clearly", () => {

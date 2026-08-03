@@ -33,7 +33,7 @@ export async function pinItem(userId: string, reference: string, shouldPin: bool
   await prisma.$transaction(async (tx) => {
     await recordPinUndo(tx, userId, target);
     if (target.kind === "task") {
-      await tx.task.update({ where: { id: target.id }, data: { pinnedAt } });
+      await tx.task.update({ where: { id: target.id }, data: { pinnedAt, undatedNudgeCount: 0 } });
     } else if (target.kind === "note") {
       await tx.note.update({ where: { id: target.id }, data: { pinnedAt } });
     } else {

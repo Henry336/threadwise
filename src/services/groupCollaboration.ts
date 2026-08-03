@@ -61,7 +61,7 @@ export async function setTaskAssignmentStatus(
         ...(!assignment.displayName ? { displayName: actor.displayName } : {}),
       },
     });
-    await tx.task.update({ where: { id: task.id }, data: { updatedAt: now } });
+    await tx.task.update({ where: { id: task.id }, data: { updatedAt: now, undatedNudgeCount: 0 } });
     await recordActivity(tx, userId, actor, activity.type, task, `${actor.displayName} ${activity.summary} for ${task.publicId}.`);
     return tx.task.findUniqueOrThrow({ where: { id: task.id }, include: { assignees: { orderBy: { createdAt: "asc" } } } });
   });
@@ -122,6 +122,7 @@ export async function handoffTaskAssignment(
         assignedUsername: primary?.username ?? null,
         assignedDisplayName: primary?.displayName ?? null,
         updatedAt: now,
+        undatedNudgeCount: 0,
       },
     });
     const targetName = target.username ? `@${target.username}` : target.displayName ?? "the new assignee";

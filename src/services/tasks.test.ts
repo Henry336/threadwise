@@ -36,6 +36,7 @@ describe("task completion", () => {
       snoozedUntil: null,
       completedAt: new Date("2026-07-12T10:00:00.000Z"),
       reminderCount: 0,
+      undatedNudgeCount: 0,
       pinnedAt: null,
       archivedAt: null,
       createdAt: new Date("2026-07-12T09:00:00.000Z"),

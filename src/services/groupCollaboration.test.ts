@@ -74,7 +74,7 @@ describe("group collaboration", () => {
     });
     expect(taskUpdate).toHaveBeenCalledWith({
       where: { id: task.id },
-      data: { updatedAt: expect.any(Date) },
+      data: { updatedAt: expect.any(Date), undatedNudgeCount: 0 },
     });
     expect(activityCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({

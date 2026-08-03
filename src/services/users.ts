@@ -21,7 +21,7 @@ export async function ensureUser(ctx: Context) {
       settings: {
         create: {
           timezone: identity.defaultTimezone,
-          reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
+          reminderIntervalMinutes: identity.isGroup ? 360 : env.DEFAULT_REMINDER_INTERVAL_MINUTES,
           quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
           quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
           reminderChatId: identity.reminderChatId,
@@ -39,7 +39,7 @@ export async function ensureUser(ctx: Context) {
       data: {
         userId: user.id,
         timezone: identity.defaultTimezone,
-        reminderIntervalMinutes: env.DEFAULT_REMINDER_INTERVAL_MINUTES,
+        reminderIntervalMinutes: identity.isGroup ? 360 : env.DEFAULT_REMINDER_INTERVAL_MINUTES,
         quietHoursStart: env.DEFAULT_QUIET_HOURS_START,
         quietHoursEnd: env.DEFAULT_QUIET_HOURS_END,
         reminderChatId: identity.reminderChatId,

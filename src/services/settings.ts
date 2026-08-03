@@ -1,7 +1,7 @@
 import { Prisma, ReminderMode, TaskStatus, VoiceCleanupMode } from "@prisma/client";
 import { bold, h } from "../utils/html";
 import { prisma } from "../db/prisma";
-import { nextReminderAfterSettingChange } from "./reminders";
+import { nextIntervalReminderAt, nextReminderAfterSettingChange } from "./reminders";
 import { formatTimezoneExamples, parseTimezone } from "../utils/timezones";
 import { COMMON_CURRENCIES, defaultCurrencyForTimezone, normalizeCurrency } from "../utils/currencies";
 import { formatOcrLanguages, normalizeOcrLanguages } from "../utils/ocrLanguages";
@@ -256,14 +256,23 @@ export async function formatSettings(_userId: string): Promise<string> {
 }
 
 export async function formatReminderSettings(userId: string): Promise<string> {
-  const settings = await prisma.userSettings.findUniqueOrThrow({ where: { userId } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
+  const settings = user.settings;
+  if (!settings) throw new Error("User settings are missing.");
+  const isGroup = user.telegramId.startsWith("chat:");
+  const groupPolicy = isGroup
+    ? `Undated group tasks: ${bold(formatMinutes(settings.reminderIntervalMinutes))}; after 3 unanswered follow-ups: daily`
+    : undefined;
   return [
     bold("⏰ Reminder settings"),
     `Repeat ${bold(formatMinutes(settings.reminderIntervalMinutes))} · ${settings.reminderMode === ReminderMode.DIGEST ? "compact" : "detailed"} messages`,
     `Quiet ${h(settings.quietHoursStart && settings.quietHoursEnd ? `${settings.quietHoursStart}–${settings.quietHoursEnd}` : "off")} · early warning ${settings.dueNudgeMinutes > 0 ? formatMinutes(settings.dueNudgeMinutes) : "off"}`,
+    groupPolicy,
     `Safety limit ${settings.maxRemindersPerDay}/day`,
-    "Repeat controls how often unfinished tasks nudge you again."
-  ].join("\n");
+    isGroup
+      ? "The repeat interval is shared by this group. Related undated tasks are combined into one follow-up."
+      : "Repeat controls how often unfinished tasks nudge you again."
+  ].filter(Boolean).join("\n");
 }
 
 export async function formatRegionSettings(userId: string): Promise<string> {
@@ -322,8 +331,11 @@ async function rescheduleOpenTasksForSettings(
       where: { id: task.id },
       data: {
         reminderIntervalMinutes: intervalMinutes,
+        ...(task.dueAt ? {} : { undatedNudgeCount: 0 }),
         timezone: settings.timezone,
-        nextReminderAt: nextReminderAfterSettingChange(task, now, intervalMinutes, settings.dueNudgeMinutes)
+        nextReminderAt: task.dueAt
+          ? nextReminderAfterSettingChange(task, now, intervalMinutes, settings.dueNudgeMinutes)
+          : nextIntervalReminderAt(now, intervalMinutes)
       }
     });
   }

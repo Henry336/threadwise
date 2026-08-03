@@ -1,5 +1,5 @@
-import type { Bot } from "grammy";
-import { RecurrenceRule, ReminderMode, TaskStatus } from "@prisma/client";
+import { InlineKeyboard, type Bot } from "grammy";
+import { Prisma, RecurrenceRule, ReminderMode, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { formatDateTimeForUser, formatRecurrenceRule, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
@@ -7,6 +7,14 @@ import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
+
+type ReminderTask = Prisma.TaskGetPayload<{
+  include: { user: { include: { settings: true } }; assignees: true };
+}>;
+
+const GROUP_UNDATED_BATCH_SIZE = 8;
+const GROUP_UNDATED_SLOWDOWN_AFTER = 3;
+const GROUP_UNDATED_SLOW_INTERVAL_MINUTES = 24 * 60;
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
 
@@ -100,7 +108,25 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
 
     run.dueTasksFound = tasks.length;
 
+    const groupedUndatedTaskIds = new Set<string>();
+    const groupedUndatedTasks = new Map<string, ReminderTask[]>();
     for (const task of tasks) {
+      if (!task.dueAt && task.user.telegramId.startsWith("chat:") && task.user.settings) {
+        groupedUndatedTaskIds.add(task.id);
+        const group = groupedUndatedTasks.get(task.userId) ?? [];
+        group.push(task);
+        groupedUndatedTasks.set(task.userId, group);
+      }
+    }
+
+    for (const group of groupedUndatedTasks.values()) {
+      for (const batch of chunk(group, GROUP_UNDATED_BATCH_SIZE)) {
+        await sendGroupUndatedReminderBatch(bot, batch, now, run);
+      }
+    }
+
+    for (const task of tasks) {
+      if (groupedUndatedTaskIds.has(task.id)) continue;
       const settings = task.user.settings;
       if (!settings) {
         run.skippedMissingSettings += 1;
@@ -127,12 +153,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         continue;
       }
 
-      const remindersToday = await prisma.reminderDelivery.count({
-        where: {
-          userId: task.userId,
-          sentAt: { gte: startOfUserDay(now, settings.timezone) }
-        }
-      });
+      const remindersToday = await countReminderMessagesToday(task.userId, now, settings.timezone);
 
       if (!isDueNudgeReminder && remindersToday >= settings.maxRemindersPerDay) {
         run.cappedByDailyLimit += 1;
@@ -218,6 +239,152 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     reminderDiagnostics = run;
     throw error;
   }
+}
+
+async function sendGroupUndatedReminderBatch(
+  bot: Bot,
+  tasks: ReminderTask[],
+  now: Date,
+  run: ReminderDiagnostics
+): Promise<void> {
+  const first = tasks[0];
+  const settings = first?.user.settings;
+  if (!first || !settings) {
+    run.skippedMissingSettings += tasks.length;
+    return;
+  }
+
+  const taskIds = tasks.map((task) => task.id);
+  if (isWithinQuietHours(now, {
+    timezone: settings.timezone,
+    start: settings.quietHoursStart,
+    end: settings.quietHoursEnd
+  })) {
+    run.deferredForQuietHours += tasks.length;
+    await prisma.task.updateMany({
+      where: { id: { in: taskIds } },
+      data: {
+        nextReminderAt: nextQuietEnd(now, {
+          timezone: settings.timezone,
+          start: settings.quietHoursStart,
+          end: settings.quietHoursEnd
+        })
+      }
+    });
+    return;
+  }
+
+  const remindersToday = await countReminderMessagesToday(first.userId, now, settings.timezone);
+  if (remindersToday >= settings.maxRemindersPerDay) {
+    run.cappedByDailyLimit += tasks.length;
+    await Promise.all(tasks.map((task) => prisma.task.update({
+      where: { id: task.id },
+      data: {
+        nextReminderAt: nextIntervalReminderAt(
+          now,
+          nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, task.undatedNudgeCount)
+        )
+      }
+    })));
+    return;
+  }
+
+  const chatId = settings.reminderChatId ?? first.user.telegramId.replace(/^chat:/, "");
+  const previousReminders = (await Promise.all(tasks.map((task) =>
+    prisma.reminderDelivery.findFirst({
+      where: { taskId: task.id, chatId, messageId: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { chatId: true, messageId: true }
+    })
+  ))).filter((reminder): reminder is { chatId: string; messageId: string } => Boolean(reminder?.messageId));
+
+  try {
+    const sentMessage = await bot.api.sendMessage(chatId, formatGroupUndatedReminderDigest(tasks), {
+      ...HTML_REPLY,
+      reply_markup: groupUndatedReminderKeyboard(tasks)
+    });
+    const messageId = String(sentMessage.message_id);
+
+    await prisma.$transaction(tasks.flatMap((task) => {
+      const nextCount = task.undatedNudgeCount + 1;
+      const nextInterval = nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, nextCount);
+      return [
+        prisma.reminderDelivery.create({
+          data: { userId: task.userId, taskId: task.id, chatId, messageId }
+        }),
+        prisma.task.update({
+          where: { id: task.id },
+          data: {
+            lastRemindedAt: now,
+            reminderCount: { increment: 1 },
+            undatedNudgeCount: nextCount,
+            reminderIntervalMinutes: settings.reminderIntervalMinutes,
+            nextReminderAt: nextIntervalReminderAt(now, nextInterval)
+          }
+        })
+      ];
+    }));
+
+    run.remindersSent += 1;
+    await deleteSupersededReminderMessages(bot, previousReminders, sentMessage.message_id, tasks.map((task) => task.publicId));
+
+    for (const task of tasks) {
+      try {
+        const direct = await sendDirectAssigneeNudges(bot, task);
+        run.directNudgesSent += direct.sent;
+        run.directNudgesSkipped += direct.skipped;
+        run.directNudgeFailures += direct.failed;
+      } catch (error) {
+        run.directNudgeFailures += Math.max(1, task.assignees.length);
+        logger.warn("Could not finish private assignee nudges after a group reminder digest.", {
+          taskId: task.id,
+          error: String(error)
+        });
+      }
+    }
+  } catch (error) {
+    run.failedDeliveries += 1;
+    logger.error("Failed to send an undated group reminder digest.", {
+      userId: first.userId,
+      taskIds,
+      error: String(error)
+    });
+    await prisma.task.updateMany({
+      where: { id: { in: taskIds } },
+      data: { nextReminderAt: nextIntervalReminderAt(now, 15) }
+    });
+  }
+}
+
+async function countReminderMessagesToday(userId: string, now: Date, timezone: string): Promise<number> {
+  const deliveries = await prisma.reminderDelivery.findMany({
+    where: { userId, sentAt: { gte: startOfUserDay(now, timezone) } },
+    select: { id: true, chatId: true, messageId: true }
+  });
+  return new Set(deliveries.map((delivery) =>
+    delivery.messageId ? `${delivery.chatId}:${delivery.messageId}` : delivery.id
+  )).size;
+}
+
+async function deleteSupersededReminderMessages(
+  bot: Bot,
+  reminders: { chatId: string; messageId: string | null }[],
+  currentMessageId: number,
+  taskPublicIds: string[]
+): Promise<void> {
+  const unique = new Map<string, { chatId: string; messageId: string | null }>();
+  for (const reminder of reminders) {
+    if (reminder.messageId) unique.set(`${reminder.chatId}:${reminder.messageId}`, reminder);
+  }
+  for (const reminder of unique.values()) {
+    await deleteSupersededReminderMessage(bot, reminder, currentMessageId, taskPublicIds.join(", "));
+  }
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
 }
 
 async function deleteSupersededReminderMessage(
@@ -354,6 +521,34 @@ export function formatReminderMessage(
   ]);
 }
 
+export function formatGroupUndatedReminderDigest(tasks: Array<{
+  publicId: string;
+  title: string;
+  assignedUsername?: string | null;
+  assignedDisplayName?: string | null;
+  assignees?: TaskAssigneeInfo[];
+}>): string {
+  const lines = tasks.map((task, index) => {
+    const assignees = reminderAssignees(task);
+    const assignment = assignees.length > 0 ? ` — ${formatReminderAssigneesHtml(task)}` : "";
+    return `${index + 1}. ${bold(h(task.title))}${assignment}\n${fieldHtml("Task ID", code(task.publicId))}`;
+  });
+  return joinBlocks([
+    bold("Group follow-up"),
+    lines.join("\n\n"),
+    "No deadlines were set. Open a task to finish it, add a date, or snooze it."
+  ]);
+}
+
+function groupUndatedReminderKeyboard(tasks: Array<{ id: string; publicId: string }>): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  tasks.forEach((task, index) => {
+    keyboard.text(`Open ${task.publicId}`, `task:view-full:${task.id}`);
+    if (index % 2 === 1 || index === tasks.length - 1) keyboard.row();
+  });
+  return keyboard;
+}
+
 function reminderAssignees(task: {
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
@@ -408,6 +603,12 @@ export function shouldUseDueNudgePolicy(task: {
 
 export function nextIntervalReminderAt(now: Date, intervalMinutes: number): Date {
   return new Date(now.getTime() + intervalMinutes * 60_000);
+}
+
+export function nextUndatedGroupReminderInterval(intervalMinutes: number, consecutiveNudges: number): number {
+  return consecutiveNudges >= GROUP_UNDATED_SLOWDOWN_AFTER
+    ? Math.max(intervalMinutes, GROUP_UNDATED_SLOW_INTERVAL_MINUTES)
+    : intervalMinutes;
 }
 
 export function dueNudgeStartAt(dueAt: Date, dueNudgeMinutes: number): Date {

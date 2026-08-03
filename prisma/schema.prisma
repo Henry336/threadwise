@@ -430,6 +430,7 @@ model Task {
   completedAt             DateTime?
   lastRemindedAt          DateTime?
   reminderCount           Int             @default(0)
+  undatedNudgeCount       Int             @default(0)
   embedding               Json?
   calendarUrl             String?
   calendarEventId         String?

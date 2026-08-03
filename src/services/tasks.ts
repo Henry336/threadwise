@@ -37,6 +37,7 @@ export type TaskListItem = {
   snoozedUntil?: Date | null;
   lastRemindedAt?: Date | null;
   reminderCount: number;
+  undatedNudgeCount?: number;
   completedAt?: Date | null;
   pinnedAt?: Date | null;
   archivedAt?: Date | null;
@@ -225,6 +226,7 @@ export async function completeTask(userId: string, reference: string) {
           dueAt: nextDueAt,
           nextReminderAt: nextDueAt,
           snoozedUntil: null,
+          undatedNudgeCount: 0,
           calendarUrl: createGoogleCalendarUrl({
             title: task.title,
             details: task.description ?? task.sourceText,
@@ -271,7 +273,7 @@ export async function restoreCompletedTask(userId: string, reference: string) {
   return prisma.$transaction(async (tx) => {
     const changed = await tx.task.updateMany({
       where: { id: task.id, userId, status: TaskStatus.DONE },
-      data: { status: TaskStatus.OPEN, completedAt: null, nextReminderAt, snoozedUntil: null }
+      data: { status: TaskStatus.OPEN, completedAt: null, nextReminderAt, snoozedUntil: null, undatedNudgeCount: 0 }
     });
     const current = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
     if (changed.count === 0) {
@@ -293,7 +295,8 @@ export async function snoozeTask(userId: string, reference: string, durationText
       where: { id: task.id },
       data: {
         snoozedUntil: until,
-        nextReminderAt: until
+        nextReminderAt: until,
+        undatedNudgeCount: 0
       }
     });
   });
@@ -336,7 +339,8 @@ export async function renameTaskTitle(userId: string, reference: string, title: 
       where: { id: task.id },
       data: {
         title: nextTitle,
-        calendarUrl
+        calendarUrl,
+        undatedNudgeCount: 0
       }
     });
   });
@@ -366,7 +370,8 @@ export async function updateTaskDescription(userId: string, reference: string, d
       data: {
         description: nextDescription,
         calendarUrl,
-        embedding: Prisma.JsonNull
+        embedding: Prisma.JsonNull,
+        undatedNudgeCount: 0
       }
     });
   });
@@ -396,7 +401,8 @@ export async function assignTask(userId: string, reference: string, assigneeText
       data: {
         assignedTelegramId: primary?.telegramId,
         assignedUsername: primary?.username,
-        assignedDisplayName: primary?.displayName
+        assignedDisplayName: primary?.displayName,
+        undatedNudgeCount: 0
       },
       include: { assignees: true }
     });
@@ -427,7 +433,8 @@ export async function unassignTask(userId: string, reference: string, assigneeTe
       data: {
         assignedTelegramId: primary?.telegramId ?? null,
         assignedUsername: primary?.username ?? null,
-        assignedDisplayName: primary?.displayName ?? null
+        assignedDisplayName: primary?.displayName ?? null,
+        undatedNudgeCount: 0
       },
       include: { assignees: true }
     });
@@ -471,6 +478,7 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
         calendarUrl,
         nextReminderAt,
         snoozedUntil: null,
+        undatedNudgeCount: 0,
         recurrenceDayOfMonth: recurrenceDayOfMonth(dueAt ?? undefined, task.recurrenceRule ?? undefined, settings.timezone) ?? null
       }
     });

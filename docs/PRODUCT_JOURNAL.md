@@ -75,6 +75,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 ## Contemporary decisions
 
+### 3 August 2026 — Quieter follow-ups for undated group work
+
+**Friction discovered:** Group tasks without deadlines inherited the personal three-hour repeat cadence and each task produced its own reminder card. A few open tasks could therefore multiply into a noisy stream, while an ignored task continued at the same frequency forever. The reminder count was task-oriented even when several tasks could share one Telegram message, so a future digest would also consume the daily safety limit inaccurately.
+
+**Decision:** Make undated group follow-ups a workspace-level coordination rhythm rather than a personal alarm. Use six hours by default, retain admin configuration through the existing group reminder settings, combine related work into one public follow-up, and slow an ignored task to daily only after three unanswered rounds. Any meaningful interaction restarts the configured cadence. Dated tasks and personal reminders keep their existing policies.
+
+**Implemented:** New groups use a six-hour reminder interval, and the migration moves group settings that still match the previous three-hour default. The reminder pass batches up to eight simultaneously eligible undated tasks per group message, counts that Telegram message once against the safety limit, preserves per-task delivery history, and continues optional assignee DMs. `Task.undatedNudgeCount` tracks the unanswered streak independently from lifetime reminder totals. Edits, assignment responses, handoffs, snoozes, pins, due-date changes, restores, and settings changes reset the streak. Quiet hours defer the whole batch; after the third delivery, each untouched task moves to at least a 24-hour cadence.
+
+**Expected product effect:** Group reminders should remain useful without becoming another source of chat clutter. A task that is actively being discussed returns to the group's chosen rhythm, while abandoned work becomes a daily review item instead of interrupting the group every few hours.
+
+**Follow-up:** Measure group follow-up opens, completion or reschedule actions after a nudge, batch size, and the share of tasks that reach daily slowdown. Reconsider the six-hour default only from real group behavior; do not increase frequency merely to create engagement.
+
 ### 3 August 2026 — Strict group activation and batch TODO capture
 
 **Friction discovered:** A group member wanted Threadwise to recognize the conventional `TODO` marker and turn several action items into tasks naturally. The existing one-request-at-a-time flow made allocation repetitive, but loosening the entire group router would make ordinary multi-person conversation dangerous: a product-name reference or unrelated bot mention could accidentally trigger capture. Public menus also become chaotic when several members navigate at once, and immediate batch creation would give users no safe place to correct wrapped text, an ambiguous owner, or a misread date.
