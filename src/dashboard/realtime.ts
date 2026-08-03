@@ -86,13 +86,14 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
   });
   if (!user) throw new DashboardUserNotFoundError();
 
-  const [tasks, notes, ideas, images, expenses, availability] = await Promise.all([
+  const [tasks, notes, ideas, images, expenses, availability, taskImports] = await Promise.all([
     database.task.aggregate({ where: { userId: user.id }, _count: true, _max: { updatedAt: true } }),
     database.note.aggregate({ where: { userId: user.id }, _count: true, _max: { updatedAt: true } }),
     database.idea.aggregate({ where: { userId: user.id }, _count: true, _max: { updatedAt: true } }),
     database.storedImage.aggregate({ where: { userId: user.id }, _count: true, _max: { updatedAt: true } }),
     database.expense.aggregate({ where: { userId: user.id }, _count: true, _max: { updatedAt: true } }),
-    database.availabilityPoll.aggregate({ where: { workspace: { ownerUserId: user.id } }, _count: true, _max: { updatedAt: true } })
+    database.availabilityPoll.aggregate({ where: { workspace: { ownerUserId: user.id } }, _count: true, _max: { updatedAt: true } }),
+    database.pendingTaskImport.aggregate({ where: { ownerUserId: user.id }, _count: true, _max: { updatedAt: true } })
   ]);
 
   return JSON.stringify([
@@ -105,7 +106,8 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
     aggregateStamp(ideas),
     aggregateStamp(images),
     aggregateStamp(expenses),
-    aggregateStamp(availability)
+    aggregateStamp(availability),
+    aggregateStamp(taskImports)
   ]);
 }
 

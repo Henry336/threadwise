@@ -27,7 +27,8 @@ describe("dashboard live revision", () => {
       idea: { aggregate: aggregate(1, "2026-07-16T08:00:00.000Z") },
       storedImage: { aggregate: aggregate(0, null) },
       expense: { aggregate: aggregate(4, "2026-07-15T08:00:00.000Z") },
-      availabilityPoll: { aggregate: aggregate(1, "2026-07-17T09:30:00.000Z") }
+      availabilityPoll: { aggregate: aggregate(1, "2026-07-17T09:30:00.000Z") },
+      pendingTaskImport: { aggregate: aggregate(1, "2026-07-17T09:45:00.000Z") }
     } as unknown as PrismaClient;
 
     const before = await dashboardRevision("123456789", database);

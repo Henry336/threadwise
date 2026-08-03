@@ -9,6 +9,16 @@ export function groupDashboardUrl(workspaceId: string, view?: string): string {
   return url.toString();
 }
 
+export function groupTaskImportReviewUrl(workspaceId: string, importId: string): string {
+  const target = new URL("/dashboard", DASHBOARD_URL);
+  target.searchParams.set("view", "tasks");
+  target.searchParams.set("import", importId);
+  const select = new URL("/api/workspace/select", DASHBOARD_URL);
+  select.searchParams.set("workspace", workspaceId);
+  select.searchParams.set("next", `${target.pathname}${target.search}`);
+  return select.toString();
+}
+
 export function groupScheduleMiniAppUrl(
   botUsername: string | undefined,
   workspaceId: string,

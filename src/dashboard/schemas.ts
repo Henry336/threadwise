@@ -56,6 +56,21 @@ export const taskCollaborationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("handoff"), assigneeId: z.string().uuid(), targetTelegramId: collaborationTelegramId, reason: collaborationReason }).strict(),
 ]);
 
+const taskImportAssigneeSchema = z.object({
+  telegramId: z.string().regex(/^[1-9]\d{0,19}$/).optional(),
+  username: z.string().trim().regex(/^[A-Za-z0-9_]{3,32}$/).optional(),
+  displayName: z.string().trim().min(1).max(120).optional(),
+}).strict().refine((value) => Boolean(value.telegramId || value.username || value.displayName), "An assignee identity is required.");
+
+export const taskImportItemUpdateSchema = z.object({
+  title: trimmed(500).optional(),
+  dueAt: nullableDateTime.optional(),
+  assignees: z.array(taskImportAssigneeSchema).max(20).optional(),
+  teamOwnerLabel: optionalNullableText(120),
+  initialStatus: z.union([z.literal(TaskStatus.OPEN), z.literal(TaskStatus.DONE)]).optional(),
+  included: z.boolean().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
+
 export const noteCreateSchema = z.object({
   title: trimmed(500),
   body: trimmed(50_000),

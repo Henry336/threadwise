@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { describe, expect, it } from "vitest";
-import { isTelegramContextAllowed, prepareNaturalLanguageText, shouldHandleGroupUpdate, telegramAllowlistKeys, telegramGroupPrivacyEnabled } from "./groupRouting";
+import { isExplicitGroupTaskImport, isTelegramContextAllowed, prepareNaturalLanguageText, shouldHandleGroupUpdate, telegramAllowlistKeys, telegramGroupPrivacyEnabled } from "./groupRouting";
 
 const bot = {
   id: 99,
@@ -42,6 +42,16 @@ describe("group routing", () => {
     });
 
     expect(prepareNaturalLanguageText(ctx, "remind me to buy rice at 5pm")).toBeUndefined();
+    expect(prepareNaturalLanguageText(ctx, "Threadwise are you listening?")).toBeUndefined();
+    expect(prepareNaturalLanguageText(ctx, "show me the notes @some_other_bot")).toBeUndefined();
+  });
+
+  it("only treats task-import headings at the start of a message as explicit group activation", () => {
+    expect(isExplicitGroupTaskImport("TODO:\n- Send the deck")).toBe(true);
+    expect(isExplicitGroupTaskImport("Action items: @maya send the deck")).toBe(true);
+    expect(isExplicitGroupTaskImport("To do:\n1. Book the room")).toBe(true);
+    expect(isExplicitGroupTaskImport("My todo: send the deck")).toBe(false);
+    expect(isExplicitGroupTaskImport("We discussed the action items: send the deck")).toBe(false);
   });
 
   it("strips bot mentions before natural command parsing", () => {
@@ -170,7 +180,7 @@ describe("group routing", () => {
     expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("remind @henry_derek to submit his assignment at 10:19 am");
   });
 
-  it("falls back to a leading bot-style mention when runtime bot metadata is missing", () => {
+  it("does not guess which bot was addressed when runtime metadata is missing", () => {
     const ctx = {
       from: { id: 456, is_bot: false, first_name: "Parent" },
       chat: { id: -100456, type: "supergroup", title: "Family" },
@@ -182,10 +192,10 @@ describe("group routing", () => {
       }
     } as unknown as Context;
 
-    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("show me the tasks");
+    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBeUndefined();
   });
 
-  it("falls back to bot-style mentions outside the first token", () => {
+  it("does not accept arbitrary bot-style mentions outside the first token", () => {
     const ctx = {
       from: { id: 456, is_bot: false, first_name: "Parent" },
       chat: { id: -100456, type: "supergroup", title: "Family" },
@@ -197,7 +207,7 @@ describe("group routing", () => {
       }
     } as unknown as Context;
 
-    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBe("show me the notes");
+    expect(prepareNaturalLanguageText(ctx, ctx.message?.text ?? "")).toBeUndefined();
   });
 
   it("accepts the screenshot-style bot mention and keeps the assignee mention", () => {

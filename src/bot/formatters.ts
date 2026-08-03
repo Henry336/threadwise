@@ -42,6 +42,7 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     task.dueAt ? `⏰ ${h(formatDateTimeForUser(task.dueAt, timezone))}` : "○ No due date",
     task.recurrenceRule ? `↻ ${h(formatRecurrence(task.recurrenceRule))}` : undefined,
     hasAssignees(task) ? `👤 ${formatAssigneeHtml(task)}` : undefined,
+    task.teamOwnerLabel ? `👥 ${h(task.teamOwnerLabel)}` : undefined,
     task.calendarEventId ? "☁️ In Google Calendar" : undefined,
     task.pinnedAt ? "⭐ Important" : undefined
   ].filter(Boolean).join("\n");
@@ -116,7 +117,8 @@ function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone
   const context = [
     task.dueAt ? formatCompactDue(task.dueAt, timezone) : "No due date",
     task.recurrenceRule ? `↻ ${formatRecurrence(task.recurrenceRule)}` : undefined,
-    hasAssignees(task) ? `👤 ${formatAssigneeHtml(task)}` : undefined
+    hasAssignees(task) ? `👤 ${formatAssigneeHtml(task)}` : undefined,
+    task.teamOwnerLabel ? `👥 ${h(task.teamOwnerLabel)}` : undefined
   ].filter(Boolean).join(" · ");
   return `${number} ${marker} ${bold(truncate(task.title, 72))}\n${context}`;
 }

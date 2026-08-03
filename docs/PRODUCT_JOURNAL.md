@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-07-26
+Updated: 2026-08-03
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -74,6 +74,49 @@ This is the durable record of Threadwise's product decisions: the friction that 
 **Outcome:** Group mode now has a collaboration purpose of its own while personal mode remains a private life inbox.
 
 ## Contemporary decisions
+
+### 3 August 2026 — Strict group activation and batch TODO capture
+
+**Friction discovered:** A group member wanted Threadwise to recognize the conventional `TODO` marker and turn several action items into tasks naturally. The existing one-request-at-a-time flow made allocation repetitive, but loosening the entire group router would make ordinary multi-person conversation dangerous: a product-name reference or unrelated bot mention could accidentally trigger capture. Public menus also become chaotic when several members navigate at once, and immediate batch creation would give users no safe place to correct wrapped text, an ambiguous owner, or a misread date.
+
+**Decision:** Treat `TODO:` and `ACTION ITEMS:` as explicit, narrow group syntax rather than general conversational intelligence. Keep every other non-command activation strict: exact deployed-bot mention, reply to Threadwise, or receiver-bound ephemeral reply. Parse the complete list locally and require one review before committing it. Give control to the original sender and currently verified group owners/admins; everyone else may inspect but not change it. Keep the feature inside the existing Coordinate pillar instead of adding a generic project-import product.
+
+**Implemented:**
+
+- The deterministic parser accepts bullets, numbered items, wrapped lines, checked/done markers, due phrases, Telegram usernames, known member display names, and plain-language team-owner labels. It caps each import at 25 rows and reports ambiguity beside the affected row.
+- `PendingTaskImport` and `PendingTaskImportItem` preserve the review across restarts. Each row records inclusion, parsed metadata, status, failure detail, and its created task id.
+- Telegram posts one compact review card with Review, Import/Retry, Cancel, and Work actions. Import and cancel callbacks are actor-gated. A successful import uses the normal self-cleaning acknowledgement instead of doubling group-chat noise.
+- The group dashboard opens the exact review from Telegram, supports inline row correction on desktop and mobile, keeps the primary import action visible, and refreshes shared Work after completion. Imported team-owner labels remain visible beside normal task assignees.
+- Import claims and row statuses make retries idempotent: the created task is linked to its source row inside the same transaction, an already imported row is never created again, and a process-interrupted claim becomes retryable after a bounded lease.
+- Forum groups may optionally create one admin-controlled Threadwise topic to concentrate bot interaction. The topic does not change workspace scope or make existing group usage dependent on Telegram forums.
+
+**Outcome/evidence:** Focused routing and parser suites cover strict non-activation, both import headings, list structure, dates, statuses, owners, assignees, sender/admin control, and abandoned-claim recovery. The complete release gate passed all 587 backend tests, backend typechecking and production build, all 12 dashboard contract tests, dashboard lint, and the dashboard production build.
+
+**Privacy-mode caveat:** Telegram may withhold an unmentioned `TODO:` block while BotFather privacy is enabled. Threadwise cannot override delivery that never reaches its webhook, so exact mention/reply remains the documented reliable fallback.
+
+**Follow-up:** Observe real group imports for false activations, correction frequency, average rows per import, retry rate, and whether the optional topic improves discoverability. Do not expand activation keywords until usage proves that another phrase is both common and sufficiently unambiguous.
+
+#### Phase 1 hardening audit — 3 August 2026
+
+**Friction discovered:** A post-implementation audit found that reviewed assignees were being converted into fake Telegram mentions at character zero. That reused a chat-text heuristic in a structured dashboard path, so a valid title containing words such as “for” could be shortened incorrectly. The parser also treated nearly every short final parenthetical as an owner, warnings did not clear after a reviewer fixed a row, skipped rows could silently return to Ready after an unrelated edit, and a copied callback identifier was not independently checked against the current Telegram group. Long imports refreshed no lease while processing, leaving a recovery race, and the dashboard continued to present terminal imports as editable.
+
+**Decision:** Keep natural-text inference only at the capture boundary. Once a reviewer supplies structured fields, pass them directly to task creation. Prefer an unresolved warning over guessing ownership; only explicit owner syntax, Telegram usernames, unambiguous active-member names, or recognizable team labels may consume a final parenthetical. Treat the import row id as the durable idempotency key, refresh the import lease while processing, and enforce both actor and group scope on Telegram callbacks. Terminal review states must be visibly terminal.
+
+**Implemented:**
+
+- Added an explicit assignee path to task creation and removed synthetic mention offsets from batch import.
+- Added unambiguous active-member alias resolution, conservative team-label detection, duplicate-first-name protection, and support for plain `[ ]`, `[x]`, `☐`, `☑`, and `✅` checklist rows.
+- Centralized warning derivation so assignee, team-owner, and completion corrections immediately update the review; unrelated edits now preserve a skipped row.
+- Added a unique task-side source-row key, per-row import heartbeat, and recovery lookup before and after task creation.
+- Bound Telegram callbacks to the originating workspace chat, made preview-message id persistence non-fatal after successful delivery, and guarded optional topic creation against common double taps.
+- Updated the dashboard review with explicit terminal states, manual refresh, removable unmatched assignees, URL-correct post-import navigation, keyboard focus parity for selects, and 44 px mobile targets.
+- A second error audit kept same-name members distinct when they have different Telegram identities, accepted the variation-selector form of emoji checkboxes copied from Telegram, made the SQL warnings column match Prisma's non-null contract, and stabilized the dashboard grid regardless of how many notices are visible. It also limited review counts to selected rows, removed duplicated terminal copy, and restored a visible title-field keyboard focus ring.
+
+**Expected product effect:** The feature remains a focused bridge from a conventional group `TODO:` block into existing shared Work. The hardening removes hidden interpretation and concurrency risks without adding another workflow or expanding Threadwise into a general project-import tool.
+
+**Verification evidence:** All 595 backend tests passed with one worker, including the new structured-assignee, conservative-owner, duplicate-name, stable-identity, checklist-encoding, warning, and chat-scope regressions. Backend typechecking, Prisma validation, and the production build passed. The coordinated dashboard passed all 12 contract tests, lint, and its production build.
+
+**Follow-up:** Measure which rows users correct, not merely how often they import. A high rate of owner correction should lead to narrower parsing rules, not more AI inference. Keep terminal-state refresh manual while edits are local so live reconciliation never overwrites an unfinished correction.
 
 ### 23 July 2026 — Find a time without leaving the group
 

@@ -1,6 +1,6 @@
 # Architecture Notes
 
-Updated: 2026-07-26
+Updated: 2026-08-03
 
 Current backend release: v0.26.0
 
@@ -35,7 +35,11 @@ Recent reversible actions are tracked in `AuditLog` with an `undoable:` action p
 
 Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `warn me 10 mins before due tasks`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. A low-confidence private message is persisted briefly as a `PendingCapture` and immediately receives actor-bound Task, Note, Idea, and Ignore buttons. It does not wait for AI on the response-critical path. Low-confidence group conversation remains ignored unless it was explicitly addressed to Threadwise.
 
-Group routing lives in `src/bot/groupRouting.ts`. Slash commands are treated as explicit bot requests. Plain natural-language messages in group chats are ignored unless they mention the bot or reply to one of its messages; the mention is stripped before normal parsing so `@ThreadwiseBot remind me to...` follows the same deterministic path as a private message. This keeps group conversations quiet and prevents accidental captures from unrelated chat.
+Group routing lives in `src/bot/groupRouting.ts`. Slash commands are explicit. Ordinary group text is ignored unless it contains the exact runtime bot mention or replies to a normal/receiver-bound Threadwise message. Generic `@something_bot` mentions and a plain leading product name do not activate the router. Two deliberately narrow headings—`TODO:` and `ACTION ITEMS:`—also activate the batch-import path. This keeps normal conversation quiet while giving groups one familiar, low-ceremony capture convention. Telegram privacy mode still controls which unmentioned messages are delivered by Telegram; an exact mention or reply is the universally reliable path.
+
+Group TODO import is a durable preview-and-commit workflow rather than a loop that creates one task per line immediately. `src/services/taskImports.ts` parses the bounded list, resolves unambiguous active-member usernames/display names, preserves recognizable team-owner labels, leaves ordinary parenthetical details untouched, interprets dates in the group timezone, and stores `PendingTaskImport` plus ordered `PendingTaskImportItem` rows. Telegram shows one compact preview. The sender or a freshly verified group owner/admin may edit inclusion, title, assignees, team owner, due time, and initial Open/Done status through the authenticated dashboard API. Reviewed assignees enter task creation as structured data rather than being re-parsed from synthetic text entities. Import claims the review, refreshes that lease between rows, creates each task through the existing task service, records per-row success/failure, and leaves failed rows retryable. The source-row id is also unique on the created task, making callbacks and interrupted retries idempotent even across competing recovery attempts.
+
+Forum groups can optionally create one dedicated Threadwise topic. Creation is admin-only and persists the Telegram topic id on `GroupWorkspace`; it is an organizational convention, not an alternate data scope or a requirement for group features.
 
 `ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
 
@@ -64,6 +68,8 @@ The dashboard is a separate Next.js/Vercel client. It never connects directly to
 5. `src/dashboard/workspaces.ts` resolves that UUID and revalidates Telegram membership before entering the synthetic group owner scope.
 6. Route handlers validate payloads with the schemas in `src/dashboard/schemas.ts` and call the same domain services used by Telegram.
 7. Mutation paths publish scoped events through `src/dashboard/realtime.ts`; `/api/v1/dashboard/events` streams them with private/no-store semantics so the client can refresh the affected data.
+
+TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. This is independent of ordinary assignment self-service, where a member controls only their own assignment response.
 
 Group authorization has two layers. Current members may read shared data and mutate only their own availability/assignment state. Owner/admin operations—such as changing group settings or finalizing a scheduling poll—perform a fresh Telegram role check. The server fails closed when a required check cannot establish the privilege.
 
