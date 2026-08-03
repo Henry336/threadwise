@@ -527,11 +527,34 @@ function memberDisplayName(member: { firstName: string | null; lastName: string 
 }
 
 function addImportAssignee(list: TaskImportAssignee[], assignee: TaskImportAssignee): void {
-  const key = assignee.telegramId ? `id:${assignee.telegramId}` : assignee.username ? `u:${assignee.username.toLowerCase()}` : `n:${assignee.displayName?.toLowerCase()}`;
-  if (!key.endsWith(":undefined") && !list.some((item) => {
-    const itemKey = item.telegramId ? `id:${item.telegramId}` : item.username ? `u:${item.username.toLowerCase()}` : `n:${item.displayName?.toLowerCase()}`;
-    return itemKey === key;
-  })) list.push(assignee);
+  if (!assignee.telegramId && !assignee.username && !assignee.displayName) return;
+  const username = assignee.username?.toLocaleLowerCase();
+  const displayName = assignee.displayName?.toLocaleLowerCase();
+  const existing = list.find((item) => {
+    if (assignee.telegramId && item.telegramId === assignee.telegramId) return true;
+    if (username && item.username?.toLocaleLowerCase() === username) {
+      return !assignee.telegramId || !item.telegramId || assignee.telegramId === item.telegramId;
+    }
+    const itemHasStableIdentity = Boolean(item.telegramId || item.username);
+    const assigneeHasStableIdentity = Boolean(assignee.telegramId || assignee.username);
+    return !itemHasStableIdentity
+      && !assigneeHasStableIdentity
+      && Boolean(displayName && item.displayName?.toLocaleLowerCase() === displayName);
+  });
+  if (!existing) {
+    list.push(assignee);
+    return;
+  }
+
+  // The text scan may discover @username before Telegram's entity supplies the
+  // same person's stable ID. Merge the richer identity instead of rendering
+  // both discoveries as separate assignees.
+  existing.telegramId ??= assignee.telegramId;
+  existing.username ??= assignee.username;
+  const existingUsesUsernameAsName = existing.displayName?.toLocaleLowerCase() === existing.username?.toLocaleLowerCase();
+  if (!existing.displayName || (existingUsesUsernameAsName && assignee.displayName)) {
+    existing.displayName = assignee.displayName;
+  }
 }
 
 function readAssignees(value: Prisma.JsonValue): TaskImportAssignee[] {

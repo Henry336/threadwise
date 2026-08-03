@@ -248,6 +248,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 **Follow-up:** Update the relevant documents in the same commit as every future product release. Add a lightweight documentation consistency check if package versions, route lists, or validation counts become stale repeatedly.
 
+### 3 August 2026 — Treat one Telegram identity as one assignee
+
+**Friction discovered:** A group TODO containing `@username` could discover the same person through both the visible text and Telegram's structured mention entity. When the text pass knew only the username but the entity pass also knew the Telegram ID, the two representations used different deduplication keys and appeared twice in the review. An incomplete closing parenthesis did not prevent the duplicate.
+
+**Decision:** Deduplicate on overlapping stable identity rather than on one preferred key. Telegram ID remains strongest, username provides a safe bridge when one discovery has not resolved the ID yet, and display-name matching is used only when neither record has a stable identity so distinct members with the same name remain distinct.
+
+**Implemented:** Task-import assignee collection now merges matching discoveries and enriches the retained record with the Telegram ID, username, and human display name. Added regression coverage for both complete and incomplete parenthetical `@username` forms.
+
+**Outcome/evidence:** The exact reported two-row import now produces one structured assignee per row. The focused 20-test task-import/assignee suite and TypeScript typecheck pass after regenerating the production Prisma client.
+
+**Follow-up:** Confirm the corrected preview against a real Telegram group after deployment and watch for historical reviews that were created before the fix; existing pending rows are not rewritten automatically.
+
 ## Journal entry template
 
 ```markdown

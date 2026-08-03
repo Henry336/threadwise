@@ -62,6 +62,22 @@ describe("task import parsing", () => {
     expect(item?.sourceText).toContain("(Alex)");
   });
 
+  it("merges an explicit username and its Telegram entity into one assignee", () => {
+    const mention = { telegramId: "10", username: "henry_derek", displayName: "Henry", offset: 20, length: 12 };
+    const membership = { telegramId: "10", username: null, firstName: "Henry", lastName: null };
+    const result = parseTaskImportText([
+      "TODO:",
+      "- Do nothing (@henry_derek)",
+      "- Do something (@henry_derek",
+    ].join("\n"), "Asia/Singapore", [mention], [membership]);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.assignees)).toEqual([
+      [{ telegramId: "10", username: "henry_derek", displayName: "Henry" }],
+      [{ telegramId: "10", username: "henry_derek", displayName: "Henry" }],
+    ]);
+  });
+
   it("accepts plain checklist rows and preserves their completion state", () => {
     const result = parseTaskImportText("TODO:\n[ ] Draft the update\n[x] Publish it\n☑ Share it", "UTC");
     expect(result.map((item) => item.initialStatus)).toEqual([TaskStatus.OPEN, TaskStatus.DONE, TaskStatus.DONE]);

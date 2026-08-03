@@ -31,6 +31,7 @@
 - Added a durable per-row task idempotency key and an active-import heartbeat so process recovery and long imports cannot create duplicate tasks.
 - Made preview-message bookkeeping best-effort after Telegram delivery and serialized optional topic creation within the running bot process, preventing misleading failures and common double-tap duplicates.
 - Kept distinct Telegram members who share a display name, accepted emoji checklist markers with presentation selectors, and aligned the migration's warnings column with Prisma's non-null contract.
+- Merged duplicate discoveries of the same assignee across plain `@username` parsing, Telegram mention entities, and group membership lookup, including incomplete parenthetical input, so one person appears only once in review.
 - Corrected the dashboard review grid so optional notices cannot displace the scrollable rows or footer; selected-row summaries now exclude omitted work and terminal status copy appears only once.
 - Passed all 595 backend tests, TypeScript typechecking, Prisma validation, and the production build; the coordinated dashboard passed all 12 tests, lint, and its production build.
 
