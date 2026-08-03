@@ -45,6 +45,7 @@ export type DashboardSnapshot = {
     calendarEventUrl?: string;
     calendarSyncedAt?: string;
     assignee?: string;
+    teamOwnerLabel?: string;
     assignees?: DashboardTaskAssignee[];
     createdAt: string;
     updatedAt: string;
@@ -213,6 +214,7 @@ export async function getDashboardSnapshot(
         calendarSyncedAt: true,
         assignedUsername: true,
         assignedDisplayName: true,
+        teamOwnerLabel: true,
         assignees: {
           select: {
             id: true,
@@ -377,6 +379,7 @@ export async function getDashboardSnapshot(
         : task.assignedUsername
           ? { assignee: `@${task.assignedUsername}` }
           : {}),
+      ...(task.teamOwnerLabel ? { teamOwnerLabel: task.teamOwnerLabel } : {}),
       assignees: (task.assignees ?? []).map((assignee) => ({
         id: assignee.id,
         ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),

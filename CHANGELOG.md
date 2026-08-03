@@ -16,6 +16,24 @@
 - Added durable commit/push/PR/check/merge audit events and full publishing outcomes in Telegram reports.
 - Added the repository's PR CI workflow for tests, typechecking, production build, and Prisma validation.
 
+### Focused group TODO import
+- Added strict group activation: ordinary conversation stays silent unless it is a slash command, an exact mention of the deployed bot, a reply to Threadwise, or an explicit `TODO:` / `ACTION ITEMS:` block.
+- Added batch task extraction for pasted group lists, including wrapped bullets, completion markers, due dates, Telegram assignees, plain-language team owners, and row-level warnings.
+- Added one durable review before import. The sender or a currently verified group owner/admin can edit titles, dates, status, assignees, inclusion, and team-owner labels in the group dashboard; other members receive a read-only view.
+- Added idempotent import/retry behavior so duplicate taps cannot duplicate already imported rows and partial failures remain recoverable.
+- Added an optional admin-created Threadwise forum topic for groups that want a dedicated bot lane without forcing every group into a separate topic.
+- Kept successful delivery quiet: imported tasks enter the existing shared Work, assignment, editing, completion, and reminder flows, and the Telegram success acknowledgement removes itself.
+- Added parser, routing, authorization, snapshot, migration, and dashboard-contract coverage plus the decision record explaining the false-activation and one-task-at-a-time friction.
+- Hardened retries against process interruption: each created task is linked to its source row in the same database transaction, and an abandoned import claim becomes recoverable after a bounded lease.
+- Corrected reviewed-assignee handling so dashboard selections are passed as explicit task data rather than synthetic Telegram entities; words such as “for” can no longer cause an imported title to be reinterpreted or stripped.
+- Made parenthetical owner detection conservative. Known active members and recognizable team labels still resolve, while ordinary details such as `(include metrics)` remain part of the task. Ambiguous duplicate first names are left for review instead of guessed.
+- Recompute row warnings after every correction, preserve skipped state while editing, accept plain Telegram-style checklist rows, and bind callback controls to the exact originating group.
+- Added a durable per-row task idempotency key and an active-import heartbeat so process recovery and long imports cannot create duplicate tasks.
+- Made preview-message bookkeeping best-effort after Telegram delivery and serialized optional topic creation within the running bot process, preventing misleading failures and common double-tap duplicates.
+- Kept distinct Telegram members who share a display name, accepted emoji checklist markers with presentation selectors, and aligned the migration's warnings column with Prisma's non-null contract.
+- Corrected the dashboard review grid so optional notices cannot displace the scrollable rows or footer; selected-row summaries now exclude omitted work and terminal status copy appears only once.
+- Passed all 595 backend tests, TypeScript typechecking, Prisma validation, and the production build; the coordinated dashboard passed all 12 tests, lint, and its production build.
+
 ### Telegram intelligence worker
 - Added owner-only Gemini Ideas Intelligence actions for saved ideas: Develop, Challenge, Next steps, and a suggested Now/Next/Later task plan.
 - Kept Gemini scoped to individual Idea-mode actions with no general `/gemini` command; `/codex` remains exclusively for Codex work.

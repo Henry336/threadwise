@@ -50,4 +50,23 @@ describe("task assignees", () => {
       expect.objectContaining({ username: "Soul_Positive_Light" })
     ]));
   });
+
+  it("uses reviewed assignees without reinterpreting words in the task title", () => {
+    const prepared = prepareTaskInput("Prepare for the interview", {
+      assignees: [{ telegramId: "10", username: "maya", displayName: "Maya" }]
+    });
+    expect(prepared.text).toBe("Prepare for the interview");
+    expect(prepared.assignees).toEqual([{ telegramId: "10", username: "maya", displayName: "Maya" }]);
+  });
+
+  it("keeps distinct reviewed members who share a display name", () => {
+    const prepared = prepareTaskInput("Review the release", {
+      assignees: [
+        { telegramId: "10", username: "alex_one", displayName: "Alex" },
+        { telegramId: "11", username: "alex_two", displayName: "Alex" },
+      ],
+    });
+    expect(prepared.assignees).toHaveLength(2);
+    expect(prepared.assignees.map((assignee) => assignee.telegramId)).toEqual(["10", "11"]);
+  });
 });

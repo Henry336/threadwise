@@ -13,6 +13,22 @@ enum TaskStatus {
   CANCELED
 }
 
+enum TaskImportStatus {
+  PENDING
+  IMPORTING
+  PARTIAL
+  IMPORTED
+  CANCELED
+  EXPIRED
+}
+
+enum TaskImportItemStatus {
+  READY
+  IMPORTED
+  SKIPPED
+  FAILED
+}
+
 enum IdeaStatus {
   RAW
   CLARIFIED
@@ -159,6 +175,7 @@ model User {
   groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
   geminiIdeaJobs        GeminiIdeaJob[]
   voiceTranscriptionJobs VoiceTranscriptionJob[]
+  pendingTaskImports    PendingTaskImport[]
 }
 
 model GroupWorkspace {
@@ -167,6 +184,7 @@ model GroupWorkspace {
   telegramChatId String   @unique
   title          String
   username       String?
+  threadwiseTopicId Int?
   isActive       Boolean  @default(true)
   botStatus      String?
   createdAt      DateTime @default(now())
@@ -176,8 +194,58 @@ model GroupWorkspace {
   members   GroupMembership[]
   activity  GroupActivity[]
   availabilityPolls AvailabilityPoll[]
+  pendingTaskImports PendingTaskImport[]
 
   @@index([isActive, updatedAt])
+}
+
+model PendingTaskImport {
+  id                    String           @id @default(uuid())
+  ownerUserId           String
+  workspaceId           String
+  requestedByTelegramId String
+  requestedByName       String
+  sourceText            String
+  status                TaskImportStatus @default(PENDING)
+  telegramMessageId     Int?
+  telegramThreadId      Int?
+  expiresAt             DateTime
+  importedAt            DateTime?
+  canceledAt            DateTime?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  ownerUser User                    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  workspace GroupWorkspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     PendingTaskImportItem[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([requestedByTelegramId, status, expiresAt])
+}
+
+model PendingTaskImportItem {
+  id             String               @id @default(uuid())
+  importId       String
+  position       Int
+  title          String
+  sourceText     String
+  dueAt          DateTime?
+  assignees      Json
+  teamOwnerLabel String?
+  initialStatus  TaskStatus           @default(OPEN)
+  included       Boolean              @default(true)
+  warnings       String[]
+  status         TaskImportItemStatus @default(READY)
+  errorMessage   String?
+  taskId         String?              @unique
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  taskImport PendingTaskImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  task       Task?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, position])
+  @@index([importId, included, status])
 }
 
 model AvailabilityPoll {
@@ -353,6 +421,7 @@ model Task {
   description             String?
   status                  TaskStatus      @default(OPEN)
   sourceText              String
+  importSourceItemId      String?         @unique
   dueAt                   DateTime?
   timezone                String?
   reminderIntervalMinutes Int?
@@ -369,6 +438,7 @@ model Task {
   assignedTelegramId      String?
   assignedUsername        String?
   assignedDisplayName     String?
+  teamOwnerLabel          String?
   recurrenceRule          RecurrenceRule?
   recurrenceIntervalDays  Int?
   recurrenceDayOfMonth    Int?
@@ -381,6 +451,7 @@ model Task {
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   reminderHistory ReminderDelivery[]
   assignees       TaskAssignee[]
+  importItem      PendingTaskImportItem?
 
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])

@@ -140,6 +140,7 @@ export type DashboardTask = {
   calendarEventId?: string;
   calendarEventUrl?: string;
   calendarSyncedAt?: string;
+  teamOwnerLabel?: string;
   assignees: Array<{
     id: string;
     telegramId?: string;
@@ -262,7 +263,7 @@ function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
   snoozedUntil: Date | null;
-  calendarEventId?: string | null; calendarEventUrl?: string | null; calendarSyncedAt?: Date | null;
+  calendarEventId?: string | null; calendarEventUrl?: string | null; calendarSyncedAt?: Date | null; teamOwnerLabel?: string | null;
   assignees?: Array<{
     id: string; telegramId: string | null; username: string | null; displayName: string | null;
     status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED"; statusReason: string | null;
@@ -285,6 +286,7 @@ function taskView(task: {
     ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
     ...(task.calendarEventUrl ? { calendarEventUrl: task.calendarEventUrl } : {}),
     ...(task.calendarSyncedAt ? { calendarSyncedAt: task.calendarSyncedAt.toISOString() } : {}),
+    ...(task.teamOwnerLabel ? { teamOwnerLabel: task.teamOwnerLabel } : {}),
     assignees: (task.assignees ?? []).map((assignee) => ({
       id: assignee.id,
       ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),

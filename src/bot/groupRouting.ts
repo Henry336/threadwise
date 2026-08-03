@@ -31,7 +31,7 @@ export function prepareNaturalLanguageText(ctx: Context, text: string): string |
     return text;
   }
 
-  if (!messageTargetsBot(ctx, text)) {
+  if (!messageTargetsBot(ctx, text) && !isExplicitGroupTaskImport(text)) {
     return undefined;
   }
 
@@ -62,11 +62,16 @@ export function messageTargetsBot(ctx: Context, text: string): boolean {
     return true;
   }
 
-  if (botLikeMention(text)) {
-    return true;
-  }
+  return false;
+}
 
-  return startsWithBotName(ctx, text);
+/**
+ * A deliberately narrow group-only shortcut for turning an existing action
+ * list into tasks. It must be a heading at the start of the message so normal
+ * conversation containing the words "todo" or "action items" stays silent.
+ */
+export function isExplicitGroupTaskImport(text: string): boolean {
+  return /^\s*(?:TODO|TO\s+DO|ACTION\s+ITEMS?)\s*:\s*(?:\r?\n|\S)/iu.test(text);
 }
 
 function stripBotReference(ctx: Context, text: string): string {
@@ -76,13 +81,6 @@ function stripBotReference(ctx: Context, text: string): string {
     next = next.replace(mentionRegex(bot.username, true), " ");
   } else {
     next = stripLeadingMentionEntity(ctx, next);
-  }
-
-  next = stripBotLikeMentions(next);
-
-  const name = bot?.first_name?.trim();
-  if (name) {
-    next = next.replace(new RegExp(`^\\s*${escapeRegExp(name)}(?:\\s+|[:,.!?]+\\s*)`, "i"), "");
   }
 
   return next
@@ -96,7 +94,8 @@ function stripBotReference(ctx: Context, text: string): string {
 export function shouldHandleGroupUpdate(ctx: Context): boolean {
   if (!isGroupChat(ctx) || !ctx.message) return true;
   if (ctx.message.text?.startsWith("/")) return true;
-  return messageTargetsBot(ctx, ctx.message.text ?? ctx.message.caption ?? "");
+  const text = ctx.message.text ?? ctx.message.caption ?? "";
+  return messageTargetsBot(ctx, text) || isExplicitGroupTaskImport(text);
 }
 
 export function telegramGroupPrivacyEnabled(ctx: Context): boolean {
@@ -117,15 +116,6 @@ function stripBotMentionEntities(ctx: Context, text: string, bot: BotInfo | unde
     next = `${next.slice(0, entity.offset)} ${next.slice(entity.offset + entity.length)}`;
   }
   return next;
-}
-
-function startsWithBotName(ctx: Context, text: string): boolean {
-  const name = botInfo(ctx)?.first_name?.trim();
-  if (!name) {
-    return false;
-  }
-
-  return new RegExp(`^\\s*${escapeRegExp(name)}(?:\\s+|[:,.!?]|$)`, "i").test(text);
 }
 
 function messageMentionsBot(ctx: Context, text: string, bot: BotInfo | undefined): boolean {

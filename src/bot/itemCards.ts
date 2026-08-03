@@ -35,6 +35,7 @@ export async function buildItemCard(
       task.dueAt ? `⏰ ${h(formatDateTimeForUser(task.dueAt, task.timezone ?? timezone))}` : "○ No due date",
       task.recurrenceRule ? `↻ ${h(formatRecurrence(task.recurrenceRule))}` : undefined,
       task.assignedUsername || task.assignedDisplayName || task.assignedTelegramId ? `👤 ${h(formatAssignee(task))}` : undefined,
+      task.teamOwnerLabel ? `👥 ${h(task.teamOwnerLabel)}` : undefined,
       task.pinnedAt ? "⭐ Important" : undefined
     ].filter(Boolean).join("\n");
     const text = joinBlocks([

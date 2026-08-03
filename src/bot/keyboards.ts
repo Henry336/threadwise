@@ -147,6 +147,7 @@ export function groupSettingsModeKeyboard(workspaceId?: string): InlineKeyboard 
   const keyboard = new InlineKeyboard()
     .text("⏰ Reminders", "setting:reminders").text("🌍 Region & language", "setting:region").row()
     .text("🎙️ Voice Capture", "setting:voice").row();
+  keyboard.text("🧵 Create Threadwise topic", "group:topic:create").row();
   if (workspaceId) keyboard.url("🌐 Shared dashboard", groupDashboardUrl(workspaceId, "settings")).row();
   return keyboard.text("❓ Group help", "menu:help").text("‹ Main menu", "menu:home");
 }

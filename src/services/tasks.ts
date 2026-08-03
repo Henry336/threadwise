@@ -27,6 +27,7 @@ export type TaskListItem = {
   assignedTelegramId?: string | null;
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
+  teamOwnerLabel?: string | null;
   assignees?: TaskAssigneeInfo[];
   recurrenceRule?: RecurrenceRule | null;
   recurrenceIntervalDays?: number | null;
@@ -61,8 +62,20 @@ export type TaskEntityMention = {
   displayName?: string;
 };
 
+export type TaskCreationAssignee = {
+  telegramId?: string;
+  username?: string;
+  displayName?: string;
+};
+
 export type TaskCreationOptions = {
   mentions?: TaskEntityMention[];
+  assignees?: TaskCreationAssignee[];
+  dueAt?: Date;
+  importItemId?: string;
+  teamOwnerLabel?: string;
+  initialStatus?: TaskStatus;
+  titleOverride?: string;
 };
 
 export async function createTask(userId: string, sourceText: string, ai: AiProvider, options: TaskCreationOptions = {}) {
@@ -77,17 +90,21 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const dueAt = parseDueDate(prepared.text, settings.timezone)
+  const dueAt = options.dueAt ?? parseDueDate(prepared.text, settings.timezone)
     ?? (structured.dueDateText ? parseDueDate(structured.dueDateText, settings.timezone) : undefined)
     ?? parseDueDate(recurrenceCleanedText, settings.timezone);
-  const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
+  const title = options.titleOverride?.trim() || structured.title;
+  const initialStatus = options.initialStatus ?? TaskStatus.OPEN;
+  const embedding = await ai.embed(`${title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const intervalReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
   const now = new Date();
-  const nextReminderAt = dueAt && dueAt.getTime() > now.getTime() ? nextDueReminderAt(dueAt, settings.dueNudgeMinutes, now) : intervalReminderAt;
+  const nextReminderAt = initialStatus === TaskStatus.OPEN
+    ? dueAt && dueAt.getTime() > now.getTime() ? nextDueReminderAt(dueAt, settings.dueNudgeMinutes, now) : intervalReminderAt
+    : null;
   const calendarUrl = dueAt
     ? createGoogleCalendarUrl({
-        title: structured.title,
+        title,
         details: structured.description ?? sourceText,
         dueAt,
         timezone: settings.timezone
@@ -99,18 +116,23 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
       data: {
         userId,
         publicId,
-        title: structured.title,
+        title,
         description: structured.description,
+        status: initialStatus,
         sourceText,
         dueAt,
         timezone: settings.timezone,
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
         nextReminderAt,
+        completedAt: initialStatus === TaskStatus.DONE ? now : null,
         embedding,
         calendarUrl,
         assignedTelegramId: primaryAssignee?.telegramId,
         assignedUsername: primaryAssignee?.username,
         assignedDisplayName: primaryAssignee?.displayName,
+        teamOwnerLabel: options.teamOwnerLabel?.trim() || null,
+        importSourceItemId: options.importItemId,
+        importItem: options.importItemId ? { connect: { id: options.importItemId } } : undefined,
         assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
         recurrenceRule: recurrence?.rule,
         recurrenceIntervalDays: recurrence?.intervalDays,
@@ -524,6 +546,7 @@ export function formatTaskCreated(
     timezone?: string | null;
     assignedUsername?: string | null;
     assignedDisplayName?: string | null;
+    teamOwnerLabel?: string | null;
     assignees?: TaskAssigneeInfo[];
     recurrenceRule?: RecurrenceRule | null;
   },
@@ -536,6 +559,7 @@ export function formatTaskCreated(
     [
       task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
       hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
+      task.teamOwnerLabel ? field("Team Owner", task.teamOwnerLabel) : undefined,
       task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined
     ].filter(Boolean).join("\n"),
     taskAssistantLine(task.publicId, Boolean(task.dueAt)),
@@ -552,6 +576,7 @@ export function formatTaskSavedAcknowledgement(
     timezone?: string | null;
     assignedUsername?: string | null;
     assignedDisplayName?: string | null;
+    teamOwnerLabel?: string | null;
     assignees?: TaskAssigneeInfo[];
     recurrenceRule?: RecurrenceRule | null;
   },
@@ -561,7 +586,8 @@ export function formatTaskSavedAcknowledgement(
   const interpretation = [
     task.dueAt ? field("When", formatDateTimeForUser(task.dueAt, timezone)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
-    hasAssignees(task) ? fieldHtml("For", formatAssigneeHtml(task)) : undefined
+    hasAssignees(task) ? fieldHtml("For", formatAssigneeHtml(task)) : undefined,
+    task.teamOwnerLabel ? field("Team Owner", task.teamOwnerLabel) : undefined
   ].filter(Boolean).join("\n");
 
   return joinBlocks([
@@ -633,6 +659,11 @@ export function formatRecurrence(rule: RecurrenceRule): string {
 }
 
 export function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignees: ParsedAssignee[] } {
+  if (options.assignees !== undefined) {
+    const assignees: ParsedAssignee[] = [];
+    for (const assignee of options.assignees) addAssignee(assignees, assignee);
+    return { text: sourceText, assignees };
+  }
   const assignmentPrefix = sourceText.match(/^(.+?)\s+(?:to|about|for)\s+(.+)$/i);
   const prefix = assignmentPrefix?.[1] ?? "";
   const prefixHasTelegramTarget = /@[A-Za-z0-9_]{3,32}\b/.test(prefix)
@@ -646,11 +677,7 @@ export function prepareTaskInput(sourceText: string, options: TaskCreationOption
   return { text: text || sourceText, assignees };
 }
 
-type ParsedAssignee = {
-  telegramId?: string;
-  username?: string;
-  displayName?: string;
-};
+type ParsedAssignee = TaskCreationAssignee;
 
 export function parseTaskAssignees(sourceText: string, mentions: TaskEntityMention[] = [], allowPlainNames = false): ParsedAssignee[] {
   const assignees: ParsedAssignee[] = [];
@@ -686,11 +713,12 @@ function assigneeKey(assignee: ParsedAssignee): string {
 
 function addAssignee(assignees: ParsedAssignee[], assignee: ParsedAssignee): void {
   const label = assignee.displayName?.toLowerCase();
+  const hasStableIdentity = Boolean(assignee.telegramId || assignee.username);
   if ((!assignee.telegramId && !assignee.username && !assignee.displayName) || assignees.some((item) =>
     assigneeKey(item) === assigneeKey(assignee)
     || Boolean(assignee.telegramId && item.telegramId === assignee.telegramId)
     || Boolean(assignee.username && item.username?.toLowerCase() === assignee.username.toLowerCase())
-    || Boolean(label && item.displayName?.toLowerCase() === label)
+    || Boolean(!hasStableIdentity && !item.telegramId && !item.username && label && item.displayName?.toLowerCase() === label)
   )) return;
   assignees.push(assignee);
 }
@@ -699,7 +727,14 @@ function sameAssignee(left: TaskAssigneeInfo & { normalizedKey?: string }, right
   return left.normalizedKey === assigneeKey(right)
     || Boolean(right.telegramId && left.telegramId === right.telegramId)
     || Boolean(right.username && left.username?.toLowerCase() === right.username.toLowerCase())
-    || Boolean(right.displayName && left.displayName?.toLowerCase() === right.displayName.toLowerCase());
+    || Boolean(
+      !left.telegramId
+      && !left.username
+      && !right.telegramId
+      && !right.username
+      && right.displayName
+      && left.displayName?.toLowerCase() === right.displayName.toLowerCase()
+    );
 }
 
 function formatOneAssignee(assignee: TaskAssigneeInfo): string {

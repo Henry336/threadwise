@@ -71,6 +71,7 @@ import {
   settingsUpdateSchema,
   taskCreateSchema,
   taskCollaborationSchema,
+  taskImportItemUpdateSchema,
   taskListQuerySchema,
   taskUpdateSchema,
   availabilityPollCreateSchema,
@@ -110,6 +111,15 @@ import {
   refreshAvailabilityPollCardWithToken,
   sendAvailabilityReminderWithToken,
 } from "../bot/scheduling";
+import {
+  cancelTaskImport,
+  getTaskImportReview,
+  importReviewedTasks,
+  resolveTaskImportActor,
+  TaskImportError,
+  updateTaskImportItem,
+  type TaskImportReview,
+} from "../services/taskImports";
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
@@ -240,6 +250,46 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       return sendDashboardError(reply, error, "list_workspaces");
     }
   });
+
+  server.get("/api/v1/dashboard/task-imports/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertGroupWorkspace(scope);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { taskImport: await getTaskImportReview(id, scope.workspace.id) };
+  }, "get_task_import"));
+
+  server.patch("/api/v1/dashboard/task-imports/:id/items/:itemId", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertGroupWorkspace(scope);
+    const params = request.params as { id?: string; itemId?: string };
+    const id = dashboardIdParamsSchema.parse({ id: params.id }).id;
+    const itemId = dashboardIdParamsSchema.parse({ id: params.itemId }).id;
+    const taskImport = await getTaskImportReview(id, scope.workspace.id);
+    const actor = await dashboardTaskImportActor(scope, taskImport, options.telegramBotToken);
+    const input = taskImportItemUpdateSchema.parse(request.body);
+    const { dueAt, ...changes } = input;
+    return {
+      taskImport: await updateTaskImportItem(id, itemId, actor, {
+        ...changes,
+        ...(dueAt !== undefined ? { dueAt: dueAt === null ? null : new Date(dueAt) } : {}),
+      }, scope.workspace.id),
+    };
+  }, "update_task_import_item"));
+
+  server.post("/api/v1/dashboard/task-imports/:id/import", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertGroupWorkspace(scope);
+    if (!options.ai) throw new DashboardConfigurationError("Task import is temporarily unavailable.");
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const taskImport = await getTaskImportReview(id, scope.workspace.id);
+    const actor = await dashboardTaskImportActor(scope, taskImport, options.telegramBotToken);
+    return importReviewedTasks(id, actor, options.ai, scope.workspace.id);
+  }, "import_reviewed_tasks"));
+
+  server.post("/api/v1/dashboard/task-imports/:id/cancel", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertGroupWorkspace(scope);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const taskImport = await getTaskImportReview(id, scope.workspace.id);
+    const actor = await dashboardTaskImportActor(scope, taskImport, options.telegramBotToken);
+    return { taskImport: await cancelTaskImport(id, actor, scope.workspace.id) };
+  }, "cancel_task_import"));
 
   server.get("/api/v1/dashboard/events", async (request, reply) => {
     noStore(reply);
@@ -585,6 +635,22 @@ function schedulingScope(scope: DashboardWorkspaceScope): SchedulingScope {
   };
 }
 
+function assertGroupWorkspace(scope: DashboardWorkspaceScope): void {
+  if (scope.workspace.kind !== "GROUP") {
+    throw new DashboardGroupAccessError("TODO imports are available in shared group workspaces.");
+  }
+}
+
+async function dashboardTaskImportActor(
+  scope: DashboardWorkspaceScope,
+  taskImport: TaskImportReview,
+  botToken: string | undefined,
+) {
+  const isSender = taskImport.requestedByTelegramId === scope.principalTelegramId;
+  if (!isSender) await assertWorkspaceManager(scope, botToken);
+  return resolveTaskImportActor(scope.workspace.id, scope.principalTelegramId, !isSender);
+}
+
 async function bestEffortScheduleNotification(
   action: "publish" | "refresh",
   botToken: string | undefined,
@@ -631,6 +697,13 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
           : error.code === "not_connected" ? 412
             : 400;
     return reply.code(status).send({ error: `scheduling_${error.code}`, message: error.message });
+  }
+  if (error instanceof TaskImportError) {
+    const status = error.code === "not_found" ? 404
+      : error.code === "forbidden" ? 403
+        : error.code === "conflict" || error.code === "expired" ? 409
+          : 400;
+    return reply.code(status).send({ error: `task_import_${error.code}`, message: error.message });
   }
   if (error instanceof DashboardConfigurationError) {
     logger.error("Dashboard API is not configured correctly.", { errorType: error.name });
