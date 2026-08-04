@@ -5,6 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { discoverCodexProjects } from "./services/codexDiscovery";
 import { codexInputWithAttachments, safeCodexAttachmentName } from "./services/codexAttachments";
+import { resolveCodexAdditionalDirectories } from "./services/codexAdditionalDirectories";
 import { discoverCodexThreads } from "./services/codexThreadDiscovery";
 import { inferCapabilityFromError, type CodexCapability } from "./services/codexCapabilities";
 import { diagnoseCodexProjects } from "./services/codexWorkerDiagnostics";
@@ -403,9 +404,21 @@ async function executeJob(job: WorkerJob): Promise<void> {
       }
       const prepared = await prepareJobInput(job);
       attachmentDirectory = prepared.directory;
+      const approvedAdditionalDirectories = job.approvedCapabilities.includes("files")
+        ? await resolveCodexAdditionalDirectories(config.additionalRoots, job.prompt)
+        : [];
+      if (
+        job.approvedCapabilities.includes("files")
+        && config.additionalRoots.length > 0
+        && approvedAdditionalDirectories.length === 0
+      ) {
+        throw new Error(
+          "Windows drive-wide file access requires the exact absolute file or folder path in quotes in the prompt."
+        );
+      }
       const additionalDirectories = [
         ...(attachmentDirectory ? [attachmentDirectory] : []),
-        ...(job.approvedCapabilities.includes("files") ? config.additionalRoots : [])
+        ...approvedAdditionalDirectories
       ];
       const options = {
         workingDirectory: executionDirectory,

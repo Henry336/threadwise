@@ -215,6 +215,30 @@ describe("Codex Telegram report pagination", () => {
       publishAutoMerge: true
     })).toContain("Publishing: verify -> commit -> agent/* -> PR -> CI -> auto-merge");
   });
+
+  it("identifies dependent new-task prompts and shows their queue position", () => {
+    const message = renderCodexQueuedMessage({
+      projectAlias: "threadwise",
+      title: "Next, report its version.",
+      threadId: "new",
+      requestId: "ef7af75e",
+      continuing: true,
+      waitingForThread: true,
+      pendingRequestId: "e7b87905",
+      queuePosition: 2
+    });
+    expect(message).toContain("pending task <code>e7b87905</code>");
+    expect(message).toContain("Queue position: 2");
+    expect(message).not.toContain("new task");
+  });
+
+  it("offers retry and cancel controls for dependency-blocked prompts", () => {
+    const keyboard = reportKeyboard("job-id", 0, 1, CodexJobStatus.BLOCKED);
+    expect(keyboard?.inline_keyboard.flat().map((button) => button.text)).toEqual([
+      "↻ Retry as new task",
+      "Cancel"
+    ]);
+  });
 });
 
 describe("Codex mobile status", () => {

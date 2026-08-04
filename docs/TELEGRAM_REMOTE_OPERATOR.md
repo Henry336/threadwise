@@ -50,7 +50,17 @@ THREADWISE_DEPLOY_TARGETS={"threadwise":{"provider":"render","healthUrl":"https:
 
 `THREADWISE_CODEX_ADDITIONAL_ROOTS` is optional and separate from the `/files`
 courier's `THREADWISE_FILE_ROOTS`. Neither setting infers a drive. Full-drive
-access must be deliberately entered.
+access must be deliberately entered. On Windows, configured drive roots authorize
+paths but are not passed directly to Codex because its workspace sandbox cannot
+initialize with a writable volume root. Put the exact absolute path in quotes in
+the approved Telegram prompt; Threadwise validates it against the configured roots
+and passes only that directory for the turn.
+
+Rapid prompts are serialized by a durable per-task dependency chain. Prompts sent
+while a new task is still obtaining its Codex thread ID wait behind that creator,
+retain their original project/task selection, and display queue position. If a
+creator fails, dependent prompts are blocked with **Retry as new task** and
+**Cancel** controls.
 
 Run laptop diagnostics without printing secret values:
 

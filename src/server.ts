@@ -19,6 +19,7 @@ import {
   verifyCodexTaskSyncRequest
 } from "./services/codexTaskSyncAuth";
 import {
+  blockedCodexJobsForQueue,
   codexAttachmentForWorker,
   codexJobForReport,
   claimCodexJob,
@@ -403,6 +404,8 @@ export async function startServer(
     }) ?? await completedCodexJobForWorker(codexScope(config!), params.id, body.workerId);
     if (!job) return reply.code(409).send({ error: "job_not_claimed" });
     await deliverCodexJobOnce(bot, job);
+    const blocked = await blockedCodexJobsForQueue(codexScope(config!), job.queueKey);
+    for (const dependent of blocked) await deliverCodexJobOnce(bot, dependent);
     return { ok: true };
   });
 
