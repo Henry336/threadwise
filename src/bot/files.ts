@@ -7,15 +7,21 @@ import { privateCodexConfig } from "../config/env";
 import { logger } from "../logger";
 import {
   cancelFileCourierJob,
+  findFileCourierJob,
   isFileCourierActor,
   markFileCourierJobDelivered,
   queueFileCourierLookup,
   queueFileCourierSend,
+  recordFileCourierAudit,
   undeliveredFileCourierJobs,
   type FileCourierJobWithResults,
   type FileCourierScope
 } from "../services/fileCourier";
 import { formatBytes } from "../services/fileCourierLocal";
+import {
+  FILE_COURIER_RESULT_LIMIT,
+  fileCourierPage
+} from "../services/fileCourierPolicy";
 import { localWorkerReadiness } from "../services/geminiIdeas";
 import { soleOwnerGroup } from "./codex";
 
@@ -31,6 +37,40 @@ export function registerFileCourier(bot: Bot): void {
     const scope = fileCourierScopeForContext(ctx);
     if (!scope || !await fileCourierChatIsPrivate(ctx, scope)) return;
     await handleFileCourierCommand(ctx, scope, parseFileCourierCommand(commandBody(ctx.message?.text ?? "")));
+  });
+
+  bot.callbackQuery(/^files:page:([0-9a-f-]+):(\d+)$/, async (ctx) => {
+    const scope = fileCourierScopeForContext(ctx);
+    if (!scope || !await fileCourierChatIsPrivate(ctx, scope)) {
+      await silentlyAnswer(ctx);
+      return;
+    }
+    const job = await findFileCourierJob(scope, ctx.match[1]!);
+    if (
+      !job
+      || job.requesterTelegramId !== String(ctx.from!.id)
+      || job.status !== FileCourierJobStatus.COMPLETED
+      || job.kind === FileCourierJobKind.SEND
+    ) {
+      await ctx.answerCallbackQuery({ text: "Those file results are no longer available.", show_alert: true });
+      return;
+    }
+    const requestedPage = Number(ctx.match[2]);
+    const pagination = fileCourierPage(job.results, requestedPage);
+    try {
+      await ctx.editMessageText(renderFileCourierResult(job, pagination.page), {
+        reply_markup: fileResultKeyboard(job, pagination.page)
+      });
+    } catch (error) {
+      if (!String(error).toLowerCase().includes("message is not modified")) throw error;
+    }
+    await ctx.answerCallbackQuery({ text: `Page ${pagination.page + 1} of ${pagination.pageCount}` });
+    await recordFileCourierAudit(job.id, "PAGE_VIEWED", "COMPLETED", {
+      page: pagination.page + 1,
+      pageCount: pagination.pageCount
+    }).catch((error) => {
+      logger.warn("File courier page audit failed.", { jobId: job.id, error: String(error) });
+    });
   });
 
   bot.callbackQuery(/^files:send:([0-9a-f-]+)$/, async (ctx) => {
@@ -210,7 +250,7 @@ export function startFileCourierDeliveryLoop(bot: Bot, intervalMs = 60_000): Nod
   }, intervalMs);
 }
 
-export function renderFileCourierResult(job: FileCourierJobWithResults): string {
+export function renderFileCourierResult(job: FileCourierJobWithResults, requestedPage = 0): string {
   if (job.status === FileCourierJobStatus.FAILED) {
     return [
       "❌ Laptop file request failed",
@@ -225,26 +265,42 @@ export function renderFileCourierResult(job: FileCourierJobWithResults): string 
       "No matching files were found in your configured laptop roots."
     ].join("\n");
   }
+  const pagination = fileCourierPage(job.results, requestedPage);
   return [
     "Laptop files",
     queryLabel(job),
+    `Page ${pagination.page + 1} of ${pagination.pageCount} · ${job.results.length} result${job.results.length === 1 ? "" : "s"}`,
     "",
-    ...job.results.flatMap((result, index) => [
-      `${index + 1}. ${truncate(result.fileName, 100)}`,
+    ...pagination.items.flatMap((result, index) => [
+      `${pagination.startIndex + index + 1}. ${truncate(result.fileName, 100)}`,
       truncate(result.parentPath, 140),
       `${formatBytes(Number(result.sizeBytes))} · ${result.modifiedAt.toISOString()} · ${result.fileType}`,
       ""
     ]),
+    job.results.length >= FILE_COURIER_RESULT_LIMIT
+      ? `Showing the first ${FILE_COURIER_RESULT_LIMIT} matches. Refine the search phrase if the file is not listed.`
+      : undefined,
     "Tap Send for the exact file you want. Nothing is transferred before that tap."
-  ].join("\n").trim();
+  ].filter((line) => line !== undefined).join("\n").trim();
 }
 
-function fileResultKeyboard(job: FileCourierJobWithResults): InlineKeyboard | undefined {
+export function fileResultKeyboard(
+  job: FileCourierJobWithResults,
+  requestedPage = 0
+): InlineKeyboard | undefined {
   if (job.status !== FileCourierJobStatus.COMPLETED || job.results.length === 0) return undefined;
+  const pagination = fileCourierPage(job.results, requestedPage);
   const keyboard = new InlineKeyboard();
-  job.results.forEach((result, index) => {
-    keyboard.text(`Send ${index + 1}`, `files:send:${result.id}`).row();
+  pagination.items.forEach((result, index) => {
+    keyboard.text(`Send ${pagination.startIndex + index + 1}`, `files:send:${result.id}`).row();
   });
+  if (pagination.page > 0) {
+    keyboard.text("◀ Previous", `files:page:${job.id}:${pagination.page - 1}`);
+  }
+  if (pagination.page + 1 < pagination.pageCount) {
+    keyboard.text("Next ▶", `files:page:${job.id}:${pagination.page + 1}`);
+  }
+  if (pagination.pageCount > 1) keyboard.row();
   return keyboard;
 }
 

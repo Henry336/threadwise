@@ -96,6 +96,22 @@ describe("laptop file courier path security", () => {
     expect(new Set(results.map((result) => result.parentPath))).toEqual(new Set([first, second]));
     expect(isPathWithinRoot(results[0]!.absolutePath, results[0]!.parentPath)).toBe(true);
   });
+
+  it("returns enough validated metadata for multiple Telegram result pages", async () => {
+    const root = await temporaryDirectory();
+    await Promise.all(Array.from({ length: 18 }, (_, index) => (
+      writeFile(join(root, `resume-${String(index + 1).padStart(2, "0")}.pdf`), `file ${index + 1}`)
+    )));
+    const results = await searchLaptopFiles({
+      roots: [root],
+      kind: "SEARCH",
+      query: "resume",
+      maxBytes: 1_000,
+      scanLimit: 100,
+      take: 18
+    });
+    expect(results).toHaveLength(18);
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {

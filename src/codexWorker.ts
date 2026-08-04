@@ -34,6 +34,7 @@ import {
   validateConfiguredFileRoots,
   type LocalFileMetadata
 } from "./services/fileCourierLocal";
+import { FILE_COURIER_RESULT_LIMIT } from "./services/fileCourierPolicy";
 
 type WorkerConfig = {
   serviceUrl: string;
@@ -264,7 +265,7 @@ async function executeFileCourierJob(job: FileCourierWorkerJob): Promise<void> {
         query: job.query ?? undefined,
         maxBytes: effectiveFileLimit(job),
         scanLimit: config.fileScanLimit,
-        take: 8
+        take: FILE_COURIER_RESULT_LIMIT
       });
       await terminalRequestUntilAccepted(
         `/files/worker/jobs/${encodeURIComponent(job.id)}/complete`,

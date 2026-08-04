@@ -4,6 +4,14 @@ import {
   Prisma
 } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { FILE_COURIER_RESULT_LIMIT } from "./fileCourierPolicy";
+
+const FILE_COURIER_RESULT_ORDER: Prisma.FileCourierResultOrderByWithRelationInput[] = [
+  { modifiedAt: "desc" },
+  { fileName: "asc" },
+  { parentPath: "asc" },
+  { id: "asc" }
+];
 
 export type FileCourierScope = {
   ownerTelegramId: string;
@@ -197,7 +205,7 @@ export async function completeFileCourierLookup(input: {
   workerId: string;
   results: FileCourierResultInput[];
 }): Promise<FileCourierJobWithResults | undefined> {
-  const prepared = input.results.slice(0, 10).map(normalizeResult);
+  const prepared = input.results.slice(0, FILE_COURIER_RESULT_LIMIT).map(normalizeResult);
   return (await prisma.$transaction(async (tx) => {
     const job = await tx.fileCourierJob.findFirst({
       where: {
@@ -234,7 +242,7 @@ export async function completeFileCourierLookup(input: {
     });
     return tx.fileCourierJob.findUnique({
       where: { id: job.id },
-      include: { results: { orderBy: [{ modifiedAt: "desc" }, { fileName: "asc" }] } }
+      include: { results: { orderBy: FILE_COURIER_RESULT_ORDER } }
     });
   })) ?? undefined;
 }
@@ -376,7 +384,7 @@ export async function terminalFileCourierJobForWorker(
         ]
       }
     },
-    include: { results: true }
+    include: { results: { orderBy: FILE_COURIER_RESULT_ORDER } }
   })) ?? undefined;
 }
 
@@ -386,7 +394,7 @@ export async function findFileCourierJob(
 ): Promise<FileCourierJobWithResults | undefined> {
   return (await prisma.fileCourierJob.findFirst({
     where: { id: jobId, ...scope },
-    include: { results: { orderBy: [{ modifiedAt: "desc" }, { fileName: "asc" }] } }
+    include: { results: { orderBy: FILE_COURIER_RESULT_ORDER } }
   })) ?? undefined;
 }
 
@@ -406,7 +414,7 @@ export async function undeliveredFileCourierJobs(
         { kind: FileCourierJobKind.SEND, status: FileCourierJobStatus.FAILED }
       ]
     },
-    include: { results: { orderBy: [{ modifiedAt: "desc" }, { fileName: "asc" }] } },
+    include: { results: { orderBy: FILE_COURIER_RESULT_ORDER } },
     orderBy: { completedAt: "asc" },
     take
   });
