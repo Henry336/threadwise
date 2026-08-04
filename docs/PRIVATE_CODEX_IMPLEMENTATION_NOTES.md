@@ -2,6 +2,33 @@
 
 Date audited: 2026-07-29
 
+## 2026-08-04 Remote Operator hardening
+
+- Added `code`, `internet`, `publish`, `deploy`, `browser`, `files`, and `full`
+  per-request access profiles. Code remains the default; expansive capabilities
+  persist as owner/chat-scoped approvals and cannot be claimed before the exact
+  owner taps **Approve once** in the exact private Codex group.
+- Added worker-detected permission handoffs. A network, browser, or extra-root
+  boundary pauses the durable job, preserves its Codex task id, and resumes only
+  after approval instead of failing or silently escalating.
+- Added `/codex doctor` with worker heartbeat, persistent desktop Codex state,
+  GitHub authentication, browser/network/file/deploy capability, credential
+  broker names, and per-project Git readiness. Secret values are never rendered.
+- Added disposable `origin/main` worktrees for trusted publish jobs. Existing
+  desktop checkout changes are not copied, staged, committed, or overwritten.
+- Added up to two local/CI repair passes in the same Codex task and PR. Failed
+  GitHub logs are bounded and redacted before being returned to the model;
+  repair commits use the same `agent/*` branch without force-push.
+- Added explicit Git-connected deployment targets and merged-commit health
+  verification, with a separate `DEPLOY` audit event.
+- Replaced inherited worker environments with a sanitized Codex/Gemini child
+  environment. Worker, Telegram, database, GitHub, Render, and Vercel secrets
+  are withheld; Git credential helpers and interactive prompts are disabled.
+  Explicit plugin credential variables use Codex shell-environment exclusions.
+- Updated Windows startup to import the latest User-scope configuration on every
+  launch, require persistent `CODEX_HOME`, and provide a secret-safe local doctor
+  script. A reboot is not required after re-running the installer.
+
 ## Intended private deployment
 
 - Telegram owner user: deployment-only configuration

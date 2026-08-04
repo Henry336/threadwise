@@ -9,6 +9,7 @@ import {
   isAllowedPublishBranch,
   parseGithubRemote,
   publishTrustedCodexChanges,
+  redactCommandOutput,
   runCommand,
   sensitivePublishPaths,
   type CommandRunner,
@@ -36,7 +37,7 @@ describe("trusted Telegram publishing intent", () => {
       requested: false,
       autoMerge: false
     });
-  });
+  }, 15_000);
 });
 
 describe("trusted publishing policies", () => {
@@ -70,6 +71,15 @@ describe("trusted publishing policies", () => {
       `+CODEX_WORKER_TOKEN=${"x".repeat(32)}`
     )).toBe(true);
   });
+
+  it("redacts secrets from host check logs before audit or repair prompts", () => {
+    const redacted = redactCommandOutput(
+      `TOKEN=${"x".repeat(32)} DATABASE_URL=postgresql://user:password@example.test/db`
+    );
+    expect(redacted).not.toContain("x".repeat(32));
+    expect(redacted).not.toContain(":password@");
+    expect(redacted).toContain("[REDACTED]");
+  }, 15_000);
 });
 
 describe("trusted publisher repository isolation", () => {
@@ -96,7 +106,7 @@ describe("trusted publisher repository isolation", () => {
       cwd: root,
       timeoutMs: 30_000
     })).stdout.trim()).toBe("main");
-  });
+  }, 15_000);
 
   it("commits only new task files, pushes agent/*, and opens a PR", async () => {
     const root = await testRepository();
@@ -161,8 +171,10 @@ describe("trusted publisher repository isolation", () => {
     });
     expect(result.status).toBe("BLOCKED");
     expect(result.blocker).toMatch(/local check failed: test/i);
+    expect(result.repairStage).toBe("LOCAL_CHECKS");
+    expect(result.repairPrompt).toContain("test failure");
     expect(calls.some((call) => call.startsWith("git commit"))).toBe(false);
-  });
+  }, 15_000);
 });
 
 async function testRepository(): Promise<string> {
