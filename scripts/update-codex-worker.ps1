@@ -25,18 +25,22 @@ try {
     throw "The dedicated worker checkout must be on main; found '$branch'."
   }
 
-  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  $stopperPath = Join-Path $PSScriptRoot "stop-codex-worker.ps1"
+  & $stopperPath -TaskName $TaskName -ProjectRoot $projectRoot
   $workerStopped = $true
   & git fetch --no-tags origin main
   if ($LASTEXITCODE -ne 0) { throw "git fetch origin main failed." }
   & git merge --ff-only origin/main
   if ($LASTEXITCODE -ne 0) { throw "The worker checkout could not fast-forward to origin/main." }
-  & npm ci --no-audit --no-fund
+  $npmCommand = (Get-Command "npm.cmd" -ErrorAction Stop).Source
+  & $npmCommand ci --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed in the worker checkout." }
 
   $installerPath = Join-Path $PSScriptRoot "install-codex-worker-startup.ps1"
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath -TaskName $TaskName -StartNow
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath -TaskName $TaskName
   if ($LASTEXITCODE -ne 0) { throw "The updated startup installer failed." }
+  Start-ScheduledTask -TaskName $TaskName
+  $workerStopped = $false
   Write-Output "Worker updated to $((& git rev-parse --short HEAD).Trim()) and restarted."
 } finally {
   Pop-Location

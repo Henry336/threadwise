@@ -37,6 +37,11 @@ $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $startupCommand = "`"$windowsPowerShell`" $arguments"
 $installedMethod = "Scheduled Task"
 
+if ($StartNow -and $null -ne (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+  $stopperPath = Join-Path $PSScriptRoot "stop-codex-worker.ps1"
+  & $stopperPath -TaskName $TaskName -ProjectRoot (Split-Path -Parent $PSScriptRoot)
+}
+
 try {
   $action = New-ScheduledTaskAction -Execute $windowsPowerShell -Argument $arguments
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
@@ -60,12 +65,6 @@ try {
     -Force | Out-Null
 
   if ($StartNow) {
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
-      $state = (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State
-      if ($state -ne "Running") { break }
-      Start-Sleep -Milliseconds 250
-    }
     Start-ScheduledTask -TaskName $TaskName
   }
 } catch {

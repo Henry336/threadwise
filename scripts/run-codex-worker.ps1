@@ -48,6 +48,9 @@ if ([string]::IsNullOrWhiteSpace($LogDirectory)) {
 
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
 $logPath = Join-Path $LogDirectory "codex-worker.log"
+$pidPath = Join-Path $projectRoot ".local\codex-worker.pid"
+New-Item -ItemType Directory -Path (Split-Path -Parent $pidPath) -Force | Out-Null
+Set-Content -LiteralPath $pidPath -Value $PID -NoNewline -Encoding Ascii
 
 function Write-WorkerLog([string]$Message) {
   Add-Content -LiteralPath $logPath -Value "[$([DateTimeOffset]::Now.ToString("o"))] $Message"
@@ -86,4 +89,9 @@ try {
   Write-WorkerLog "Startup failed: $($_.Exception.Message)"
   Write-Error $_
   exit 1
+} finally {
+  $publishedPid = Get-Content -Raw -LiteralPath $pidPath -ErrorAction SilentlyContinue
+  if (-not [string]::IsNullOrWhiteSpace($publishedPid) -and $publishedPid.Trim() -eq "$PID") {
+    Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+  }
 }
