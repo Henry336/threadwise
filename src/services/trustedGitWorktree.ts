@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, rm } from "node:fs/promises";
+import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -26,9 +26,10 @@ export async function createTrustedGitWorktree(input: {
 }): Promise<TrustedGitWorktree> {
   const runner = input.runner ?? runCommand;
   const timeoutMs = input.timeoutMs ?? 120_000;
-  const originalRoot = resolve(input.cwd);
+  const originalRoot = await canonicalPath(input.cwd);
   const rootResult = await checked(runner, "git", ["rev-parse", "--show-toplevel"], originalRoot, timeoutMs);
-  if (normalize(rootResult.stdout.trim()) !== normalize(originalRoot)) {
+  const reportedRoot = await canonicalPath(rootResult.stdout.trim());
+  if (normalize(reportedRoot) !== normalize(originalRoot)) {
     throw new Error("Publishing requires the selected project folder to be the Git repository root.");
   }
   const remote = await checked(runner, "git", ["remote", "get-url", "origin"], originalRoot, timeoutMs);
@@ -117,4 +118,13 @@ async function checked(
 
 function normalize(value: string): string {
   return resolve(value).replace(/\\/g, "/").toLowerCase();
+}
+
+async function canonicalPath(value: string): Promise<string> {
+  const absolute = resolve(value);
+  try {
+    return await realpath(absolute);
+  } catch {
+    return absolute;
+  }
 }

@@ -133,3 +133,10 @@ No default project path needs to be configured. The active project is chosen in 
 - Telegram group-history behavior is controlled by Telegram, not Threadwise.
 - Delivery is effectively deduplicated once the Telegram message mapping is persisted. As with any external API, a process crash in the tiny interval after Telegram accepts a message but before its message id is committed could produce one duplicate on retry.
 - The signed catalog sidecar is deliberately not a replacement for the token-authenticated execution worker.
+- Codex CLI 0.145.0 on Windows fails sandbox setup when a whole volume is passed as
+  a writable `--add-dir`. Threadwise therefore treats configured volume roots as
+  authorization boundaries and derives exact quoted prompt paths for each approved
+  turn.
+- Windows redirected folders may have different logical and physical paths. Trusted
+  publishing canonicalizes both the selected project and Git's reported top level
+  before enforcing the repository-root invariant.

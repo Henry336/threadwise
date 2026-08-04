@@ -108,6 +108,7 @@ enum CodexJobStatus {
   RUNNING
   COMPLETED
   FAILED
+  BLOCKED
   CANCELED
 }
 
@@ -1047,6 +1048,9 @@ model CodexJob {
   threadId         String?
   threadTitle      String?
   newThread        Boolean        @default(false)
+  queueKey         String
+  queueOrdinal     Int
+  dependsOnJobId  String?
   model            String?
   reasoningEffort  String?
   publishRequested Boolean        @default(false)
@@ -1079,6 +1083,8 @@ model CodexJob {
   project     CodexProject      @relation(fields: [projectId], references: [id], onDelete: Restrict)
   replyToJob  CodexJob?         @relation("CodexJobReplies", fields: [replyToJobId], references: [id], onDelete: SetNull)
   replies     CodexJob[]        @relation("CodexJobReplies")
+  dependsOnJob CodexJob?        @relation("CodexJobDependencies", fields: [dependsOnJobId], references: [id], onDelete: SetNull)
+  dependentJobs CodexJob[]      @relation("CodexJobDependencies")
   messages    CodexJobMessage[]
   attachments CodexJobAttachment[]
   publishAudits CodexPublishAudit[]
@@ -1087,6 +1093,9 @@ model CodexJob {
   @@index([status, leaseExpiresAt, createdAt])
   @@index([ownerTelegramId, telegramChatId, createdAt])
   @@index([threadId])
+  @@index([queueKey, status, createdAt])
+  @@unique([queueKey, queueOrdinal])
+  @@index([dependsOnJobId])
   @@index([replyToJobId])
 }
 

@@ -6,6 +6,8 @@ import {
   codexJobForReport,
   clearActiveCodexThread,
   approveCodexJobCapabilities,
+  blockedCodexJobsForQueue,
+  cancelBlockedCodexJob,
   denyCodexJobCapabilities,
   findActiveCodexThread,
   findCodexJobByReference,
@@ -25,6 +27,7 @@ import {
   selectCodexThreadById,
   splitTelegramReport,
   taskTitleFromPrompt,
+  retryBlockedCodexJobAsNew,
   undeliveredCodexJobs,
   type CodexAttachmentInput,
   type CodexJobWithProject,
@@ -114,14 +117,18 @@ export function registerCodexMode(bot: Bot): void {
       return;
     }
     const job = await codexJobForReport(access.scope, ctx.match[1]!);
-    if (!job || (job.status !== CodexJobStatus.COMPLETED && job.status !== CodexJobStatus.FAILED)) {
+    if (!job || !(
+      job.status === CodexJobStatus.COMPLETED
+      || job.status === CodexJobStatus.FAILED
+      || job.status === CodexJobStatus.BLOCKED
+    )) {
       await ctx.answerCallbackQuery({ text: "This report is no longer available." });
       return;
     }
     const pages = reportPages(job);
     const page = clampPage(Number(ctx.match[2]), pages.length);
     await ctx.editMessageText(renderReportPage(job, pages, page), {
-      reply_markup: reportKeyboard(job.id, page, pages.length)
+      reply_markup: reportKeyboard(job.id, page, pages.length, job.status)
     });
     await ctx.answerCallbackQuery();
   });
@@ -218,8 +225,54 @@ export function registerCodexMode(bot: Bot): void {
         ? `✅ Approved. ${job.project.alias} request ${shortJobId(job.id)} is queued again.`
         : `🚫 Canceled. ${job.project.alias} request ${shortJobId(job.id)} will not run.`
     );
-    if (!approve) await markCodexJobDelivered(job.id);
+    if (!approve) {
+      await markCodexJobDelivered(job.id);
+      const blocked = await blockedCodexJobsForQueue(scope, job.queueKey);
+      for (const dependent of blocked) await deliverCodexJobOnce(bot, dependent);
+    }
     await ctx.answerCallbackQuery({ text: approve ? "Approved" : "Canceled" });
+  });
+
+  bot.callbackQuery(/^codex:blocked:(retry|cancel):([0-9a-f-]+)$/, async (ctx) => {
+    const scope = privateCodexScopeForContext(ctx);
+    if (!scope || !await codexGroupIsPrivate(ctx, scope)) {
+      await silentlyAnswerCallback(ctx);
+      return;
+    }
+    if (ctx.match[1] === "cancel") {
+      if (!await cancelBlockedCodexJob({ scope, id: ctx.match[2]! })) {
+        await ctx.answerCallbackQuery({ text: "This blocked request is no longer available." });
+        return;
+      }
+      await ctx.editMessageText("🚫 Canceled. This dependent prompt will not run.");
+      await ctx.answerCallbackQuery({ text: "Canceled" });
+      return;
+    }
+    const job = await retryBlockedCodexJobAsNew({ scope, id: ctx.match[2]! });
+    if (!job) {
+      await ctx.answerCallbackQuery({ text: "This blocked request is no longer available." });
+      return;
+    }
+    await ctx.editMessageText(`↻ Retried as new request ${shortJobId(job.id)}.`);
+    if (job.status === CodexJobStatus.WAITING_APPROVAL) {
+      await replyHtml(ctx, renderCodexApproval(job), { reply_markup: codexApprovalKeyboard(job.id) });
+    } else {
+      await replyHtml(ctx, renderCodexQueuedMessage({
+        projectAlias: job.project.alias,
+        title: job.threadTitle ?? taskTitleFromPrompt(job.prompt),
+        threadId: "new",
+        requestId: shortJobId(job.id),
+        model: job.model,
+        reasoningEffort: job.reasoningEffort,
+        attachmentCount: job.attachments.length,
+        continuing: false,
+        queuePosition: job.queuePosition,
+        waitingForThread: false,
+        publishRequested: job.publishRequested,
+        publishAutoMerge: job.publishAutoMerge
+      }));
+    }
+    await ctx.answerCallbackQuery({ text: "Retried as new task" });
   });
 
   bot.on("message:photo", async (ctx, next) => {
@@ -319,7 +372,7 @@ export async function deliverCodexJob(bot: Bot, job: CodexJobWithProject): Promi
     [privacyNotice, renderReportPage(job, pages, 0)].filter(Boolean).join("\n\n"),
     {
       ...replyParameters,
-      reply_markup: reportKeyboard(job.id, 0, pages.length)
+      reply_markup: reportKeyboard(job.id, 0, pages.length, job.status)
     }
   );
   await recordCodexReportMessage(job.id, deliveryChatId, message.message_id);
@@ -755,7 +808,10 @@ async function queuePromptFromContext(
     model: job.model,
     reasoningEffort: job.reasoningEffort,
     attachmentCount: attachments.length,
-    continuing: Boolean((continuation?.threadId || targetThread) && !command.forceNewThread),
+    continuing: job.waitingForThread || Boolean((continuation?.threadId || targetThread) && !command.forceNewThread),
+    queuePosition: job.queuePosition,
+    waitingForThread: job.waitingForThread,
+    pendingRequestId: job.waitingForThread ? shortJobId(job.queueKey) : undefined,
     publishRequested: job.publishRequested,
     publishAutoMerge: job.publishAutoMerge
   }));
@@ -941,6 +997,8 @@ export function renderReportPage(job: CodexJobWithProject, pages: string[], page
   const publishing = publishReportLines(job);
   const outcome = job.status === CodexJobStatus.COMPLETED
     ? "✅ Codex finished"
+    : job.status === CodexJobStatus.BLOCKED
+      ? "⛔ Codex prompt blocked"
     : job.status === CodexJobStatus.CANCELED
       ? "🚫 Codex canceled"
       : "❌ Codex failed";
@@ -964,12 +1022,17 @@ export function renderCodexQueuedMessage(input: {
   reasoningEffort?: string | null;
   attachmentCount?: number;
   continuing: boolean;
+  queuePosition?: number;
+  waitingForThread?: boolean;
+  pendingRequestId?: string;
   publishRequested?: boolean;
   publishAutoMerge?: boolean;
 }): string {
   const context = [
     code(input.projectAlias),
-    input.continuing ? `task ${code(input.threadId)}` : "new task",
+    input.waitingForThread
+      ? `pending task ${code(input.pendingRequestId ?? "creating")}`
+      : input.continuing ? `task ${code(input.threadId)}` : "new task",
     `request ${code(input.requestId)}`
   ].join(" · ");
   const controls = [
@@ -984,6 +1047,9 @@ export function renderCodexQueuedMessage(input: {
     h(input.title),
     context,
     controls || undefined,
+    input.queuePosition && input.queuePosition > 1
+      ? `Queue position: ${input.queuePosition}`
+      : undefined,
     input.publishRequested
       ? input.publishAutoMerge
         ? "Publishing: verify -> commit -> agent/* -> PR -> CI -> auto-merge"
@@ -1005,11 +1071,22 @@ function publishReportLines(job: CodexJobWithProject): Array<string | undefined>
   ];
 }
 
-export function reportKeyboard(jobId: string, page: number, totalPages: number): InlineKeyboard | undefined {
-  if (totalPages <= 1) return undefined;
+export function reportKeyboard(
+  jobId: string,
+  page: number,
+  totalPages: number,
+  status?: CodexJobStatus
+): InlineKeyboard | undefined {
+  if (totalPages <= 1 && status !== CodexJobStatus.BLOCKED) return undefined;
   const keyboard = new InlineKeyboard();
   if (page > 0) keyboard.text("‹ Previous", `codex:report:${jobId}:${page - 1}`);
   if (page + 1 < totalPages) keyboard.text("Next ›", `codex:report:${jobId}:${page + 1}`);
+  if (status === CodexJobStatus.BLOCKED) {
+    if (page > 0 || page + 1 < totalPages) keyboard.row();
+    keyboard
+      .text("↻ Retry as new task", `codex:blocked:retry:${jobId}`)
+      .text("Cancel", `codex:blocked:cancel:${jobId}`);
+  }
   return keyboard;
 }
 
@@ -1171,6 +1248,7 @@ function unquote(value: string): string {
 function jobStatusIcon(status: CodexJobStatus): string {
   if (status === CodexJobStatus.COMPLETED) return "✅";
   if (status === CodexJobStatus.FAILED) return "❌";
+  if (status === CodexJobStatus.BLOCKED) return "⛔";
   if (status === CodexJobStatus.CANCELED) return "🚫";
   if (status === CodexJobStatus.WAITING_APPROVAL) return "🔐";
   if (status === CodexJobStatus.RUNNING) return "⚙️";

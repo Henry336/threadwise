@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,6 +48,40 @@ describe("trusted Git worktrees", () => {
     await worktree.cleanup();
     expect(existsSync(path)).toBe(false);
     expect(existsSync(join(repository, "personal.txt"))).toBe(true);
+  }, 15_000);
+
+  it("accepts a logical project path that resolves to the same physical Git root", async () => {
+    const repository = await mkdtemp(join(tmpdir(), "threadwise-physical-repo-"));
+    const logicalParent = await mkdtemp(join(tmpdir(), "threadwise-logical-parent-"));
+    const worktreeRoot = await mkdtemp(join(tmpdir(), "threadwise-worktree-root-"));
+    const logicalPath = join(logicalParent, "logical-project");
+    temporaryDirectories.push(repository, logicalParent, worktreeRoot);
+    await git(repository, ["init", "-b", "main"]);
+    await git(repository, ["config", "user.name", "Threadwise Test"]);
+    await git(repository, ["config", "user.email", "threadwise@example.test"]);
+    await writeFile(join(repository, "base.txt"), "base\n");
+    await git(repository, ["add", "base.txt"]);
+    await git(repository, ["commit", "-m", "Initial"]);
+    const head = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+    await git(repository, ["update-ref", "refs/remotes/origin/main", head]);
+    await symlink(repository, logicalPath, process.platform === "win32" ? "junction" : "dir");
+
+    const runner: CommandRunner = async (executable, args, options) => {
+      if (executable === "git" && args[0] === "fetch") return { exitCode: 0, stdout: "", stderr: "" };
+      if (executable === "git" && args[0] === "remote" && args[1] === "get-url") {
+        return { exitCode: 0, stdout: "https://github.com/Henry336/threadwise.git\n", stderr: "" };
+      }
+      return await runCommand(executable, args, options);
+    };
+
+    const worktree = await createTrustedGitWorktree({
+      cwd: logicalPath,
+      jobId: "87654321-aaaa-bbbb-cccc-dddddddddddd",
+      root: worktreeRoot,
+      runner
+    });
+    expect(worktree.originalRoot.toLowerCase()).toBe(repository.toLowerCase());
+    await worktree.cleanup();
   }, 15_000);
 });
 

@@ -621,6 +621,12 @@ reports the persistent Codex home, GitHub authentication, capability switches,
 credential broker names, deployment targets, and Git readiness for the selected
 project without printing secret values.
 
+On Windows, configured full-drive Codex roots authorize exact paths but are not
+passed directly as sandbox directories. Quote the absolute file or folder path in
+the approved prompt; Threadwise grants that path for the turn. Rapid prompts use a
+durable per-task dependency chain, so prompts sent before a new task has a thread
+ID stay queued in order and show their queue position.
+
 Long final responses are stored intact and shown as one Telegram report card with project, folder, Codex task title/id, request id, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
 
 Owner-only trusted publishing is requested naturally from the private Codex group:
