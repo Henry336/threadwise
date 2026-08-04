@@ -24,6 +24,7 @@ describe("private Codex command parsing", () => {
       reference: "Add Telegram Codex mode"
     });
     expect(parseCodexCommand("status")).toEqual({ action: "status" });
+    expect(parseCodexCommand("doctor")).toEqual({ action: "doctor" });
   });
 
   it("routes a prompt to an explicit project", () => {
@@ -145,6 +146,24 @@ describe("Codex Telegram report pagination", () => {
       "codex:report:019faa1e-8e4c-71f2-b417-9485acdd2637:0",
       "codex:report:019faa1e-8e4c-71f2-b417-9485acdd2637:2"
     ]);
+  });
+
+  it("parses explicit one-task access profiles", () => {
+    expect(parseCodexCommand("--access browser+files -- inspect the live page and upload folder")).toMatchObject({
+      action: "run",
+      prompt: "inspect the live page and upload folder",
+      requestedCapabilities: ["internet", "browser", "files"]
+    });
+    expect(parseCodexCommand("--access deploy -- release this safely")).toMatchObject({
+      action: "run",
+      requestedCapabilities: ["internet", "publish", "deploy"],
+      publishRequested: true,
+      publishAutoMerge: true
+    });
+    expect(parseCodexCommand("--access root -- inspect this")).toEqual({
+      action: "error",
+      message: "Unknown access profile: root. Use code, internet, publish, deploy, browser, files, or full."
+    });
   });
 
   it("keeps the completed answer above optional technical details", () => {

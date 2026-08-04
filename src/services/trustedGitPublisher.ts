@@ -18,11 +18,13 @@ export type TrustedPublishResult = {
   checks?: string;
   mergeCommitSha?: string;
   blocker?: string;
+  repairStage?: "LOCAL_CHECKS" | "CI";
+  repairPrompt?: string;
 };
 
 export type TrustedPublishEvent = {
   eventKey: string;
-  action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "BLOCKED";
+  action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "DEPLOY" | "BLOCKED";
   status: string;
   branch?: string;
   commitSha?: string;
@@ -64,6 +66,22 @@ type PublishInput = {
   checkTimeoutMs?: number;
   githubTimeoutMs?: number;
   runner?: CommandRunner;
+  eventPrefix?: string;
+};
+
+type RepairPublishInput = {
+  cwd: string;
+  jobId: string;
+  title: string;
+  autoMerge: boolean;
+  branch: string;
+  commitSha: string;
+  prUrl: string;
+  report: (event: TrustedPublishEvent) => Promise<void>;
+  checkTimeoutMs?: number;
+  githubTimeoutMs?: number;
+  runner?: CommandRunner;
+  eventPrefix?: string;
 };
 
 const DEFAULT_CHECK_TIMEOUT_MS = 15 * 60_000;
@@ -175,7 +193,7 @@ export async function publishTrustedCodexChanges(input: PublishInput): Promise<T
   ) => {
     eventSequence += 1;
     await input.report({
-      eventKey: `${String(eventSequence).padStart(2, "0")}-${action.toLowerCase()}`,
+      eventKey: `${input.eventPrefix ?? ""}${String(eventSequence).padStart(2, "0")}-${action.toLowerCase()}`,
       action,
       status,
       branch: result.branch,
@@ -242,10 +260,15 @@ export async function publishTrustedCodexChanges(input: PublishInput): Promise<T
         env: check.env
       });
       if (checkResult.exitCode !== 0) {
-        return await block(`Local check failed: ${check.label}.`, {
+        const blocked = await block(`Local check failed: ${check.label}.`, {
           check: check.label,
           output: commandSummary(checkResult)
         });
+        return {
+          ...blocked,
+          repairStage: "LOCAL_CHECKS",
+          repairPrompt: repairPromptForCheck("local", check.label, checkResult)
+        };
       }
     }
     result.checks = `Local: ${checks.map((check) => check.label).join(", ")}`;
@@ -359,9 +382,15 @@ export async function publishTrustedCodexChanges(input: PublishInput): Promise<T
       "--interval", "10"
     ], { cwd, timeoutMs: githubTimeoutMs });
     if (githubChecks.exitCode !== 0) {
-      return await block("GitHub checks failed, timed out, or no checks were configured.", {
-        output: commandSummary(githubChecks)
+      const repairDetails = await githubFailedCheckDetails(runner, cwd, result.prUrl, githubTimeoutMs, githubChecks);
+      const blocked = await block("GitHub checks failed, timed out, or no checks were configured.", {
+        output: commandSummary(repairDetails)
       });
+      return {
+        ...blocked,
+        repairStage: "CI",
+        repairPrompt: repairPromptForCheck("GitHub CI", "pull-request checks", repairDetails)
+      };
     }
     result.checks = `${result.checks}; GitHub: passed`;
     await report("CHECKS", "PASSED");
@@ -392,6 +421,156 @@ export async function publishTrustedCodexChanges(input: PublishInput): Promise<T
   } catch (error) {
     return await block(errorMessage(error));
   }
+}
+
+export async function repairTrustedPublishedChanges(input: RepairPublishInput): Promise<TrustedPublishResult> {
+  const runner = input.runner ?? runCommand;
+  const cwd = resolve(input.cwd);
+  const checkTimeoutMs = input.checkTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
+  const githubTimeoutMs = input.githubTimeoutMs ?? DEFAULT_GITHUB_TIMEOUT_MS;
+  let result: TrustedPublishResult = {
+    status: "BLOCKED",
+    branch: input.branch,
+    commitSha: input.commitSha,
+    prUrl: input.prUrl,
+    prNumber: prNumberFromUrl(input.prUrl)
+  };
+  let eventSequence = 0;
+  const report = async (
+    action: TrustedPublishEvent["action"],
+    status: string,
+    details?: Record<string, unknown>
+  ) => {
+    eventSequence += 1;
+    await input.report({
+      eventKey: `${input.eventPrefix ?? "repair-"}${String(eventSequence).padStart(2, "0")}-${action.toLowerCase()}`,
+      action,
+      status,
+      branch: result.branch,
+      commitSha: result.commitSha,
+      prNumber: result.prNumber,
+      prUrl: result.prUrl,
+      details
+    });
+  };
+  const block = async (message: string, details?: Record<string, unknown>) => {
+    result = { ...result, status: "BLOCKED", blocker: message };
+    await report("BLOCKED", "BLOCKED", { message, ...details });
+    return result;
+  };
+
+  try {
+    if (!isAllowedPublishBranch(input.branch) || input.branch === "main") {
+      return await block("Repair push policy rejected the branch.");
+    }
+    const currentBranch = (await checked(runner, "git", ["branch", "--show-current"], cwd, 30_000)).stdout.trim();
+    if (currentBranch !== input.branch) return await block("The repair worktree is no longer on the PR branch.");
+    const currentHead = (await checked(runner, "git", ["rev-parse", "HEAD"], cwd, 30_000)).stdout.trim();
+    if (currentHead !== input.commitSha) return await block("The PR branch changed outside this repair loop.");
+
+    const taskPaths = [...(await changedFiles(cwd, runner)).keys()].sort();
+    if (taskPaths.length === 0) return await block("Codex did not produce a repair diff.");
+    const sensitivePaths = sensitivePublishPaths(taskPaths);
+    if (sensitivePaths.length) return await block(`Sensitive repair files require manual review: ${sensitivePaths.join(", ")}.`);
+
+    const checks = await detectedLocalChecks(cwd);
+    for (const check of checks) {
+      const checkResult = await runner(check.executable, check.args, { cwd, timeoutMs: checkTimeoutMs, env: check.env });
+      if (checkResult.exitCode !== 0) {
+        const blocked = await block(`Local repair check failed: ${check.label}.`, { output: commandSummary(checkResult) });
+        return {
+          ...blocked,
+          repairStage: "LOCAL_CHECKS",
+          repairPrompt: repairPromptForCheck("local", check.label, checkResult)
+        };
+      }
+    }
+
+    await checked(runner, "git", ["add", "--all", "--", ...taskPaths], cwd, 60_000);
+    const stagedDiff = await checked(runner, "git", ["diff", "--cached", "--no-ext-diff", "--unified=0", "--", ...taskPaths], cwd, 60_000);
+    if (addedDiffContainsSensitiveValue(stagedDiff.stdout)) {
+      await runner("git", ["restore", "--staged", "--", ...taskPaths], { cwd, timeoutMs: 30_000 });
+      return await block("The repair diff appears to contain credentials or private key material.");
+    }
+    await checked(runner, "git", ["-c", "commit.gpgsign=false", "commit", "-m", `Fix checks for ${trustedCommitTitle(input.title)}`], cwd, 120_000);
+    result.commitSha = (await checked(runner, "git", ["rev-parse", "HEAD"], cwd, 30_000)).stdout.trim();
+    await report("COMMIT", "REPAIR_SUCCEEDED", { files: taskPaths });
+    await checked(runner, "git", ["push", "origin", input.branch], cwd, githubTimeoutMs);
+    await report("PUSH", "REPAIR_SUCCEEDED");
+
+    const githubChecks = await runner("gh", ["pr", "checks", input.prUrl, "--watch", "--fail-fast", "--interval", "10"], {
+      cwd,
+      timeoutMs: githubTimeoutMs
+    });
+    if (githubChecks.exitCode !== 0) {
+      const repairDetails = await githubFailedCheckDetails(runner, cwd, input.prUrl, githubTimeoutMs, githubChecks);
+      const blocked = await block("GitHub checks still fail after the repair.", { output: commandSummary(repairDetails) });
+      return {
+        ...blocked,
+        repairStage: "CI",
+        repairPrompt: repairPromptForCheck("GitHub CI", "pull-request checks", repairDetails)
+      };
+    }
+    result.checks = `Local: ${checks.map((check) => check.label).join(", ")}; GitHub: passed`;
+    await report("CHECKS", "PASSED");
+    if (!input.autoMerge) return { ...result, status: "PR_OPEN" };
+
+    const merge = await runner("gh", ["pr", "merge", input.prUrl, "--auto", "--merge", "--match-head-commit", result.commitSha], {
+      cwd,
+      timeoutMs: githubTimeoutMs
+    });
+    if (merge.exitCode !== 0) return await block("GitHub could not enable auto-merge after repair.", { output: commandSummary(merge) });
+    await report("AUTO_MERGE", "ENABLED");
+    const view = await checked(runner, "gh", ["pr", "view", input.prUrl, "--json", "state,mergeCommit,statusCheckRollup"], cwd, githubTimeoutMs);
+    const state = parsePrState(view.stdout);
+    if (state.state === "MERGED") {
+      result.mergeCommitSha = state.mergeCommitSha;
+      result.status = "MERGED";
+      await report("MERGE", "SUCCEEDED");
+      return result;
+    }
+    return { ...result, status: "AUTO_MERGE_ENABLED" };
+  } catch (error) {
+    return await block(errorMessage(error));
+  }
+}
+
+function repairPromptForCheck(source: string, label: string, result: CommandResult): string {
+  const details = redactCommandOutput(`${result.stderr}\n${result.stdout}`.trim());
+  return [
+    `The trusted host ran ${source} validation and ${label} failed.`,
+    "Fix only the failure in the current working tree. Preserve the requested implementation and unrelated files.",
+    "Do not commit, push, open a PR, or merge; the trusted host will rerun validation.",
+    "",
+    (details || `exit ${result.exitCode}`).slice(-12_000)
+  ].join("\n");
+}
+
+async function githubFailedCheckDetails(
+  runner: CommandRunner,
+  cwd: string,
+  prUrl: string,
+  timeoutMs: number,
+  fallback: CommandResult
+): Promise<CommandResult> {
+  const checks = await runner("gh", ["pr", "checks", prUrl, "--json", "name,state,link"], {
+    cwd,
+    timeoutMs: Math.min(timeoutMs, 120_000)
+  });
+  const runIds = checks.stdout.match(/\/actions\/runs\/(\d+)/g)
+    ?.map((value) => value.match(/\d+$/)?.[0])
+    .filter((value): value is string => Boolean(value)) ?? [];
+  const uniqueRunIds = [...new Set(runIds)].slice(0, 3);
+  if (!uniqueRunIds.length) return fallback;
+  const logs: string[] = [fallback.stderr, fallback.stdout, checks.stdout].filter(Boolean);
+  for (const runId of uniqueRunIds) {
+    const result = await runner("gh", ["run", "view", runId, "--log-failed"], {
+      cwd,
+      timeoutMs: Math.min(timeoutMs, 180_000)
+    });
+    logs.push(result.stderr, result.stdout);
+  }
+  return { exitCode: fallback.exitCode, stdout: logs.join("\n").slice(-MAX_COMMAND_OUTPUT), stderr: "" };
 }
 
 export async function runCommand(
@@ -571,8 +750,16 @@ function samePaths(left: string[], right: string[]): boolean {
 }
 
 function commandSummary(result: CommandResult): string {
-  const value = `${result.stderr}\n${result.stdout}`.trim().replace(/\s+/g, " ");
+  const value = redactCommandOutput(`${result.stderr}\n${result.stdout}`.trim()).replace(/\s+/g, " ");
   return (value || `exit ${result.exitCode}`).slice(0, 2_000);
+}
+
+export function redactCommandOutput(value: string): string {
+  return value
+    .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/-]{12,}/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:token|api[_-]?key|secret|password)\s*[=:]\s*[^\s,;]+/gi, (match) => `${match.split(/[=:]/, 1)[0]}=[REDACTED]`)
+    .replace(/\b(?:gh[pousr]_|sk-)[A-Za-z0-9_-]{16,}/g, "[REDACTED_TOKEN]")
+    .replace(/postgres(?:ql)?:\/\/([^:\s]+):[^@\s]+@/gi, "postgresql://$1:[REDACTED]@");
 }
 
 function appendBounded(current: string, addition: string): string {

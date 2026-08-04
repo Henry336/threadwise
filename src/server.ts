@@ -20,10 +20,12 @@ import {
 } from "./services/codexTaskSyncAuth";
 import {
   codexAttachmentForWorker,
+  codexJobForReport,
   claimCodexJob,
   completeCodexJob,
   completedCodexJobForWorker,
   failCodexJob,
+  pauseCodexJobForApproval,
   recordCodexPublishAudit,
   renewCodexJobLease,
   syncCodexProjects,
@@ -31,7 +33,8 @@ import {
   type CodexPublishAuditInput,
   type CodexPublishResultInput
 } from "./services/codex";
-import { deliverCodexJobOnce } from "./bot/codex";
+import { deliverCodexApprovalRequest, deliverCodexJobOnce } from "./bot/codex";
+import { isCodexCapability, type CodexCapability } from "./services/codexCapabilities";
 import { deliverGeminiIdeaJobOnce } from "./bot/geminiIdeas";
 import {
   claimGeminiIdeaJob,
@@ -224,6 +227,10 @@ export async function startServer(
       reasoningEffort: job.reasoningEffort,
       publishRequested: job.publishRequested,
       publishAutoMerge: job.publishAutoMerge,
+      requestedCapabilities: job.requestedCapabilities,
+      approvedCapabilities: job.approvedCapabilities,
+      repairAttempt: job.repairAttempt,
+      maxRepairAttempts: job.maxRepairAttempts,
       project: { alias: job.project.alias, path: job.project.path },
       attachments: job.attachments.map((attachment) => ({
         id: attachment.id,
@@ -290,6 +297,49 @@ export async function startServer(
     return { ok: true };
   });
 
+  server.post("/codex/worker/jobs/:id/approval-required", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as {
+      workerId?: unknown;
+      capability?: unknown;
+      reason?: unknown;
+      threadId?: unknown;
+    } | undefined;
+    if (
+      !params.id
+      || !validWorkerId(body?.workerId)
+      || typeof body?.capability !== "string"
+      || !isCodexCapability(body.capability)
+      || !boundedString(body.reason, 1, 8_000)
+      || !optionalString(body.threadId)
+    ) {
+      return reply.code(400).send({ error: "invalid_approval_request" });
+    }
+    const scope = codexScope(config!);
+    const job = await pauseCodexJobForApproval({
+      scope,
+      id: params.id,
+      workerId: body.workerId,
+      capability: body.capability,
+      reason: body.reason,
+      threadId: body.threadId
+    });
+    if (!job) {
+      const existing = await codexJobForReport(scope, params.id);
+      if (
+        existing?.status === "WAITING_APPROVAL"
+        && existing.requestedCapabilities.includes(body.capability)
+      ) return { ok: true };
+      return reply.code(409).send({ error: "job_not_claimed" });
+    }
+    await deliverCodexApprovalRequest(bot, job);
+    return { ok: true };
+  });
+
   server.post("/codex/worker/jobs/:id/complete", async (request, reply) => {
     const config = privateCodexConfig();
     if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
@@ -301,12 +351,19 @@ export async function startServer(
       finalResponse?: unknown;
       threadId?: unknown;
       publishResult?: unknown;
+      repairAttempt?: unknown;
     } | undefined;
     if (
       !params.id
       || !validWorkerId(body?.workerId)
       || typeof body?.finalResponse !== "string"
       || !optionalString(body.threadId)
+      || (body.repairAttempt !== undefined && (
+        typeof body.repairAttempt !== "number"
+        || !Number.isInteger(body.repairAttempt)
+        || body.repairAttempt < 0
+        || body.repairAttempt > 5
+      ))
       || (body.publishResult !== undefined && !validCodexPublishResult(body.publishResult))
     ) {
       return reply.code(400).send({ error: "invalid_completion" });
@@ -318,7 +375,8 @@ export async function startServer(
       workerId: body.workerId,
       finalResponse: body.finalResponse,
       threadId: body.threadId,
-      publishResult: body.publishResult
+      publishResult: body.publishResult,
+      repairAttempt: body.repairAttempt
     }) ?? await completedCodexJobForWorker(codexScope(config!), params.id, body.workerId);
     if (!job) return reply.code(409).send({ error: "job_not_claimed" });
     await deliverCodexJobOnce(bot, job);
@@ -800,16 +858,33 @@ function optionalString(value: unknown): value is string | undefined {
   return value === undefined || (typeof value === "string" && value.length <= 200);
 }
 
-function validProjectList(value: unknown): value is Array<{ path: string; lastSeenAt?: string }> {
+function validProjectList(value: unknown): value is Array<{
+  path: string;
+  lastSeenAt?: string;
+  gitRepository?: boolean;
+  gitBranch?: string;
+  gitClean?: boolean;
+  gitHeadSha?: string;
+  gitOriginMainSha?: string;
+  gitReady?: boolean;
+  gitError?: string;
+}> {
   return Array.isArray(value)
     && value.length <= 1_000
     && value.every((item) => {
       if (!item || typeof item !== "object") return false;
-      const project = item as { path?: unknown; lastSeenAt?: unknown };
+      const project = item as Record<string, unknown>;
       return typeof project.path === "string"
         && project.path.length > 0
         && project.path.length <= 2_000
-        && optionalString(project.lastSeenAt);
+        && optionalString(project.lastSeenAt)
+        && optionalBoolean(project.gitRepository)
+        && optionalBoundedString(project.gitBranch, 300)
+        && optionalBoolean(project.gitClean)
+        && optionalCommitSha(project.gitHeadSha)
+        && optionalCommitSha(project.gitOriginMainSha)
+        && optionalBoolean(project.gitReady)
+        && optionalBoundedString(project.gitError, 1_000);
     });
 }
 
@@ -849,6 +924,19 @@ function validWorkerCapabilities(value: unknown): value is {
   fileRootCount?: number;
   fileCourierMaxBytes?: number;
   fileCourierError?: string;
+  codexHome?: string;
+  codexConfigAvailable?: boolean;
+  codexAuthAvailable?: boolean;
+  networkAccessAvailable?: boolean;
+  gitAvailable?: boolean;
+  githubAvailable?: boolean;
+  githubAuthenticated?: boolean;
+  browserAvailable?: boolean;
+  additionalRootCount?: number;
+  deployTargets?: string[];
+  credentialBrokerVariables?: string[];
+  allowedCapabilities?: CodexCapability[];
+  diagnostics?: Record<string, string>;
 } {
   if (!value || typeof value !== "object") return false;
   const capabilities = value as Record<string, unknown>;
@@ -869,7 +957,20 @@ function validWorkerCapabilities(value: unknown): value is {
       && capabilities.fileCourierMaxBytes >= 1_024
       && capabilities.fileCourierMaxBytes <= 50_000_000
     ))
-    && optionalBoundedString(capabilities.fileCourierError, 1_000);
+    && optionalBoundedString(capabilities.fileCourierError, 1_000)
+    && optionalBoundedString(capabilities.codexHome, 2_000)
+    && optionalBoolean(capabilities.codexConfigAvailable)
+    && optionalBoolean(capabilities.codexAuthAvailable)
+    && optionalBoolean(capabilities.networkAccessAvailable)
+    && optionalBoolean(capabilities.gitAvailable)
+    && optionalBoolean(capabilities.githubAvailable)
+    && optionalBoolean(capabilities.githubAuthenticated)
+    && optionalBoolean(capabilities.browserAvailable)
+    && optionalInteger(capabilities.additionalRootCount, 0, 100)
+    && optionalStringArray(capabilities.deployTargets, 50, 100)
+    && optionalStringArray(capabilities.credentialBrokerVariables, 30, 80)
+    && optionalCodexCapabilities(capabilities.allowedCapabilities)
+    && optionalStringRecord(capabilities.diagnostics, 20, 1_000);
 }
 
 function validCodexPublishResult(value: unknown): value is CodexPublishResultInput {
@@ -895,7 +996,7 @@ function validCodexPublishAudit(value: unknown): value is CodexPublishAuditInput
   const details = event.details;
   return boundedString(event.eventKey, 1, 120)
     && /^[a-z0-9-]+$/i.test(event.eventKey as string)
-    && ["COMMIT", "PUSH", "PR", "CHECKS", "AUTO_MERGE", "MERGE", "BLOCKED"].includes(String(event.action))
+    && ["COMMIT", "PUSH", "PR", "CHECKS", "AUTO_MERGE", "MERGE", "DEPLOY", "BLOCKED"].includes(String(event.action))
     && boundedString(event.status, 1, 80)
     && optionalAgentBranch(event.branch)
     && optionalCommitSha(event.commitSha)
@@ -935,6 +1036,47 @@ function optionalGithubPrUrl(value: unknown): value is string | undefined {
 
 function boundedString(value: unknown, minimum: number, maximum: number): value is string {
   return typeof value === "string" && value.length >= minimum && value.length <= maximum;
+}
+
+function optionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === "boolean";
+}
+
+function optionalInteger(value: unknown, minimum: number, maximum: number): value is number | undefined {
+  return value === undefined || (
+    typeof value === "number"
+    && Number.isInteger(value)
+    && value >= minimum
+    && value <= maximum
+  );
+}
+
+function optionalStringArray(value: unknown, maximumItems: number, maximumLength: number): value is string[] | undefined {
+  return value === undefined || (
+    Array.isArray(value)
+    && value.length <= maximumItems
+    && value.every((item) => boundedString(item, 1, maximumLength))
+  );
+}
+
+function optionalCodexCapabilities(value: unknown): value is CodexCapability[] | undefined {
+  return value === undefined || (
+    Array.isArray(value)
+    && value.length <= 10
+    && value.every((item) => typeof item === "string" && isCodexCapability(item))
+  );
+}
+
+function optionalStringRecord(value: unknown, maximumItems: number, maximumLength: number): boolean {
+  return value === undefined || (
+    Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.entries(value as Record<string, unknown>).length <= maximumItems
+    && Object.entries(value as Record<string, unknown>).every(([key, item]) => (
+      boundedString(key, 1, 100) && boundedString(item, 1, maximumLength)
+    ))
+  );
 }
 
 function optionalBoundedString(value: unknown, maximum: number): value is string | undefined {

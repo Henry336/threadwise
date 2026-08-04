@@ -103,10 +103,18 @@ enum AvailabilityPollStatus {
 }
 
 enum CodexJobStatus {
+  WAITING_APPROVAL
   PENDING
   RUNNING
   COMPLETED
   FAILED
+  CANCELED
+}
+
+enum CodexApprovalStatus {
+  PENDING
+  APPROVED
+  DENIED
 }
 
 enum FileCourierJobKind {
@@ -928,6 +936,13 @@ model CodexProject {
   lastSeenAt       DateTime @default(now())
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  gitRepository    Boolean?
+  gitBranch        String?
+  gitClean         Boolean?
+  gitHeadSha       String?
+  gitOriginMainSha String?
+  gitReady         Boolean?
+  gitError         String?
 
   jobs       CodexJob[]
   threads    CodexThread[]
@@ -955,6 +970,8 @@ model CodexChatState {
   fileRootCount         Int     @default(0)
   fileCourierMaxBytes   BigInt?
   fileCourierLastError  String?
+  workerCapabilities    Json?
+  workerCapabilitiesAt  DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1034,6 +1051,10 @@ model CodexJob {
   reasoningEffort  String?
   publishRequested Boolean        @default(false)
   publishAutoMerge Boolean        @default(false)
+  requestedCapabilities String[]  @default([])
+  approvedCapabilities  String[]  @default([])
+  repairAttempt         Int       @default(0)
+  maxRepairAttempts     Int       @default(2)
   publishStatus    String?
   publishBranch    String?
   publishCommitSha String?
@@ -1061,11 +1082,32 @@ model CodexJob {
   messages    CodexJobMessage[]
   attachments CodexJobAttachment[]
   publishAudits CodexPublishAudit[]
+  approvals     CodexJobApproval[]
 
   @@index([status, leaseExpiresAt, createdAt])
   @@index([ownerTelegramId, telegramChatId, createdAt])
   @@index([threadId])
   @@index([replyToJobId])
+}
+
+model CodexJobApproval {
+  id                         String              @id @default(uuid())
+  jobId                      String
+  capability                 String
+  status                     CodexApprovalStatus @default(PENDING)
+  reason                     String?
+  requestedBy                String              @default("OWNER")
+  decisionTelegramId         String?
+  requestedAt                DateTime            @default(now())
+  decidedAt                  DateTime?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+
+  job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, capability])
+  @@index([status, requestedAt])
+  @@index([jobId, status])
 }
 
 model CodexPublishAudit {

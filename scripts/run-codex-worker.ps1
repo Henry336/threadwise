@@ -3,6 +3,43 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Import-UserVariable([string]$Name) {
+  $value = [Environment]::GetEnvironmentVariable($Name, "User")
+  if (-not [string]::IsNullOrWhiteSpace($value)) {
+    Set-Item -LiteralPath "Env:$Name" -Value $value
+  }
+}
+
+@(
+  "THREADWISE_CODEX_URL",
+  "THREADWISE_CODEX_WORKER_TOKEN",
+  "CODEX_WORKER_TOKEN",
+  "CODEX_HOME",
+  "CODEX_WORKER_NETWORK_ACCESS",
+  "THREADWISE_CODEX_ADDITIONAL_ROOTS",
+  "THREADWISE_FILE_ROOTS",
+  "THREADWISE_DEPLOY_TARGETS",
+  "CODEX_WORKER_WORKTREE_ROOT",
+  "CODEX_WORKER_CREDENTIAL_ENV_ALLOWLIST",
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "API_KEY_21ST"
+) | ForEach-Object { Import-UserVariable $_ }
+
+$credentialAllowlist = [Environment]::GetEnvironmentVariable("CODEX_WORKER_CREDENTIAL_ENV_ALLOWLIST", "User")
+if (-not [string]::IsNullOrWhiteSpace($credentialAllowlist)) {
+  $credentialAllowlist -split '[;,]' | ForEach-Object {
+    $credentialName = $_.Trim().ToUpperInvariant()
+    if (
+      $credentialName -match '^[A-Z][A-Z0-9_]{1,79}$' -and
+      $credentialName -notmatch '^(THREADWISE_|CODEX_WORKER_|DATABASE_URL$|DIRECT_URL$|TELEGRAM_|GH_|GITHUB_|RENDER_|VERCEL_|CODEX_HOME$)'
+    ) {
+      Import-UserVariable $credentialName
+    }
+  }
+}
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $tsxCommand = Join-Path $projectRoot "node_modules\.bin\tsx.cmd"
 if ([string]::IsNullOrWhiteSpace($LogDirectory)) {
@@ -28,6 +65,9 @@ try {
     [string]::IsNullOrWhiteSpace($env:CODEX_WORKER_TOKEN)
   ) {
     throw "THREADWISE_CODEX_WORKER_TOKEN or CODEX_WORKER_TOKEN is not configured for this Windows user."
+  }
+  if ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
+    throw "CODEX_HOME is not configured for this Windows user."
   }
 
   while ($true) {

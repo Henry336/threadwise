@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { codexSubprocessEnvironment } from "./codexSubprocessEnv";
 
 export type GeminiCliCapability = {
   geminiAvailable: boolean;
@@ -183,7 +184,11 @@ async function runProcess(
   return new Promise((resolveRun, reject) => {
     const child = spawn(invocation.executable, [...invocation.prefixArgs, ...args], {
       cwd: options.cwd,
-      env: process.env,
+      env: codexSubprocessEnvironment(process.env, process.execPath, [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS"
+      ]),
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });

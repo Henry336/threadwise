@@ -1,6 +1,7 @@
 import { CodexJobStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import type { CodexScope } from "./codex";
+import type { CodexCapability } from "./codexCapabilities";
 
 export const GEMINI_IDEA_ACTIONS = ["develop", "challenge", "next", "tasks"] as const;
 export type GeminiIdeaAction = typeof GEMINI_IDEA_ACTIONS[number];
@@ -18,6 +19,19 @@ export type LocalWorkerCapabilities = {
   fileRootCount?: number;
   fileCourierMaxBytes?: number;
   fileCourierError?: string;
+  codexHome?: string;
+  codexConfigAvailable?: boolean;
+  codexAuthAvailable?: boolean;
+  networkAccessAvailable?: boolean;
+  gitAvailable?: boolean;
+  githubAvailable?: boolean;
+  githubAuthenticated?: boolean;
+  browserAvailable?: boolean;
+  additionalRootCount?: number;
+  deployTargets?: string[];
+  credentialBrokerVariables?: string[];
+  allowedCapabilities?: CodexCapability[];
+  diagnostics?: Record<string, string>;
 };
 
 export function isGeminiIdeaAction(value: string): value is GeminiIdeaAction {
@@ -49,7 +63,11 @@ export async function recordLocalWorkerHeartbeat(
     fileCourierMaxBytes: capabilities?.fileCourierMaxBytes
       ? BigInt(capabilities.fileCourierMaxBytes)
       : null,
-    fileCourierLastError: cleanOptional(capabilities?.fileCourierError, 1_000)
+    fileCourierLastError: cleanOptional(capabilities?.fileCourierError, 1_000),
+    workerCapabilities: capabilities
+      ? JSON.parse(JSON.stringify(capabilities)) as Prisma.InputJsonValue
+      : Prisma.JsonNull,
+    workerCapabilitiesAt: capabilities ? new Date() : null
   };
   await prisma.codexChatState.upsert({
     where: { ownerTelegramId_telegramChatId: scope },
@@ -70,6 +88,7 @@ export async function localWorkerReadiness(scope: CodexScope): Promise<{
   fileRootCount: number;
   fileCourierMaxBytes?: number;
   fileCourierError?: string;
+  capabilities?: LocalWorkerCapabilities;
 }> {
   const state = await prisma.codexChatState.findUnique({
     where: { ownerTelegramId_telegramChatId: scope }
@@ -88,8 +107,14 @@ export async function localWorkerReadiness(scope: CodexScope): Promise<{
     fileCourierMaxBytes: state?.fileCourierMaxBytes === null || state?.fileCourierMaxBytes === undefined
       ? undefined
       : Number(state.fileCourierMaxBytes),
-    fileCourierError: state?.fileCourierLastError ?? undefined
+    fileCourierError: state?.fileCourierLastError ?? undefined,
+    capabilities: parseStoredWorkerCapabilities(state?.workerCapabilities)
   };
+}
+
+function parseStoredWorkerCapabilities(value: Prisma.JsonValue | null | undefined): LocalWorkerCapabilities | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as LocalWorkerCapabilities;
 }
 
 export async function queueGeminiIdeaJob(input: {

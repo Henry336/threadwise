@@ -1,5 +1,6 @@
-import { CodexJobStatus, Prisma, type CodexProject } from "@prisma/client";
+import { CodexApprovalStatus, CodexJobStatus, Prisma, type CodexProject } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { approvalCapabilities, type CodexCapability } from "./codexCapabilities";
 
 export type CodexScope = {
   ownerTelegramId: string;
@@ -9,6 +10,13 @@ export type CodexScope = {
 export type DiscoveredCodexProject = {
   path: string;
   lastSeenAt?: string;
+  gitRepository?: boolean;
+  gitBranch?: string;
+  gitClean?: boolean;
+  gitHeadSha?: string;
+  gitOriginMainSha?: string;
+  gitReady?: boolean;
+  gitError?: string;
 };
 
 export type DiscoveredCodexThread = {
@@ -32,8 +40,14 @@ export const RESUMABLE_CODEX_THREAD_SOURCES = [
 ] as const;
 
 export type CodexJobWithProject = Prisma.CodexJobGetPayload<{
-  include: { project: true; attachments: true };
+  include: { project: true; attachments: true; approvals: true };
 }>;
+
+const CODEX_JOB_INCLUDE = {
+  project: true,
+  attachments: true,
+  approvals: true
+} as const;
 
 export type CodexThreadWithProject = Prisma.CodexThreadGetPayload<{
   include: { project: true };
@@ -61,7 +75,7 @@ export type CodexPublishResultInput = {
 
 export type CodexPublishAuditInput = {
   eventKey: string;
-  action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "BLOCKED";
+  action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "DEPLOY" | "BLOCKED";
   status: string;
   branch?: string;
   commitSha?: string;
@@ -129,7 +143,18 @@ export async function syncCodexProjects(scope: CodexScope, discovered: Discovere
       if (matched) {
         await tx.codexProject.update({
           where: { id: matched.id },
-          data: { path: item.path, enabled: true, lastSeenAt }
+          data: {
+            path: item.path,
+            enabled: true,
+            lastSeenAt,
+            gitRepository: item.gitRepository,
+            gitBranch: cleanOptional(item.gitBranch, 300),
+            gitClean: item.gitClean,
+            gitHeadSha: cleanOptional(item.gitHeadSha, 64),
+            gitOriginMainSha: cleanOptional(item.gitOriginMainSha, 64),
+            gitReady: item.gitReady,
+            gitError: cleanOptional(item.gitError, 1_000)
+          }
         });
         continue;
       }
@@ -137,7 +162,20 @@ export async function syncCodexProjects(scope: CodexScope, discovered: Discovere
       const alias = uniqueAlias(projectAlias(item.path), aliases);
       aliases.add(alias);
       const created = await tx.codexProject.create({
-        data: { ...scope, alias, path: item.path, enabled: true, lastSeenAt }
+        data: {
+          ...scope,
+          alias,
+          path: item.path,
+          enabled: true,
+          lastSeenAt,
+          gitRepository: item.gitRepository,
+          gitBranch: cleanOptional(item.gitBranch, 300),
+          gitClean: item.gitClean,
+          gitHeadSha: cleanOptional(item.gitHeadSha, 64),
+          gitOriginMainSha: cleanOptional(item.gitOriginMainSha, 64),
+          gitReady: item.gitReady,
+          gitError: cleanOptional(item.gitError, 1_000)
+        }
       });
       byPath.set(item.path.toLowerCase(), created);
     }
@@ -431,7 +469,7 @@ export async function findCodexReplyJob(scope: CodexScope, messageId: number): P
       }
     },
     include: {
-      job: { include: { project: true, attachments: true } }
+      job: { include: CODEX_JOB_INCLUDE }
     }
   });
   if (!mapping || mapping.job.ownerTelegramId !== scope.ownerTelegramId) return undefined;
@@ -451,6 +489,8 @@ export async function queueCodexJob(input: {
   forceNewThread?: boolean;
   publishRequested?: boolean;
   publishAutoMerge?: boolean;
+  requestedCapabilities?: CodexCapability[];
+  maxRepairAttempts?: number;
 }): Promise<CodexJobWithProject> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Codex prompt cannot be empty.");
@@ -468,6 +508,14 @@ export async function queueCodexJob(input: {
         include: { project: true }
       }) ?? undefined
     : undefined;
+  const requestedCapabilities = [...new Set(input.requestedCapabilities ?? [])];
+  if (input.publishRequested && !requestedCapabilities.includes("publish")) {
+    requestedCapabilities.push("publish");
+  }
+  const pendingApprovals = approvalCapabilities(requestedCapabilities);
+  const approvedCapabilities = requestedCapabilities.filter(
+    (capability) => !pendingApprovals.includes(capability)
+  );
 
   const job = await prisma.codexJob.create({
     data: {
@@ -479,13 +527,22 @@ export async function queueCodexJob(input: {
       reasoningEffort: input.reasoningEffort,
       publishRequested: Boolean(input.publishRequested),
       publishAutoMerge: Boolean(input.publishRequested && input.publishAutoMerge),
+      requestedCapabilities,
+      approvedCapabilities,
+      maxRepairAttempts: Math.max(0, Math.min(input.maxRepairAttempts ?? 2, 5)),
+      status: pendingApprovals.length > 0
+        ? CodexJobStatus.WAITING_APPROVAL
+        : CodexJobStatus.PENDING,
       threadId: newThread ? null : resumedThreadId,
       threadTitle,
       newThread,
       replyToJobId: input.replyToJob?.id,
-      attachments: input.attachments?.length ? { create: input.attachments } : undefined
+      attachments: input.attachments?.length ? { create: input.attachments } : undefined,
+      approvals: pendingApprovals.length
+        ? { create: pendingApprovals.map((capability) => ({ capability })) }
+        : undefined
     },
-    include: { project: true, attachments: true }
+    include: CODEX_JOB_INCLUDE
   });
 
   await prisma.codexChatState.upsert({
@@ -506,10 +563,139 @@ export async function queueCodexJob(input: {
   return job;
 }
 
+export async function approveCodexJobCapabilities(input: {
+  scope: CodexScope;
+  id: string;
+  decisionTelegramId: string;
+}): Promise<CodexJobWithProject | undefined> {
+  return (await prisma.$transaction(async (tx) => {
+    const job = await tx.codexJob.findFirst({
+      where: { id: input.id, ...input.scope, status: CodexJobStatus.WAITING_APPROVAL },
+      include: CODEX_JOB_INCLUDE
+    });
+    if (!job) return undefined;
+    const pending = job.approvals.filter((approval) => approval.status === CodexApprovalStatus.PENDING);
+    if (pending.length === 0) return undefined;
+    const now = new Date();
+    await tx.codexJobApproval.updateMany({
+      where: { jobId: job.id, status: CodexApprovalStatus.PENDING },
+      data: {
+        status: CodexApprovalStatus.APPROVED,
+        decisionTelegramId: input.decisionTelegramId,
+        decidedAt: now
+      }
+    });
+    return tx.codexJob.update({
+      where: { id: job.id },
+      data: {
+        status: CodexJobStatus.PENDING,
+        approvedCapabilities: job.requestedCapabilities,
+        error: null,
+        workerId: null,
+        leaseExpiresAt: null,
+        completedAt: null
+      },
+      include: CODEX_JOB_INCLUDE
+    });
+  })) ?? undefined;
+}
+
+export async function denyCodexJobCapabilities(input: {
+  scope: CodexScope;
+  id: string;
+  decisionTelegramId: string;
+}): Promise<CodexJobWithProject | undefined> {
+  return (await prisma.$transaction(async (tx) => {
+    const job = await tx.codexJob.findFirst({
+      where: { id: input.id, ...input.scope, status: CodexJobStatus.WAITING_APPROVAL },
+      include: CODEX_JOB_INCLUDE
+    });
+    if (!job) return undefined;
+    const now = new Date();
+    await tx.codexJobApproval.updateMany({
+      where: { jobId: job.id, status: CodexApprovalStatus.PENDING },
+      data: {
+        status: CodexApprovalStatus.DENIED,
+        decisionTelegramId: input.decisionTelegramId,
+        decidedAt: now
+      }
+    });
+    const canceled = await tx.codexJob.update({
+      where: { id: job.id },
+      data: {
+        status: CodexJobStatus.CANCELED,
+        error: "The requested host capabilities were denied in Telegram.",
+        workerId: null,
+        leaseExpiresAt: null,
+        completedAt: now
+      },
+      include: CODEX_JOB_INCLUDE
+    });
+    if (job.newThread) {
+      await tx.codexChatState.updateMany({
+        where: { ...input.scope, pendingThreadJobId: job.id },
+        data: { pendingThreadJobId: null }
+      });
+    }
+    return canceled;
+  })) ?? undefined;
+}
+
+export async function pauseCodexJobForApproval(input: {
+  scope: CodexScope;
+  id: string;
+  workerId: string;
+  capability: CodexCapability;
+  reason: string;
+  threadId?: string;
+}): Promise<CodexJobWithProject | undefined> {
+  return (await prisma.$transaction(async (tx) => {
+    const job = await tx.codexJob.findFirst({
+      where: {
+        id: input.id,
+        ...input.scope,
+        workerId: input.workerId,
+        status: CodexJobStatus.RUNNING
+      },
+      include: CODEX_JOB_INCLUDE
+    });
+    if (!job || job.approvedCapabilities.includes(input.capability)) return undefined;
+    const requestedCapabilities = [...new Set([...job.requestedCapabilities, input.capability])];
+    await tx.codexJobApproval.upsert({
+      where: { jobId_capability: { jobId: job.id, capability: input.capability } },
+      create: {
+        jobId: job.id,
+        capability: input.capability,
+        reason: input.reason.slice(0, 1_000),
+        requestedBy: "WORKER"
+      },
+      update: {
+        status: CodexApprovalStatus.PENDING,
+        reason: input.reason.slice(0, 1_000),
+        decisionTelegramId: null,
+        requestedAt: new Date(),
+        decidedAt: null
+      }
+    });
+    return tx.codexJob.update({
+      where: { id: job.id },
+      data: {
+        status: CodexJobStatus.WAITING_APPROVAL,
+        requestedCapabilities,
+        threadId: input.threadId,
+        error: input.reason.slice(0, 8_000),
+        workerId: null,
+        leaseExpiresAt: null
+      },
+      include: CODEX_JOB_INCLUDE
+    });
+  })) ?? undefined;
+}
+
 export async function recentCodexJobs(scope: CodexScope, take = 5): Promise<CodexJobWithProject[]> {
   return prisma.codexJob.findMany({
     where: scope,
-    include: { project: true, attachments: true },
+    include: CODEX_JOB_INCLUDE,
     orderBy: { createdAt: "desc" },
     take
   });
@@ -554,7 +740,7 @@ export async function claimCodexJob(scope: CodexScope, workerId: string, leaseSe
 
     return (await tx.codexJob.findUnique({
       where: { id: candidate.id },
-      include: { project: true, attachments: true }
+      include: CODEX_JOB_INCLUDE
     })) ?? undefined;
   })) ?? undefined;
 }
@@ -566,6 +752,7 @@ export async function completeCodexJob(input: {
   finalResponse: string;
   threadId?: string;
   publishResult?: CodexPublishResultInput;
+  repairAttempt?: number;
 }): Promise<CodexJobWithProject | undefined> {
   const updated = await prisma.codexJob.updateMany({
     where: { id: input.id, ...input.scope, workerId: input.workerId, status: CodexJobStatus.RUNNING },
@@ -582,6 +769,7 @@ export async function completeCodexJob(input: {
       publishMergeCommitSha: input.publishResult?.mergeCommitSha,
       publishBlocker: input.publishResult?.blocker,
       publishCompletedAt: input.publishResult ? new Date() : undefined,
+      repairAttempt: input.repairAttempt,
       error: null,
       completedAt: new Date(),
       leaseExpiresAt: null
@@ -590,7 +778,7 @@ export async function completeCodexJob(input: {
   if (updated.count === 0) return undefined;
   const job = (await prisma.codexJob.findUnique({
     where: { id: input.id },
-    include: { project: true, attachments: true }
+    include: CODEX_JOB_INCLUDE
   })) ?? undefined;
   if (job && input.threadId) await recordCompletedCodexThread(job, input.threadId, "idle");
   else if (job?.newThread) await clearPendingCodexThread(job);
@@ -607,9 +795,9 @@ export async function completedCodexJobForWorker(
       id,
       ...scope,
       workerId,
-      status: { in: [CodexJobStatus.COMPLETED, CodexJobStatus.FAILED] }
+      status: { in: [CodexJobStatus.COMPLETED, CodexJobStatus.FAILED, CodexJobStatus.CANCELED] }
     },
-    include: { project: true, attachments: true }
+    include: CODEX_JOB_INCLUDE
   })) ?? undefined;
 }
 
@@ -633,7 +821,7 @@ export async function failCodexJob(input: {
   if (updated.count === 0) return undefined;
   const job = (await prisma.codexJob.findUnique({
     where: { id: input.id },
-    include: { project: true, attachments: true }
+    include: CODEX_JOB_INCLUDE
   })) ?? undefined;
   if (job && input.threadId) await recordCompletedCodexThread(job, input.threadId, "systemError");
   else if (job?.newThread) await clearPendingCodexThread(job);
@@ -646,7 +834,7 @@ export async function findCodexJobByReference(scope: CodexScope, reference: stri
       ...scope,
       id: { startsWith: reference.trim(), mode: "insensitive" }
     },
-    include: { project: true, attachments: true },
+    include: CODEX_JOB_INCLUDE,
     orderBy: { createdAt: "desc" },
     take: 2
   });
@@ -656,7 +844,7 @@ export async function findCodexJobByReference(scope: CodexScope, reference: stri
 export async function codexJobForReport(scope: CodexScope, jobId: string): Promise<CodexJobWithProject | undefined> {
   return (await prisma.codexJob.findFirst({
     where: { id: jobId, ...scope },
-    include: { project: true, attachments: true }
+    include: CODEX_JOB_INCLUDE
   })) ?? undefined;
 }
 
@@ -697,11 +885,11 @@ export async function undeliveredCodexJobs(
   return prisma.codexJob.findMany({
     where: {
       ...scope,
-      status: { in: [CodexJobStatus.COMPLETED, CodexJobStatus.FAILED] },
+      status: { in: [CodexJobStatus.COMPLETED, CodexJobStatus.FAILED, CodexJobStatus.CANCELED] },
       deliveredAt: null,
       completedAt: { lte: completedBefore }
     },
-    include: { project: true, attachments: true },
+    include: CODEX_JOB_INCLUDE,
     orderBy: { completedAt: "asc" },
     take
   });
@@ -884,4 +1072,9 @@ function validDate(value?: string): Date | undefined {
   if (!value) return undefined;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function cleanOptional(value: string | undefined, maximum: number): string | undefined {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned.slice(0, maximum) : undefined;
 }

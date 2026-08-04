@@ -1,10 +1,12 @@
-import { CodexJobStatus } from "@prisma/client";
+import { CodexApprovalStatus, CodexJobStatus, type CodexProject } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { env, privateCodexConfig } from "../config/env";
 import {
   codexJobHasReportMessage,
   codexJobForReport,
   clearActiveCodexThread,
+  approveCodexJobCapabilities,
+  denyCodexJobCapabilities,
   findActiveCodexThread,
   findCodexJobByReference,
   findCodexProject,
@@ -28,6 +30,11 @@ import {
   type CodexJobWithProject,
   type CodexScope
 } from "../services/codex";
+import {
+  capabilityLabel,
+  parseCodexAccess,
+  type CodexCapability
+} from "../services/codexCapabilities";
 import { logger } from "../logger";
 import { localWorkerReadiness } from "../services/geminiIdeas";
 import { detectTrustedPublishIntent } from "../services/trustedGitPublisher";
@@ -59,6 +66,7 @@ type RunCommand = {
   reasoningEffort?: ReasoningLevel;
   publishRequested?: boolean;
   publishAutoMerge?: boolean;
+  requestedCapabilities?: CodexCapability[];
 };
 
 export type ParsedCodexCommand =
@@ -67,6 +75,7 @@ export type ParsedCodexCommand =
   | { action: "tasks"; alias?: string }
   | { action: "models" }
   | { action: "status" }
+  | { action: "doctor" }
   | { action: "use"; alias: string }
   | { action: "useTask"; reference: string }
   | { action: "error"; message: string }
@@ -182,6 +191,37 @@ export function registerCodexMode(bot: Bot): void {
     await ctx.answerCallbackQuery({ text: "Your next prompt starts a new task." });
   });
 
+  bot.callbackQuery(/^codex:(approve|deny):([0-9a-f-]+)$/, async (ctx) => {
+    const scope = privateCodexScopeForContext(ctx);
+    if (!scope || !await codexGroupIsPrivate(ctx, scope)) {
+      await silentlyAnswerCallback(ctx);
+      return;
+    }
+    const approve = ctx.match[1] === "approve";
+    const job = approve
+      ? await approveCodexJobCapabilities({
+          scope,
+          id: ctx.match[2]!,
+          decisionTelegramId: String(ctx.from.id)
+        })
+      : await denyCodexJobCapabilities({
+          scope,
+          id: ctx.match[2]!,
+          decisionTelegramId: String(ctx.from.id)
+        });
+    if (!job) {
+      await ctx.answerCallbackQuery({ text: "This approval has already been handled." });
+      return;
+    }
+    await ctx.editMessageText(
+      approve
+        ? `✅ Approved. ${job.project.alias} request ${shortJobId(job.id)} is queued again.`
+        : `🚫 Canceled. ${job.project.alias} request ${shortJobId(job.id)} will not run.`
+    );
+    if (!approve) await markCodexJobDelivered(job.id);
+    await ctx.answerCallbackQuery({ text: approve ? "Approved" : "Canceled" });
+  });
+
   bot.on("message:photo", async (ctx, next) => {
     const scope = privateCodexScopeForContext(ctx);
     if (!scope) {
@@ -249,6 +289,7 @@ export function parseCodexCommand(body: string): ParsedCodexCommand {
   if (/^(?:projects?|repos?)$/i.test(value)) return { action: "projects" };
   if (/^(?:models?|reasoning)$/i.test(value)) return { action: "models" };
   if (/^(?:status|jobs?)$/i.test(value)) return { action: "status" };
+  if (/^(?:doctor|diagnostics?|access)$/i.test(value)) return { action: "doctor" };
 
   const tasks = value.match(/^tasks?(?:\s+([a-z0-9][a-z0-9-]*))?$/i);
   if (tasks) return { action: "tasks", alias: tasks[1] };
@@ -347,6 +388,16 @@ function parseRunCommand(input: string): ParsedCodexCommand {
     };
   }
 
+  const accessFlag = extractFlag(value, "access");
+  value = accessFlag.rest;
+  const access = parseCodexAccess(accessFlag.value);
+  if (access.invalid.length) {
+    return {
+      action: "error",
+      message: `Unknown access profile: ${access.invalid.join(", ")}. Use code, internet, publish, deploy, browser, files, or full.`
+    };
+  }
+
   value = value.replace(/^\s*--\s*/, "").trim();
   let alias: string | undefined;
   let taskRef: string | undefined;
@@ -390,6 +441,7 @@ function parseRunCommand(input: string): ParsedCodexCommand {
   const prompt = value.trim();
   if (!prompt) return { action: "error", message: "Add a prompt for Codex to work on." };
   const publish = detectTrustedPublishIntent(prompt);
+  const accessPublishes = access.capabilities.includes("publish") || access.capabilities.includes("deploy");
   return {
     action: "run",
     prompt,
@@ -399,8 +451,12 @@ function parseRunCommand(input: string): ParsedCodexCommand {
     forceNewThread,
     model: modelFlag.value,
     reasoningEffort: reasoningFlag.value?.toLowerCase() as ReasoningLevel | undefined,
-    ...(publish.requested
-      ? { publishRequested: true, publishAutoMerge: publish.autoMerge }
+    ...(access.capabilities.length ? { requestedCapabilities: access.capabilities } : {}),
+    ...(publish.requested || accessPublishes
+      ? {
+          publishRequested: true,
+          publishAutoMerge: publish.autoMerge || access.capabilities.includes("deploy")
+        }
       : {})
   };
 }
@@ -434,9 +490,11 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       `${code("continue a1b2c3d4 Add tests")} continue a task by id`,
       `${code("/codex new Start separately")} start a fresh thread`,
       `${code("/codex status")} see task ids and progress`,
+      `${code("/codex doctor")} verify Codex, GitHub, network, browser, files, deploys, and project Git readiness`,
       "",
       `${code("--model MODEL_ID")} choose a model for one task`,
       `${code("--reasoning high")} choose minimal, low, medium, high, or xhigh`,
+      `${code("--access internet")} request one-task access; also supports publish, deploy, browser, files, and full`,
       "",
       `Example: ${code("in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI")}`,
       "Reply to any Codex report—on any page—to continue that exact task and folder.",
@@ -481,6 +539,15 @@ async function handleCodexInput(ctx: Context, input: string, attachments: CodexA
       localWorkerReadiness(scope)
     ]);
     await replyHtml(ctx, renderCodexStatus(jobs, worker));
+    return;
+  }
+
+  if (parsed.action === "doctor") {
+    const [worker, projectData] = await Promise.all([
+      localWorkerReadiness(scope),
+      listCodexProjects(scope)
+    ]);
+    await replyHtml(ctx, renderCodexDoctor(worker, projectData.projects, projectData.activeProjectId));
     return;
   }
 
@@ -642,6 +709,24 @@ async function queuePromptFromContext(
     return;
   }
 
+  const requestedCapabilities = [...new Set([
+    ...(command.requestedCapabilities ?? []),
+    ...(command.publishRequested ? ["publish" as const] : [])
+  ])];
+  if (requestedCapabilities.length) {
+    const readiness = await localWorkerReadiness(scope);
+    const available = readiness.capabilities?.allowedCapabilities;
+    const unavailable = available
+      ? requestedCapabilities.filter((capability) => !available.includes(capability))
+      : [];
+    if (unavailable.length) {
+      await ctx.reply(
+        `The laptop worker is not configured for ${unavailable.map(capabilityLabel).join(", ")}. Open /codex doctor for the exact setup.`
+      );
+      return;
+    }
+  }
+
   const job = await queueCodexJob({
     scope,
     project,
@@ -654,8 +739,13 @@ async function queuePromptFromContext(
     targetThread,
     forceNewThread: command.forceNewThread,
     publishRequested: command.publishRequested,
-    publishAutoMerge: command.publishAutoMerge
+    publishAutoMerge: command.publishAutoMerge,
+    requestedCapabilities
   });
+  if (job.status === CodexJobStatus.WAITING_APPROVAL) {
+    await replyHtml(ctx, renderCodexApproval(job), { reply_markup: codexApprovalKeyboard(job.id) });
+    return;
+  }
   const threadId = job.threadId ? shortCodexThreadId(job.threadId) : "new";
   await replyHtml(ctx, renderCodexQueuedMessage({
     projectAlias: project.alias,
@@ -669,6 +759,36 @@ async function queuePromptFromContext(
     publishRequested: job.publishRequested,
     publishAutoMerge: job.publishAutoMerge
   }));
+}
+
+export async function deliverCodexApprovalRequest(bot: Bot, job: CodexJobWithProject): Promise<void> {
+  const groupIsPrivate = await soleOwnerGroup(bot.api, job.telegramChatId, job.ownerTelegramId);
+  const deliveryChatId = groupIsPrivate ? job.telegramChatId : job.ownerTelegramId;
+  await bot.api.sendMessage(deliveryChatId, renderCodexApproval(job), {
+    ...HTML_REPLY,
+    reply_markup: codexApprovalKeyboard(job.id)
+  });
+}
+
+function renderCodexApproval(job: CodexJobWithProject): string {
+  const pending = job.approvals.filter((approval) => approval.status === CodexApprovalStatus.PENDING);
+  return [
+    bold("Codex needs your approval"),
+    `${code(job.project.alias)} · ${h(job.threadTitle ?? taskTitleFromPrompt(job.prompt))}`,
+    `Request ${code(shortJobId(job.id))}`,
+    "",
+    `Access: ${pending.map((approval) => h(capabilityLabel(approval.capability))).join(", ")}`,
+    pending.find((approval) => approval.reason)?.reason
+      ? `Reason: ${h(pending.find((approval) => approval.reason)!.reason!.slice(0, 500))}`
+      : "This permission applies only to this queued request.",
+    "Credentials remain in the trusted laptop worker and are not sent in the prompt."
+  ].filter(Boolean).join("\n");
+}
+
+function codexApprovalKeyboard(jobId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Approve once", `codex:approve:${jobId}`)
+    .text("Cancel", `codex:deny:${jobId}`);
 }
 
 async function sendProjectsPage(ctx: Context, scope: CodexScope, requestedPage: number): Promise<void> {
@@ -819,8 +939,13 @@ export function renderReportPage(job: CodexJobWithProject, pages: string[], page
     pages.length > 1 ? `page ${page + 1}/${pages.length}` : undefined
   ].filter(Boolean).join(" · ");
   const publishing = publishReportLines(job);
+  const outcome = job.status === CodexJobStatus.COMPLETED
+    ? "✅ Codex finished"
+    : job.status === CodexJobStatus.CANCELED
+      ? "🚫 Codex canceled"
+      : "❌ Codex failed";
   return [
-    job.status === CodexJobStatus.COMPLETED ? "✅ Codex finished" : "❌ Codex failed",
+    outcome,
     title,
     context,
     controls || undefined,
@@ -930,6 +1055,57 @@ export function renderCodexStatus(
   ].filter((line) => line !== undefined).join("\n");
 }
 
+export function renderCodexDoctor(
+  worker: CodexWorkerReadiness,
+  projects: CodexProject[],
+  activeProjectId?: string
+): string {
+  const capabilities = worker.capabilities;
+  const gitReady = projects.filter((project) => project.gitReady).length;
+  const activeProject = projects.find((project) => project.id === activeProjectId);
+  const projectBlockers = projects.filter((project) => project.gitRepository && !project.gitReady).slice(0, 8);
+  return [
+    bold("Codex laptop doctor"),
+    `Worker: ${worker.online ? "✅ online" : worker.lastSeenAt ? "⚠️ stale" : "❌ offline"}`,
+    worker.lastSeenAt ? `Heartbeat: ${h(formatCodexTimestamp(worker.lastSeenAt))}` : undefined,
+    capabilities ? undefined : "⚠️ This worker has not reported Remote Operator diagnostics yet. Update and restart it.",
+    "",
+    `Desktop Codex home: ${doctorMark(Boolean(capabilities?.codexConfigAvailable && capabilities.codexAuthAvailable))}`,
+    `Git + GitHub auth: ${doctorMark(Boolean(capabilities?.gitAvailable && capabilities.githubAuthenticated))}`,
+    `Internet approval: ${doctorMark(Boolean(capabilities?.networkAccessAvailable))}`,
+    `Browser approval: ${doctorMark(Boolean(capabilities?.browserAvailable && capabilities.networkAccessAvailable))}`,
+    `Additional file roots: ${capabilities?.additionalRootCount ?? 0}`,
+    `Deploy targets: ${capabilities?.deployTargets?.length ? capabilities.deployTargets.map(code).join(", ") : "none"}`,
+    `Plugin credential broker: ${capabilities?.credentialBrokerVariables?.length
+      ? capabilities.credentialBrokerVariables.map(code).join(", ")
+      : "none"}`,
+    `Gemini CLI: ${doctorMark(worker.geminiAvailable)}`,
+    !capabilities?.networkAccessAvailable && capabilities?.diagnostics?.internet
+      ? `Internet setup: ${h(capabilities.diagnostics.internet)}`
+      : undefined,
+    !capabilities?.additionalRootCount && capabilities?.diagnostics?.files
+      ? `File setup: ${h(capabilities.diagnostics.files)}`
+      : undefined,
+    !capabilities?.deployTargets?.length && capabilities?.diagnostics?.deploy
+      ? `Deploy setup: ${h(capabilities.diagnostics.deploy)}`
+      : undefined,
+    "",
+    `Projects discovered: ${projects.length} · publish-ready: ${gitReady}`,
+    activeProject
+      ? `Active: ${code(activeProject.alias)} · ${activeProject.gitReady ? "publish-ready" : activeProject.gitRepository ? "Git needs attention" : "code-only"}`
+      : "Active project: none selected",
+    ...projectBlockers.map((project) => (
+      `⚠️ ${code(project.alias)}: ${h(project.gitError ?? "Git publishing is not ready.")}`
+    )),
+    "",
+    "Each prompt stays code-only unless you use --access or request trusted publishing. Internet, browser, deploy, and extra-file access require a one-task Telegram approval."
+  ].filter((line) => line !== undefined).join("\n");
+}
+
+function doctorMark(ready: boolean): string {
+  return ready ? "✅ ready" : "❌ not configured";
+}
+
 export function formatCodexTimestamp(
   date: Date,
   timezone = env.DEFAULT_TIMEZONE
@@ -967,7 +1143,7 @@ function jobTimestamp(job: CodexJobWithProject): Date {
 }
 
 function statusLabel(status: CodexJobStatus): string {
-  return status.charAt(0) + status.slice(1).toLowerCase();
+  return status.split("_").map((part) => part.charAt(0) + part.slice(1).toLowerCase()).join(" ");
 }
 
 function shortCodexThreadId(id: string): string {
@@ -995,6 +1171,8 @@ function unquote(value: string): string {
 function jobStatusIcon(status: CodexJobStatus): string {
   if (status === CodexJobStatus.COMPLETED) return "✅";
   if (status === CodexJobStatus.FAILED) return "❌";
+  if (status === CodexJobStatus.CANCELED) return "🚫";
+  if (status === CodexJobStatus.WAITING_APPROVAL) return "🔐";
   if (status === CodexJobStatus.RUNNING) return "⚙️";
   return "⏳";
 }

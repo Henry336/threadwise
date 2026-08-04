@@ -10,7 +10,13 @@ if (-not (Test-Path -LiteralPath $runnerPath -PathType Leaf)) {
   throw "Worker runner was not found: $runnerPath"
 }
 
-$requiredUserVariables = @("THREADWISE_CODEX_URL")
+$currentCodexHome = [Environment]::GetEnvironmentVariable("CODEX_HOME", "Process")
+$userCodexHome = [Environment]::GetEnvironmentVariable("CODEX_HOME", "User")
+if ([string]::IsNullOrWhiteSpace($userCodexHome) -and -not [string]::IsNullOrWhiteSpace($currentCodexHome)) {
+  [Environment]::SetEnvironmentVariable("CODEX_HOME", $currentCodexHome, "User")
+}
+
+$requiredUserVariables = @("THREADWISE_CODEX_URL", "CODEX_HOME")
 $missing = @($requiredUserVariables | Where-Object {
   [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_, "User"))
 })
@@ -54,6 +60,12 @@ try {
     -Force | Out-Null
 
   if ($StartNow) {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+      $state = (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue).State
+      if ($state -ne "Running") { break }
+      Start-Sleep -Milliseconds 250
+    }
     Start-ScheduledTask -TaskName $TaskName
   }
 } catch {
