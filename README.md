@@ -572,9 +572,11 @@ powershell -ExecutionPolicy Bypass -File scripts\update-codex-worker.ps1
 ```
 
 The updater requires a clean dedicated checkout on `main`, fetches and
-fast-forwards only, runs `npm ci`, and restarts the startup task. It stops on a
-dirty checkout, non-GitHub origin, divergent branch, dependency failure, or
-non-fast-forward update.
+fast-forwards only, runs `npm ci`, and restarts the startup task. The runner
+publishes a local PID file so updates stop its complete PowerShell/Node process
+tree before replacing dependencies; this prevents orphaned `tsx` or esbuild
+processes from locking `node_modules`. It stops on a dirty checkout, non-GitHub
+origin, divergent branch, dependency failure, or non-fast-forward update.
 
 For installations where the running worker token is intentionally unavailable to
 the startup environment, `npm run codex:task-sync` starts a separate,
