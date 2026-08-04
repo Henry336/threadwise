@@ -24,6 +24,7 @@ import {
   sep
 } from "node:path";
 import { promisify } from "node:util";
+import { FILE_COURIER_RESULT_LIMIT } from "./fileCourierPolicy";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,7 +88,7 @@ export async function searchLaptopFiles(input: {
   scanLimit?: number;
 }): Promise<LocalFileMetadata[]> {
   const roots = await validatedRoots(input.roots);
-  const take = Math.max(1, Math.min(input.take ?? 8, 10));
+  const take = Math.max(1, Math.min(input.take ?? 8, FILE_COURIER_RESULT_LIMIT));
   if (input.kind === "LOOKUP") {
     if (!input.query) throw new Error("An absolute path is required.");
     return [await validateLocalFile(input.query, roots, input.maxBytes)];

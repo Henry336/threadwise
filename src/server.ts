@@ -57,6 +57,7 @@ import {
   type FileCourierResultInput
 } from "./services/fileCourier";
 import { deliverFileCourierJobOnce } from "./bot/files";
+import { FILE_COURIER_RESULT_LIMIT } from "./services/fileCourierPolicy";
 
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const FILE_COURIER_CONTENT_TYPE = "application/x-threadwise-file";
@@ -829,7 +830,7 @@ export async function* exactLengthStream(
 
 function validFileCourierResults(value: unknown): value is FileCourierResultInput[] {
   return Array.isArray(value)
-    && value.length <= 10
+    && value.length <= FILE_COURIER_RESULT_LIMIT
     && value.every((item) => {
       if (!item || typeof item !== "object") return false;
       const result = item as Record<string, unknown>;

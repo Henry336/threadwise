@@ -56,6 +56,12 @@ initialize with a writable volume root. Put the exact absolute path in quotes in
 the approved Telegram prompt; Threadwise validates it against the configured roots
 and passes only that directory for the turn.
 
+`/files find` and `/files recent` store validated metadata for up to 100 matches
+and display eight results per Telegram page. Previous/Next edits the original
+result message, so navigation remains available after worker restarts or while
+the laptop is temporarily offline. File bytes are still transferred only after
+the owner taps the page-specific Send button.
+
 Rapid prompts are serialized by a durable per-task dependency chain. Prompts sent
 while a new task is still obtaining its Codex thread ID wait behind that creator,
 retain their original project/task selection, and display queue position. If a

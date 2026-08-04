@@ -708,6 +708,11 @@ Use:
 Send me the latest curriculum PDF from my laptop.
 ```
 
+Search and recent-file responses keep up to 100 validated metadata matches and
+show eight at a time. Use the inline Previous/Next controls to move through the
+same durable result set; page changes do not require the laptop worker to remain
+online. Send buttons retain the global result number on every page.
+
 Search and exact-path requests return filename, parent folder, size, modified time, and type. They do not transfer content. The owner must tap **Send** on one exact result, and may cancel a request before the worker claims it.
 
 Immediately before sending, the laptop resolves the path beneath an explicit root, rejects directories, Windows device paths, symlinks and junction/reparse escapes, compares file identity/size/time with the selected result, and creates a private local transfer snapshot. The worker streams that snapshot through the web process directly into Telegram; PostgreSQL stores only job, file metadata, state, and audits, and Render never writes a temporary file. The laptop snapshot is deleted after success or failure.
