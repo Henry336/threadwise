@@ -3,6 +3,7 @@ import {
   findPolicyMatches,
   highestSeverityMatch,
   inferTriggerMatchType,
+  isBeaconInvocation,
   normalizeCommunityText,
   safeModeratorDefaults,
   triggerMatches
@@ -43,10 +44,23 @@ describe("Beacon policy normalization", () => {
       canMute: true,
       canBan: false,
       canEditRules: false,
+      canAddTriggers: false,
+      canRemoveTriggers: false,
+      canChangeTriggerSeverity: false,
+      canManageTriggerGroups: false,
       canChangeAutomaticActions: false,
       canManageTrustedMembers: false,
       canLockdown: false
     });
+  });
+
+  it("opens Beacon only for explicit, convenient calls", () => {
+    for (const value of ["Beacon", "beacon", "Hey Beacon", "hey beacon!", "Beacon menu", "menu"]) {
+      expect(isBeaconInvocation(value)).toBe(true);
+    }
+    for (const value of ["beaconing", "the menu is useful", "hey there", "Beacon should ban this"]) {
+      expect(isBeaconInvocation(value)).toBe(false);
+    }
   });
 });
 

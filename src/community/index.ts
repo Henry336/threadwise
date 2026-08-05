@@ -13,6 +13,7 @@ import {
   activeCommunityConversation,
   addTrustedCommunityMember,
   addCommunityTrigger,
+  approveCommunityTrigger,
   attachCommunityReportMessage,
   claimCommunityUpdate,
   clearCommunityConversation,
@@ -20,9 +21,11 @@ import {
   communityActionById,
   communityGroupById,
   communityGroupForChat,
+  communityControlSession,
   communityModeratorById,
   communityReportById,
   communityTriggerById,
+  communityTriggerByGlobalId,
   createCommunityTriggerGroup,
   createOrIncrementCommunityReport,
   cycleCommunityDuplicatePreset,
@@ -34,19 +37,24 @@ import {
   isNewCommunityMemberPaused,
   isTrustedCommunityMember,
   listOpenCommunityReports,
+  listCommunityTriggerLibrary,
+  listManageableCommunityGroups,
   listCommunityModerators,
   listTrustedCommunityMembers,
   listTriggerGroups,
   markCommunityActionUndone,
   moveCommunityTrigger,
+  moveAndApproveCommunityTrigger,
   policyTriggersForGroup,
   recentCommunityActions,
+  recentCommunityAudits,
   recordCommunityAction,
   recordCommunityAudit,
   renameCommunityTriggerGroup,
   removeCommunityModerator,
   removeCommunityTrigger,
   removeTrustedCommunityMember,
+  reviewCommunityTriggerGroup,
   resolveCommunityReport,
   saveCommunityModerator,
   setCommunityLockdownMode,
@@ -54,12 +62,14 @@ import {
   setCommunityObserveMode,
   setCommunityOwnerNotificationStatus,
   setCommunityRules,
+  selectCommunityControlGroup,
   startCommunityConversation,
   suspendCommunityModerator,
   triggerGroupById,
   triggerGroupByName,
   updateCommunityConversation,
   updateCommunityGroupTitle,
+  updateCommunityControlTriggerFilters,
   updateTriggerGroupAction,
   upsertCommunityMember,
   type CommunityAccess,
@@ -70,6 +80,7 @@ import {
   findPolicyMatches,
   hasSensitiveModeratorPermissions,
   highestSeverityMatch,
+  isBeaconInvocation,
   moderatorPermissionQuestions,
   normalizeCommunityText,
   safeModeratorDefaults,
@@ -77,9 +88,12 @@ import {
 } from "./policy";
 import {
   actionsText,
+  auditsText,
   automaticActionKeyboard,
   beaconHomeKeyboard,
   beaconHomeText,
+  communityPickerKeyboard,
+  communityPickerText,
   displayModerator,
   escapeHtml,
   moderatorDetailKeyboard,
@@ -92,14 +106,23 @@ import {
   permissionDiff,
   reportCardKeyboard,
   reportCardText,
+  groupBeaconHomeKeyboard,
+  groupBeaconHomeText,
+  privateBeaconHomeKeyboard,
+  privateBeaconHomeText,
   safetyKeyboard,
   safetyText,
   triggerDetailKeyboard,
   triggerDetailText,
+  triggerActionFilterKeyboard,
+  triggerApprovalKeyboard,
+  triggerGroupFilterKeyboard,
   triggerGroupKeyboard,
   triggerGroupText,
   triggerGroupsKeyboard,
   triggerGroupsText,
+  triggerLibraryKeyboard,
+  triggerLibraryText,
   trustedMembersKeyboard,
   trustedMembersText,
   yesNoKeyboard
@@ -132,23 +155,34 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
   });
 
   bot.command("start", async (ctx) => {
-    if (String(ctx.from?.id ?? "") !== config.ownerTelegramId) {
-      await ctx.reply("Beacon works only inside its configured communities.");
-      return;
+    const actorId = String(ctx.from?.id ?? "");
+    const requestedGroupId = typeof ctx.match === "string" && ctx.match.startsWith("manage_")
+      ? ctx.match.slice("manage_".length)
+      : undefined;
+    if (requestedGroupId) {
+      const group = await communityGroupById(requestedGroupId);
+      if (group?.enabled) {
+        const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+        if (access.owner || access.moderator) {
+          await selectCommunityControlGroup(actorId, group.id);
+          await showPrivateHome(ctx, group, access);
+          return;
+        }
+      }
     }
-    await ctx.reply([
-      "<b>Beacon is ready.</b>",
-      "Permission changes, reports, and moderation audits can be delivered here privately.",
-      "Open <code>/beacon</code> inside the configured testing group to set it up."
-    ].join("\n"), { parse_mode: "HTML" });
+    await showPrivateEntry(ctx, config);
   });
 
   bot.command("beacon", async (ctx) => {
+    if (ctx.chat.type === "private") {
+      await showPrivateEntry(ctx, config);
+      return;
+    }
     const group = await configuredGroup(ctx);
     if (!group) return;
     const access = await accessFor(ctx, group, config);
     if (!access.owner && !access.moderator) return;
-    await showHome(ctx, group);
+    await showGroupHome(ctx, group);
   });
 
   bot.command("rules", async (ctx) => {
@@ -209,6 +243,10 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
   });
 
   bot.on("message", async (ctx) => {
+    if (ctx.chat.type === "private") {
+      await handlePrivateMessage(ctx, config);
+      return;
+    }
     const group = await configuredGroup(ctx);
     if (!group) return;
     await updateCommunityGroupTitle(group.id, "title" in ctx.chat ? ctx.chat.title : undefined);
@@ -245,7 +283,12 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
 
     if (SETTINGS_PATTERN.test(text)) {
       if (!access.owner && !access.moderator) return;
-      await showHome(ctx, group);
+      await showGroupHome(ctx, group);
+      return;
+    }
+    if (isBeaconInvocation(text)) {
+      if (access.owner || access.moderator) await showGroupHome(ctx, group);
+      else await showMemberHelp(ctx, group);
       return;
     }
     if (RULES_PATTERN.test(text)) {
@@ -260,7 +303,7 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
       await beginModeratorTarget(ctx, group, config, ctx.message.reply_to_message.from);
       return;
     }
-    if (await handleNaturalPolicyCommand(ctx, group, access)) return;
+    if (await handleNaturalPolicyCommand(ctx, group, access, config)) return;
 
     if (access.owner || access.moderator || await isTrustedCommunityMember(group.id, senderId)) return;
     if (await enforceStructuralSafety(ctx, group, config, text)) return;
@@ -293,6 +336,21 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   const actorId = String(ctx.from?.id ?? "");
   if (!actorId) return;
 
+  if (data === "bc:noop") return answerCallback(ctx);
+  if (data === "bc:switch") {
+    await answerCallback(ctx);
+    return showPrivateGroupPicker(ctx, config, true);
+  }
+  if (data.startsWith("bc:pick:")) {
+    const group = await communityGroupById(data.slice("bc:pick:".length));
+    if (!group?.enabled) return answerCallback(ctx, "That community is not available.", true);
+    const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "You do not have Beacon access for that community.", true);
+    await selectCommunityControlGroup(actorId, group.id);
+    await answerCallback(ctx);
+    return showPrivateHome(ctx, group, access, true);
+  }
+
   if (data.startsWith("bc:rp:")) {
     await handleReportActionCallback(ctx, config, data);
     return;
@@ -301,10 +359,23 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await handleUndoCallback(ctx, config, data.slice("bc:undo:".length));
     return;
   }
+  if (
+    data.startsWith("bc:tap:")
+    || data.startsWith("bc:tchoose:")
+    || data.startsWith("bc:treject:")
+    || data.startsWith("bc:apto:")
+    || data === "bc:trejectok"
+  ) {
+    await handleTriggerApprovalCallback(ctx, config, data);
+    return;
+  }
 
-  const group = await configuredGroup(ctx);
+  const group = ctx.chat?.type === "private"
+    ? await selectedCommunityGroup(ctx, config)
+    : await configuredGroup(ctx);
   if (!group) {
-    await answerCallback(ctx, "Open this control inside its configured Beacon group.", true);
+    await answerCallback(ctx, "Choose a community first.", true);
+    if (ctx.chat?.type === "private") await showPrivateGroupPicker(ctx, config);
     return;
   }
   const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
@@ -312,12 +383,30 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await answerCallback(ctx, "This control is for Beacon moderators.", true);
     return;
   }
+  if (ctx.chat?.type !== "private" && ![
+    "bc:home",
+    "bc:rules",
+    "bc:observeinfo"
+  ].includes(data)) {
+    await answerCallback(ctx, "Open Beacon's private chat for sensitive controls.", true);
+    return;
+  }
 
-  if (data === "bc:home") return showHome(ctx, group, true);
+  if (data === "bc:home") {
+    return ctx.chat?.type === "private"
+      ? showPrivateHome(ctx, group, access, true)
+      : showGroupHome(ctx, group, true);
+  }
   if (data === "bc:cancel") {
     await clearCommunityConversation(group.id, actorId);
     await answerCallback(ctx, "Canceled.");
-    return showHome(ctx, group, true);
+    return ctx.chat?.type === "private"
+      ? showPrivateHome(ctx, group, access, true)
+      : showGroupHome(ctx, group, true);
+  }
+  if (data === "bc:observeinfo") {
+    await answerCallback(ctx, group.observeMode ? "Observe mode is on. No automatic punishment is applied." : "Active moderation is on.", true);
+    return;
   }
   if (data === "bc:mods") return showModerators(ctx, group, true);
   if (data === "bc:mod:add") {
@@ -359,6 +448,23 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:mw:restart") return restartModeratorWizard(ctx, group);
   if (data === "bc:mw:save" || data === "bc:mw:risky") return saveModeratorWizard(ctx, group, config, data.endsWith(":risky"));
 
+  if (data === "bc:lib") return showTriggerLibrary(ctx, group, access, true);
+  if (data === "bc:libsearch") return beginTriggerLibrarySearch(ctx, group, access);
+  if (data === "bc:libactions") {
+    await answerCallback(ctx);
+    return editCard(ctx, "<b>Filter by action</b>", triggerActionFilterKeyboard());
+  }
+  if (data === "bc:libgroups") {
+    const groups = await listTriggerGroups(group.id);
+    await answerCallback(ctx);
+    return editCard(ctx, "<b>Filter by trigger group</b>", triggerGroupFilterKeyboard(groups));
+  }
+  if (data.startsWith("bc:libact:")) return setTriggerLibraryActionFilter(ctx, group, access, data.slice("bc:libact:".length));
+  if (data.startsWith("bc:libcat:")) return setTriggerLibraryGroupFilter(ctx, group, access, data.slice("bc:libcat:".length));
+  if (data.startsWith("bc:libpage:")) return setTriggerLibraryPage(ctx, group, access, Number(data.slice("bc:libpage:".length)));
+  if (data === "bc:libclear") return clearTriggerLibraryFilters(ctx, group, access);
+  if (data === "bc:libadd") return beginPrivateTriggerAdd(ctx, group, access);
+
   if (data === "bc:cats") return showTriggerGroups(ctx, group, true);
   if (data === "bc:catnew") return beginTriggerGroupCreation(ctx, group, access);
   if (data.startsWith("bc:catrename:")) return beginTriggerGroupRename(ctx, group, access, data.slice("bc:catrename:".length));
@@ -367,7 +473,7 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data.startsWith("bc:cat:")) return showTriggerGroup(ctx, group, data.slice("bc:cat:".length));
   if (data.startsWith("bc:tradd:")) return beginTriggerInput(ctx, group, access, "ADD_TRIGGER", data.slice("bc:tradd:".length));
   if (data.startsWith("bc:trtest:")) return beginTriggerInput(ctx, group, access, "TEST_TRIGGER", data.slice("bc:trtest:".length));
-  if (data.startsWith("bc:tr:") && !data.startsWith("bc:tr:noop")) return showTrigger(ctx, group, data.slice("bc:tr:".length));
+  if (data.startsWith("bc:tr:") && !data.startsWith("bc:tr:noop")) return showTrigger(ctx, group, access, data.slice("bc:tr:".length));
   if (data.startsWith("bc:trdel:")) return beginDeleteTrigger(ctx, group, access, data.slice("bc:trdel:".length));
   if (data === "bc:trdelok") return confirmDeleteTrigger(ctx, group, access);
   if (data.startsWith("bc:trmove:")) return beginMoveTrigger(ctx, group, access, data.slice("bc:trmove:".length));
@@ -393,6 +499,11 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await answerCallback(ctx);
     return editCard(ctx, actionsText(actions), new InlineKeyboard().text("‹ Beacon", "bc:home"));
   }
+  if (data === "bc:audits") {
+    const audits = await recentCommunityAudits(group.id);
+    await answerCallback(ctx);
+    return editCard(ctx, auditsText(audits), new InlineKeyboard().text("‹ Beacon", "bc:home"));
+  }
   if (data === "bc:reports") return showOpenReports(ctx, group);
   if (data.startsWith("bc:report:")) return showOpenReport(ctx, group, data.slice("bc:report:".length));
   if (data === "bc:rules") {
@@ -404,6 +515,164 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   await answerCallback(ctx, "This control is no longer current. Reopen Beacon.", true);
 }
 
+async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise<void> {
+  const actorId = String(ctx.from?.id ?? "");
+  const text = ctx.message?.text?.trim();
+  if (!actorId || !text) return;
+
+  const group = await selectedCommunityGroup(ctx, config);
+  if (!group) {
+    await showPrivateEntry(ctx, config);
+    return;
+  }
+  const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+  if (!access.owner && !access.moderator) {
+    await showPrivateGroupPicker(ctx, config);
+    return;
+  }
+
+  const conversation = await activeCommunityConversation(group.id, actorId);
+  if (conversation && await handleConversationMessage(ctx, group, conversation, access, config)) return;
+
+  if (isBeaconInvocation(text) || SETTINGS_PATTERN.test(text) || /^home$/iu.test(text)) {
+    await showPrivateHome(ctx, group, access);
+    return;
+  }
+  if (/^(?:trigger library|triggers|show triggers|open triggers)$/iu.test(text)) {
+    await showTriggerLibrary(ctx, group, access);
+    return;
+  }
+  const search = text.match(/^(?:find|search)(?:\s+the)?\s+triggers?\s+(?:for\s+)?(.+)$/iu);
+  if (search?.[1]) {
+    await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, searchQuery: search[1], page: 0 });
+    await showTriggerLibrary(ctx, group, access);
+    return;
+  }
+  if (/^(?:add|new)\s+trigger$/iu.test(text)) {
+    await beginPrivateTriggerAdd(ctx, group, access);
+    return;
+  }
+  if (/^(?:reports?|review queue)$/iu.test(text)) {
+    await showOpenReports(ctx, group);
+    return;
+  }
+  if (/^(?:moderators?|mods)$/iu.test(text) && access.owner) {
+    await showModerators(ctx, group);
+    return;
+  }
+  if (RULES_PATTERN.test(text)) {
+    await showRules(ctx, group);
+    return;
+  }
+  if (await handleNaturalPolicyCommand(ctx, group, access, config)) return;
+
+  await ctx.reply([
+    `<b>Managing: ${escapeHtml(group.title || "Configured community")}</b>`,
+    "I didn't recognize that control.",
+    "Try <code>trigger library</code>, <code>add trigger</code>, <code>reports</code>, or <code>Beacon</code>."
+  ].join("\n"), { parse_mode: "HTML", reply_markup: privateBeaconHomeKeyboard(group, access.owner) });
+}
+
+async function handleTriggerApprovalCallback(ctx: Context, config: BeaconConfig, data: string): Promise<void> {
+  const actorId = String(ctx.from?.id ?? "");
+  if (!actorId) return;
+
+  if (data.startsWith("bc:tap:") || data.startsWith("bc:tchoose:") || data.startsWith("bc:treject:")) {
+    const triggerId = data.slice(data.lastIndexOf(":") + 1);
+    const trigger = await communityTriggerByGlobalId(triggerId);
+    if (!trigger?.pendingApproval) return answerCallback(ctx, "This submission is no longer awaiting review.", true);
+    const access = await communityAccess(trigger.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    await selectCommunityControlGroup(actorId, trigger.groupId);
+
+    if (data.startsWith("bc:tap:")) {
+      const approved = await approveCommunityTrigger(trigger.id, actorId);
+      const audit = await recordCommunityAudit({
+        groupId: trigger.groupId,
+        actorTelegramId: actorId,
+        action: "TRIGGER_APPROVED",
+        details: { triggerId: trigger.id, pattern: trigger.pattern, triggerGroupId: trigger.triggerGroupId }
+      });
+      await notifyOwner(botFromContext(ctx), config, trigger.group, audit.id, `<b>Trigger approved</b>\n<code>${escapeHtml(trigger.pattern)}</code>`);
+      await notifyTriggerSubmitter(ctx, approved.createdByTelegramId, `Approved: “${approved.pattern}” is now active in ${approved.triggerGroup.name}.`, config.ownerTelegramId);
+      await answerCallback(ctx, "Trigger approved.");
+      await editCard(ctx, `${triggerDetailText(approved)}\n\n<b>Approved</b>`, triggerDetailKeyboard(approved, { owner: true, canMove: true, canRemove: true }));
+      return;
+    }
+
+    if (data.startsWith("bc:tchoose:")) {
+      const groups = await listTriggerGroups(trigger.groupId);
+      await startCommunityConversation({
+        groupId: trigger.groupId,
+        actorTelegramId: actorId,
+        kind: "APPROVE_TRIGGER_MOVE",
+        step: "TARGET",
+        data: { triggerId: trigger.id, pattern: trigger.pattern, submitterTelegramId: trigger.createdByTelegramId }
+      });
+      const keyboard = new InlineKeyboard();
+      for (const category of groups.filter((candidate) => candidate.id !== trigger.triggerGroupId)) {
+        keyboard.text(`${category.name} · ${category.action.toLowerCase()}`, `bc:apto:${category.id}`).row();
+      }
+      keyboard.text("Cancel", "bc:cancel");
+      await answerCallback(ctx);
+      await editCard(ctx, `<b>Approve with action</b>\n<code>${escapeHtml(trigger.pattern)}</code>\n\nChoose the trigger group that owns the desired action.`, keyboard);
+      return;
+    }
+
+    await startCommunityConversation({
+      groupId: trigger.groupId,
+      actorTelegramId: actorId,
+      kind: "REJECT_TRIGGER",
+      step: "CONFIRM",
+      data: { triggerId: trigger.id, pattern: trigger.pattern, submitterTelegramId: trigger.createdByTelegramId }
+    });
+    await answerCallback(ctx);
+    await editCard(ctx, `<b>Remove submitted trigger?</b>\n<code>${escapeHtml(trigger.pattern)}</code>`, new InlineKeyboard().text("Remove", "bc:trejectok").row().text("Cancel", "bc:cancel"));
+    return;
+  }
+
+  const group = await selectedCommunityGroup(ctx, config);
+  if (!group) return answerCallback(ctx, "Choose a community first.", true);
+  const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  const conversation = await activeCommunityConversation(group.id, actorId);
+
+  if (data.startsWith("bc:apto:")) {
+    if (!conversation || conversation.kind !== "APPROVE_TRIGGER_MOVE") return answerCallback(ctx, "This approval expired.", true);
+    const values = jsonData(conversation.data);
+    const triggerId = stringValue(values.triggerId);
+    const targetGroupId = data.slice("bc:apto:".length);
+    if (!triggerId || !(await moveAndApproveCommunityTrigger(group.id, triggerId, targetGroupId, actorId))) {
+      return answerCallback(ctx, "That approval could not be completed.", true);
+    }
+    const approved = await communityTriggerById(group.id, triggerId);
+    await clearCommunityConversation(group.id, actorId);
+    await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "TRIGGER_APPROVED_AND_MOVED", details: { triggerId, targetGroupId } });
+    if (approved) await notifyTriggerSubmitter(ctx, approved.createdByTelegramId, `Approved: “${approved.pattern}” is now active in ${approved.triggerGroup.name}.`, config.ownerTelegramId);
+    await answerCallback(ctx, "Trigger approved.");
+    await showTriggerLibrary(ctx, group, access, true);
+    return;
+  }
+
+  if (data === "bc:trejectok") {
+    if (!conversation || conversation.kind !== "REJECT_TRIGGER") return answerCallback(ctx, "This removal expired.", true);
+    const values = jsonData(conversation.data);
+    const triggerId = stringValue(values.triggerId);
+    if (!triggerId || !(await removeCommunityTrigger(group.id, triggerId))) return answerCallback(ctx, "That trigger is no longer available.", true);
+    await clearCommunityConversation(group.id, actorId);
+    await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "TRIGGER_REJECTED", details: { triggerId, pattern: values.pattern } });
+    const submitter = stringValue(values.submitterTelegramId);
+    if (submitter) await notifyTriggerSubmitter(ctx, submitter, `Not added: “${stringValue(values.pattern) ?? "Submitted trigger"}” was removed during review.`, config.ownerTelegramId);
+    await answerCallback(ctx, "Submission removed.");
+    await showTriggerLibrary(ctx, group, access, true);
+  }
+}
+
+async function notifyTriggerSubmitter(ctx: Context, telegramId: string, text: string, ownerTelegramId: string): Promise<void> {
+  if (telegramId === ownerTelegramId) return;
+  await ctx.api.sendMessage(Number(telegramId), text).catch(() => undefined);
+}
+
 async function handleConversationMessage(
   ctx: Context,
   group: CommunityGroup,
@@ -413,6 +682,12 @@ async function handleConversationMessage(
 ): Promise<boolean> {
   if (!conversation || !ctx.message?.text) return false;
   const actorId = String(ctx.from?.id ?? "");
+  if (conversation.kind === "SEARCH_TRIGGER_LIBRARY") {
+    await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, searchQuery: ctx.message.text, page: 0 });
+    await clearCommunityConversation(group.id, actorId);
+    await showTriggerLibrary(ctx, group, access);
+    return true;
+  }
   if (conversation.kind === "MODERATOR_TARGET") {
     if (!access.owner) return true;
     const repliedUser = ctx.message.reply_to_message?.from;
@@ -440,26 +715,46 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "ADD_TRIGGER") {
-    if (!access.canEditRules) return true;
+    if (!access.canAddTriggers) return true;
     const data = jsonData(conversation.data);
     const triggerGroupId = stringValue(data.triggerGroupId);
     if (!triggerGroupId) return true;
     try {
-      const trigger = await addCommunityTrigger({ groupId: group.id, triggerGroupId, pattern: ctx.message.text, actorTelegramId: actorId });
-      await clearCommunityConversation(group.id, actorId);
-      await recordAndNotify(botFromContext(ctx), config, group, {
+      const targetGroup = access.owner ? await triggerGroupById(group.id, triggerGroupId) : await reviewCommunityTriggerGroup(group.id);
+      if (!targetGroup) throw new Error("TRIGGER_GROUP_NOT_FOUND");
+      const trigger = await addCommunityTrigger({
+        groupId: group.id,
+        triggerGroupId: targetGroup.id,
+        pattern: ctx.message.text,
         actorTelegramId: actorId,
-        action: "TRIGGER_ADDED",
-        details: { pattern: trigger.pattern, triggerGroupId }
-      }, `<b>Trigger added</b>\n<code>${escapeHtml(trigger.pattern)}</code>`);
-      await ctx.reply(`Added “${trigger.pattern}”.`, { reply_markup: new InlineKeyboard().text("Open trigger group", `bc:cat:${triggerGroupId}`) });
+        pendingApproval: !access.owner
+      });
+      await clearCommunityConversation(group.id, actorId);
+      const audit = await recordCommunityAudit({
+        groupId: group.id,
+        actorTelegramId: actorId,
+        action: access.owner ? "TRIGGER_ADDED" : "TRIGGER_SUBMITTED",
+        details: { pattern: trigger.pattern, triggerGroupId: targetGroup.id, pendingApproval: !access.owner }
+      });
+      if (access.owner) {
+        await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Trigger added</b>\n<code>${escapeHtml(trigger.pattern)}</code>`);
+        await ctx.reply(`Added “${trigger.pattern}”.`, { reply_markup: new InlineKeyboard().text("Open trigger library", "bc:lib") });
+      } else {
+        await notifyOwner(botFromContext(ctx), config, group, audit.id, [
+          "<b>Trigger submitted for review</b>",
+          `Added by: <code>${escapeHtml(actorId)}</code>`,
+          `Trigger: <code>${escapeHtml(trigger.pattern)}</code>`,
+          "Initial action: Review only"
+        ].join("\n"), triggerApprovalKeyboard(trigger.id));
+        await ctx.reply(`Submitted “${trigger.pattern}” for owner review.`);
+      }
     } catch (error) {
       await ctx.reply(error instanceof Error && error.message === "INVALID_TRIGGER" ? "Use a trigger between 1 and 300 characters." : "That trigger could not be saved. It may already exist in another group.");
     }
     return true;
   }
   if (conversation.kind === "CREATE_TRIGGER_GROUP") {
-    if (!access.canEditRules) return true;
+    if (!access.canManageTriggerGroups) return true;
     const [nameLine, ...descriptionLines] = ctx.message.text.split(/\r?\n/);
     try {
       const category = await createCommunityTriggerGroup({
@@ -483,7 +778,7 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "RENAME_TRIGGER_GROUP") {
-    if (!access.canEditRules) return true;
+    if (!access.canManageTriggerGroups) return true;
     const data = jsonData(conversation.data);
     const triggerGroupId = stringValue(data.triggerGroupId);
     if (!triggerGroupId) return true;
@@ -506,7 +801,7 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "TEST_TRIGGER") {
-    if (!access.canEditRules) return true;
+    if (!access.canAddTriggers && !access.canChangeTriggerSeverity && !access.owner) return true;
     const triggers = await policyTriggersForGroup(group.id);
     const matches = findPolicyMatches(ctx.message.text, triggers);
     await clearCommunityConversation(group.id, actorId);
@@ -577,9 +872,9 @@ async function handleConversationMessage(
   return false;
 }
 
-async function handleNaturalPolicyCommand(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<boolean> {
+async function handleNaturalPolicyCommand(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<boolean> {
   const text = ctx.message?.text?.trim() ?? "";
-  if (!access.canEditRules) return false;
+  if (!access.canAddTriggers) return false;
   const add = text.match(/^add\s+["“]?(.+?)["”]?\s+to\s+(.+)$/iu);
   if (add) {
     const pattern = add[1] ?? "";
@@ -590,8 +885,36 @@ async function handleNaturalPolicyCommand(ctx: Context, group: CommunityGroup, a
       return true;
     }
     try {
-      const trigger = await addCommunityTrigger({ groupId: group.id, triggerGroupId: category.id, pattern, actorTelegramId: String(ctx.from!.id) });
-      await ctx.reply(`Added “${trigger.pattern}” to ${category.name}.`);
+      const actorId = String(ctx.from!.id);
+      const targetGroup = access.owner ? category : await reviewCommunityTriggerGroup(group.id);
+      if (!targetGroup) throw new Error("TRIGGER_GROUP_NOT_FOUND");
+      const trigger = await addCommunityTrigger({
+        groupId: group.id,
+        triggerGroupId: targetGroup.id,
+        pattern,
+        actorTelegramId: actorId,
+        pendingApproval: !access.owner
+      });
+      const audit = await recordCommunityAudit({
+        groupId: group.id,
+        actorTelegramId: actorId,
+        action: access.owner ? "TRIGGER_ADDED" : "TRIGGER_SUBMITTED",
+        details: { pattern: trigger.pattern, requestedGroup: category.name, triggerGroupId: targetGroup.id, pendingApproval: !access.owner }
+      });
+      if (access.owner) {
+        await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Trigger added</b>\n<code>${escapeHtml(trigger.pattern)}</code>`);
+      } else {
+        await notifyOwner(botFromContext(ctx), config, group, audit.id, [
+          "<b>Trigger submitted for review</b>",
+          `Added by: <code>${escapeHtml(actorId)}</code>`,
+          `Trigger: <code>${escapeHtml(trigger.pattern)}</code>`,
+          `Requested group: ${escapeHtml(category.name)}`,
+          "Initial action: Review only"
+        ].join("\n"), triggerApprovalKeyboard(trigger.id));
+      }
+      await ctx.reply(access.owner
+        ? `Added “${trigger.pattern}” to ${category.name}.`
+        : `Submitted “${trigger.pattern}” for owner review.`);
     } catch {
       await ctx.reply("That trigger could not be saved. It may already exist.");
     }
@@ -643,6 +966,10 @@ async function beginExistingModeratorWizard(ctx: Context, group: CommunityGroup,
       canMute: moderator.canMute,
       canBan: moderator.canBan,
       canEditRules: moderator.canEditRules,
+      canAddTriggers: moderator.canAddTriggers,
+      canRemoveTriggers: moderator.canRemoveTriggers,
+      canChangeTriggerSeverity: moderator.canChangeTriggerSeverity,
+      canManageTriggerGroups: moderator.canManageTriggerGroups,
       canChangeAutomaticActions: moderator.canChangeAutomaticActions,
       canManageTrustedMembers: moderator.canManageTrustedMembers,
       canLockdown: moderator.canLockdown
@@ -739,7 +1066,8 @@ async function confirmRemoveModerator(ctx: Context, group: CommunityGroup, confi
 }
 
 async function beginTriggerInput(ctx: Context, group: CommunityGroup, access: CommunityAccess, kind: "ADD_TRIGGER" | "TEST_TRIGGER", triggerGroupId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit trigger groups.", true);
+  if (kind === "ADD_TRIGGER" && !access.canAddTriggers) return answerCallback(ctx, "You cannot add triggers.", true);
+  if (kind === "TEST_TRIGGER" && !access.canAddTriggers && !access.canChangeTriggerSeverity && !access.owner) return answerCallback(ctx, "You cannot test policy triggers.", true);
   const category = await triggerGroupById(group.id, triggerGroupId);
   if (!category) return answerCallback(ctx, "Trigger group not found.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind, step: "INPUT", data: { triggerGroupId } });
@@ -751,7 +1079,7 @@ async function beginTriggerInput(ctx: Context, group: CommunityGroup, access: Co
 }
 
 async function beginTriggerGroupCreation(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit trigger groups.", true);
+  if (!access.canManageTriggerGroups) return answerCallback(ctx, "You cannot manage trigger groups.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "CREATE_TRIGGER_GROUP", step: "INPUT" });
   await answerCallback(ctx);
   await editCard(ctx, [
@@ -764,7 +1092,7 @@ async function beginTriggerGroupCreation(ctx: Context, group: CommunityGroup, ac
 }
 
 async function beginTriggerGroupRename(ctx: Context, group: CommunityGroup, access: CommunityAccess, triggerGroupId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit trigger groups.", true);
+  if (!access.canManageTriggerGroups) return answerCallback(ctx, "You cannot manage trigger groups.", true);
   const category = await triggerGroupById(group.id, triggerGroupId);
   if (!category) return answerCallback(ctx, "Trigger group not found.", true);
   await startCommunityConversation({
@@ -779,7 +1107,7 @@ async function beginTriggerGroupRename(ctx: Context, group: CommunityGroup, acce
 }
 
 async function beginTriggerGroupDeletion(ctx: Context, group: CommunityGroup, access: CommunityAccess, triggerGroupId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit trigger groups.", true);
+  if (!access.canManageTriggerGroups) return answerCallback(ctx, "You cannot manage trigger groups.", true);
   const category = await triggerGroupById(group.id, triggerGroupId);
   if (!category) return answerCallback(ctx, "Trigger group not found.", true);
   if (category.triggers.length > 0) return answerCallback(ctx, "Move or delete this group's triggers first.", true);
@@ -795,7 +1123,7 @@ async function beginTriggerGroupDeletion(ctx: Context, group: CommunityGroup, ac
 }
 
 async function confirmTriggerGroupDeletion(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit trigger groups.", true);
+  if (!access.canManageTriggerGroups) return answerCallback(ctx, "You cannot manage trigger groups.", true);
   const actorId = String(ctx.from!.id);
   const conversation = await activeCommunityConversation(group.id, actorId);
   if (!conversation || conversation.kind !== "DELETE_TRIGGER_GROUP") return answerCallback(ctx, "This confirmation expired.", true);
@@ -816,7 +1144,7 @@ async function confirmTriggerGroupDeletion(ctx: Context, group: CommunityGroup, 
 }
 
 async function beginDeleteTrigger(ctx: Context, group: CommunityGroup, access: CommunityAccess, triggerId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit triggers.", true);
+  if (!access.canRemoveTriggers) return answerCallback(ctx, "You cannot remove triggers.", true);
   const trigger = await communityTriggerById(group.id, triggerId);
   if (!trigger) return answerCallback(ctx, "Trigger not found.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "DELETE_TRIGGER", step: "CONFIRM", data: { triggerId, triggerGroupId: trigger.triggerGroupId, pattern: trigger.pattern } });
@@ -825,7 +1153,7 @@ async function beginDeleteTrigger(ctx: Context, group: CommunityGroup, access: C
 }
 
 async function confirmDeleteTrigger(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit triggers.", true);
+  if (!access.canRemoveTriggers) return answerCallback(ctx, "You cannot remove triggers.", true);
   const actorId = String(ctx.from!.id);
   const conversation = await activeCommunityConversation(group.id, actorId);
   if (!conversation || conversation.kind !== "DELETE_TRIGGER") return answerCallback(ctx, "This confirmation expired.", true);
@@ -841,7 +1169,7 @@ async function confirmDeleteTrigger(ctx: Context, group: CommunityGroup, access:
 }
 
 async function beginMoveTrigger(ctx: Context, group: CommunityGroup, access: CommunityAccess, triggerId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit triggers.", true);
+  if (!access.canChangeTriggerSeverity) return answerCallback(ctx, "You cannot change trigger severity.", true);
   const trigger = await communityTriggerById(group.id, triggerId);
   if (!trigger) return answerCallback(ctx, "Trigger not found.", true);
   const groups = await listTriggerGroups(group.id);
@@ -854,7 +1182,7 @@ async function beginMoveTrigger(ctx: Context, group: CommunityGroup, access: Com
 }
 
 async function confirmMoveTrigger(ctx: Context, group: CommunityGroup, access: CommunityAccess, targetGroupId: string): Promise<void> {
-  if (!access.canEditRules) return answerCallback(ctx, "You cannot edit triggers.", true);
+  if (!access.canChangeTriggerSeverity) return answerCallback(ctx, "You cannot change trigger severity.", true);
   const actorId = String(ctx.from!.id);
   const conversation = await activeCommunityConversation(group.id, actorId);
   if (!conversation || conversation.kind !== "MOVE_TRIGGER") return answerCallback(ctx, "This move expired.", true);
@@ -931,7 +1259,8 @@ async function confirmObserveToggle(ctx: Context, group: CommunityGroup, access:
   const audit = await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "OBSERVE_MODE_CHANGED", details: { observeMode: next } });
   await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Beacon mode changed</b>\n${next ? "Observe mode" : "Active moderation"}`);
   await answerCallback(ctx, next ? "Observe mode enabled." : "Automatic moderation enabled.");
-  await showHome(ctx, updated, true);
+  if (ctx.chat?.type === "private") await showPrivateHome(ctx, updated, access, true);
+  else await showGroupHome(ctx, updated, true);
 }
 
 async function toggleNewMemberPause(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<void> {
@@ -1050,6 +1379,8 @@ async function handleMemberReport(ctx: Context, group: CommunityGroup, config: B
     groupId: group.id,
     sourceChatId: group.telegramChatId,
     sourceMessageId: replied.message_id,
+    sourceMessageThreadId: replied.message_thread_id ?? ctx.message?.message_thread_id,
+    sourceTopicName: topicLabel(replied.message_thread_id ?? ctx.message?.message_thread_id),
     reporterTelegramId: String(ctx.from.id),
     reportedTelegramId: replied.from?.id ? String(replied.from.id) : undefined,
     reportedUsername: replied.from?.username,
@@ -1065,7 +1396,7 @@ async function handleMemberReport(ctx: Context, group: CommunityGroup, config: B
   try {
     await ctx.api.sendMessage(ctx.from.id, acknowledgement);
   } catch {
-    const fallback = await ctx.api.sendMessage(Number(group.telegramChatId), acknowledgement).catch(() => undefined);
+    const fallback = await ctx.api.sendMessage(Number(group.telegramChatId), acknowledgement, threadOptions(ctx.message?.message_thread_id)).catch(() => undefined);
     if (fallback) setTimeout(() => void ctx.api.deleteMessage(Number(group.telegramChatId), fallback.message_id).catch(() => undefined), 8_000);
   }
 }
@@ -1121,6 +1452,7 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
     action,
     targetTelegramId: report.reportedTelegramId,
     sourceMessageId: report.sourceMessageId,
+    sourceMessageThreadId: report.sourceMessageThreadId ?? undefined,
     actorTelegramId: actorId,
     reason: `Member report · ${report.reportCount} report${report.reportCount === 1 ? "" : "s"}`,
     muteUntil
@@ -1132,6 +1464,8 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
     action,
     source: "REPORT",
     sourceMessageId: report.sourceMessageId,
+    sourceMessageThreadId: report.sourceMessageThreadId ?? undefined,
+    sourceTopicName: report.sourceTopicName ?? undefined,
     reportId: report.id,
     reason: report.reason ?? undefined,
     muteUntil,
@@ -1175,6 +1509,7 @@ async function enforceConfiguredPolicy(ctx: Context, group: CommunityGroup, conf
     deleteMessage: strongest.triggerGroup.deleteMessage,
     targetTelegramId: String(ctx.from!.id),
     sourceMessageId: ctx.message!.message_id,
+    sourceMessageThreadId: ctx.message?.message_thread_id,
     actorTelegramId: "BEACON",
     reason: `Matched ${strongest.triggerGroup.name}`,
     muteUntil
@@ -1186,6 +1521,8 @@ async function enforceConfiguredPolicy(ctx: Context, group: CommunityGroup, conf
     action,
     source: "AUTOMATIC",
     sourceMessageId: ctx.message!.message_id,
+    sourceMessageThreadId: ctx.message?.message_thread_id,
+    sourceTopicName: topicLabel(ctx.message?.message_thread_id),
     reason: `Matched ${strongest.triggerGroup.name}`,
     muteUntil,
     reversible: action === CommunityModerationActionType.MUTE || action === CommunityModerationActionType.BAN
@@ -1227,6 +1564,8 @@ async function enforceStructuralSafety(ctx: Context, group: CommunityGroup, conf
       action: CommunityModerationActionType.MUTE,
       source: "AUTOMATIC",
       sourceMessageId: ctx.message!.message_id,
+      sourceMessageThreadId: ctx.message?.message_thread_id,
+      sourceTopicName: topicLabel(ctx.message?.message_thread_id),
       reason,
       muteUntil,
       reversible: true
@@ -1239,6 +1578,7 @@ async function applyModerationAction(bot: Pick<Bot, "api">, group: CommunityGrou
   action: CommunityModerationActionType;
   targetTelegramId?: string | null;
   sourceMessageId?: number;
+  sourceMessageThreadId?: number;
   actorTelegramId: string;
   reason: string;
   deleteMessage?: boolean;
@@ -1256,7 +1596,7 @@ async function applyModerationAction(bot: Pick<Bot, "api">, group: CommunityGrou
     const warning = await bot.api.sendMessage(Number(group.telegramChatId), [
       `<a href="tg://user?id=${input.targetTelegramId}">Member</a>, please follow the community rules.`,
       "ကျေးဇူးပြု၍ အဖွဲ့၏ စည်းမျဉ်းများကို လိုက်နာပေးပါ။"
-    ].join("\n"), { parse_mode: "HTML" });
+    ].join("\n"), { parse_mode: "HTML", ...threadOptions(input.sourceMessageThreadId) });
     setTimeout(() => void bot.api.deleteMessage(Number(group.telegramChatId), warning.message_id).catch(() => undefined), 15_000);
   }
   if (input.action === CommunityModerationActionType.MUTE && input.targetTelegramId) {
@@ -1290,6 +1630,188 @@ async function handleServiceMessage(ctx: Context, group: CommunityGroup, config:
     }
   }
   if (group.cleanupServiceMessages && ctx.message) await deleteMessageQuietly(ctx, ctx.message.message_id);
+}
+
+async function showPrivateEntry(ctx: Context, config: BeaconConfig): Promise<void> {
+  const selected = await selectedCommunityGroup(ctx, config);
+  if (selected) {
+    const access = await communityAccess(selected.id, String(ctx.from?.id ?? ""), config.ownerTelegramId);
+    await showPrivateHome(ctx, selected, access);
+    return;
+  }
+  const groups = await listManageableCommunityGroups(String(ctx.from?.id ?? ""), config.ownerTelegramId);
+  if (groups.length === 1) {
+    await selectCommunityControlGroup(String(ctx.from!.id), groups[0]!.id);
+    const access = await communityAccess(groups[0]!.id, String(ctx.from!.id), config.ownerTelegramId);
+    await showPrivateHome(ctx, groups[0]!, access);
+    return;
+  }
+  await showPrivateGroupPicker(ctx, config);
+}
+
+async function showPrivateGroupPicker(ctx: Context, config: BeaconConfig, edit = false): Promise<void> {
+  const groups = await listManageableCommunityGroups(String(ctx.from?.id ?? ""), config.ownerTelegramId);
+  const text = groups.length
+    ? communityPickerText()
+    : "<b>Beacon</b>\nYou do not manage any configured communities.";
+  const keyboard = communityPickerKeyboard(groups);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, keyboard);
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+  }
+}
+
+async function selectedCommunityGroup(ctx: Context, config: BeaconConfig): Promise<CommunityGroup | null> {
+  const actorId = String(ctx.from?.id ?? "");
+  if (!actorId) return null;
+  const session = await communityControlSession(actorId);
+  if (!session?.selectedGroup?.enabled) return null;
+  const access = await communityAccess(session.selectedGroup.id, actorId, config.ownerTelegramId);
+  return access.owner || access.moderator ? session.selectedGroup : null;
+}
+
+async function showPrivateHome(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
+  const fresh = await communityGroupById(group.id) ?? group;
+  const text = privateBeaconHomeText(fresh);
+  const keyboard = privateBeaconHomeKeyboard(fresh, access.owner);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, keyboard);
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+  }
+}
+
+async function showGroupHome(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
+  const fresh = await communityGroupById(group.id) ?? group;
+  const username = ctx.me.username;
+  const privateControlsUrl = `https://t.me/${username}?start=manage_${fresh.id}`;
+  const text = groupBeaconHomeText(fresh);
+  const keyboard = groupBeaconHomeKeyboard(privateControlsUrl);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, keyboard);
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+  }
+}
+
+async function showMemberHelp(ctx: Context, group: CommunityGroup): Promise<void> {
+  await ctx.reply([
+    "<b>Beacon</b>",
+    "Reply to a message with <code>report this</code> to report it privately.",
+    "Send <code>rules</code> to view this community's rules."
+  ].join("\n"), { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("Rules", "bc:rules") });
+}
+
+async function showTriggerLibrary(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
+  const actorId = String(ctx.from!.id);
+  let session = await communityControlSession(actorId);
+  if (!session || session.selectedGroupId !== group.id) {
+    await selectCommunityControlGroup(actorId, group.id);
+    session = await communityControlSession(actorId);
+  }
+  const page = session?.triggerPage ?? 0;
+  let result = await listCommunityTriggerLibrary({
+    groupId: group.id,
+    query: session?.triggerSearchQuery,
+    action: session?.triggerActionFilter,
+    triggerGroupId: session?.triggerGroupFilterId,
+    page
+  });
+  if (result.page >= result.pages && result.page > 0) {
+    await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, page: result.pages - 1 });
+    result = await listCommunityTriggerLibrary({
+      groupId: group.id,
+      query: session?.triggerSearchQuery,
+      action: session?.triggerActionFilter,
+      triggerGroupId: session?.triggerGroupFilterId,
+      page: result.pages - 1
+    });
+  }
+  const selectedCategory = session?.triggerGroupFilterId
+    ? await triggerGroupById(group.id, session.triggerGroupFilterId)
+    : null;
+  const text = triggerLibraryText({
+    group,
+    ...result,
+    query: session?.triggerSearchQuery,
+    action: session?.triggerActionFilter,
+    triggerGroupName: selectedCategory?.name
+  });
+  const keyboard = triggerLibraryKeyboard({
+    items: result.items,
+    page: result.page,
+    pages: result.pages,
+    canAdd: access.canAddTriggers,
+    filtered: Boolean(session?.triggerSearchQuery || session?.triggerActionFilter || session?.triggerGroupFilterId)
+  });
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, keyboard);
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+  }
+}
+
+async function beginTriggerLibrarySearch(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "SEARCH_TRIGGER_LIBRARY", step: "QUERY" });
+  await answerCallback(ctx);
+  await editCard(ctx, "<b>Search trigger library</b>\nSend a word, phrase, domain, or trigger-group name.", new InlineKeyboard().text("Cancel", "bc:cancel"));
+}
+
+async function setTriggerLibraryActionFilter(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
+  const action = value === "ALL" ? null : Object.values(CommunityModerationActionType).includes(value as CommunityModerationActionType)
+    ? value as CommunityModerationActionType
+    : undefined;
+  if (action === undefined) return answerCallback(ctx, "Unknown action filter.", true);
+  await updateCommunityControlTriggerFilters({ actorTelegramId: String(ctx.from!.id), action, page: 0 });
+  await showTriggerLibrary(ctx, group, access, true);
+}
+
+async function setTriggerLibraryGroupFilter(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
+  if (value !== "ALL" && !(await triggerGroupById(group.id, value))) return answerCallback(ctx, "Trigger group not found.", true);
+  await updateCommunityControlTriggerFilters({ actorTelegramId: String(ctx.from!.id), triggerGroupId: value === "ALL" ? null : value, page: 0 });
+  await showTriggerLibrary(ctx, group, access, true);
+}
+
+async function setTriggerLibraryPage(ctx: Context, group: CommunityGroup, access: CommunityAccess, page: number): Promise<void> {
+  if (!Number.isInteger(page) || page < 0) return answerCallback(ctx, "Unknown page.", true);
+  await updateCommunityControlTriggerFilters({ actorTelegramId: String(ctx.from!.id), page });
+  await showTriggerLibrary(ctx, group, access, true);
+}
+
+async function clearTriggerLibraryFilters(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  await updateCommunityControlTriggerFilters({ actorTelegramId: String(ctx.from!.id), searchQuery: null, action: null, triggerGroupId: null, page: 0 });
+  await showTriggerLibrary(ctx, group, access, true);
+}
+
+async function beginPrivateTriggerAdd(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  if (!access.canAddTriggers) {
+    if (ctx.callbackQuery) await answerCallback(ctx, "You cannot add triggers.", true);
+    else await ctx.reply("You cannot add triggers.");
+    return;
+  }
+  if (!access.owner) {
+    const review = await reviewCommunityTriggerGroup(group.id);
+    if (!review) return;
+    await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "ADD_TRIGGER", step: "INPUT", data: { triggerGroupId: review.id } });
+    if (ctx.callbackQuery) {
+      await answerCallback(ctx);
+      await editCard(ctx, "<b>Submit trigger for review</b>\nSend one word, phrase, or domain. Beacon will place it in review-only mode until the owner approves it.", new InlineKeyboard().text("Cancel", "bc:cancel"));
+    } else await ctx.reply("Send one word, phrase, or domain. It will require owner approval.");
+    return;
+  }
+  const groups = await listTriggerGroups(group.id);
+  const keyboard = new InlineKeyboard();
+  for (const category of groups) keyboard.text(`${category.name} · ${category.action.toLowerCase()}`, `bc:tradd:${category.id}`).row();
+  keyboard.text("Cancel", "bc:cancel");
+  if (ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, "<b>Add trigger</b>\nChoose its trigger group. The group's action determines how Beacon responds.", keyboard);
+  } else await ctx.reply("Choose a trigger group:", { reply_markup: keyboard });
 }
 
 async function showHome(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
@@ -1330,11 +1852,15 @@ async function showTriggerGroup(ctx: Context, group: CommunityGroup, triggerGrou
   await editCard(ctx, triggerGroupText(category), triggerGroupKeyboard(category));
 }
 
-async function showTrigger(ctx: Context, group: CommunityGroup, triggerId: string): Promise<void> {
+async function showTrigger(ctx: Context, group: CommunityGroup, access: CommunityAccess, triggerId: string): Promise<void> {
   const trigger = await communityTriggerById(group.id, triggerId);
   if (!trigger) return answerCallback(ctx, "Trigger not found.", true);
   await answerCallback(ctx);
-  await editCard(ctx, triggerDetailText(trigger), triggerDetailKeyboard(trigger));
+  await editCard(ctx, triggerDetailText(trigger), triggerDetailKeyboard(trigger, {
+    owner: access.owner,
+    canMove: access.canChangeTriggerSeverity,
+    canRemove: access.canRemoveTriggers
+  }));
 }
 
 async function showRules(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
@@ -1378,26 +1904,40 @@ async function accessFor(ctx: Context, group: CommunityGroup, config: BeaconConf
 
 async function notifyPolicyMatch(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, ctx: Context, category: Pick<CommunityTriggerGroup, "name" | "action" | "deleteMessage">, patterns: string[], observe: boolean): Promise<void> {
   const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
+  const threadId = ctx.message?.message_thread_id;
   await bot.api.sendMessage(destination, [
     `<b>${observe ? "Observed" : "Moderated"} · ${escapeHtml(category.name)}</b>`,
     `Member: ${escapeHtml(ctx.from ? memberName(ctx.from) : "Unknown")}`,
+    threadId ? `Topic: ${escapeHtml(topicLabel(threadId) ?? `#${threadId}`)}` : "",
     `Matched: ${patterns.map((pattern) => `<code>${escapeHtml(pattern)}</code>`).join(", ")}`,
     `Proposed action: ${category.action}${category.deleteMessage ? " + delete" : ""}`
-  ].join("\n"), { parse_mode: "HTML" }).catch((error) => logger.error("Beacon policy alert failed.", { error: String(error) }));
+  ].filter(Boolean).join("\n"), { parse_mode: "HTML" }).catch((error) => logger.error("Beacon policy alert failed.", { error: String(error) }));
 }
 
 async function notifyStructuralMatch(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, ctx: Context, reason: string): Promise<void> {
   const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
+  const threadId = ctx.message?.message_thread_id;
   await bot.api.sendMessage(destination, [
     `<b>${group.observeMode ? "Observed" : "Moderated"} · ${escapeHtml(reason)}</b>`,
     `Member: ${escapeHtml(ctx.from ? memberName(ctx.from) : "Unknown")}`,
+    threadId ? `Topic: ${escapeHtml(topicLabel(threadId) ?? `#${threadId}`)}` : "",
     `Message: ${ctx.message?.message_id ?? "unknown"}`
-  ].join("\n"), { parse_mode: "HTML" }).catch(() => undefined);
+  ].filter(Boolean).join("\n"), { parse_mode: "HTML" }).catch(() => undefined);
 }
 
-async function notifyOwner(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, auditId: string, text: string): Promise<void> {
+async function notifyOwner(
+  bot: Pick<Bot, "api">,
+  config: BeaconConfig,
+  group: CommunityGroup,
+  auditId: string,
+  text: string,
+  replyMarkup?: InlineKeyboard
+): Promise<void> {
   try {
-    await bot.api.sendMessage(config.ownerTelegramId, [`<b>${escapeHtml(group.title ?? "Beacon group")}</b>`, text].join("\n\n"), { parse_mode: "HTML" });
+    await bot.api.sendMessage(config.ownerTelegramId, [`<b>${escapeHtml(group.title ?? "Beacon group")}</b>`, text].join("\n\n"), {
+      parse_mode: "HTML",
+      reply_markup: replyMarkup
+    });
     await setCommunityOwnerNotificationStatus(auditId, "DELIVERED");
   } catch (error) {
     await setCommunityOwnerNotificationStatus(auditId, "FAILED");
@@ -1484,6 +2024,10 @@ function permissionSnapshot(moderator: CommunityModerator | null): Record<string
     mute: moderator.canMute,
     ban: moderator.canBan,
     editRules: moderator.canEditRules,
+    addTriggers: moderator.canAddTriggers,
+    removeTriggers: moderator.canRemoveTriggers,
+    changeTriggerSeverity: moderator.canChangeTriggerSeverity,
+    manageTriggerGroups: moderator.canManageTriggerGroups,
     automaticActions: moderator.canChangeAutomaticActions,
     trustedMembers: moderator.canManageTrustedMembers,
     lockdown: moderator.canLockdown
@@ -1500,6 +2044,14 @@ function jsonData(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function topicLabel(messageThreadId?: number): string | undefined {
+  return messageThreadId ? `Topic #${messageThreadId}` : undefined;
+}
+
+function threadOptions(messageThreadId?: number): { message_thread_id?: number } {
+  return messageThreadId ? { message_thread_id: messageThreadId } : {};
 }
 
 async function editCard(ctx: Context, text: string, keyboard: InlineKeyboard): Promise<void> {

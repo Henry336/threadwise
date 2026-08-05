@@ -28,6 +28,10 @@ export type ModeratorPermissionsInput = {
   canMute: boolean;
   canBan: boolean;
   canEditRules: boolean;
+  canAddTriggers: boolean;
+  canRemoveTriggers: boolean;
+  canChangeTriggerSeverity: boolean;
+  canManageTriggerGroups: boolean;
   canChangeAutomaticActions: boolean;
   canManageTrustedMembers: boolean;
   canLockdown: boolean;
@@ -48,6 +52,10 @@ export type CommunityAccess = {
   canMute: boolean;
   canBan: boolean;
   canEditRules: boolean;
+  canAddTriggers: boolean;
+  canRemoveTriggers: boolean;
+  canChangeTriggerSeverity: boolean;
+  canManageTriggerGroups: boolean;
   canChangeAutomaticActions: boolean;
   canManageTrustedMembers: boolean;
   canLockdown: boolean;
@@ -125,6 +133,57 @@ export async function updateCommunityGroupTitle(groupId: string, title?: string)
   await prisma.communityGroup.update({ where: { id: groupId }, data: { title } });
 }
 
+export async function listManageableCommunityGroups(telegramId: string, ownerTelegramId: string): Promise<CommunityGroup[]> {
+  return prisma.communityGroup.findMany({
+    where: telegramId === ownerTelegramId
+      ? { enabled: true }
+      : {
+          enabled: true,
+          moderators: { some: { telegramId, status: CommunityModeratorStatus.ACTIVE } }
+        },
+    orderBy: [{ environment: "asc" }, { title: "asc" }, { createdAt: "asc" }]
+  });
+}
+
+export async function communityControlSession(actorTelegramId: string) {
+  return prisma.communityControlSession.findUnique({
+    where: { actorTelegramId },
+    include: { selectedGroup: true }
+  });
+}
+
+export async function selectCommunityControlGroup(actorTelegramId: string, selectedGroupId: string): Promise<void> {
+  await prisma.communityControlSession.upsert({
+    where: { actorTelegramId },
+    create: { actorTelegramId, selectedGroupId },
+    update: {
+      selectedGroupId,
+      triggerSearchQuery: null,
+      triggerActionFilter: null,
+      triggerGroupFilterId: null,
+      triggerPage: 0
+    }
+  });
+}
+
+export async function updateCommunityControlTriggerFilters(input: {
+  actorTelegramId: string;
+  searchQuery?: string | null;
+  action?: CommunityModerationActionType | null;
+  triggerGroupId?: string | null;
+  page?: number;
+}): Promise<void> {
+  await prisma.communityControlSession.update({
+    where: { actorTelegramId: input.actorTelegramId },
+    data: {
+      triggerSearchQuery: input.searchQuery === undefined ? undefined : input.searchQuery?.trim() || null,
+      triggerActionFilter: input.action === undefined ? undefined : input.action,
+      triggerGroupFilterId: input.triggerGroupId === undefined ? undefined : input.triggerGroupId,
+      triggerPage: input.page === undefined ? undefined : Math.max(0, input.page)
+    }
+  });
+}
+
 export async function claimCommunityUpdate(updateId: number): Promise<boolean> {
   try {
     await prisma.communityProcessedUpdate.create({ data: { updateId } });
@@ -144,6 +203,10 @@ export async function communityAccess(groupId: string, telegramId: string, owner
       canMute: true,
       canBan: true,
       canEditRules: true,
+      canAddTriggers: true,
+      canRemoveTriggers: true,
+      canChangeTriggerSeverity: true,
+      canManageTriggerGroups: true,
       canChangeAutomaticActions: true,
       canManageTrustedMembers: true,
       canLockdown: true
@@ -159,6 +222,10 @@ export async function communityAccess(groupId: string, telegramId: string, owner
     canMute: Boolean(active && moderator?.canMute),
     canBan: Boolean(active && moderator?.canBan),
     canEditRules: Boolean(active && moderator?.canEditRules),
+    canAddTriggers: Boolean(active && moderator?.canAddTriggers),
+    canRemoveTriggers: Boolean(active && moderator?.canRemoveTriggers),
+    canChangeTriggerSeverity: Boolean(active && moderator?.canChangeTriggerSeverity),
+    canManageTriggerGroups: Boolean(active && moderator?.canManageTriggerGroups),
     canChangeAutomaticActions: Boolean(active && moderator?.canChangeAutomaticActions),
     canManageTrustedMembers: Boolean(active && moderator?.canManageTrustedMembers),
     canLockdown: Boolean(active && moderator?.canLockdown)
@@ -195,6 +262,10 @@ export async function saveCommunityModerator(input: {
     canMute: input.permissions.canMute,
     canBan: input.permissions.canBan,
     canEditRules: input.permissions.canEditRules,
+    canAddTriggers: input.permissions.canAddTriggers,
+    canRemoveTriggers: input.permissions.canRemoveTriggers,
+    canChangeTriggerSeverity: input.permissions.canChangeTriggerSeverity,
+    canManageTriggerGroups: input.permissions.canManageTriggerGroups,
     canChangeAutomaticActions: input.permissions.canChangeAutomaticActions,
     canManageTrustedMembers: input.permissions.canManageTrustedMembers,
     canLockdown: input.permissions.canLockdown,
@@ -348,11 +419,25 @@ export async function addCommunityTrigger(input: {
   triggerGroupId: string;
   pattern: string;
   actorTelegramId: string;
+  pendingApproval?: boolean;
 }) {
   const category = await prisma.communityTriggerGroup.findFirst({ where: { id: input.triggerGroupId, groupId: input.groupId } });
   if (!category) throw new Error("TRIGGER_GROUP_NOT_FOUND");
   const normalizedPattern = normalizeCommunityText(input.pattern).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
   if (!normalizedPattern || normalizedPattern.length > 300) throw new Error("INVALID_TRIGGER");
+  if (input.pendingApproval) {
+    return prisma.communityTrigger.create({
+      data: {
+        groupId: input.groupId,
+        triggerGroupId: input.triggerGroupId,
+        pattern: input.pattern.trim(),
+        normalizedPattern,
+        matchType: inferTriggerMatchType(input.pattern) as CommunityTriggerMatchType,
+        createdByTelegramId: input.actorTelegramId,
+        pendingApproval: true
+      }
+    });
+  }
   return prisma.communityTrigger.upsert({
     where: { groupId_normalizedPattern: { groupId: input.groupId, normalizedPattern } },
     create: {
@@ -361,14 +446,76 @@ export async function addCommunityTrigger(input: {
       pattern: input.pattern.trim(),
       normalizedPattern,
       matchType: inferTriggerMatchType(input.pattern) as CommunityTriggerMatchType,
-      createdByTelegramId: input.actorTelegramId
+      createdByTelegramId: input.actorTelegramId,
+      pendingApproval: input.pendingApproval ?? false,
+      approvedByTelegramId: input.pendingApproval ? null : input.actorTelegramId,
+      approvedAt: input.pendingApproval ? null : new Date()
     },
-    update: { triggerGroupId: input.triggerGroupId, pattern: input.pattern.trim() }
+    update: {
+      triggerGroupId: input.triggerGroupId,
+      pattern: input.pattern.trim(),
+      pendingApproval: input.pendingApproval ?? false,
+      approvedByTelegramId: input.pendingApproval ? null : input.actorTelegramId,
+      approvedAt: input.pendingApproval ? null : new Date()
+    }
   });
 }
 
 export async function communityTriggerById(groupId: string, id: string) {
   return prisma.communityTrigger.findFirst({ where: { id, groupId }, include: { triggerGroup: true } });
+}
+
+export async function communityTriggerByGlobalId(id: string) {
+  return prisma.communityTrigger.findUnique({ where: { id }, include: { triggerGroup: true, group: true } });
+}
+
+export async function approveCommunityTrigger(id: string, actorTelegramId: string) {
+  return prisma.communityTrigger.update({
+    where: { id },
+    data: { pendingApproval: false, approvedByTelegramId: actorTelegramId, approvedAt: new Date() },
+    include: { triggerGroup: true, group: true }
+  });
+}
+
+export async function reviewCommunityTriggerGroup(groupId: string) {
+  return prisma.communityTriggerGroup.findUnique({
+    where: { groupId_normalizedName: { groupId, normalizedName: normalizedCategoryName("Watchlist") } }
+  });
+}
+
+export async function listCommunityTriggerLibrary(input: {
+  groupId: string;
+  query?: string | null;
+  action?: CommunityModerationActionType | null;
+  triggerGroupId?: string | null;
+  page?: number;
+  pageSize?: number;
+}) {
+  const pageSize = Math.min(10, Math.max(1, input.pageSize ?? 6));
+  const page = Math.max(0, input.page ?? 0);
+  const query = input.query?.trim();
+  const where: Prisma.CommunityTriggerWhereInput = {
+    groupId: input.groupId,
+    triggerGroupId: input.triggerGroupId || undefined,
+    triggerGroup: input.action ? { action: input.action } : undefined,
+    OR: query
+      ? [
+          { pattern: { contains: query, mode: "insensitive" } },
+          { triggerGroup: { name: { contains: query, mode: "insensitive" } } }
+        ]
+      : undefined
+  };
+  const [items, total] = await prisma.$transaction([
+    prisma.communityTrigger.findMany({
+      where,
+      include: { triggerGroup: true },
+      orderBy: [{ pendingApproval: "desc" }, { updatedAt: "desc" }],
+      skip: page * pageSize,
+      take: pageSize
+    }),
+    prisma.communityTrigger.count({ where })
+  ]);
+  return { items, total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
 export async function removeCommunityTrigger(groupId: string, id: string): Promise<boolean> {
@@ -380,6 +527,21 @@ export async function moveCommunityTrigger(groupId: string, id: string, targetGr
   const target = await prisma.communityTriggerGroup.findFirst({ where: { id: targetGroupId, groupId } });
   if (!target) return false;
   const result = await prisma.communityTrigger.updateMany({ where: { id, groupId }, data: { triggerGroupId: targetGroupId } });
+  return result.count === 1;
+}
+
+export async function moveAndApproveCommunityTrigger(groupId: string, id: string, targetGroupId: string, actorTelegramId: string): Promise<boolean> {
+  const target = await prisma.communityTriggerGroup.findFirst({ where: { id: targetGroupId, groupId } });
+  if (!target) return false;
+  const result = await prisma.communityTrigger.updateMany({
+    where: { id, groupId },
+    data: {
+      triggerGroupId: targetGroupId,
+      pendingApproval: false,
+      approvedByTelegramId: actorTelegramId,
+      approvedAt: new Date()
+    }
+  });
   return result.count === 1;
 }
 
@@ -402,7 +564,7 @@ export async function updateTriggerGroupAction(input: {
 
 export async function policyTriggersForGroup(groupId: string) {
   return prisma.communityTrigger.findMany({
-    where: { groupId, triggerGroup: { enabled: true } },
+    where: { groupId, pendingApproval: false, triggerGroup: { enabled: true } },
     include: { triggerGroup: true }
   });
 }
@@ -480,6 +642,8 @@ export async function createOrIncrementCommunityReport(input: {
   groupId: string;
   sourceChatId: string;
   sourceMessageId: number;
+  sourceMessageThreadId?: number;
+  sourceTopicName?: string;
   reporterTelegramId: string;
   reportedTelegramId?: string;
   reportedUsername?: string;
@@ -509,6 +673,8 @@ export async function createOrIncrementCommunityReport(input: {
       groupId: input.groupId,
       sourceChatId: input.sourceChatId,
       sourceMessageId: input.sourceMessageId,
+      sourceMessageThreadId: input.sourceMessageThreadId,
+      sourceTopicName: input.sourceTopicName,
       reportedTelegramId: input.reportedTelegramId,
       reportedUsername: input.reportedUsername,
       reportedDisplayName: input.reportedDisplayName,
@@ -544,6 +710,8 @@ export async function recordCommunityAction(input: {
   action: CommunityModerationActionType;
   source: string;
   sourceMessageId?: number;
+  sourceMessageThreadId?: number;
+  sourceTopicName?: string;
   reportId?: string;
   reason?: string;
   muteUntil?: Date;
@@ -575,6 +743,10 @@ export async function recordCommunityAudit(input: {
   return prisma.communityAudit.create({
     data: { ...input, details: input.details as Prisma.InputJsonValue | undefined }
   });
+}
+
+export async function recentCommunityAudits(groupId: string, take = 8) {
+  return prisma.communityAudit.findMany({ where: { groupId }, orderBy: { createdAt: "desc" }, take });
 }
 
 export async function setCommunityOwnerNotificationStatus(id: string, status: string): Promise<void> {

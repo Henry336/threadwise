@@ -25,6 +25,10 @@ export type CommunityPolicyTrigger = {
   };
 };
 
+export function isBeaconInvocation(value: string): boolean {
+  return /^(?:(?:hey\s+)?beacon(?:\s+(?:menu|settings))?|menu)[.!?]*$/iu.test(value.trim());
+}
+
 export function normalizeCommunityText(value: string): string {
   let normalized = value.normalize("NFKC").replace(ZERO_WIDTH, "");
   if (containsMyanmar(normalized) && fontDetect(normalized) === "zawgyi") {
@@ -96,7 +100,11 @@ export const moderatorPermissionQuestions = [
   { key: "canWarnDelete", label: "Can delete messages and issue warnings?", recommended: true },
   { key: "canMute", label: "Can temporarily mute members?", recommended: true },
   { key: "canBan", label: "Can permanently ban members?", recommended: false, sensitive: true },
-  { key: "canEditRules", label: "Can edit rules and trigger groups?", recommended: false },
+  { key: "canEditRules", label: "Can edit the English and Burmese rules?", recommended: false },
+  { key: "canAddTriggers", label: "Can submit new triggers for owner review?", recommended: false },
+  { key: "canRemoveTriggers", label: "Can remove triggers?", recommended: false },
+  { key: "canChangeTriggerSeverity", label: "Can move triggers between severity groups?", recommended: false },
+  { key: "canManageTriggerGroups", label: "Can create, rename, or delete trigger groups?", recommended: false },
   { key: "canChangeAutomaticActions", label: "Can change automatic moderation actions?", recommended: false, sensitive: true },
   { key: "canManageTrustedMembers", label: "Can manage trusted-member exemptions?", recommended: false },
   { key: "canLockdown", label: "Can activate emergency lockdown?", recommended: false, sensitive: true }
@@ -109,6 +117,10 @@ export const safeModeratorDefaults: ModeratorWizardPermissions = {
   canMute: true,
   canBan: false,
   canEditRules: false,
+  canAddTriggers: false,
+  canRemoveTriggers: false,
+  canChangeTriggerSeverity: false,
+  canManageTriggerGroups: false,
   canChangeAutomaticActions: false,
   canManageTrustedMembers: false,
   canLockdown: false

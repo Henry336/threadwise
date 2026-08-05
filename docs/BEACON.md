@@ -11,6 +11,7 @@ Beacon is designed for one English/Burmese scholarship-information community and
 - Only the owner can add, remove, or edit moderators.
 - Moderator-management permission does not exist and therefore cannot be delegated.
 - Policies and moderator permissions are scoped independently to each configured group.
+- Policies apply across every forum topic in that group. Reports, warnings, actions, and audit context retain the originating topic, but there are deliberately no topic-specific policy overrides yet.
 - The testing group starts in Observe mode. Add the production group only after the policy is proven.
 
 ## Capabilities
@@ -20,7 +21,10 @@ Beacon is designed for one English/Burmese scholarship-information community and
 - Normalize Zawgyi to Unicode before matching Burmese policy text.
 - Match configurable whole words, phrases, and domains.
 - Create, rename, and delete empty trigger groups without a deploy.
-- Add, test, move, and delete triggers from Telegram.
+- Select and privately manage any authorized community from Beacon's direct chat.
+- Search and filter a paginated private trigger library by text, action, or trigger group.
+- Add, test, move, and delete triggers from Telegram without exposing the policy list in the group.
+- Let authorized moderators submit new triggers to a review-only Watchlist; the owner privately approves, reclassifies, or removes each submission before it can enforce anything.
 - Configure review, delete-and-warn, temporary mute, or ban actions with confirmation.
 - Observe matches without affecting members.
 - Aggregate duplicate reports of one message into one private review card.
@@ -63,22 +67,31 @@ Do not paste the BotFather token into Telegram, source control, screenshots, or 
 
 Keep Observe mode enabled for this test.
 
-1. In the configured testing group, send `/beacon`.
-2. Open **Moderators → Add moderator**. Reply to the intended person's message or send their numeric Telegram ID.
-3. Choose **Use safe recommended permissions**, review the result, and confirm. Verify the owner receives a private audit DM.
-4. Open **Trigger groups → New trigger group** and create `Test phrases`.
-5. Add a harmless unique phrase such as `beacon-policy-test-8362`.
+1. In the configured testing group, send `/beacon`, `Beacon`, `Hey Beacon`, or `menu`.
+2. Press **Open private controls**. Beacon's private chat remembers the selected group and always shows which community is being managed.
+3. Open **Moderators → Add moderator** and send the intended person's numeric Telegram ID.
+4. Choose **Use safe recommended permissions**, review the result, and confirm. Verify the owner receives a private audit DM.
+5. Open **Trigger library**, choose **Add trigger**, and add a harmless unique phrase such as `beacon-policy-test-8362` to a review-only group.
 6. Use **Test message** to confirm the match without affecting a member.
-7. Send the phrase normally and confirm an Observe notification arrives privately.
-8. Reply to a harmless message with `/report`. Confirm the public command disappears, the reporter receives a private acknowledgement, and one review card appears.
-9. Report the same message again from the same account and verify no duplicate case is created.
-10. Remove the test moderator from the group and verify Beacon suspends their permissions and DMs the owner.
+7. Grant a test moderator only **Add triggers for review**. Have them submit a second harmless phrase privately and verify it cannot match until the owner approves it from the private DM.
+8. Send the approved phrase normally and confirm an Observe notification arrives privately.
+9. Reply to a harmless message with `/report`. Confirm the public command disappears, the reporter receives a private acknowledgement, and one private review card appears with its topic when applicable.
+10. Report the same message again from the same account and verify no duplicate case is created.
+11. Remove the test moderator from the group and verify Beacon suspends their permissions and DMs the owner.
 
 Only after those checks should the owner turn off Observe mode or configure the production group.
 
 ## Moderator permissions
 
-The safe preset grants delete/warn and temporary mute. It does not grant permanent ban, policy editing, automatic-action changes, trusted-member management, or lockdown.
+The safe preset grants delete/warn and temporary mute. It does not grant permanent ban; rule editing; adding, removing, or reclassifying triggers; trigger-group management; automatic-action changes; trusted-member management; or lockdown.
+
+Trigger permissions are deliberately separate. `Add triggers for review` never makes a submitted trigger active: it enters the Watchlist, privately alerts the owner, and waits for approval. Removing triggers, changing severity, and managing trigger groups are independent grants. Moderator management is never grantable.
+
+## Telegram control plane
+
+The group menu is intentionally small. It shows rules and observe status, then links authorized staff to private controls. Trigger values, report queues, audits, moderator permissions, safety thresholds, and policy changes remain in Beacon's private chat.
+
+Private controls support buttons and short natural-language requests such as `trigger library`, `find triggers for scholarship`, `add trigger`, `reports`, `moderators`, and `Beacon`. A saved control session remembers the selected group; use **Switch community** before changing another group's policy.
 
 Sensitive grants—ban, automatic-action changes, and lockdown—require a second confirmation. Every moderator addition, removal, and permission change is stored in `CommunityAudit` and privately delivered to the immutable owner when Telegram allows the DM.
 
@@ -95,4 +108,3 @@ Evidence text expires after 30 days. Resolving a report does not publish the rep
 - If the owner has not started Beacon privately, the audit row remains stored with a failed-delivery status.
 - If a reporter cannot receive a private DM, Beacon sends a short self-deleting acknowledgement in the group.
 - If a stale button references removed state, Beacon asks the moderator to reopen the current menu.
-

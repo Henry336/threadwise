@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 6 August 2026 - Moderation configuration belongs in a private Telegram control plane
+
+**Friction discovered:** Beacon's first release proved that policy could be changed without touching the repository, but exposing deep configuration through a group message was awkward and could reveal trigger values, report context, or moderator capabilities to ordinary members. A single `canEditRules`-style grant was also too broad: a helpful moderator who should propose a trigger should not automatically be able to remove it, reduce its severity, or rewrite enforcement. Forum topics added another context risk because an action could be correct yet appear detached from the conversation where it originated.
+
+**Decision:** Keep Telegram—not a dashboard—as Beacon's complete control plane, but move sensitive operations to private chat. Preserve a deliberately small group menu. Split trigger permissions by capability, require owner approval before a moderator contribution can enforce, and keep policies group-wide while preserving topic context on every report/action.
+
+**Implementation:** Added authorized community selection and saved private control sessions; a searchable, filterable, six-item trigger library; exact natural calls such as `Beacon`, `Hey Beacon`, and `menu`; independent add/remove/reclassify/manage-group permissions; an owner-only approval inbox with review, action-selection, and removal controls; pending-trigger enforcement exclusion and duplicate protection; group-to-private deep links; and topic IDs on evidence, actions, warnings, and private alerts. The public group surface now contains only non-sensitive status/rules and the private-controls link.
+
+**Outcome/evidence:** TypeScript checking and Prisma client generation pass during implementation. Focused policy coverage verifies the safe permission preset, strict explicit invocation matching, multilingual normalization, boundary-safe words, domain matching, and severity ordering. Pending contributions are structurally unable to enter the enforcement query before approval.
+
+**Follow-up:** Deploy to the testing group in Observe mode. Test one owner-created trigger and one moderator submission; verify the latter does not match before approval, then approve it and confirm the same message begins producing an Observe alert. Test a report inside a forum topic and confirm its private card retains the topic while no evidence appears publicly.
+
 ## 6 August 2026 - A separate identity can reuse infrastructure without confusing the product
 
 **Friction discovered:** Threadwise's paid Render service already provided the reliable always-on process needed by a scholarship community, but Threadwise's public identity and Capture/Coordinate/Recall product promise did not describe moderation. Reusing the same Telegram identity would confuse both products. A generic off-the-shelf moderator was available but required a separate paid plan, and hard-coded keyword changes would create repeated deployments and bot downtime. The group is currently small, so a deep multi-role hierarchy would add operational burden before it added safety.

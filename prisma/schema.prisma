@@ -1886,6 +1886,7 @@ model CommunityGroup {
   actions          CommunityModerationAction[]
   audits           CommunityAudit[]
   conversations    CommunityConversation[]
+  controlSessions  CommunityControlSession[]
 
   @@index([environment, enabled])
 }
@@ -1903,6 +1904,10 @@ model CommunityModerator {
   canMute                   Boolean                  @default(true)
   canBan                    Boolean                  @default(false)
   canEditRules              Boolean                  @default(false)
+  canAddTriggers            Boolean                  @default(false)
+  canRemoveTriggers         Boolean                  @default(false)
+  canChangeTriggerSeverity  Boolean                  @default(false)
+  canManageTriggerGroups    Boolean                  @default(false)
   canChangeAutomaticActions Boolean                  @default(false)
   canManageTrustedMembers   Boolean                  @default(false)
   canLockdown               Boolean                  @default(false)
@@ -1948,6 +1953,9 @@ model CommunityTrigger {
   matchType         CommunityTriggerMatchType @default(PHRASE)
   language          String                    @default("ANY")
   createdByTelegramId String
+  pendingApproval   Boolean                   @default(false)
+  approvedByTelegramId String?
+  approvedAt        DateTime?
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
 
@@ -1999,6 +2007,8 @@ model CommunityReport {
   groupId                  String
   sourceChatId             String
   sourceMessageId          Int
+  sourceMessageThreadId    Int?
+  sourceTopicName          String?
   reportedTelegramId       String?
   reportedUsername         String?
   reportedDisplayName      String?
@@ -2041,6 +2051,8 @@ model CommunityModerationAction {
   action              CommunityModerationActionType
   source              String
   sourceMessageId     Int?
+  sourceMessageThreadId Int?
+  sourceTopicName      String?
   reportId            String?
   reason              String?
   muteUntil           DateTime?
@@ -2087,6 +2099,21 @@ model CommunityConversation {
 
   @@unique([groupId, actorTelegramId])
   @@index([expiresAt])
+}
+
+model CommunityControlSession {
+  actorTelegramId    String   @id
+  selectedGroupId    String
+  triggerSearchQuery String?
+  triggerActionFilter CommunityModerationActionType?
+  triggerGroupFilterId String?
+  triggerPage        Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  selectedGroup CommunityGroup @relation(fields: [selectedGroupId], references: [id], onDelete: Cascade)
+
+  @@index([selectedGroupId])
 }
 
 model CommunityProcessedUpdate {

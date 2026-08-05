@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Beacon private control plane
+- Moved sensitive Beacon configuration into the bot's private chat. The owner and explicitly authorized moderators can select a manageable community, and Beacon remembers the selection while showing `Managing: …` before policy changes.
+- Added an owner/moderator trigger library with live search, action and group filters, six-item pagination, creator and approval metadata, and Telegram-native add, move, severity-change, remove, and safe test flows.
+- Split the former bundled policy permission into independent add-trigger, remove-trigger, change-severity, and manage-trigger-group grants. Only the immutable owner can manage moderators, while dangerous grants still require an additional confirmation and generate a private audit notification.
+- Added a review-first contribution path: moderator-submitted triggers enter a non-enforcing Watchlist, notify the owner privately, and require explicit approval, action selection, or removal. Pending submissions cannot overwrite an active trigger or participate in live policy matching.
+- Reduced the public group interface to rules, observe status, and a secure deep link to private controls. Sensitive trigger lists, moderator configuration, audits, safety settings, and reports no longer render into the moderated group.
+- Added convenient exact invocations including `Beacon`, `Hey Beacon`, `Beacon menu`, and `menu`, without treating ordinary sentences containing the word Beacon as commands.
+- Preserved forum-topic context on reports and moderation actions, returned warnings to the original topic, and included the source topic in private review and policy alerts. Policies remain group-wide by design; per-topic overrides are not introduced yet.
+
 ### Beacon community moderator
 - Added Beacon as an optional second Telegram bot identity in the existing Threadwise Render process. It has an independent token, webhook path, command list, group allowlist, and database domain; leaving Beacon unconfigured has no effect on the main Threadwise bot.
 - Added an immutable environment-owned owner identity. Only that owner can add, edit, remove, or restore moderators; `Manage moderators` is deliberately not a grantable permission.

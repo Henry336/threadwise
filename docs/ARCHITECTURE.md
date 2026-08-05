@@ -211,6 +211,10 @@ Telegram → Beacon webhook  → Beacon bot     → Community* moderation domain
 
 `BEACON_TEST_CHAT_ID` and `BEACON_PRODUCTION_CHAT_ID` are the only chats Beacon recognizes. `BEACON_OWNER_TELEGRAM_ID` is the immutable authorization root. Group rows can change operational settings but cannot redefine that root. Moderator capabilities never include moderator management.
 
+Sensitive configuration uses Telegram private chat as the control plane. `CommunityControlSession` stores only the authorized operator's selected group and current trigger-library filters. Every callback rechecks owner/moderator access; a deep link may select a group only after the same server-side authorization. Public group menus never render trigger values, report evidence, moderator permissions, audits, or safety configuration.
+
+Moderator trigger contributions are staged rather than trusted implicitly. A moderator with `canAddTriggers` writes only to the review-only Watchlist with `pendingApproval = true`. Pending rows are excluded from `policyTriggersForGroup`, cannot replace an existing normalized trigger, and become enforceable only after the owner approves them or moves them into a chosen action group. Removal, severity changes, trigger-group management, and automatic-action changes are separate permission columns.
+
 Beacon's message path is deterministic:
 
 1. Claim the Beacon-specific Telegram update ID.
@@ -224,3 +228,5 @@ Beacon's message path is deterministic:
 9. Record moderation actions and configuration audits independently of Telegram message delivery.
 
 Report evidence is bounded and expires. Duplicate reports use `(groupId, sourceMessageId)` plus a per-reporter unique key, so one message produces one review case and one reporter cannot inflate it repeatedly.
+
+Forum topics share one group policy. The report and moderation-action records preserve `message_thread_id`; warnings are sent back into that thread and private review/audit surfaces display the source topic. This keeps context without introducing premature per-topic rule trees.
