@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Private Study dashboard
+- Added a secure `Study dashboard` button to every Telegram Study-home variant. Typing `dashboard` now returns the same direct workspace link instead of ambiguously reopening the Telegram master sheet.
 - Added a dedicated Study workspace to the authenticated dashboard with Overview, Module Shelf, Work, Library, Review, live Search, Deep Work, and Settings. It is a separate information architecture rather than a recoloured personal or group dashboard.
 - Kept the surface invisible everywhere except the exact configured Telegram owner inside the exact configured and actively bound Study group. Workspace discovery, direct URLs, every API request, live events, resource bytes, and mutations fail closed through the same owner/chat/binding gate.
 - Added module-scoped work editing, completion and archival; complete note/link/question editing; pinned and searchable Telegram images/files with protected delivery; OCR recall; mastery controls; mistake reattempts; weekly plans/reviews; focus sessions; Canvas sync and missing-assignment decisions; saved origins; and recurring study blocks.

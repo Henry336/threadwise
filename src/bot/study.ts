@@ -52,6 +52,7 @@ import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
 import { userFacingError } from "./errorResponses";
+import { groupDashboardUrl } from "./links";
 import { addStudyOriginFromVenue, renameStudyOrigin } from "../services/studyTransit";
 import { activeStudyModule } from "../services/studyResources";
 import {
@@ -177,7 +178,7 @@ async function handleStudyCommand(ctx: Context): Promise<void> {
         await showStudyDashboard(ctx, workspace);
         break;
       case "help":
-        await replyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard() });
+        await replyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard(workspace.id) });
         break;
       case "onboarding":
         await showStudyOnboarding(ctx, workspace);
@@ -259,10 +260,10 @@ async function handleStudyCommand(ctx: Context): Promise<void> {
         break;
       case "cancel":
         await clearStudyConversation(workspace.id);
-        await replyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard() });
+        await replyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard(workspace.id) });
         break;
       default:
-        await replyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard() });
+        await replyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard(workspace.id) });
     }
   } catch (error) {
     if (error instanceof StudyModeError && error.code === "forbidden") return;
@@ -279,10 +280,10 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
     const parts = data.split(":");
     const action = parts[1];
     if (action === "dashboard") return showStudyDashboard(ctx, workspace, true);
-    if (action === "help") return editOrReplyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard() }).then(() => undefined);
+    if (action === "help") return editOrReplyHtml(ctx, formatStudyHelp(), { reply_markup: studyHomeKeyboard(workspace.id) }).then(() => undefined);
     if (action === "cancel") {
       await clearStudyConversation(workspace.id);
-      await editOrReplyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard() });
+      await editOrReplyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard(workspace.id) });
       return;
     }
     if (action === "unbind" && parts[2] === "confirm") {
@@ -341,7 +342,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       if (!mastery) throw new StudyModeError("Choose green, amber, or red.", "invalid");
       const reference = parts[2] === "module" ? (await findStudyModule(workspace.id, parts[3])).code : parts[3];
       const result = await updateStudyMastery(workspace, reference, mastery);
-      await editOrReplyHtml(ctx, `${bold(reference.toUpperCase())} mastery: ${traffic(mastery)}`, { reply_markup: studyHomeKeyboard() });
+      await editOrReplyHtml(ctx, `${bold(reference.toUpperCase())} mastery: ${traffic(mastery)}`, { reply_markup: studyHomeKeyboard(workspace.id) });
       void result;
       return;
     }
@@ -426,7 +427,7 @@ async function handleStudyConversationMessage(
   const text = ctx.message && "text" in ctx.message ? (ctx.message.text ?? "").trim() : "";
   if (/^(?:cancel|stop|\/cancel)$/i.test(text)) {
     await clearStudyConversation(workspace.id);
-    await replyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard() });
+    await replyHtml(ctx, "Study flow canceled.", { reply_markup: studyHomeKeyboard(workspace.id) });
     return;
   }
   if (kind === "setup") return handleSetupMessage(ctx, workspace, step, payload, text);
@@ -487,7 +488,7 @@ async function handleSetupMessage(ctx: Context, workspace: StudyWorkspace, step:
     timezone,
   });
   await clearStudyConversation(workspace.id);
-  await replyHtml(ctx, [bold("Study setup saved"), `${h(configured.semesterName)} · ${h(timezone)}`, "Modules and the preliminary editable schedule are ready."].join("\n"), { reply_markup: studyHomeKeyboard() });
+  await replyHtml(ctx, [bold("Study setup saved"), `${h(configured.semesterName)} · ${h(timezone)}`, "Modules and the preliminary editable schedule are ready."].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
 async function handleModuleMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
@@ -580,7 +581,7 @@ async function handlePlanMessage(ctx: Context, workspace: StudyWorkspace, step: 
   }
   const updated = await updateWeeklyPlan(workspace, (payload.priorities as string[]) ?? [], /^skip$/i.test(text) ? undefined : text);
   await clearStudyConversation(workspace.id);
-  await replyHtml(ctx, [bold(`Week ${updated.number} planned`), ...updated.topPriorities.map((priority, index) => `${index + 1}. ${h(priority)}`)].join("\n"), { reply_markup: studyHomeKeyboard() });
+  await replyHtml(ctx, [bold(`Week ${updated.number} planned`), ...updated.topPriorities.map((priority, index) => `${index + 1}. ${h(priority)}`)].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
 async function handleStartCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
@@ -600,7 +601,7 @@ async function handleStopCommand(ctx: Context, workspace: StudyWorkspace, args: 
   if (args) {
     const input = parseSessionResult(args);
     const session = await stopStudySession(workspace, input);
-    await replyHtml(ctx, [bold("Session saved"), `${session.module.code} · ${session.durationMinutes} min`, h(session.result || "No result recorded.")].join("\n"), { reply_markup: studyHomeKeyboard() });
+    await replyHtml(ctx, [bold("Session saved"), `${session.module.code} · ${session.durationMinutes} min`, h(session.result || "No result recorded.")].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
     return;
   }
   await beginStudyConversation(workspace.id, "stop", "result", {});
@@ -611,7 +612,7 @@ async function finishStoppedSession(ctx: Context, workspace: StudyWorkspace, tex
   const input = /^skip$/i.test(text) ? {} : parseSessionResult(text);
   const session = await stopStudySession(workspace, input);
   await clearStudyConversation(workspace.id);
-  await replyHtml(ctx, [bold("Session saved"), `${session.module.code} · ${session.durationMinutes} min`, h(session.result || "No result recorded.")].join("\n"), { reply_markup: studyHomeKeyboard() });
+  await replyHtml(ctx, [bold("Session saved"), `${session.module.code} · ${session.durationMinutes} min`, h(session.result || "No result recorded.")].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
 async function beginMistakeFlow(ctx: Context, workspace: StudyWorkspace): Promise<void> {
@@ -719,7 +720,7 @@ async function handleReviewMessage(ctx: Context, workspace: StudyWorkspace, step
       overloadNotes: payload.workloadCompatible === false ? "Planned workload needs adjustment." : undefined,
     });
     await clearStudyConversation(workspace.id);
-    await replyHtml(ctx, [bold("Weekly review saved"), h(review.summary || "Structured review recorded."), "Mastery remains explicit; completion did not change it automatically."].join("\n"), { reply_markup: studyHomeKeyboard() });
+    await replyHtml(ctx, [bold("Weekly review saved"), h(review.summary || "Structured review recorded."), "Mastery remains explicit; completion did not change it automatically."].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
   }
 }
 
@@ -747,7 +748,7 @@ async function handleMasteryCommand(ctx: Context, workspace: StudyWorkspace, arg
   const mastery = parseMastery(match[2])!;
   const result = await updateStudyMastery(workspace, match[1], mastery, match[3]);
   const label = result.kind === "module" ? result.value.code : result.value.publicId;
-  await replyHtml(ctx, `${bold(label)} mastery: ${traffic(mastery)}${match[3] ? `\n${h(match[3])}` : ""}`, { reply_markup: studyHomeKeyboard() });
+  await replyHtml(ctx, `${bold(label)} mastery: ${traffic(mastery)}${match[3] ? `\n${h(match[3])}` : ""}`, { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
 async function finishStudyItem(ctx: Context, workspace: StudyWorkspace, reference: string, processed: boolean, edit = false): Promise<void> {
@@ -777,8 +778,8 @@ async function handleRescheduleItemMessage(
 async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const dashboard = await buildStudyDashboard(workspace);
   const text = formatStudyDashboard(dashboard);
-  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession)) });
-  else await replyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession)) });
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
+  else await replyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
 }
 
 async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
@@ -887,17 +888,17 @@ async function handleScheduleCommand(ctx: Context, workspace: StudyWorkspace, ar
     if (!day || !match?.[1] || !match[2] || !labelText) throw new StudyModeError("Use /study schedule add Monday | 14:00-16:00 | Label | CS2100", "invalid");
     const module = moduleText ? await findStudyModule(workspace.id, moduleText) : undefined;
     const block = await addStudyScheduleBlock(workspace, { dayOfWeek: day, startTime: match[1], endTime: match[2], label: labelText, moduleId: module?.id });
-    await replyHtml(ctx, `${bold("Schedule block added")}\n${DAY_NAMES[block.dayOfWeek - 1]} · ${block.startTime}-${block.endTime}\n${h(block.label)}`, { reply_markup: studyHomeKeyboard() });
+    await replyHtml(ctx, `${bold("Schedule block added")}\n${DAY_NAMES[block.dayOfWeek - 1]} · ${block.startTime}-${block.endTime}\n${h(block.label)}`, { reply_markup: studyHomeKeyboard(workspace.id) });
     return;
   }
   if (/^(?:archive|remove)\s+/i.test(args)) {
     const blockId = args.replace(/^(?:archive|remove)\s+/i, "").trim();
     await archiveStudyScheduleBlock(workspace, blockId);
-    await replyHtml(ctx, "Schedule block archived.", { reply_markup: studyHomeKeyboard() });
+    await replyHtml(ctx, "Schedule block archived.", { reply_markup: studyHomeKeyboard(workspace.id) });
     return;
   }
   const blocks = await listStudyScheduleBlocks(workspace.id);
-  await replyHtml(ctx, [bold("Editable schedule"), ...blocks.map((block) => `${DAY_NAMES[block.dayOfWeek - 1]} ${block.startTime}-${block.endTime} · ${block.module?.code ? `${block.module.code} · ` : ""}${h(block.label)}\n${code(block.id)}`), "", `Add: ${code("/study schedule add Monday | 14:00-16:00 | Label | CS2100")}`, `Remove: ${code("/study schedule remove BLOCK_ID")}`].join("\n"), { reply_markup: studyHomeKeyboard() });
+  await replyHtml(ctx, [bold("Editable schedule"), ...blocks.map((block) => `${DAY_NAMES[block.dayOfWeek - 1]} ${block.startTime}-${block.endTime} · ${block.module?.code ? `${block.module.code} · ` : ""}${h(block.label)}\n${code(block.id)}`), "", `Add: ${code("/study schedule add Monday | 14:00-16:00 | Label | CS2100")}`, `Remove: ${code("/study schedule remove BLOCK_ID")}`].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
 async function sendStudyExports(ctx: Context, workspace: StudyWorkspace): Promise<void> {
@@ -948,20 +949,22 @@ function formatStudyHelp(): string {
   ].join("\n");
 }
 
-function studyHomeKeyboard(): InlineKeyboard {
+function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
     .text("Modules", "study:modules").text("Upcoming", "study:upcoming:0").row()
     .text("Start session", "study:session:pick").text("Canvas", "study:canvas:status").row()
     .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
-    .text("Setup", "study:onboarding").text("Help", "study:help");
+    .text("Setup", "study:onboarding").text("Help", "study:help").row()
+    .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
 }
 
-function studyDashboardKeyboard(running: boolean): InlineKeyboard {
+function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKeyboard {
   const keyboard = new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
     .text("Modules", "study:modules").text("Resources", "study:resources:a:1").row()
     .text("Add work", "study:add:start").text(running ? "Stop session" : "Start session", running ? "study:session:stop" : "study:session:pick").row()
     .text("Weekly preview", "study:preview").text("Review", "study:review:start").row()
-    .text("Canvas", "study:canvas:status").text("Setup", "study:onboarding");
+    .text("Canvas", "study:canvas:status").text("Setup", "study:onboarding").row()
+    .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
   return keyboard;
 }
 

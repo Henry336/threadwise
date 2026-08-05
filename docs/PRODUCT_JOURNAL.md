@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 5 August 2026 — A private dashboard still needs a visible front door
+
+**Friction discovered:** The private Study dashboard was deployed and correctly isolated, but neither Telegram Study-home variant linked to it. The word `dashboard` was also classified as a request for the Telegram master sheet, so the owner could know the web workspace existed and still have no discoverable way to open it.
+
+**Decision:** Treat the Telegram Study menu as the primary launch point. Keep the compact Telegram master sheet, label the web destination separately, and use the existing authenticated workspace-selection route rather than exposing a generic dashboard URL.
+
+**Implementation:** Added `Study dashboard` URL actions to the command-led and natural-language Study menus and to the Telegram master sheet. Added a deterministic dashboard intent so `dashboard`, `study dashboard`, and `open study dashboard` return the same direct link. The selector targets the bound Study workspace, while existing dashboard authorization continues to enforce the configured owner, chat, and active binding.
+
+**Outcome/evidence:** Parser coverage verifies the new intent. The link is generated from the workspace ID and enters through the same authenticated selection endpoint already used by shared dashboards; it does not embed credentials or bypass Study authorization.
+
+**Follow-up:** Live-test the button inside the sealed group, confirm it selects the Study workspace on mobile Telegram, and confirm another Telegram account receives no Study access.
+
 ## 5 August 2026 — Deep work needed a first-class view, not a second source of truth
 
 **Friction discovered:** Phase 1 made academic capture reliable inside Telegram, but concentrated study sessions still required reading compact chat cards, hopping between module fragments, and mentally combining Canvas work, notes, screenshots, mistakes, mastery, and weekly priorities. Reusing the personal or shared-group dashboard would expose irrelevant navigation and make Study Mode feel like a bolted-on theme. A client-only hidden menu would also be inadequate because direct URLs and forged API requests could still reveal the private surface.

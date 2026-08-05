@@ -43,6 +43,8 @@ describe("Study Mode natural-language routing", () => {
   });
 
   it("recognises deterministic planning, Canvas, and travel requests", () => {
+    expect(parseStudyNaturalLanguage("dashboard", timezone)).toEqual({ kind: "study_dashboard" });
+    expect(parseStudyNaturalLanguage("open study dashboard", timezone)).toEqual({ kind: "study_dashboard" });
     expect(parseStudyNaturalLanguage("what should I work on now?", timezone)).toEqual({ kind: "attention" });
     expect(parseStudyNaturalLanguage("plan my week", timezone)).toEqual({ kind: "weekly_plan" });
     expect(parseStudyNaturalLanguage("review my week", timezone)).toEqual({ kind: "weekly_review" });

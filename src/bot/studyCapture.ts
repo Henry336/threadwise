@@ -66,6 +66,7 @@ import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
 import { editEphemeralMessageText, ephemeralDeletionTarget } from "./ephemeral";
+import { groupDashboardUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml, replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 const EXTENDED_CALLBACKS = [
@@ -491,12 +492,18 @@ export async function handleExtendedStudyCallback(
 async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, intent: StudyNaturalIntent): Promise<void> {
   switch (intent.kind) {
     case "menu":
-      await replyHtml(ctx, `${bold("Study Mode")}\nCapture, plan, or recall.`, { reply_markup: studyCaptureHomeKeyboard(), ...(ctx.message ? { reply_parameters: { message_id: ctx.message.message_id } } : {}) });
+      await replyHtml(ctx, `${bold("Study Mode")}\nCapture, plan, or recall.`, { reply_markup: studyCaptureHomeKeyboard(workspace.id), ...(ctx.message ? { reply_parameters: { message_id: ctx.message.message_id } } : {}) });
+      return;
+    case "study_dashboard":
+      await replyHtml(ctx, `${bold("Study dashboard")}\nOpen your private Study workspace.`, {
+        reply_markup: new InlineKeyboard().url("Open Study dashboard", groupDashboardUrl(workspace.id, "study-overview")),
+        ...(ctx.message ? { reply_parameters: { message_id: ctx.message.message_id } } : {}),
+      });
       return;
     case "onboarding":
       return showStudyOnboarding(ctx, workspace);
     case "help":
-      await replyHtml(ctx, formatNaturalHelp(), { reply_markup: studyCaptureHomeKeyboard() });
+      await replyHtml(ctx, formatNaturalHelp(), { reply_markup: studyCaptureHomeKeyboard(workspace.id) });
       return;
     case "canvas_sync": {
       const progress = await ctx.reply("Syncing Canvas…");
@@ -1025,13 +1032,13 @@ async function moduleOpenKeyboard(workspace: StudyWorkspace): Promise<InlineKeyb
   return keyboard.row().text("Home", "study:dashboard");
 }
 
-function studyCaptureHomeKeyboard(): InlineKeyboard {
+function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
     .text("Modules", "study:modules").text("Canvas", "study:canvas:status").row()
     .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
     .text("Weekly preview", "study:preview").text("Setup", "study:onboarding").row()
-    .text("Master sheet", "study:dashboard");
+    .text("Master sheet", "study:dashboard").url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
 }
 
 function captureChoiceKeyboard(token: string): InlineKeyboard {
