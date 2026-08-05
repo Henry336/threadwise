@@ -12,6 +12,8 @@ const CALENDAR_SCOPES = [
   "openid",
   "email"
 ];
+const calendarHealthCache = new Map<string, { tokenFingerprint: string; expiresAt: number }>();
+const CALENDAR_HEALTH_TTL_MS = 5 * 60_000;
 
 type GoogleTokens = {
   access_token?: string;
@@ -66,6 +68,22 @@ export type OAuthCallbackResult = {
   message: string;
   redirectUrl?: string;
 };
+
+export type CalendarConnectionStatus = {
+  connected: boolean;
+  reconnectRequired: boolean;
+  email?: string;
+  autoSync: boolean;
+  syncedTasks: number;
+  issue?: string;
+};
+
+class CalendarAuthorizationError extends Error {
+  constructor(message = "Google Calendar authorization expired or was revoked. Reconnect Google Calendar.") {
+    super(message);
+    this.name = "CalendarAuthorizationError";
+  }
+}
 
 export function calendarConfigured(): boolean {
   return Boolean(
@@ -151,6 +169,7 @@ export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: stri
         : []),
       prisma.pendingCalendarOAuth.deleteMany({ where: { userId: pending.userId } })
     ]);
+    calendarHealthCache.delete(existing?.id ?? "");
 
     let taskMessage = "";
     let taskKeyboard: InlineKeyboard | undefined;
@@ -202,30 +221,88 @@ export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: stri
 }
 
 export async function disconnectCalendar(userId: string): Promise<string> {
+  const existing = await prisma.calendarConnection.findUnique({ where: { userId }, select: { id: true } });
   await prisma.$transaction([
     prisma.calendarConnection.deleteMany({ where: { userId } }),
     prisma.pendingCalendarOAuth.deleteMany({ where: { userId } }),
     prisma.userSettings.updateMany({ where: { userId }, data: { calendarAutoSync: false } })
   ]);
+  if (existing) calendarHealthCache.delete(existing.id);
   return "Google Calendar disconnected. Existing calendar events are left in Google Calendar.";
 }
 
-export async function calendarConnectionStatus(userId: string) {
+export async function calendarConnectionStatus(userId: string): Promise<CalendarConnectionStatus> {
   const [connection, settings, syncedTasks] = await Promise.all([
     prisma.calendarConnection.findUnique({ where: { userId } }),
     prisma.userSettings.findUnique({ where: { userId }, select: { calendarAutoSync: true } }),
     prisma.task.count({ where: { userId, calendarEventId: { not: null }, archivedAt: null } })
   ]);
-  return {
-    connected: Boolean(connection),
-    email: connection?.calendarEmail ?? undefined,
+  if (!connection) return {
+    connected: false,
+    reconnectRequired: false,
     autoSync: settings?.calendarAutoSync ?? false,
-    syncedTasks
+    syncedTasks,
   };
+  try {
+    const accessToken = await validAccessToken(connection);
+    await validateCalendarAccess(connection.id, accessToken);
+    return {
+      connected: true,
+      reconnectRequired: false,
+      email: connection.calendarEmail ?? undefined,
+      autoSync: settings?.calendarAutoSync ?? false,
+      syncedTasks,
+    };
+  } catch (error) {
+    logger.warn("Google Calendar connection validation failed.", {
+      userId,
+      connectionId: connection.id,
+      error: safeCalendarError(error),
+    });
+    if (!calendarReconnectRequired(error)) return {
+      connected: true,
+      reconnectRequired: false,
+      email: connection.calendarEmail ?? undefined,
+      autoSync: settings?.calendarAutoSync ?? false,
+      syncedTasks,
+      issue: "Threadwise could not verify Calendar just now. Existing tasks remain safe.",
+    };
+    return {
+      connected: false,
+      reconnectRequired: true,
+      email: connection.calendarEmail ?? undefined,
+      autoSync: settings?.calendarAutoSync ?? false,
+      syncedTasks,
+      issue: calendarReconnectMessage(error),
+    };
+  }
 }
 
-export async function formatCalendarStatus(userId: string): Promise<string> {
-  const status = await calendarConnectionStatus(userId);
+async function validateCalendarAccess(connectionId: string, accessToken: string): Promise<void> {
+  const tokenFingerprint = crypto.createHash("sha256").update(accessToken).digest("hex");
+  const cached = calendarHealthCache.get(connectionId);
+  if (cached?.tokenFingerprint === tokenFingerprint && cached.expiresAt > Date.now()) return;
+  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+  url.searchParams.set("maxResults", "1");
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("fields", "kind");
+  await googleRequest<{ kind?: string }>(accessToken, url.toString(), { method: "GET" });
+  calendarHealthCache.set(connectionId, {
+    tokenFingerprint,
+    expiresAt: Date.now() + CALENDAR_HEALTH_TTL_MS,
+  });
+}
+
+export async function formatCalendarStatus(userId: string, knownStatus?: CalendarConnectionStatus): Promise<string> {
+  const status = knownStatus ?? await calendarConnectionStatus(userId);
+  if (status.reconnectRequired) {
+    return [
+      bold("📅 Google Calendar"),
+      `${bold("Reconnect required")}${status.email ? ` · ${h(status.email)}` : ""}`,
+      h(status.issue ?? "Authorization expired or was revoked."),
+      "Reconnect once to resume task sync. Your Threadwise tasks are unchanged.",
+    ].join("\n");
+  }
   if (!status.connected) {
     return [
       bold("📅 Google Calendar"),
@@ -447,7 +524,10 @@ async function validAccessToken(connection: { id: string; accessToken?: string |
 
   const tokens = await refreshAccessToken(unprotectToken(connection.refreshToken));
   if (!tokens.access_token) {
-    throw new Error(tokens.error_description ?? tokens.error ?? "Could not refresh Google Calendar access token.");
+    if (tokens.error === "invalid_grant" || /expired|revoked|invalid/i.test(tokens.error_description ?? "")) {
+      throw new CalendarAuthorizationError();
+    }
+    throw new CalendarAuthorizationError("Google Calendar access could not be refreshed. Reconnect Google Calendar.");
   }
 
   await prisma.calendarConnection.update({
@@ -502,10 +582,30 @@ async function googleRequest<T>(accessToken: string, url: string, init: RequestI
     }
   });
   if (!response.ok) {
+    if (response.status === 401) throw new CalendarAuthorizationError();
+    if (response.status === 403) throw new Error("Google Calendar denied this action. Reconnect Calendar and approve event access.");
     throw new Error(`Google Calendar API request failed: ${response.status}`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+function calendarReconnectMessage(error: unknown): string {
+  if (error instanceof CalendarAuthorizationError) return error.message;
+  if (error instanceof Error && /decrypt|encrypted|token|authorization|credential/i.test(error.message)) {
+    return "The saved Calendar authorization is no longer usable. Reconnect Google Calendar.";
+  }
+  return "Threadwise could not verify the saved Calendar authorization. Reconnect Google Calendar.";
+}
+
+function calendarReconnectRequired(error: unknown): boolean {
+  if (error instanceof CalendarAuthorizationError) return true;
+  return error instanceof Error && /decrypt|encrypted|denied this action|authorization|credential/i.test(error.message);
+}
+
+function safeCalendarError(error: unknown): string {
+  if (!(error instanceof Error)) return "Unknown Calendar validation failure";
+  return `${error.name}: ${error.message}`.slice(0, 500);
 }
 
 function withConnectionResult(returnTo: string, provider: string, result: "connected" | "error"): string {

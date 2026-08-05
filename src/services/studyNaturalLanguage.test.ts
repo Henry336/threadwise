@@ -55,6 +55,7 @@ describe("Study Mode natural-language routing", () => {
       destination: "COM3",
       origin: "Home",
     });
+    expect(parseStudyNaturalLanguage("How do I add a travel origin?", timezone)).toEqual({ kind: "origin_help" });
   });
 });
 

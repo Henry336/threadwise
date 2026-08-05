@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Study routing, Calendar health, and task lifecycle
+- Replaced the misleading pre-semester `Week 0` state with an explicit pre-semester label in the private Study dashboard, including the local date on which Week 1 begins.
+- Made travel-origin setup deterministic and discoverable. Questions such as `How do I add a travel origin?` now open guided setup instead of ambiguous capture, common aliases such as `PGPR` resolve to PGP, and origin search now combines campus venues with direct NUS bus-stop results.
+- Added a selectable Telegram result picker before saving an origin, so a partial or ambiguous place name can be corrected without restarting the flow.
+- Changed Google Calendar status from “stored connection exists” to a live authorization check. Expired or revoked grants now show `Reconnect required`, preserve a safe diagnostic in server logs, and expose a direct reconnect action instead of falsely claiming Calendar is connected.
+- Completed Calendar lifecycle parity: archiving a linked task removes its Google event, while restoring the task recreates the event when automatic Calendar sync is enabled.
+- Added focused regression coverage for origin-help recognition, campus aliases, direct week-state presentation, and the existing routing/Calendar/task surfaces.
+
 ### Live Study travel and class-departure reminders
 - Closed the gap between on-demand Improved NextBus route queries and the recurring Study timetable. Study home now includes a dedicated Travel surface with the current origin, saved origins, upcoming configured destinations, and direct live-route refreshes.
 - Connected the existing timetable venue, destination-stop, usual-origin, travel-buffer, and reminder fields to both Telegram and the private Study dashboard. Telegram offers a compact guided `Destination | Origin | Buffer` flow; the dashboard adds progressive inline travel controls to each recurring block.

@@ -1,6 +1,7 @@
 import { Prisma, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
+import { syncTaskCalendarBestEffort } from "./googleCalendar";
 
 const UNDO_PREFIX = "undoable:";
 
@@ -492,6 +493,11 @@ async function undoArchive(entryId: string, payload: Record<string, unknown>): P
 
     await consumeUndo(tx, entryId, "archive");
   });
+
+  if (target.kind === "task" && archivedAt === null) {
+    const restored = await prisma.task.findUnique({ where: { id: target.id } });
+    if (restored) await syncTaskCalendarBestEffort(restored.userId, restored);
+  }
 
   return `${bold("Undone")} Restored ${code(target.publicId)} to active ${activeLabel(target.kind)}.`;
 }

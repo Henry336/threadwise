@@ -15,6 +15,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import {
   StudyModeError,
+  advanceStudyConversation,
   beginStudyConversation,
   clearStudyConversation,
   completeStudyItem,
@@ -56,6 +57,7 @@ import {
 } from "../services/studyResources";
 import {
   activateStudyOrigin,
+  addStudyOriginFromCandidate,
   addStudyOriginFromLocation,
   addStudyOriginFromVenue,
   buildStudyDeparturePlan,
@@ -69,7 +71,9 @@ import {
   muteStudyTravelForToday,
   renameStudyOrigin,
   resumeStudyTravelReminders,
+  searchStudyOriginPlaces,
   setDefaultStudyOrigin,
+  type StudyOriginPlaceCandidate,
 } from "../services/studyTransit";
 import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { parseDueDate } from "../utils/dates";
@@ -556,6 +560,22 @@ export async function handleExtendedStudyCallback(
     });
     return true;
   }
+  if (parts[1] === "origin" && parts[2] === "pick" && parts[3]) {
+    const conversation = await getStudyConversation(workspace.id);
+    const payload = conversation ? studyConversationPayload(conversation.payload) : {};
+    const candidates = Array.isArray(payload.candidates) ? payload.candidates as StudyOriginPlaceCandidate[] : [];
+    const candidate = candidates[Number(parts[3])];
+    const name = typeof payload.name === "string" ? payload.name : undefined;
+    if (conversation?.kind !== "study_origin_add" || !candidate || !name) {
+      throw new StudyModeError("That place picker expired. Add the origin again.", "invalid");
+    }
+    const origin = await addStudyOriginFromCandidate(workspace, name, candidate, {
+      makeDefault: payload.makeDefault === true,
+    });
+    await clearStudyConversation(workspace.id);
+    await editOrReplyQuietAcknowledgementHtml(ctx, `${bold("Origin saved")} · ${h(origin.name)}`);
+    return true;
+  }
   if (parts[1] === "origin" && parts[2] === "rename" && parts[3]) {
     await beginStudyConversation(workspace.id, "study_origin_rename", "name", { originId: parts[3] });
     await editOrReplyHtml(ctx, `${bold("Rename origin")}\nReply with the new short name.`, {
@@ -713,11 +733,17 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
       return showResources(ctx, workspace, undefined, 1, false, intent.query);
     case "origins":
       return showOrigins(ctx, workspace);
-    case "origin_add": {
-      const origin = await addStudyOriginFromVenue(workspace, intent.name, intent.venue, { makeDefault: intent.makeDefault });
-      await replyQuietAcknowledgementHtml(ctx, `${bold("Origin saved")} · ${h(origin.name)}`);
+    case "origin_help":
+      await beginStudyConversation(workspace.id, "study_origin_add", "details", {});
+      await replyHtml(ctx, [
+        bold("Add travel origin"),
+        `Reply to this message with ${code("Name | nearby venue or NUS bus stop")}.`,
+        `Example: ${code("Home | PGPR")}`,
+        "Threadwise will show matching places before saving.",
+      ].join("\n"), { reply_markup: cancelKeyboard() });
       return;
-    }
+    case "origin_add":
+      return showStudyOriginMatches(ctx, workspace, intent.name, intent.venue, intent.makeDefault);
     case "origin_activate": {
       const active = await activateStudyOrigin(workspace, intent.reference, intent.hours ?? 4);
       await replyQuietAcknowledgementHtml(ctx, `${bold("Current origin")} · ${h(active.origin.name)} · until ${h(formatDate(active.until, workspace.timezone))}`);
@@ -745,6 +771,42 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
     case "ambiguous":
       return showStudyCaptureChoice(ctx, workspace, intent.sourceText, intent.moduleReference);
   }
+}
+
+export async function showStudyOriginMatches(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  name: string,
+  query: string,
+  makeDefault = false,
+): Promise<void> {
+  const candidates = await searchStudyOriginPlaces(query, 8);
+  const conversation = await getStudyConversation(workspace.id);
+  const keepOriginFlow = async (step: string, payload: { name: string; query: string; makeDefault: boolean; candidates?: StudyOriginPlaceCandidate[] }) => {
+    if (conversation?.kind === "study_origin_add") await advanceStudyConversation(workspace.id, step, payload);
+    else await beginStudyConversation(workspace.id, "study_origin_add", step, payload);
+  };
+  if (candidates.length === 0) {
+    await keepOriginFlow("details", { name, query, makeDefault });
+    await replyHtml(ctx, [
+      bold("No matching place yet"),
+      `I couldn't match ${h(query)} to a campus venue or NUS bus stop.`,
+      `Reply again with ${code("Name | venue or stop")}, or send your Telegram location.`,
+    ].join("\n"), { reply_markup: cancelKeyboard() });
+    return;
+  }
+  await keepOriginFlow("choose_place", { name, query, makeDefault, candidates });
+  const keyboard = new InlineKeyboard();
+  candidates.forEach((candidate, index) => {
+    const suffix = candidate.kind === "stop" ? " · stop" : "";
+    keyboard.text(`${candidate.title}${suffix}`.slice(0, 58), `study:origin:pick:${index}`).row();
+  });
+  keyboard.text("Search again", "study:origin:add").text("Cancel", "study:cancel");
+  await replyHtml(ctx, [
+    bold(`Choose a match for ${name}`),
+    `Search: ${h(query)}`,
+    "Select the venue or bus stop you meant.",
+  ].join("\n"), { reply_markup: keyboard });
 }
 
 async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: StudyMedia): Promise<void> {

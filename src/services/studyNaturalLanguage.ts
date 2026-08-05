@@ -29,6 +29,7 @@ export type StudyNaturalIntent =
   | { kind: "list_resources"; resourceKind?: StudyResourceKind; moduleReference?: string; query?: string }
   | { kind: "search"; query: string }
   | { kind: "origins" }
+  | { kind: "origin_help" }
   | { kind: "origin_add"; name: string; venue: string; makeDefault: boolean }
   | { kind: "origin_activate"; reference: string; hours?: number }
   | { kind: "origin_here"; venue: string; hours?: number }
@@ -90,6 +91,8 @@ export function parseStudyNaturalLanguage(text: string, timezone: string): Study
     };
   }
 
+  if (/^(?:(?:how|where)\s+(?:do|can)\s+i\s+|please\s+)?(?:add|save|create|set\s*up)\s+(?:a\s+|my\s+)?(?:travel\s+)?origin\??$/i.test(trimmed)
+    || /^(?:how|where)\s+(?:do|can)\s+i\s+(?:manage|configure)\s+(?:my\s+)?(?:travel\s+)?origins?\??$/i.test(trimmed)) return { kind: "origin_help" };
   if (/^(?:show|list|manage)(?:\s+my)?\s+(?:travel\s+)?origins$/i.test(trimmed) || /^(?:travel\s+)?origins$/i.test(trimmed)) return { kind: "origins" };
   const addOrigin = trimmed.match(/^(?:add|save|create)(?:\s+(?:a|my))?\s+(?:travel\s+)?origin\s+(.+?)\s+(?:at|for|near)\s+(.+?)(?:\s+as\s+(?:the\s+)?default)?$/i);
   if (addOrigin?.[1] && addOrigin[2]) return {

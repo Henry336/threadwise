@@ -6,7 +6,7 @@ import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseD
 import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
-import { syncTaskCalendarBestEffort } from "./googleCalendar";
+import { removeTaskFromGoogleCalendar, syncTaskCalendarBestEffort } from "./googleCalendar";
 import { nextPublicId } from "./publicIds";
 import { nextDueReminderAt } from "./reminders";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
@@ -620,6 +620,7 @@ export function formatTaskCompleted(task: { publicId: string; title: string; sta
 
 export async function archiveTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
+  if (task.calendarEventId) await removeTaskFromGoogleCalendar(userId, task);
   const archivedAt = new Date();
   return prisma.$transaction(async (tx) => {
     await recordArchiveUndo(tx, userId, {

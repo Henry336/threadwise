@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 5 August 2026 — Stored integration state is not operational health
+
+**Friction discovered:** Three separate interfaces appeared configured while failing at the moment of use. The Study dashboard rendered a computed pre-semester week as `—`; travel-origin setup promised venues and stops but only performed a single venue lookup and sent instructions questions into ambiguous capture; and Google Calendar treated the presence of an OAuth row as proof that its token was still usable. Archiving also left an already-created Calendar event behind, so Threadwise and Google could disagree about whether work was active.
+
+**Decision:** Describe lifecycle states honestly and validate them at the boundary where the user depends on them. Pre-semester is a named academic state, origin setup is a search-and-confirm workflow across both venues and stops, Calendar connection status requires a usable token, and a linked event follows its task through archive and restore.
+
+**Implementation:** Added an explicit pre-semester week label with the Week 1 start date; deterministic origin-help intent; common NUS aliases; combined venue and bus-stop ranking; a Telegram candidate picker; live Calendar token validation with safe logging and a reconnect action; and automatic event removal/recreation on task archive/restore when Calendar auto-sync applies.
+
+**Outcome/evidence:** Focused backend tests cover origin instructions and alias normalization, the existing routing/Calendar/task suites pass, and the dashboard has a dedicated pre-semester regression test. Dashboard TypeScript, lint, and its complete test suite pass. The backend no-output typecheck reports no errors in the changed files; a full local emit remains obstructed by an unrelated running Node process that holds both `dist` and the generated Prisma client open.
+
+**Follow-up:** Live-test one ambiguous origin, one direct stop, one forced Calendar reconnect, and one archive/restore cycle after deployment. If Google deletion is temporarily unavailable, keep the failure explicit rather than silently allowing task and Calendar state to diverge.
+
 ## 5 August 2026 — A route query is not yet a commute workflow
 
 **Friction discovered:** Study Mode could answer an explicit “How do I get to COM3?” request, and schedule blocks already contained dormant venue, stop, origin, buffer, and `CLASS_DEPARTURE` fields. But Travel was absent from Study home, class blocks could not configure those fields through the interfaces, and proactive reminders remained generic. The owner therefore had no dependable place to check upcoming routes and would not be told which bus to take before class.

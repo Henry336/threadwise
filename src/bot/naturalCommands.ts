@@ -715,7 +715,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     const connectUrl = !status.connected && calendarConfigured()
       ? await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true })
       : undefined;
-    await replyHtml(ctx, await formatCalendarStatus(user.id), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
+    await replyHtml(ctx, await formatCalendarStatus(user.id, status), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
     return true;
   }
 
@@ -867,7 +867,7 @@ async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId
       if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
       const chatId = ctx.chat ? String(ctx.chat.id) : telegramId;
       const url = await createCalendarConnectUrl(userId, chatId, { taskId: task.id });
-      await replyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\nConnect once; this reminder will be added automatically after approval.`, {
+      await replyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`, {
         reply_markup: calendarTaskKeyboard(task, url)
       });
       return;

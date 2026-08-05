@@ -226,10 +226,10 @@ export function integrationsSettingsKeyboard(): InlineKeyboard {
     .text("‹ Settings", "menu:settings");
 }
 
-export function calendarSettingsKeyboard(status: { connected: boolean; autoSync: boolean }, connectUrl?: string): InlineKeyboard {
+export function calendarSettingsKeyboard(status: { connected: boolean; autoSync: boolean; reconnectRequired?: boolean }, connectUrl?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (!status.connected && connectUrl) {
-    keyboard.url("Connect Google Calendar", connectUrl).row();
+    keyboard.url(status.reconnectRequired ? "Reconnect Google Calendar" : "Connect Google Calendar", connectUrl).row();
   } else if (status.connected) {
     keyboard.text("Sync existing tasks", "integration:calendar:sync-all").row()
       .text(status.autoSync ? "Automatic sync: On" : "Automatic sync: Off", "integration:calendar:toggle-auto").row()

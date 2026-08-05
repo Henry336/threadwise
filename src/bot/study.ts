@@ -54,7 +54,6 @@ import { truncate } from "../utils/text";
 import { userFacingError } from "./errorResponses";
 import { groupDashboardUrl } from "./links";
 import {
-  addStudyOriginFromVenue,
   clearStudyScheduleTravel,
   configureStudyScheduleTravel,
   renameStudyOrigin,
@@ -66,6 +65,7 @@ import {
   handleStudyDocument,
   handleStudyLocation,
   handleStudyPhoto,
+  showStudyOriginMatches,
   showStudyOnboarding,
 } from "./studyCapture";
 
@@ -484,9 +484,7 @@ async function handleStudyOriginAddMessage(ctx: Context, workspace: StudyWorkspa
   const name = nameValue?.trim();
   const venue = venueParts.join("|").trim();
   if (!name || !venue) throw new StudyModeError(`Reply with ${code("Name | nearby campus venue or bus stop")}.`, "invalid");
-  await addStudyOriginFromVenue(workspace, name, venue);
-  await clearStudyConversation(workspace.id);
-  await handleStudyAmbientText(ctx, workspace, "Show travel origins");
+  await showStudyOriginMatches(ctx, workspace, name, venue);
 }
 
 async function handleStudyOriginRenameMessage(

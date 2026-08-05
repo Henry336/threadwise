@@ -4,6 +4,7 @@ import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 import { formatDateTimeForUser } from "../utils/dates";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
+import { syncTaskCalendarBestEffort } from "./googleCalendar";
 
 export type ArchiveKind = "notes" | "ideas" | "tasks";
 
@@ -121,10 +122,18 @@ export async function restoreArchivedItem(userId: string, reference: string) {
   }
 
   if (normalized.startsWith("TASK-")) {
-    const task = await prisma.task.updateMany({
+    const archived = await prisma.task.findFirst({
       where: { userId, publicId: normalized, archivedAt: { not: null } },
+    });
+    if (!archived) return undefined;
+    const task = await prisma.task.updateMany({
+      where: { id: archived.id, userId, archivedAt: { not: null } },
       data: { archivedAt: null, archivedReason: null, status: TaskStatus.OPEN }
     });
+    if (task.count > 0) {
+      const restored = await prisma.task.findUnique({ where: { id: archived.id } });
+      if (restored) await syncTaskCalendarBestEffort(userId, restored);
+    }
     return task.count > 0 ? `Restored ${code(normalized)} to open tasks.` : undefined;
   }
 

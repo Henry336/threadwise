@@ -612,6 +612,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
+  if (database === prisma && task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
   await database.$transaction(async (tx) => {
     await recordArchiveUndo(tx, user.id, {
       kind: "task",

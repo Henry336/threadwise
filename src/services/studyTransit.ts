@@ -22,6 +22,12 @@ export type TransitVenue = {
 export type TransitVenueDetail = TransitVenue & {
   nearbyStops: Array<TransitStop & { distanceMetres: number }>;
 };
+export type StudyOriginPlaceCandidate = {
+  kind: "venue" | "stop";
+  id: string;
+  title: string;
+  subtitle?: string;
+};
 type JourneyLeg = {
   service: string;
   fromStop: TransitStop;
@@ -70,6 +76,14 @@ export type StudyDeparturePlan = {
 const routeCache = new Map<string, { expiresAt: number; value: StudyJourneyEstimate }>();
 const ROUTE_CACHE_TTL_MS = 3 * 60_000;
 const FALLBACK_JOURNEY_MINUTES = 30;
+const STUDY_PLACE_ALIASES: Record<string, string> = {
+  pgpr: "PGP",
+  "prince georges park residence": "PGP",
+  "prince george park residence": "PGP",
+  "prince georges park": "PGP",
+  "kent ridge mrt station": "Kent Ridge MRT",
+  krmrt: "Kent Ridge MRT",
+};
 
 export async function searchStudyVenues(query: string, limit = 8): Promise<TransitVenue[]> {
   const value = query.trim();
@@ -87,12 +101,108 @@ export async function listStudyTransitStops(): Promise<TransitStop[]> {
   return result.stops ?? [];
 }
 
-export async function resolveStudyVenue(query: string): Promise<TransitVenueDetail> {
+export function normalizeStudyPlaceQuery(query: string): string {
+  const clean = normalizePlaceText(query);
+  return STUDY_PLACE_ALIASES[clean] ?? query.replace(/\s+/g, " ").trim();
+}
+
+export async function searchStudyOriginPlaces(query: string, limit = 8): Promise<StudyOriginPlaceCandidate[]> {
+  const original = query.replace(/\s+/g, " ").trim();
+  if (!original) throw new StudyModeError("Give me a campus venue or NUS bus stop to search for.", "invalid");
+  const resolved = normalizeStudyPlaceQuery(original);
+  const [venueResult, stopResult] = await Promise.allSettled([
+    searchStudyVenues(resolved, Math.max(limit, 8)),
+    listStudyTransitStops(),
+  ]);
+  const venues = venueResult.status === "fulfilled" ? venueResult.value : [];
+  const stops = stopResult.status === "fulfilled" ? stopResult.value : [];
+  if (venues.length === 0 && stops.length === 0) {
+    const reason = venueResult.status === "rejected" ? venueResult.reason : stopResult.status === "rejected" ? stopResult.reason : undefined;
+    if (reason instanceof Error) throw reason;
+  }
+  const candidates: Array<StudyOriginPlaceCandidate & { score: number }> = [
+    ...venues.map((venue, index) => ({
+      kind: "venue" as const,
+      id: venue.id,
+      title: venue.name,
+      subtitle: "Campus venue",
+      score: placeMatchScore(resolved, [venue.id, venue.name]) + index / 100,
+    })),
+    ...stops.map((stop) => ({
+      kind: "stop" as const,
+      id: stop.id,
+      title: stop.title,
+      subtitle: [stop.shortLabel, stop.busStopCode, stop.subtitle].filter(Boolean).join(" · ") || "NUS bus stop",
+      score: placeMatchScore(resolved, [stop.id, stop.title, stop.shortLabel, stop.busStopCode, stop.subtitle]),
+    })).filter((candidate) => candidate.score < 100),
+  ];
+  const seen = new Set<string>();
+  return candidates
+    .filter((candidate) => candidate.score < 100)
+    .sort((a, b) => a.score - b.score || a.title.localeCompare(b.title))
+    .filter((candidate) => {
+      const key = `${candidate.kind}:${candidate.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, Math.min(10, Math.max(1, limit)))
+    .map(({ score: _score, ...candidate }) => candidate);
+}
+
+async function resolveStudyVenueLegacy(query: string): Promise<TransitVenueDetail> {
   const venues = await searchStudyVenues(query, 8);
   if (venues.length === 0) throw new StudyModeError(`I couldn't find a campus venue matching “${query.trim()}”.`, "not_found");
   const normalized = query.trim().toLowerCase();
   const exact = venues.find((venue) => venue.id.toLowerCase() === normalized || venue.name.toLowerCase() === normalized);
   return getStudyVenue((exact ?? venues[0]!).id);
+}
+
+export async function resolveStudyVenue(query: string): Promise<TransitVenueDetail> {
+  const candidates = await searchStudyOriginPlaces(query, 8);
+  const candidate = candidates[0];
+  if (!candidate) return resolveStudyVenueLegacy(query);
+  if (candidate.kind === "venue") return getStudyVenue(candidate.id);
+  const stop = (await listStudyTransitStops()).find((item) => item.id === candidate.id);
+  if (!stop) throw new StudyModeError("That NUS bus stop is no longer available.", "not_found");
+  return {
+    id: stop.id,
+    name: stop.title,
+    coordinates: stop.coordinates,
+    nearbyStops: [{ ...stop, distanceMetres: 0 }],
+  };
+}
+
+export async function addStudyOriginFromCandidate(
+  workspace: StudyWorkspace,
+  name: string,
+  candidate: StudyOriginPlaceCandidate,
+  options: { makeDefault?: boolean; activateHours?: number } = {},
+): Promise<StudyLocationOrigin> {
+  if (candidate.kind === "venue") {
+    const venue = await getStudyVenue(candidate.id);
+    const stop = venue.nearbyStops[0];
+    if (!stop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop in Improved NextBus.`, "not_found");
+    return saveStudyOrigin(workspace, {
+      name,
+      providerVenueId: venue.id,
+      providerStopId: stop.id,
+      latitude: venue.coordinates.latitude,
+      longitude: venue.coordinates.longitude,
+      makeDefault: options.makeDefault,
+      activateHours: options.activateHours,
+    });
+  }
+  const stop = (await listStudyTransitStops()).find((item) => item.id === candidate.id);
+  if (!stop) throw new StudyModeError("That NUS bus stop is no longer available.", "not_found");
+  return saveStudyOrigin(workspace, {
+    name,
+    providerStopId: stop.id,
+    latitude: stop.coordinates.latitude,
+    longitude: stop.coordinates.longitude,
+    makeDefault: options.makeDefault,
+    activateHours: options.activateHours,
+  });
 }
 
 export async function addStudyOriginFromVenue(
@@ -101,18 +211,9 @@ export async function addStudyOriginFromVenue(
   venueQuery: string,
   options: { makeDefault?: boolean; activateHours?: number } = {},
 ): Promise<StudyLocationOrigin> {
-  const venue = await resolveStudyVenue(venueQuery);
-  const stop = venue.nearbyStops[0];
-  if (!stop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop in Improved NextBus.`, "not_found");
-  return saveStudyOrigin(workspace, {
-    name,
-    providerVenueId: venue.id,
-    providerStopId: stop.id,
-    latitude: venue.coordinates.latitude,
-    longitude: venue.coordinates.longitude,
-    makeDefault: options.makeDefault,
-    activateHours: options.activateHours,
-  });
+  const candidate = (await searchStudyOriginPlaces(venueQuery, 1))[0];
+  if (!candidate) throw new StudyModeError(`I couldn't find a campus venue or NUS bus stop matching "${venueQuery.trim()}".`, "not_found");
+  return addStudyOriginFromCandidate(workspace, name, candidate, options);
 }
 
 export async function addStudyOriginFromLocation(
@@ -596,6 +697,26 @@ function distanceMetres(a: TransitCoordinates, b: TransitCoordinates): number {
   const deltaLon = radians(b.longitude - a.longitude);
   const h = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function normalizePlaceText(value: string): string {
+  return value.toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function placeMatchScore(query: string, values: Array<string | null | undefined>): number {
+  const needle = normalizePlaceText(query);
+  if (!needle) return 100;
+  let best = 100;
+  for (const value of values) {
+    if (!value) continue;
+    const haystack = normalizePlaceText(value);
+    if (haystack === needle) best = Math.min(best, 0);
+    else if (haystack.startsWith(needle)) best = Math.min(best, 1);
+    else if (needle.startsWith(haystack) && haystack.length >= 3) best = Math.min(best, 1.5);
+    else if (needle.split(" ").every((token) => haystack.includes(token))) best = Math.min(best, 2);
+    else if (haystack.includes(needle)) best = Math.min(best, 3);
+  }
+  return best;
 }
 
 function isUuid(value: string): boolean {

@@ -849,7 +849,7 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
     const connectUrl = !status.connected && calendarConfigured()
       ? await createCalendarConnectUrl(user.id, chatId, { enableAutoSync: true })
       : undefined;
-    await replyHtml(ctx, await formatCalendarStatus(user.id), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
+    await replyHtml(ctx, await formatCalendarStatus(user.id, status), { reply_markup: calendarSettingsKeyboard(status, connectUrl) });
     return;
   }
 

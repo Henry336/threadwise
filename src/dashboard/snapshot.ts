@@ -5,6 +5,7 @@ import { normalizeClock } from "../utils/clock";
 import type { IdeaScore } from "../ai/types";
 import { storedIdeaBrief } from "./ideaBrief";
 import type { DashboardGroupCollaboration, DashboardTaskAssignee } from "./collaboration";
+import { calendarConnectionStatus } from "../services/googleCalendar";
 
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const DASHBOARD_LIST_LIMIT = 50;
@@ -347,6 +348,9 @@ export async function getDashboardSnapshot(
 
   const quietHoursStart = normalizeClock(user.settings?.quietHoursStart);
   const quietHoursEnd = normalizeClock(user.settings?.quietHoursEnd);
+  const calendarHealth = database === prisma && !telegramId.startsWith("chat:")
+    ? await calendarConnectionStatus(user.id)
+    : undefined;
 
   return {
     user: {
@@ -461,7 +465,18 @@ export async function getDashboardSnapshot(
     },
     activity: [...activityByDate.values()],
     integrations: telegramId.startsWith("chat:") ? [] : [
-      user.calendarConnection
+      calendarHealth?.reconnectRequired
+        ? {
+            provider: "calendar",
+            name: "Calendar",
+            state: "attention",
+            detail: "Reconnect required",
+            ...(calendarHealth.email ? { accountEmail: calendarHealth.email } : {}),
+            autoSync: calendarHealth.autoSync,
+            syncedCount: calendarHealth.syncedTasks,
+            unsyncedCount: tasks.filter((task) => Boolean(task.dueAt) && !task.calendarEventId && task.status === "OPEN").length,
+          }
+        : user.calendarConnection
         ? {
             provider: "calendar",
             name: "Calendar",

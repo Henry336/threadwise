@@ -697,8 +697,8 @@ async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
       if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
       const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
       const connectUrl = await createCalendarConnectUrl(user.id, chatId, { taskId: task.id });
-      await ctx.answerCallbackQuery({ text: "Connect Calendar once" });
-      await editOrReplyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\nConnect once; this reminder will be added automatically after approval.`, {
+      await ctx.answerCallbackQuery({ text: status.reconnectRequired ? "Reconnect Calendar" : "Connect Calendar once" });
+      await editOrReplyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`, {
         reply_markup: calendarTaskKeyboard(task, connectUrl)
       });
       return;
@@ -820,7 +820,7 @@ async function showCalendarPanel(ctx: Context, userId: string, chatId: string, n
   const connectUrl = !status.connected && calendarConfigured()
     ? await createCalendarConnectUrl(userId, chatId, { enableAutoSync: true })
     : undefined;
-  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatCalendarStatus(userId)].filter(Boolean).join("\n\n"), {
+  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatCalendarStatus(userId, status)].filter(Boolean).join("\n\n"), {
     reply_markup: calendarSettingsKeyboard(status, connectUrl)
   });
 }
