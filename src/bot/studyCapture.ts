@@ -21,9 +21,12 @@ import {
   createStudyItem,
   findStudyItem,
   findStudyModule,
+  getStudyConversation,
   listStudyModules,
   rescheduleStudyItem,
+  studyConversationPayload,
   startStudySession,
+  updateStudyScheduleBlock,
   updateStudyMastery,
 } from "../services/study";
 import { buildStudyAttentionSnapshot, buildStudyWeeklyPreview } from "../services/studyAttention";
@@ -55,10 +58,17 @@ import {
   activateStudyOrigin,
   addStudyOriginFromLocation,
   addStudyOriginFromVenue,
+  buildStudyDeparturePlan,
+  clearStudyScheduleTravel,
+  currentStudyOrigin,
   deleteStudyOrigin,
   estimateStudyJourney,
+  isStudyTravelMuted,
+  listUpcomingStudyTravelBlocks,
   listStudyOrigins,
+  muteStudyTravelForToday,
   renameStudyOrigin,
+  resumeStudyTravelReminders,
   setDefaultStudyOrigin,
 } from "../services/studyTransit";
 import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
@@ -83,6 +93,7 @@ const EXTENDED_CALLBACKS = [
   "study:capm:",
   "study:origins",
   "study:origin:",
+  "study:travel",
 ] as const;
 
 type StudyMedia = {
@@ -474,6 +485,82 @@ export async function handleExtendedStudyCallback(
   }
   if (data === "study:origins") {
     await showOrigins(ctx, workspace, true);
+    return true;
+  }
+  if (data === "study:travel") {
+    await showTravelHub(ctx, workspace, true);
+    return true;
+  }
+  if (data === "study:travel:blocks") {
+    await showTravelBlocks(ctx, workspace);
+    return true;
+  }
+  if (data === "study:travel:mute") {
+    await muteStudyTravelForToday(workspace);
+    await showTravelHub(ctx, workspace, true);
+    return true;
+  }
+  if (data === "study:travel:resume") {
+    await resumeStudyTravelReminders(workspace);
+    await showTravelHub(ctx, workspace, true);
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "route" && parts[3]) {
+    await showTravelRoute(ctx, workspace, parts[3], true, true);
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "change" && parts[3]) {
+    await beginStudyConversation(workspace.id, "study_travel_origin", "choose", { blockId: parts[3] });
+    const origins = await listStudyOrigins(workspace.id);
+    const keyboard = new InlineKeyboard();
+    for (const origin of origins.slice(0, 8)) keyboard.text(origin.name, `study:travel:use:${origin.id}`).row();
+    keyboard.text("Add origin", "study:origin:add").text("Back", `study:travel:route:${parts[3]}`);
+    await editOrReplyHtml(ctx, `${bold("Change origin")}\nChoose where this journey starts.`, { reply_markup: keyboard });
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "use" && parts[3]) {
+    const conversation = await getStudyConversation(workspace.id);
+    const payload = conversation ? studyConversationPayload(conversation.payload) : {};
+    const blockId = typeof payload.blockId === "string" ? payload.blockId : undefined;
+    if (!blockId || conversation?.kind !== "study_travel_origin") throw new StudyModeError("That origin picker expired. Open Travel and try again.", "invalid");
+    await updateStudyScheduleBlock(workspace, blockId, { defaultOriginId: parts[3] });
+    await activateStudyOrigin(workspace, parts[3], 4);
+    await clearStudyConversation(workspace.id);
+    await showTravelRoute(ctx, workspace, blockId, true, true);
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "arrived" && parts[3]) {
+    await prisma.auditLog.create({ data: { userId: workspace.ownerUserId, action: "study.travel.arrived", metadata: { workspaceId: workspace.id, blockId: parts[3] } } });
+    await editOrReplyHtml(ctx, `${bold("You’re here")}\nTravel reminder closed.`, { reply_markup: new InlineKeyboard().text("Travel", "study:travel") });
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "set" && parts[3]) {
+    await beginStudyConversation(workspace.id, "study_travel_block", "details", { blockId: parts[3] });
+    await editOrReplyHtml(ctx, [
+      bold("Class travel"),
+      `Reply with ${code("Destination | Origin | Buffer")}.`,
+      `Example: ${code("COM3 | Home | 15")}`,
+      `Use ${code("COM3")} to keep the current origin and buffer, or ${code("off")} to remove travel reminders.`,
+    ].join("\n"), { reply_markup: new InlineKeyboard().text("Cancel", "study:cancel") });
+    return true;
+  }
+  if (parts[1] === "travel" && parts[2] === "remove" && parts[3]) {
+    await clearStudyScheduleTravel(workspace, parts[3]);
+    await showTravelBlocks(ctx, workspace);
+    return true;
+  }
+  if (data === "study:origin:add") {
+    await beginStudyConversation(workspace.id, "study_origin_add", "details", {});
+    await editOrReplyHtml(ctx, [bold("Add travel origin"), `Reply with ${code("Name | nearby campus venue or bus stop")}.`, `Example: ${code("Home | Kent Ridge MRT")}`].join("\n"), {
+      reply_markup: new InlineKeyboard().text("Cancel", "study:cancel"),
+    });
+    return true;
+  }
+  if (parts[1] === "origin" && parts[2] === "rename" && parts[3]) {
+    await beginStudyConversation(workspace.id, "study_origin_rename", "name", { originId: parts[3] });
+    await editOrReplyHtml(ctx, `${bold("Rename origin")}\nReply with the new short name.`, {
+      reply_markup: new InlineKeyboard().text("Cancel", "study:cancel"),
+    });
     return true;
   }
   if (parts[1] === "origin" && parts[2] && parts[3]) {
@@ -1037,8 +1124,78 @@ function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
     .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
     .text("Modules", "study:modules").text("Canvas", "study:canvas:status").row()
     .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
-    .text("Weekly preview", "study:preview").text("Setup", "study:onboarding").row()
+    .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
+    .text("Setup", "study:onboarding").row()
     .text("Master sheet", "study:dashboard").url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+}
+
+async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
+  const [fresh, origin, upcoming] = await Promise.all([
+    prisma.studyWorkspace.findUniqueOrThrow({ where: { id: workspace.id } }),
+    currentStudyOrigin(workspace),
+    listUpcomingStudyTravelBlocks(workspace),
+  ]);
+  const muted = isStudyTravelMuted(fresh);
+  const text = [
+    bold("Travel"),
+    origin ? `From · ${h(origin.name)}` : "No origin saved.",
+    muted ? "Departure reminders are muted for today." : "Live routes refresh before configured classes.",
+    "",
+    bold("Upcoming destinations"),
+    ...(upcoming.length
+      ? upcoming.slice(0, 5).map(({ block, startsAt }) => `${h(DateTime.fromJSDate(startsAt).setZone(workspace.timezone).toFormat("ccc h:mm a"))} · ${h(block.venueName ?? block.label)}`)
+      : ["No class destinations configured."]),
+  ].join("\n");
+  const keyboard = new InlineKeyboard();
+  for (const { block } of upcoming.slice(0, 3)) keyboard.text(`Refresh ${truncate(block.venueName ?? block.label, 22)}`, `study:travel:route:${block.id}`).row();
+  keyboard.text("Saved origins", "study:origins").text("Class destinations", "study:travel:blocks").row();
+  if (muted) keyboard.text("Resume reminders", "study:travel:resume").row();
+  else keyboard.text("Mute today", "study:travel:mute").row();
+  keyboard.text("Home", "study:dashboard");
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+  else await replyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+async function showTravelBlocks(ctx: Context, workspace: StudyWorkspace): Promise<void> {
+  const blocks = await prisma.studyScheduleBlock.findMany({
+    where: { workspaceId: workspace.id, active: true },
+    include: { module: true, defaultOrigin: true },
+    orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+    take: 12,
+  });
+  const text = [
+    bold("Class destinations"),
+    blocks.length ? "Choose a timetable block." : "Add timetable blocks from Study dashboard settings first.",
+    ...blocks.map((block) => `${block.destinationStopId ? "✓" : "○"} ${h(block.module?.code ?? block.label)} · ${h(block.startTime)}${block.venueName ? ` · ${h(block.venueName)}` : ""}`),
+  ].join("\n");
+  const keyboard = new InlineKeyboard();
+  for (const block of blocks.slice(0, 8)) {
+    keyboard.text(`${block.destinationStopId ? "Edit" : "Set"} ${truncate(block.module?.code ?? block.label, 18)}`, `study:travel:set:${block.id}`);
+    if (block.destinationStopId) keyboard.text("Remove", `study:travel:remove:${block.id}`);
+    keyboard.row();
+  }
+  keyboard.text("Back", "study:travel");
+  await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId: string, edit = false, force = false): Promise<void> {
+  const plan = await buildStudyDeparturePlan(workspace, blockId, { force });
+  const starts = DateTime.fromJSDate(plan.startsAt).setZone(workspace.timezone);
+  const leaves = DateTime.fromJSDate(plan.leaveAt).setZone(workspace.timezone);
+  const text = [
+    bold(`Leave by ${leaves.toFormat("h:mm a")}`),
+    `${h(plan.journey.services.length ? plan.journey.services.join(" → ") : "Usual route")} from ${h(plan.journey.boardingStop.title)}`,
+    plan.live && plan.journey.waitMinutes !== undefined ? `Live arrival · ${plan.journey.waitMinutes} min` : "Live buses unavailable · normal estimate",
+    plan.journey.walkMinutes !== undefined ? `Walk · ~${plan.journey.walkMinutes} min` : undefined,
+    `Journey · ~${Math.max(1, plan.journey.totalMinutes ?? 30)} min + ${plan.block.travelBufferMinutes} min buffer`,
+    `${h(plan.block.venueName ?? plan.journey.destinationStop.title)} · ${starts.toFormat("ccc h:mm a")}`,
+  ].filter(Boolean).join("\n");
+  const keyboard = new InlineKeyboard()
+    .text("Refresh", `study:travel:route:${plan.block.id}`).text("Change origin", `study:travel:change:${plan.block.id}`).row()
+    .text("I’m here", `study:travel:arrived:${plan.block.id}`).text("Mute today", "study:travel:mute").row()
+    .text("Travel", "study:travel");
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+  else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
 function captureChoiceKeyboard(token: string): InlineKeyboard {

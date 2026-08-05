@@ -4,6 +4,8 @@ import {
   DashboardStudyAccessError,
   requireDashboardStudyWorkspace,
   studyModuleCreateSchema,
+  studyScheduleCreateSchema,
+  studyScheduleUpdateSchema,
 } from "./study";
 import type { DashboardWorkspaceScope } from "./workspaces";
 
@@ -78,5 +80,21 @@ describe("Study dashboard input contracts", () => {
       name: "Computer Organisation",
       color: "#168b83",
     });
+  });
+
+  it("accepts an optional live-travel destination on a schedule block", () => {
+    expect(studyScheduleCreateSchema.parse({
+      dayOfWeek: 3,
+      startTime: "14:00",
+      endTime: "16:00",
+      label: "CS2100 lecture",
+      destination: "COM3",
+      defaultOriginId: "dfe7ff93-a82a-44d6-af67-fc64d29012bf",
+      travelBufferMinutes: 15,
+    })).toMatchObject({ destination: "COM3", travelBufferMinutes: 15 });
+  });
+
+  it("allows travel reminders to be disabled without deleting the block", () => {
+    expect(studyScheduleUpdateSchema.parse({ destination: null })).toEqual({ destination: null });
   });
 });

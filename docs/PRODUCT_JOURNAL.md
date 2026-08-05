@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 5 August 2026 — A route query is not yet a commute workflow
+
+**Friction discovered:** Study Mode could answer an explicit “How do I get to COM3?” request, and schedule blocks already contained dormant venue, stop, origin, buffer, and `CLASS_DEPARTURE` fields. But Travel was absent from Study home, class blocks could not configure those fields through the interfaces, and proactive reminders remained generic. The owner therefore had no dependable place to check upcoming routes and would not be told which bus to take before class.
+
+**Decision:** Treat travel as a focused Study coordination aid rather than a separate transit product. Configure it on recurring class blocks, refresh live data only near departure, keep all calculation deterministic, and always retain a normal travel estimate when the external live provider is unavailable.
+
+**Implementation:** Added a Travel home with current origin, upcoming destinations, saved origins, and live refresh; Telegram and dashboard block-level destination/origin/buffer controls; three-minute route caching; leave-by calculation; compact departure cards with Refresh, Change origin, I’m here, and Mute today; and an end-of-day mute. Live-route failure falls back to a 30-minute normal journey plus the configured buffer instead of dropping the reminder.
+
+**Outcome/evidence:** Focused tests verify live-duration arithmetic, fallback timing, mute expiry, schedule creation with travel, and disabling travel without deleting the timetable block. Existing deterministic natural-language route queries remain available. Dashboard TypeScript and lint checks pass; targeted backend tests pass. Local full builds remain blocked by Windows locks held by already-running development processes, so clean CI/deployment builds must provide the final generated-client and production-bundle verification.
+
+**Follow-up:** After deployment, configure one real class destination, verify a live route in Telegram and the dashboard, test Change origin, and observe one genuine pre-class reminder. Compare the suggested leave time with Improved NextBus and adjust the per-class buffer if needed.
+
 ## 5 August 2026 — A private dashboard still needs a visible front door
 
 **Friction discovered:** The private Study dashboard was deployed and correctly isolated, but neither Telegram Study-home variant linked to it. The word `dashboard` was also classified as a request for the Telegram master sheet, so the owner could know the web workspace existed and still have no discoverable way to open it.

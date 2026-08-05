@@ -16,6 +16,7 @@ import { isWithinQuietHours, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek } from "./study";
 import { buildStudyWeeklyPreview } from "./studyAttention";
+import { buildStudyDeparturePlan, isStudyTravelMuted } from "./studyTransit";
 
 type Candidate = {
   kind: StudyReminderKind;
@@ -248,16 +249,44 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
       keyboard: new InlineKeyboard().text("Complete", `study:item:done:${item.id}`).text("Reschedule", `study:item:reschedule:${item.id}`).row().text("Dashboard", "study:dashboard"),
     });
   }
-  if (workspace.studyBlockRemindersEnabled) {
-    const blocks = await prisma.studyScheduleBlock.findMany({
-      where: { workspaceId: workspace.id, active: true, dayOfWeek: local.weekday },
-      include: { module: true },
-    });
-    for (const block of blocks) {
+  const blocks = await prisma.studyScheduleBlock.findMany({
+    where: { workspaceId: workspace.id, active: true, dayOfWeek: local.weekday },
+    include: { module: true },
+  });
+  for (const block of blocks) {
       if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) continue;
       const clock = parseClock(block.startTime);
       if (!clock) continue;
       const starts = local.startOf("day").set(clock);
+      if (block.destinationStopId && block.venueName) {
+        if (isStudyTravelMuted(workspace, now)) continue;
+        // Consult Improved NextBus only close to departure. This keeps the
+        // minute-level reminder pass light while still using current arrivals.
+        if (local < starts.minus({ minutes: 150 }) || local > starts.plus({ minutes: 15 })) continue;
+        const plan = await buildStudyDeparturePlan(workspace, block.id, { startsAt: starts.toUTC().toJSDate() });
+        const leaveAt = DateTime.fromJSDate(plan.leaveAt).setZone(workspace.timezone);
+        if (local < leaveAt || local > starts.plus({ minutes: 15 })) continue;
+        const service = plan.journey.services.length ? plan.journey.services.join(" → ") : "Use the usual route";
+        candidates.push({
+          kind: StudyReminderKind.CLASS_DEPARTURE,
+          entityKey: `${block.id}:${starts.toISODate()}`,
+          scheduledFor: plan.leaveAt,
+          text: [
+            bold(`Leave by ${leaveAt.toFormat("h:mm a")}`),
+            `${h(service)} from ${h(plan.journey.boardingStop.title)}`,
+            plan.live && plan.journey.waitMinutes !== undefined
+              ? `Live arrival: ${plan.journey.waitMinutes} min · ${h(block.venueName)}`
+              : `Allow about ${Math.max(1, plan.journey.totalMinutes ?? 30) + block.travelBufferMinutes} min · ${h(block.venueName)}`,
+            `${block.module ? `${h(block.module.code)} · ` : ""}${starts.toFormat("h:mm a")}`,
+            plan.live ? undefined : "Live buses unavailable · normal estimate used",
+          ].filter(Boolean).join("\n"),
+          keyboard: new InlineKeyboard()
+            .text("Refresh", `study:travel:route:${block.id}`).text("Change origin", `study:travel:change:${block.id}`).row()
+            .text("I’m here", `study:travel:arrived:${block.id}`).text("Mute today", "study:travel:mute"),
+        });
+        continue;
+      }
+      if (!workspace.studyBlockRemindersEnabled) continue;
       const remindAt = starts.minus({ minutes: block.reminderLeadMinutes });
       if (local < remindAt || local > starts.plus({ minutes: 30 })) continue;
       candidates.push({
@@ -267,7 +296,6 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
         text: [bold(block.label), block.module ? `${block.module.code} · ${starts.toFormat("h:mm a")}` : starts.toFormat("h:mm a")].join("\n"),
         keyboard: block.module ? new InlineKeyboard().text("Start session", `study:session:module:${block.module.id}`) : undefined,
       });
-    }
   }
   if (weekNumber >= workspace.timedPracticeStartWeek && local.weekday === 7 && local.hour >= 18) {
     const range = academicWeekRange(workspace, weekNumber);

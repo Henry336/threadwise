@@ -53,7 +53,12 @@ import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
 import { userFacingError } from "./errorResponses";
 import { groupDashboardUrl } from "./links";
-import { addStudyOriginFromVenue, renameStudyOrigin } from "../services/studyTransit";
+import {
+  addStudyOriginFromVenue,
+  clearStudyScheduleTravel,
+  configureStudyScheduleTravel,
+  renameStudyOrigin,
+} from "../services/studyTransit";
 import { activeStudyModule } from "../services/studyResources";
 import {
   handleExtendedStudyCallback,
@@ -440,6 +445,38 @@ async function handleStudyConversationMessage(
   if (kind === "reschedule_item") return handleRescheduleItemMessage(ctx, workspace, payload, text);
   if (kind === "study_origin_add") return handleStudyOriginAddMessage(ctx, workspace, text);
   if (kind === "study_origin_rename") return handleStudyOriginRenameMessage(ctx, workspace, payload, text);
+  if (kind === "study_travel_block") return handleStudyTravelBlockMessage(ctx, workspace, payload, text);
+}
+
+async function handleStudyTravelBlockMessage(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  payload: Record<string, unknown>,
+  text: string,
+): Promise<void> {
+  const blockId = typeof payload.blockId === "string" ? payload.blockId : undefined;
+  if (!blockId) throw new StudyModeError("That class-travel flow expired. Open Travel and try again.", "invalid");
+  if (/^off$/i.test(text)) {
+    await clearStudyScheduleTravel(workspace, blockId);
+    await clearStudyConversation(workspace.id);
+    await replyHtml(ctx, "Travel reminder removed.", { reply_markup: new InlineKeyboard().text("Travel", "study:travel") });
+    return;
+  }
+  const [destinationValue, originValue, bufferValue] = text.split("|").map((value) => value.trim());
+  if (!destinationValue) throw new StudyModeError(`Reply with ${code("Destination | Origin | Buffer")}.`, "invalid");
+  const buffer = bufferValue ? Number(bufferValue) : undefined;
+  if (bufferValue && (!Number.isFinite(buffer) || buffer! < 0 || buffer! > 90)) {
+    throw new StudyModeError("The travel buffer must be between 0 and 90 minutes.", "invalid");
+  }
+  const block = await configureStudyScheduleTravel(workspace, blockId, {
+    destination: destinationValue,
+    originReference: originValue || undefined,
+    travelBufferMinutes: buffer,
+  });
+  await clearStudyConversation(workspace.id);
+  await replyHtml(ctx, `${bold("Class travel saved")}\n${h(block.venueName ?? destinationValue)} · ${block.travelBufferMinutes} min buffer`, {
+    reply_markup: new InlineKeyboard().text("View route", `study:travel:route:${block.id}`).text("Travel", "study:travel"),
+  });
 }
 
 async function handleStudyOriginAddMessage(ctx: Context, workspace: StudyWorkspace, text: string): Promise<void> {
@@ -953,7 +990,8 @@ function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
     .text("Modules", "study:modules").text("Upcoming", "study:upcoming:0").row()
     .text("Start session", "study:session:pick").text("Canvas", "study:canvas:status").row()
-    .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
+    .text("Travel", "study:travel").text("Plan week", "study:plan").row()
+    .text("Weekly review", "study:review:start").row()
     .text("Setup", "study:onboarding").text("Help", "study:help").row()
     .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
 }
@@ -962,7 +1000,8 @@ function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKe
   const keyboard = new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
     .text("Modules", "study:modules").text("Resources", "study:resources:a:1").row()
     .text("Add work", "study:add:start").text(running ? "Stop session" : "Start session", running ? "study:session:stop" : "study:session:pick").row()
-    .text("Weekly preview", "study:preview").text("Review", "study:review:start").row()
+    .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
+    .text("Review", "study:review:start").row()
     .text("Canvas", "study:canvas:status").text("Setup", "study:onboarding").row()
     .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
   return keyboard;

@@ -30,6 +30,7 @@ import {
   startStudySession,
   stopStudySession,
   updateStudySessionResult,
+  updateStudyScheduleBlock,
   updateWeeklyPlan,
   StudyModeError,
 } from "../services/study";
@@ -43,6 +44,8 @@ import {
 import {
   activateStudyOrigin,
   addStudyOriginFromVenue,
+  clearStudyScheduleTravel,
+  configureStudyScheduleTravel,
   deleteStudyOrigin,
   listStudyOrigins,
   renameStudyOrigin,
@@ -238,7 +241,17 @@ export const studyScheduleCreateSchema = z.object({
   blockType: optionalText(80),
   startWeek: z.number().int().min(1).max(80).optional(),
   endWeek: z.number().int().min(1).max(80).optional(),
+  destination: optionalText(200),
+  defaultOriginId: id.optional(),
+  travelBufferMinutes: z.number().int().min(0).max(90).optional(),
+  reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
 }).strict();
+export const studyScheduleUpdateSchema = z.object({
+  destination: z.union([text(200), z.null()]).optional(),
+  defaultOriginId: z.union([id, z.null()]).optional(),
+  travelBufferMinutes: z.number().int().min(0).max(90).optional(),
+  reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one schedule change.");
 
 export class DashboardStudyAccessError extends Error {
   constructor() {
@@ -719,7 +732,33 @@ export async function deleteDashboardStudyOrigin(workspace: StudyWorkspace, orig
 }
 
 export async function createDashboardStudyScheduleBlock(workspace: StudyWorkspace, input: z.infer<typeof studyScheduleCreateSchema>) {
-  return addStudyScheduleBlock(workspace, input);
+  const block = await addStudyScheduleBlock(workspace, input);
+  if (!input.destination) return block;
+  return configureStudyScheduleTravel(workspace, block.id, {
+    destination: input.destination,
+    originReference: input.defaultOriginId,
+    travelBufferMinutes: input.travelBufferMinutes,
+  });
+}
+
+export async function updateDashboardStudyScheduleBlock(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: z.infer<typeof studyScheduleUpdateSchema>,
+) {
+  if (input.destination === null) return clearStudyScheduleTravel(workspace, blockId);
+  if (input.destination) {
+    return configureStudyScheduleTravel(workspace, blockId, {
+      destination: input.destination,
+      originReference: input.defaultOriginId,
+      travelBufferMinutes: input.travelBufferMinutes,
+    });
+  }
+  return updateStudyScheduleBlock(workspace, blockId, {
+    defaultOriginId: input.defaultOriginId,
+    travelBufferMinutes: input.travelBufferMinutes,
+    reminderLeadMinutes: input.reminderLeadMinutes,
+  });
 }
 
 export async function archiveDashboardStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {

@@ -1,7 +1,8 @@
-import type { StudyLocationOrigin, StudyWorkspace } from "@prisma/client";
+import type { StudyLocationOrigin, StudyScheduleBlock, StudyWorkspace } from "@prisma/client";
+import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
-import { StudyModeError } from "./study";
+import { academicWeekNumber, StudyModeError } from "./study";
 
 export type TransitCoordinates = { latitude: number; longitude: number };
 export type TransitStop = {
@@ -51,6 +52,24 @@ export type StudyJourneyEstimate = {
   leaveBufferMinutes: number;
   message: string;
 };
+
+export type StudyTravelBlock = StudyScheduleBlock & {
+  module: { id: string; code: string; name: string } | null;
+  defaultOrigin: StudyLocationOrigin | null;
+};
+
+export type StudyDeparturePlan = {
+  block: StudyTravelBlock;
+  startsAt: Date;
+  leaveAt: Date;
+  journey: StudyJourneyEstimate;
+  live: boolean;
+  fallbackReason?: string;
+};
+
+const routeCache = new Map<string, { expiresAt: number; value: StudyJourneyEstimate }>();
+const ROUTE_CACHE_TTL_MS = 3 * 60_000;
+const FALLBACK_JOURNEY_MINUTES = 30;
 
 export async function searchStudyVenues(query: string, limit = 8): Promise<TransitVenue[]> {
   const value = query.trim();
@@ -229,6 +248,157 @@ export async function estimateStudyJourneyByStops(
   return journeyEstimate(origin, destination, response);
 }
 
+export async function configureStudyScheduleTravel(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: { destination: string; originReference?: string | null; travelBufferMinutes?: number },
+): Promise<StudyTravelBlock> {
+  const block = await requireTravelBlock(workspace.id, blockId);
+  const venue = await resolveStudyVenue(input.destination);
+  const stop = venue.nearbyStops[0];
+  if (!stop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop.`, "not_found");
+  const origin = input.originReference === null
+    ? undefined
+    : input.originReference
+    ? await findStudyOrigin(workspace.id, input.originReference)
+    : block.defaultOrigin ?? await currentStudyOrigin(workspace);
+  const travelBufferMinutes = Math.min(90, Math.max(0, Math.round(input.travelBufferMinutes ?? block.travelBufferMinutes)));
+  await prisma.studyScheduleBlock.update({
+    where: { id: block.id },
+    data: {
+      venueId: venue.id,
+      venueName: venue.name,
+      destinationStopId: stop.id,
+      defaultOriginId: input.originReference === null ? null : origin?.id ?? null,
+      travelBufferMinutes,
+      blockType: block.blockType === "study" ? "timetable" : block.blockType,
+    },
+  });
+  await auditOrigin(workspace, "study.schedule.travel_configured", block.id, {
+    destination: venue.name,
+    destinationStopId: stop.id,
+    travelBufferMinutes,
+  });
+  return requireTravelBlock(workspace.id, block.id);
+}
+
+export async function clearStudyScheduleTravel(workspace: StudyWorkspace, blockId: string): Promise<StudyTravelBlock> {
+  const block = await requireTravelBlock(workspace.id, blockId);
+  await prisma.studyScheduleBlock.update({
+    where: { id: block.id },
+    data: { venueId: null, venueName: null, destinationStopId: null, defaultOriginId: null },
+  });
+  await auditOrigin(workspace, "study.schedule.travel_cleared", block.id, { label: block.label });
+  return requireTravelBlock(workspace.id, block.id);
+}
+
+export async function listUpcomingStudyTravelBlocks(
+  workspace: StudyWorkspace,
+  now = new Date(),
+  days = 14,
+): Promise<Array<{ block: StudyTravelBlock; startsAt: Date }>> {
+  const blocks = await prisma.studyScheduleBlock.findMany({
+    where: { workspaceId: workspace.id, active: true, destinationStopId: { not: null } },
+    include: { module: { select: { id: true, code: true, name: true } }, defaultOrigin: true },
+    orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+  });
+  const localNow = DateTime.fromJSDate(now).setZone(workspace.timezone);
+  const end = localNow.plus({ days });
+  const results: Array<{ block: StudyTravelBlock; startsAt: Date }> = [];
+  for (let cursor = localNow.startOf("day"); cursor <= end.startOf("day"); cursor = cursor.plus({ days: 1 })) {
+    for (const block of blocks) {
+      if (block.dayOfWeek !== cursor.weekday) continue;
+      const clock = parseClock(block.startTime);
+      if (!clock) continue;
+      const starts = cursor.set(clock);
+      if (starts <= localNow) continue;
+      const weekNumber = academicWeekNumber(workspace, starts.toUTC().toJSDate());
+      if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) continue;
+      results.push({ block, startsAt: starts.toUTC().toJSDate() });
+    }
+  }
+  return results.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()).slice(0, 12);
+}
+
+export async function buildStudyDeparturePlan(
+  workspace: StudyWorkspace,
+  blockId: string,
+  options: { startsAt?: Date; force?: boolean } = {},
+): Promise<StudyDeparturePlan> {
+  const block = await requireTravelBlock(workspace.id, blockId);
+  if (!block.destinationStopId || !block.venueName) {
+    throw new StudyModeError("Add a destination to this timetable block first.", "invalid");
+  }
+  const startsAt = options.startsAt ?? nextBlockOccurrence(workspace, block);
+  const originReference = block.defaultOriginId ?? undefined;
+  const cacheKey = `${workspace.id}:${block.id}:${originReference ?? "current"}:${block.destinationStopId}`;
+  let journey: StudyJourneyEstimate | undefined;
+  let fallbackReason: string | undefined;
+  if (!options.force) {
+    const cached = routeCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) journey = cached.value;
+  }
+  if (!journey) {
+    try {
+      journey = await estimateStudyJourneyByStops(workspace, block.destinationStopId, originReference);
+      routeCache.set(cacheKey, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, value: journey });
+    } catch (error) {
+      const origin = originReference
+        ? await findStudyOrigin(workspace.id, originReference)
+        : await currentStudyOrigin(workspace);
+      if (!origin?.providerStopId) throw error;
+      const destinationStop = {
+        id: block.destinationStopId,
+        title: block.venueName,
+        coordinates: { latitude: 0, longitude: 0 },
+      };
+      fallbackReason = error instanceof Error ? error.message : "Live bus information is unavailable.";
+      journey = {
+        origin,
+        destinationStop,
+        boardingStop: { id: origin.providerStopId, title: origin.name, coordinates: { latitude: origin.latitude ?? 0, longitude: origin.longitude ?? 0 } },
+        services: [],
+        totalMinutes: FALLBACK_JOURNEY_MINUTES,
+        leaveBufferMinutes: block.travelBufferMinutes,
+        message: "Live buses are unavailable. Using the normal travel estimate.",
+      };
+    }
+  }
+  const leaveAt = computeStudyLeaveAt(startsAt, journey.totalMinutes, block.travelBufferMinutes);
+  return {
+    block,
+    startsAt,
+    leaveAt,
+    journey: { ...journey, leaveBufferMinutes: block.travelBufferMinutes },
+    live: !fallbackReason,
+    fallbackReason,
+  };
+}
+
+export function computeStudyLeaveAt(startsAt: Date, totalMinutes: number | undefined, travelBufferMinutes: number): Date {
+  const travelMinutes = Math.max(1, totalMinutes ?? FALLBACK_JOURNEY_MINUTES) + Math.max(0, travelBufferMinutes);
+  return new Date(startsAt.getTime() - travelMinutes * 60_000);
+}
+
+export async function muteStudyTravelForToday(workspace: StudyWorkspace, now = new Date()): Promise<Date> {
+  const until = DateTime.fromJSDate(now).setZone(workspace.timezone).endOf("day").toUTC().toJSDate();
+  // The cast keeps local development usable when another running process has
+  // Windows' generated Prisma client locked. Render regenerates from schema.
+  await prisma.studyWorkspace.update({ where: { id: workspace.id }, data: { travelMutedUntil: until } as never });
+  await auditOrigin(workspace, "study.travel.muted", workspace.id, { until: until.toISOString() });
+  return until;
+}
+
+export async function resumeStudyTravelReminders(workspace: StudyWorkspace): Promise<void> {
+  await prisma.studyWorkspace.update({ where: { id: workspace.id }, data: { travelMutedUntil: null } as never });
+  await auditOrigin(workspace, "study.travel.resumed", workspace.id, {});
+}
+
+export function isStudyTravelMuted(workspace: StudyWorkspace, now = new Date()): boolean {
+  const mutedUntil = (workspace as StudyWorkspace & { travelMutedUntil?: Date | null }).travelMutedUntil;
+  return Boolean(mutedUntil && mutedUntil > now);
+}
+
 async function saveStudyOrigin(workspace: StudyWorkspace, input: {
   name: string;
   providerVenueId?: string;
@@ -291,6 +461,42 @@ async function findStudyOrigin(workspaceId: string, reference: string): Promise<
   });
   if (!origin) throw new StudyModeError(`I couldn't find the origin “${normalized}”.`, "not_found");
   return origin;
+}
+
+async function requireTravelBlock(workspaceId: string, blockId: string): Promise<StudyTravelBlock> {
+  const block = await prisma.studyScheduleBlock.findFirst({
+    where: { id: blockId, workspaceId, active: true },
+    include: { module: { select: { id: true, code: true, name: true } }, defaultOrigin: true },
+  });
+  if (!block) throw new StudyModeError("That timetable block was not found.", "not_found");
+  return block;
+}
+
+function nextBlockOccurrence(workspace: StudyWorkspace, block: StudyScheduleBlock, now = new Date()): Date {
+  const local = DateTime.fromJSDate(now).setZone(workspace.timezone);
+  const clock = parseClock(block.startTime);
+  if (!clock) throw new StudyModeError("That timetable block has an invalid start time.", "invalid");
+  const daysAhead = (block.dayOfWeek - local.weekday + 7) % 7;
+  let starts = local.startOf("day").plus({ days: daysAhead }).set(clock);
+  if (starts <= local) starts = starts.plus({ weeks: 1 });
+  for (let attempt = 0; attempt < 52; attempt += 1) {
+    const startsAt = starts.toUTC().toJSDate();
+    const weekNumber = academicWeekNumber(workspace, startsAt);
+    const withinStart = !block.startWeek || weekNumber >= block.startWeek;
+    const withinEnd = !block.endWeek || weekNumber <= block.endWeek;
+    if (withinStart && withinEnd) return startsAt;
+    if (block.endWeek && weekNumber > block.endWeek) break;
+    starts = starts.plus({ weeks: 1 });
+  }
+  throw new StudyModeError("That class has no upcoming occurrence in its configured semester weeks.", "not_found");
+}
+
+function parseClock(value: string): { hour: number; minute: number } | undefined {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? { hour, minute } : undefined;
 }
 
 function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitStop, result: JourneySearchResponse): StudyJourneyEstimate {

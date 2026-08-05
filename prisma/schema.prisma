@@ -300,6 +300,7 @@ model StudyWorkspace {
   activeModuleId             String?
   activeOriginId             String?
   activeOriginUntil          DateTime?
+  travelMutedUntil           DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 

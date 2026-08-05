@@ -813,7 +813,22 @@ export async function listStudyScheduleBlocks(workspaceId: string) {
 
 export async function addStudyScheduleBlock(
   workspace: StudyWorkspace,
-  input: { dayOfWeek: number; startTime: string; endTime: string; label: string; moduleId?: string; blockType?: string; startWeek?: number; endWeek?: number },
+  input: {
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    label: string;
+    moduleId?: string;
+    blockType?: string;
+    startWeek?: number;
+    endWeek?: number;
+    venueId?: string;
+    venueName?: string;
+    destinationStopId?: string;
+    defaultOriginId?: string;
+    travelBufferMinutes?: number;
+    reminderLeadMinutes?: number;
+  },
 ) {
   if (!Number.isInteger(input.dayOfWeek) || input.dayOfWeek < 1 || input.dayOfWeek > 7) throw new StudyModeError("Day must be Monday through Sunday.", "invalid");
   const startTime = normalizeClock(input.startTime);
@@ -822,6 +837,14 @@ export async function addStudyScheduleBlock(
     throw new StudyModeError("Use a valid time range such as 14:00-16:00.", "invalid");
   }
   if (input.moduleId) await requireModule(workspace.id, input.moduleId);
+  if (input.defaultOriginId) {
+    const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
+    if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
+  }
+  if (input.defaultOriginId) {
+    const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
+    if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
+  }
   const block = await prisma.studyScheduleBlock.create({
     data: {
       workspaceId: workspace.id,
@@ -833,10 +856,61 @@ export async function addStudyScheduleBlock(
       blockType: input.blockType ?? "study",
       startWeek: input.startWeek,
       endWeek: input.endWeek,
+      venueId: input.venueId,
+      venueName: input.venueName,
+      destinationStopId: input.destinationStopId,
+      defaultOriginId: input.defaultOriginId,
+      travelBufferMinutes: input.travelBufferMinutes,
+      reminderLeadMinutes: input.reminderLeadMinutes,
     },
   });
   await auditStudy(workspace.ownerUserId, "study.schedule.created", { workspaceId: workspace.id, blockId: block.id, label: block.label });
   return block;
+}
+
+export async function updateStudyScheduleBlock(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: {
+    venueId?: string | null;
+    venueName?: string | null;
+    destinationStopId?: string | null;
+    defaultOriginId?: string | null;
+    travelBufferMinutes?: number;
+    reminderLeadMinutes?: number;
+  },
+) {
+  const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id, active: true } });
+  if (!block) throw new StudyModeError("That schedule block was not found.", "not_found");
+  if (input.defaultOriginId) {
+    const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
+    if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
+  }
+  const travelBufferMinutes = input.travelBufferMinutes === undefined
+    ? undefined
+    : Math.min(90, Math.max(0, Math.round(input.travelBufferMinutes)));
+  const reminderLeadMinutes = input.reminderLeadMinutes === undefined
+    ? undefined
+    : Math.min(120, Math.max(0, Math.round(input.reminderLeadMinutes)));
+  const updated = await prisma.studyScheduleBlock.update({
+    where: { id: block.id },
+    data: {
+      venueId: input.venueId,
+      venueName: input.venueName,
+      destinationStopId: input.destinationStopId,
+      defaultOriginId: input.defaultOriginId,
+      travelBufferMinutes,
+      reminderLeadMinutes,
+    },
+  });
+  await auditStudy(workspace.ownerUserId, "study.schedule.travel_updated", {
+    workspaceId: workspace.id,
+    blockId,
+    destination: updated.venueName,
+    defaultOriginId: updated.defaultOriginId,
+    travelBufferMinutes: updated.travelBufferMinutes,
+  });
+  return updated;
 }
 
 export async function archiveStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {

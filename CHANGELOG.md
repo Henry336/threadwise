@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Live Study travel and class-departure reminders
+- Closed the gap between on-demand Improved NextBus route queries and the recurring Study timetable. Study home now includes a dedicated Travel surface with the current origin, saved origins, upcoming configured destinations, and direct live-route refreshes.
+- Connected the existing timetable venue, destination-stop, usual-origin, travel-buffer, and reminder fields to both Telegram and the private Study dashboard. Telegram offers a compact guided `Destination | Origin | Buffer` flow; the dashboard adds progressive inline travel controls to each recurring block.
+- Added proactive `CLASS_DEPARTURE` reminders that calculate a leave-by time from live arrivals and route duration shortly before class, while caching live results for three minutes so the minute-level reminder loop remains efficient.
+- Added compact `Refresh`, `Change origin`, `I’m here`, and `Mute today` actions. Origin changes update both the selected class and the temporary current origin; muting expires at the end of the Study timezone's day.
+- Added a deterministic 30-minute normal-journey fallback when Improved NextBus times out or cannot return a route, so a provider outage degrades the reminder rather than suppressing it.
+- Added a migration for per-day travel muting plus focused timing, fallback, mute-expiry, dashboard schema, and disable-travel tests.
+
 ### Private Study dashboard
 - Added a secure `Study dashboard` button to every Telegram Study-home variant. Typing `dashboard` now returns the same direct workspace link instead of ambiguously reopening the Telegram master sheet.
 - Added a dedicated Study workspace to the authenticated dashboard with Overview, Module Shelf, Work, Library, Review, live Search, Deep Work, and Settings. It is a separate information architecture rather than a recoloured personal or group dashboard.

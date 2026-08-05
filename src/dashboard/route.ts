@@ -150,6 +150,7 @@ import {
   studyResourceQuerySchema,
   studyResourceUpdateSchema,
   studyScheduleCreateSchema,
+  studyScheduleUpdateSchema,
   studySearchQuerySchema,
   studySessionResultSchema,
   studySessionStartSchema,
@@ -162,6 +163,7 @@ import {
   updateDashboardStudyModule,
   updateDashboardStudyOrigin,
   updateDashboardStudyResource,
+  updateDashboardStudyScheduleBlock,
   updateDashboardStudySession,
   updateDashboardStudySettings,
 } from "./study";
@@ -547,6 +549,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const workspace = await requireDashboardStudyWorkspace(scope);
     return { block: await createDashboardStudyScheduleBlock(workspace, studyScheduleCreateSchema.parse(request.body)) };
   }, "study_create_schedule"));
+
+  server.patch("/api/v1/dashboard/study/schedule/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { block: await updateDashboardStudyScheduleBlock(workspace, id, studyScheduleUpdateSchema.parse(request.body)) };
+  }, "study_update_schedule"));
 
   server.delete("/api/v1/dashboard/study/schedule/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
