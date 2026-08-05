@@ -5,6 +5,7 @@ import { parseDueDate } from "../utils/dates";
 export type StudyNaturalIntent =
   | { kind: "menu" }
   | { kind: "study_dashboard" }
+  | { kind: "timetable" }
   | { kind: "onboarding" }
   | { kind: "canvas_sync" }
   | { kind: "canvas_status" }
@@ -45,6 +46,8 @@ export function parseStudyNaturalLanguage(text: string, timezone: string): Study
   const lower = trimmed.toLowerCase();
 
   if (/^(?:(?:open|show|visit)\s+)?(?:the\s+)?(?:study\s+)?dashboard$/i.test(trimmed)) return { kind: "study_dashboard" };
+  if (/^(?:(?:open|show|view)\s+)?(?:my\s+)?(?:study\s+)?(?:timetable|class schedule)$/i.test(trimmed)
+    || /^what (?:classes|lessons) do i have(?: today| this week)?\??$/i.test(trimmed)) return { kind: "timetable" };
   if (/^(?:study\s+)?(?:menu|home)$/i.test(trimmed)) return { kind: "menu" };
   if (/^(?:start|show|open|continue)\s+(?:study\s+)?(?:setup|onboarding)$/i.test(trimmed)) return { kind: "onboarding" };
   if (/^(?:study\s+)?help$/i.test(trimmed) || /^(?:what can (?:study mode|you) do|how do i use study mode)\??$/i.test(trimmed)) return { kind: "help" };

@@ -11,6 +11,30 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 5 August 2026 - Reminder delivery and callback ownership diverged
+
+**Friction discovered:** Older group reminders continued arriving after Telegram upgraded a basic group to a supergroup, but every button on those cards failed with a missing-record message. Migration recovery had correctly repaired the historical task owner's reminder destination while deliberately preserving both database identities; callback handlers still searched only the replacement group identity. Delivery and interaction therefore referred to the same Telegram group but different preserved owners.
+
+**Decision:** Preserve old callback formats and records rather than invalidating sent cards or merging two workspaces implicitly. Resolve a historical owner only from the stable task row ID and only when that owner's current reminder destination exactly matches the chat where the callback occurs. Never fall back to an unrestricted cross-user lookup.
+
+**Implementation:** Added a chat-scoped legacy-task owner resolver and routed all task-card actions through it, including completion, snoozing, starring, editing, detail views, cancellation, restoration, and assignment status. Pending title/detail edits remain attached to the current interaction while persisting the actual task owner, so the following text message updates the intended historical task even after a restart. Legacy-owner actions omit the current-identity undo shortcut because applying it to another preserved owner would be misleading.
+
+**Outcome/evidence:** Focused tests verify same-chat recovery, foreign-chat isolation, archived-task rejection, and historical-owner edit continuation. Existing callback data remains valid, reminder cards need not be regenerated, and no personal or different-group task becomes reachable through the compatibility path.
+
+**Follow-up:** After deployment, press View full, Snooze, Star, edit Title, and Done on one pre-migration group card. If the group contains intentionally separate old and new workspaces, plan an explicit reviewed merge rather than silently combining records.
+
+## 5 August 2026 - A study schedule needs a spatial view
+
+**Friction discovered:** Study Mode already stored recurring module blocks, class venues, travel configuration, academic-week bounds, and assignment deadlines, but exposed the schedule mainly through settings and compact Telegram commands. This made it difficult to answer the ordinary planning questions “What does my week look like?”, “Where is the free space?”, and “What is due around my classes?” The absence of a Timetable destination also made the Study dashboard feel incomplete despite having the required data.
+
+**Decision:** Add Timetable as a first-class private Study view backed by the existing schedule and work records. Recurring classes and planned blocks belong on a clock grid; assignment due dates belong in a distinct deadline lane because a deadline is not evidence that study time was scheduled. Desktop should optimize for week scanning, while mobile should default to a focused day agenda rather than compressing seven unusable columns.
+
+**Implementation:** Added week/day switching, academic-week navigation, a current-time marker, module colour cues, a separate `Work due` lane, and an automatically selected mobile agenda. Schedule blocks can be created, opened, edited, or deleted in place, including module, weekday, time, type, active week range, venue, destination, origin, and travel buffer. Due work opens the existing Study item editor and can enter Deep Work directly. Telegram now links to the same view and recognizes deterministic timetable requests. Existing snapshot and server-sent-event reconciliation refresh the view after Telegram, Canvas, or dashboard mutations, keeping PostgreSQL as the single source of truth.
+
+**Outcome/evidence:** Academic-week projection tests cover pre-semester Week 1 selection, recurring-block visibility, deadline separation, and week arithmetic. Dashboard tests, lint, TypeScript, and production build pass; backend parser and dashboard contract tests, the full backend suite, typecheck, Prisma generation, and production build pass. A local Impeccable review identified side-tab-like module borders that visually resembled generic generated-dashboard accents; those were replaced with restrained uniform module-tinted borders. The authenticated Study route could not be visually automated without borrowing a live Telegram session, so final live responsive verification remains intentionally manual.
+
+**Follow-up:** Live-test one desktop week, one mobile day, one block edit, one Telegram-created block, one Canvas deadline update, and one pre-class travel configuration. If users later need drag-to-reschedule, add it only with keyboard and explicit-save parity rather than making pointer interaction the sole editing path.
+
 ## 5 August 2026 - Telegram group IDs are lifecycle state
 
 **Friction discovered:** Two releases failed to deploy because a strict Study fixture did not include the newly required travel mute field. Meanwhile, the live reminder worker repeatedly sent to a retired basic-group ID after Telegram upgraded that chat to a supergroup, producing a new 400 error every 15 minutes. A Telegram group ID had been treated as permanent even though Telegram explicitly replaces it during an upgrade.

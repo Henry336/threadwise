@@ -97,4 +97,17 @@ describe("Study dashboard input contracts", () => {
   it("allows travel reminders to be disabled without deleting the block", () => {
     expect(studyScheduleUpdateSchema.parse({ destination: null })).toEqual({ destination: null });
   });
+
+  it("accepts full timetable edits without recreating the block", () => {
+    expect(studyScheduleUpdateSchema.parse({
+      moduleId: null,
+      dayOfWeek: 5,
+      startTime: "09:00",
+      endTime: "11:00",
+      label: "Revision block",
+      blockType: "study",
+      startWeek: 2,
+      endWeek: 13,
+    })).toMatchObject({ dayOfWeek: 5, startTime: "09:00", endWeek: 13 });
+  });
 });

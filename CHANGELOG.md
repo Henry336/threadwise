@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Legacy group task controls
+- Restored every action on older group reminder cards after a Telegram group-to-supergroup migration could leave the task attached to a preserved historical group identity while callback handling resolved the replacement identity.
+- Added a chat-scoped compatibility resolver: a historical task owner is accepted only when that owner is a group identity whose current reminder destination exactly matches the chat where the button was pressed. No cross-chat or global task fallback is permitted.
+- Applied the compatibility path to Done, Snooze, Star, Title, Details, View full, Cancel, Restore, and group assignment actions while preserving current callback formats.
+- Made legacy multi-message edits durable by recording the task's actual owner separately from the group member's current pending interaction; included a database migration and focused ownership/isolation regression tests.
+
+### Interactive Study timetable
+- Added a dedicated private Study `Timetable` view to the dashboard and Telegram Study home, with deterministic natural-language access through requests such as `show my timetable`.
+- Turned recurring module schedule blocks into a responsive weekly clock grid with week and day views, previous/current/next navigation, academic-week labels, module colour cues, a current-time marker, and a touch-first mobile agenda.
+- Kept assignment deadlines in a separate `Work due` lane instead of placing them on the clock as if their due times were planned study sessions. Selecting a deadline opens its existing Study work editor, while `Focus` begins the established Deep Work flow.
+- Added in-place creation, editing, and deletion for recurring blocks, including module, weekday, start/end time, block type, academic-week bounds, venue, destination stop, usual origin, and travel buffer.
+- Reused the existing Study snapshot and server-sent-event reconciliation path, so Canvas imports, Telegram changes, and dashboard edits refresh the same timetable without maintaining a second client-side schedule.
+- Added focused academic-week and timetable-projection tests plus dashboard, backend contract, parser, type, lint, and production-build verification.
+
 ### Telegram supergroup migration recovery
 - Fixed the production TypeScript build regression caused by the new Study travel mute field being absent from a strict persistence fixture.
 - Added first-class handling for Telegram's basic-group-to-supergroup service update before normal routing and allowlist middleware.

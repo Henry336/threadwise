@@ -818,14 +818,14 @@ export async function addStudyScheduleBlock(
     startTime: string;
     endTime: string;
     label: string;
-    moduleId?: string;
+    moduleId?: string | null;
     blockType?: string;
-    startWeek?: number;
-    endWeek?: number;
+    startWeek?: number | null;
+    endWeek?: number | null;
     venueId?: string;
     venueName?: string;
     destinationStopId?: string;
-    defaultOriginId?: string;
+    defaultOriginId?: string | null;
     travelBufferMinutes?: number;
     reminderLeadMinutes?: number;
   },
@@ -837,10 +837,6 @@ export async function addStudyScheduleBlock(
     throw new StudyModeError("Use a valid time range such as 14:00-16:00.", "invalid");
   }
   if (input.moduleId) await requireModule(workspace.id, input.moduleId);
-  if (input.defaultOriginId) {
-    const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
-    if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
-  }
   if (input.defaultOriginId) {
     const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
     if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
@@ -872,6 +868,14 @@ export async function updateStudyScheduleBlock(
   workspace: StudyWorkspace,
   blockId: string,
   input: {
+    moduleId?: string | null;
+    dayOfWeek?: number;
+    startTime?: string;
+    endTime?: string;
+    label?: string;
+    blockType?: string;
+    startWeek?: number | null;
+    endWeek?: number | null;
     venueId?: string | null;
     venueName?: string | null;
     destinationStopId?: string | null;
@@ -882,9 +886,25 @@ export async function updateStudyScheduleBlock(
 ) {
   const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id, active: true } });
   if (!block) throw new StudyModeError("That schedule block was not found.", "not_found");
+  if (input.dayOfWeek !== undefined && (!Number.isInteger(input.dayOfWeek) || input.dayOfWeek < 1 || input.dayOfWeek > 7)) {
+    throw new StudyModeError("Day must be Monday through Sunday.", "invalid");
+  }
+  if (input.moduleId) await requireModule(workspace.id, input.moduleId);
   if (input.defaultOriginId) {
     const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
     if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
+  }
+  const startTime = input.startTime === undefined ? undefined : normalizeClock(input.startTime);
+  const endTime = input.endTime === undefined ? undefined : normalizeClock(input.endTime);
+  const effectiveStart = startTime ?? block.startTime;
+  const effectiveEnd = endTime ?? block.endTime;
+  if (!effectiveStart || !effectiveEnd || effectiveStart >= effectiveEnd) {
+    throw new StudyModeError("Use a valid time range such as 14:00-16:00.", "invalid");
+  }
+  const effectiveStartWeek = input.startWeek === undefined ? block.startWeek : input.startWeek;
+  const effectiveEndWeek = input.endWeek === undefined ? block.endWeek : input.endWeek;
+  if (effectiveStartWeek && effectiveEndWeek && effectiveEndWeek < effectiveStartWeek) {
+    throw new StudyModeError("The final teaching week cannot be before the first week.", "invalid");
   }
   const travelBufferMinutes = input.travelBufferMinutes === undefined
     ? undefined
@@ -895,6 +915,14 @@ export async function updateStudyScheduleBlock(
   const updated = await prisma.studyScheduleBlock.update({
     where: { id: block.id },
     data: {
+      moduleId: input.moduleId,
+      dayOfWeek: input.dayOfWeek,
+      startTime,
+      endTime,
+      label: input.label === undefined ? undefined : requiredText(input.label, "Give the block a label.", 200),
+      blockType: input.blockType,
+      startWeek: input.startWeek,
+      endWeek: input.endWeek,
       venueId: input.venueId,
       venueName: input.venueName,
       destinationStopId: input.destinationStopId,
@@ -903,9 +931,13 @@ export async function updateStudyScheduleBlock(
       reminderLeadMinutes,
     },
   });
-  await auditStudy(workspace.ownerUserId, "study.schedule.travel_updated", {
+  await auditStudy(workspace.ownerUserId, "study.schedule.updated", {
     workspaceId: workspace.id,
     blockId,
+    dayOfWeek: updated.dayOfWeek,
+    startTime: updated.startTime,
+    endTime: updated.endTime,
+    label: updated.label,
     destination: updated.venueName,
     defaultOriginId: updated.defaultOriginId,
     travelBufferMinutes: updated.travelBufferMinutes,

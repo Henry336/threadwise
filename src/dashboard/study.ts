@@ -233,20 +233,28 @@ export const studyOriginUpdateSchema = z.object({
   activateHours: z.number().int().min(1).max(24).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one origin change.");
 export const studyScheduleCreateSchema = z.object({
-  moduleId: id.optional(),
+  moduleId: z.union([id, z.null()]).optional(),
   dayOfWeek: z.number().int().min(1).max(7),
   startTime: clock,
   endTime: clock,
   label: text(200),
   blockType: optionalText(80),
-  startWeek: z.number().int().min(1).max(80).optional(),
-  endWeek: z.number().int().min(1).max(80).optional(),
+  startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
+  endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: optionalText(200),
-  defaultOriginId: id.optional(),
+  defaultOriginId: z.union([id, z.null()]).optional(),
   travelBufferMinutes: z.number().int().min(0).max(90).optional(),
   reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
 }).strict();
 export const studyScheduleUpdateSchema = z.object({
+  moduleId: z.union([id, z.null()]).optional(),
+  dayOfWeek: z.number().int().min(1).max(7).optional(),
+  startTime: clock.optional(),
+  endTime: clock.optional(),
+  label: text(200).optional(),
+  blockType: text(80).optional(),
+  startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
+  endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: z.union([text(200), z.null()]).optional(),
   defaultOriginId: z.union([id, z.null()]).optional(),
   travelBufferMinutes: z.number().int().min(0).max(90).optional(),
@@ -746,6 +754,22 @@ export async function updateDashboardStudyScheduleBlock(
   blockId: string,
   input: z.infer<typeof studyScheduleUpdateSchema>,
 ) {
+  const core = {
+    moduleId: input.moduleId,
+    dayOfWeek: input.dayOfWeek,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    label: input.label,
+    blockType: input.blockType,
+    startWeek: input.startWeek,
+    endWeek: input.endWeek,
+    defaultOriginId: input.destination === null ? undefined : input.defaultOriginId,
+    travelBufferMinutes: input.travelBufferMinutes,
+    reminderLeadMinutes: input.reminderLeadMinutes,
+  };
+  if (Object.values(core).some((value) => value !== undefined)) {
+    await updateStudyScheduleBlock(workspace, blockId, core);
+  }
   if (input.destination === null) return clearStudyScheduleTravel(workspace, blockId);
   if (input.destination) {
     return configureStudyScheduleTravel(workspace, blockId, {
@@ -754,11 +778,7 @@ export async function updateDashboardStudyScheduleBlock(
       travelBufferMinutes: input.travelBufferMinutes,
     });
   }
-  return updateStudyScheduleBlock(workspace, blockId, {
-    defaultOriginId: input.defaultOriginId,
-    travelBufferMinutes: input.travelBufferMinutes,
-    reminderLeadMinutes: input.reminderLeadMinutes,
-  });
+  return prisma.studyScheduleBlock.findFirstOrThrow({ where: { id: blockId, workspaceId: workspace.id, active: true } });
 }
 
 export async function archiveDashboardStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {

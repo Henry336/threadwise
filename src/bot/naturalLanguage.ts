@@ -108,11 +108,11 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       const editResult = await applyPendingItemEdit(user.id, text);
       if (editResult) {
         if (editResult.kind === "image") {
-          await replyStoredImage(ctx, user.id, editResult.publicId);
+          await replyStoredImage(ctx, editResult.ownerUserId, editResult.publicId);
           return;
         }
         const card = await buildItemCard(
-          user.id,
+          editResult.ownerUserId,
           editResult.kind,
           editResult.publicId,
           user.settings?.timezone ?? "UTC",

@@ -1146,6 +1146,7 @@ model PendingNoteMerge {
 model PendingItemEdit {
   id            String   @id @default(uuid())
   userId        String
+  itemOwnerUserId String?
   itemKind      String
   itemId        String
   itemPublicId  String

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   pending: undefined as undefined | {
     id: string;
+    itemId: string;
+    itemOwnerUserId?: string | null;
     itemKind: string;
     itemPublicId: string;
     editField: string;
@@ -56,6 +58,7 @@ describe("pending item edit cancellation", () => {
     vi.clearAllMocks();
     state.pending = {
       id: "pending-1",
+      itemId: "task-row-1",
       itemKind: "task",
       itemPublicId: "TASK-1",
       editField: "title"
@@ -69,5 +72,25 @@ describe("pending item edit cancellation", () => {
     expect(await applyPendingItemEdit("user-1", "show my notes")).toBeUndefined();
     expect(mocks.renameTaskTitle).not.toHaveBeenCalled();
     expect(mocks.updateTaskDescription).not.toHaveBeenCalled();
+  });
+
+  it("applies an edit to the historical task owner while keeping the pending interaction with the current group", async () => {
+    state.pending = {
+      id: "pending-2",
+      itemId: "task-row-1",
+      itemOwnerUserId: "historical-group-user",
+      itemKind: "task",
+      itemPublicId: "TASK-1",
+      editField: "title",
+    };
+    mocks.renameTaskTitle.mockResolvedValue({ publicId: "TASK-1" });
+    const { applyPendingItemEdit } = await import("./itemEdits");
+
+    await expect(applyPendingItemEdit("current-group-user", "Updated title")).resolves.toEqual({
+      kind: "task",
+      publicId: "TASK-1",
+      ownerUserId: "historical-group-user",
+    });
+    expect(mocks.renameTaskTitle).toHaveBeenCalledWith("historical-group-user", "TASK-1", "Updated title");
   });
 });

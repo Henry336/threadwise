@@ -39,6 +39,7 @@ import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { preferEphemeralInteraction } from "./ephemeral";
 import { beginNoteSession } from "./noteSessions";
+import { resolveGroupTaskCallbackOwner } from "../services/groupTaskCompatibility";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
@@ -577,7 +578,7 @@ async function replyInChunks(ctx: Context, text: string) {
 
 async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefined, action: string | undefined) {
   if (!taskId || !isGroupChat(ctx)) return;
-  const user = await ensureUser(ctx);
+  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const status = action === "block" ? TaskAssigneeStatus.BLOCKED : TaskAssigneeStatus.ACCEPTED;
     const task = await setTaskAssignmentStatus(user.id, taskId, collaborationActorFromContext(ctx), status);
@@ -603,7 +604,7 @@ async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefin
 
 async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const completion = await completeTask(user.id, taskId);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
@@ -615,15 +616,19 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
     await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
-    label: "↩️ Undo complete",
-    callbackData: "undo:last"
-  });
+  await replyActiveList(
+    ctx,
+    user,
+    "tasks",
+    listOrigin(user.id, "task") ?? 1,
+    true,
+    user.id === interactionUser.id ? { label: "↩️ Undo complete", callbackData: "undo:last" } : undefined,
+  );
 }
 
 async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
@@ -635,22 +640,24 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   await ctx.answerCallbackQuery({ text: "Restored" });
   const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored", false);
   appendListOrigin(card.keyboard, user.id, "task");
-  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo restore", "undo:last") });
+  if (user.id === interactionUser.id) card.keyboard.row().text("↩️ Undo restore", "undo:last");
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
 async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
   const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
   appendListOrigin(card.keyboard, user.id, "task");
-  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard.row().text("↩️ Undo snooze", "undo:last") });
+  if (user.id === interactionUser.id) card.keyboard.row().text("↩️ Undo snooze", "undo:last");
+  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
 async function handleTaskReminderView(ctx: Context, taskId: string | undefined, expanded: boolean) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await findTaskReference(user.id, taskId);
     const timezone = user.settings?.timezone ?? "UTC";
@@ -837,7 +844,7 @@ async function showExcelPanel(ctx: Context, userId: string, chatId: string, noti
 
 async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const task = await findTaskReference(user.id, taskId);
   if (!isGroupChat(ctx) && task.calendarEventId) {
     await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
@@ -846,15 +853,19 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   }
   await cancelTask(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Canceled task" });
-  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
-    label: "↩️ Undo cancel",
-    callbackData: "undo:last"
-  });
+  await replyActiveList(
+    ctx,
+    user,
+    "tasks",
+    listOrigin(user.id, "task") ?? 1,
+    true,
+    user.id === interactionUser.id ? { label: "↩️ Undo cancel", callbackData: "undo:last" } : undefined,
+  );
 }
 
 async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefined, removeEvent: boolean) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const task = await findTaskReference(user.id, taskId);
   await cancelTask(user.id, taskId);
   let eventRemoved = false;
@@ -867,15 +878,19 @@ async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefine
     }
   }
   await ctx.answerCallbackQuery({ text: eventRemoved ? "Task and event canceled" : "Task canceled" });
-  await replyActiveList(ctx, user, "tasks", listOrigin(user.id, "task") ?? 1, true, {
-    label: "↩️ Undo cancel",
-    callbackData: "undo:last"
-  });
+  await replyActiveList(
+    ctx,
+    user,
+    "tasks",
+    listOrigin(user.id, "task") ?? 1,
+    true,
+    user.id === interactionUser.id ? { label: "↩️ Undo cancel", callbackData: "undo:last" } : undefined,
+  );
 }
 
 async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin: boolean) {
   if (!taskId) return;
-  const user = await ensureUser(ctx);
+  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
   const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
@@ -885,7 +900,10 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
 
 async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
   if (!isEditableItemKind(kind) || kind === "image" || !itemId) return;
-  const user = await ensureUser(ctx);
+  const interactionUser = await ensureUser(ctx);
+  const user = kind === "task"
+    ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
+    : interactionUser;
   const item = await pinItem(user.id, itemId, shouldPin);
   await ctx.answerCallbackQuery({
     text: kind === "task"
@@ -899,8 +917,17 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
 
 async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
   if (!isEditableItemKind(kind) || !itemId) return;
-  const user = await ensureUser(ctx);
-  const item = await beginPendingItemEdit(user.id, kind, itemId, isEditableItemField(field) ? field : "title");
+  const interactionUser = await ensureUser(ctx);
+  const taskUser = kind === "task"
+    ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
+    : interactionUser;
+  const item = await beginPendingItemEdit(
+    interactionUser.id,
+    kind,
+    itemId,
+    isEditableItemField(field) ? field : "title",
+    taskUser.id,
+  );
   await ctx.answerCallbackQuery({ text: "Ready to edit" });
   await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
 }
@@ -987,7 +1014,10 @@ function isEditableItemKind(kind: string | undefined): kind is EditableItemKind 
 
 async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: string | undefined, pageText: string | undefined) {
   if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
-  const user = await ensureUser(ctx);
+  const interactionUser = await ensureUser(ctx);
+  const user = kind === "task"
+    ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
+    : interactionUser;
   const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false);
   if (kind === "task" && isGroupChat(ctx)) addTaskCollaborationActions(card.keyboard, itemId);
   const page = Math.max(1, Number(pageText) || 1);
@@ -1031,6 +1061,24 @@ async function handleArchivedNoteDetailPage(
 
 function isEditableItemField(field: string | undefined): field is EditableItemField {
   return field === "title" || field === "description" || field === "body" || field === "concept" || field === "caption";
+}
+
+async function taskCallbackUsers(
+  ctx: Context,
+  taskId: string,
+  knownInteractionUser?: Awaited<ReturnType<typeof ensureUser>>,
+) {
+  const interactionUser = knownInteractionUser ?? await ensureUser(ctx);
+  if (!isGroupChat(ctx) || !ctx.chat) return { interactionUser, taskUser: interactionUser };
+
+  const ownerUserId = await resolveGroupTaskCallbackOwner(interactionUser.id, taskId, ctx.chat.id);
+  if (ownerUserId === interactionUser.id) return { interactionUser, taskUser: interactionUser };
+
+  const taskUser = await prisma.user.findUniqueOrThrow({
+    where: { id: ownerUserId },
+    include: { settings: true },
+  });
+  return { interactionUser, taskUser };
 }
 
 async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {

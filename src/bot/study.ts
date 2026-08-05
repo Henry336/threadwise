@@ -257,6 +257,11 @@ async function handleStudyCommand(ctx: Context): Promise<void> {
       case "upcoming":
         await showUpcoming(ctx, workspace, 0);
         break;
+      case "timetable":
+        await replyHtml(ctx, `${bold("Study timetable")}\nClasses, study blocks, and due work in one live view.`, {
+          reply_markup: new InlineKeyboard().url("Open timetable", groupDashboardUrl(workspace.id, "study-timetable")),
+        });
+        break;
       case "export":
         await sendStudyExports(ctx, workspace);
         break;
@@ -991,7 +996,7 @@ function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
     .text("Travel", "study:travel").text("Plan week", "study:plan").row()
     .text("Weekly review", "study:review:start").row()
     .text("Setup", "study:onboarding").text("Help", "study:help").row()
-    .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
 }
 
 function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKeyboard {
@@ -1001,7 +1006,7 @@ function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKe
     .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
     .text("Review", "study:review:start").row()
     .text("Canvas", "study:canvas:status").text("Setup", "study:onboarding").row()
-    .url("Open Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
   return keyboard;
 }
 

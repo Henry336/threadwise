@@ -607,6 +607,12 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
         ...(ctx.message ? { reply_parameters: { message_id: ctx.message.message_id } } : {}),
       });
       return;
+    case "timetable":
+      await replyHtml(ctx, `${bold("Study timetable")}\nClasses, study blocks, and due work in one live view.`, {
+        reply_markup: new InlineKeyboard().url("Open timetable", groupDashboardUrl(workspace.id, "study-timetable")),
+        ...(ctx.message ? { reply_parameters: { message_id: ctx.message.message_id } } : {}),
+      });
+      return;
     case "onboarding":
       return showStudyOnboarding(ctx, workspace);
     case "help":
@@ -1188,7 +1194,7 @@ function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
     .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
     .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
     .text("Setup", "study:onboarding").row()
-    .text("Master sheet", "study:dashboard").url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
 }
 
 async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
@@ -1408,6 +1414,7 @@ function formatNaturalHelp(): string {
     `${code("what needs attention?")} · ${code("sync Canvas")}`,
     `${code("add origin Home at Kent Ridge MRT")}`,
     `${code("when should I leave for COM3 from Home?")}`,
+    `${code("show my timetable")}`,
     "If a message is unclear, Threadwise asks Task, Note, Question, or Resource immediately.",
   ].join("\n");
 }

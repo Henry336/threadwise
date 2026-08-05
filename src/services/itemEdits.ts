@@ -19,18 +19,26 @@ type EditableItem = {
 export type AppliedItemEdit = {
   kind: EditableItemKind;
   publicId: string;
+  ownerUserId: string;
 };
 
 const EDIT_TTL_MS = 15 * 60_000;
 
-export async function beginPendingItemEdit(userId: string, kind: EditableItemKind, itemId: string, field: EditableItemField = "title"): Promise<EditableItem> {
-  const item = await findEditableItem(userId, kind, itemId, field);
+export async function beginPendingItemEdit(
+  userId: string,
+  kind: EditableItemKind,
+  itemId: string,
+  field: EditableItemField = "title",
+  itemOwnerUserId = userId,
+): Promise<EditableItem> {
+  const item = await findEditableItem(itemOwnerUserId, kind, itemId, field);
 
   await prisma.$transaction(async (tx) => {
     await tx.pendingItemEdit.deleteMany({ where: { userId } });
     await tx.pendingItemEdit.create({
       data: {
         userId,
+        itemOwnerUserId: itemOwnerUserId === userId ? null : itemOwnerUserId,
         itemKind: kind,
         itemId: item.id,
         itemPublicId: item.publicId,
@@ -70,40 +78,41 @@ export async function applyPendingItemEdit(userId: string, value: string): Promi
   }
 
   await prisma.pendingItemEdit.delete({ where: { id: pending.id } });
+  const ownerUserId = pending.itemOwnerUserId ?? userId;
 
   if (pending.itemKind === "task") {
     if (pending.editField === "description") {
-      const task = await updateTaskDescription(userId, pending.itemPublicId, nextValue);
-      return { kind: "task", publicId: task.publicId };
+      const task = await updateTaskDescription(ownerUserId, pending.itemPublicId, nextValue);
+      return { kind: "task", publicId: task.publicId, ownerUserId };
     }
 
-    const task = await renameTaskTitle(userId, pending.itemPublicId, nextValue);
-    return { kind: "task", publicId: task.publicId };
+    const task = await renameTaskTitle(ownerUserId, pending.itemPublicId, nextValue);
+    return { kind: "task", publicId: task.publicId, ownerUserId };
   }
 
   if (pending.itemKind === "note") {
     if (pending.editField === "body") {
-      const note = await updateNoteBody(userId, pending.itemPublicId, nextValue);
-      return { kind: "note", publicId: note.publicId };
+      const note = await updateNoteBody(ownerUserId, pending.itemPublicId, nextValue);
+      return { kind: "note", publicId: note.publicId, ownerUserId };
     }
 
-    const note = await renameNoteTitle(userId, pending.itemPublicId, nextValue);
-    return { kind: "note", publicId: note.publicId };
+    const note = await renameNoteTitle(ownerUserId, pending.itemPublicId, nextValue);
+    return { kind: "note", publicId: note.publicId, ownerUserId };
   }
 
   if (pending.itemKind === "idea") {
     if (pending.editField === "concept") {
-      const idea = await updateIdeaConcept(userId, pending.itemPublicId, nextValue);
-      return { kind: "idea", publicId: idea.publicId };
+      const idea = await updateIdeaConcept(ownerUserId, pending.itemPublicId, nextValue);
+      return { kind: "idea", publicId: idea.publicId, ownerUserId };
     }
 
-    const idea = await renameIdeaTitle(userId, pending.itemPublicId, nextValue);
-    return { kind: "idea", publicId: idea.publicId };
+    const idea = await renameIdeaTitle(ownerUserId, pending.itemPublicId, nextValue);
+    return { kind: "idea", publicId: idea.publicId, ownerUserId };
   }
 
   if (pending.itemKind === "image") {
-    const image = await updateStoredImageCaption(userId, pending.itemPublicId, nextValue);
-    return { kind: "image", publicId: image.publicId };
+    const image = await updateStoredImageCaption(ownerUserId, pending.itemPublicId, nextValue);
+    return { kind: "image", publicId: image.publicId, ownerUserId };
   }
 
   return undefined;
