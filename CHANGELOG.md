@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Beacon offence ledger and owner-only topic purge
+- Added an owner-confirmed offence ledger to every configured Beacon community. Report cards now preserve the flagged text, topic, member identity, numeric Telegram ID, current score, and recent offence history for moderator review.
+- Added moderator proposals for offence severity and per-incident points. The immutable owner remains the only person who can confirm or reject a score, change the points assigned to each severity, or change warning, mute, and permanent-ban thresholds.
+- Added owner-only score lookup, point reduction, single-offence pardon, and full-score clearing. Pardons stop points from counting without erasing the audit history.
+- Added escalating score actions: warnings and temporary mutes can apply automatically at owner-configured thresholds, while a permanent ban always requires a separate owner confirmation. Confirmed permanent bans are restored if the same Telegram account rejoins and remain until the owner pardons the active offence.
+- Kept the trigger library invisible to moderators, including through old callback buttons. Moderators may submit a trigger only through Beacon's private chat; the owner privately reviews it before it can enforce.
+- Added immutable-owner `/purge` for non-General forum topics. Beacon confirms inside the originating topic, deletes and recreates that topic to remove its full history, retains known name/icon metadata, expires stale confirmations, and records the replacement topic in the audit log.
+
 ### Beacon private control plane
 - Moved sensitive Beacon configuration into the bot's private chat. The owner and explicitly authorized moderators can select a manageable community, and Beacon remembers the selection while showing `Managing: …` before policy changes.
 - Added an owner/moderator trigger library with live search, action and group filters, six-item pagination, creator and approval metadata, and Telegram-native add, move, severity-change, remove, and safe test flows.

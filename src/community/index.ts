@@ -1,5 +1,6 @@
 import {
   CommunityModerationActionType,
+  CommunityOffenceSeverity,
   CommunityReportStatus,
   type CommunityGroup,
   type CommunityModerator,
@@ -19,21 +20,30 @@ import {
   clearCommunityConversation,
   communityAccess,
   communityActionById,
+  communityForumTopic,
   communityGroupById,
   communityGroupForChat,
   communityControlSession,
+  communityMemberOffenceScore,
+  communityMemberOffences,
   communityModeratorById,
+  communityOffenceById,
   communityReportById,
+  communitySeverityPoints,
+  communitySeverityRules,
   communityTriggerById,
   communityTriggerByGlobalId,
   createCommunityTriggerGroup,
+  createCommunityOffenceProposal,
   createOrIncrementCommunityReport,
+  confirmCommunityOffence,
   cycleCommunityDuplicatePreset,
   cycleCommunityFloodPreset,
   cycleCommunityMentionLimit,
   deleteEmptyCommunityTriggerGroup,
   ensureConfiguredCommunityGroups,
   expireCommunityEvidence,
+  hasPermanentCommunityBan,
   isNewCommunityMemberPaused,
   isTrustedCommunityMember,
   listOpenCommunityReports,
@@ -43,6 +53,8 @@ import {
   listTrustedCommunityMembers,
   listTriggerGroups,
   markCommunityActionUndone,
+  markCommunityForumTopicReplaced,
+  markCommunityOffencePermanentBan,
   moveCommunityTrigger,
   moveAndApproveCommunityTrigger,
   policyTriggersForGroup,
@@ -50,6 +62,10 @@ import {
   recentCommunityAudits,
   recordCommunityAction,
   recordCommunityAudit,
+  pardonAllCommunityOffences,
+  pardonCommunityOffence,
+  reduceCommunityOffence,
+  rejectCommunityOffence,
   renameCommunityTriggerGroup,
   removeCommunityModerator,
   removeCommunityTrigger,
@@ -70,7 +86,10 @@ import {
   updateCommunityConversation,
   updateCommunityGroupTitle,
   updateCommunityControlTriggerFilters,
+  updateCommunityScoreThreshold,
+  updateCommunitySeverityPoints,
   updateTriggerGroupAction,
+  upsertCommunityForumTopic,
   upsertCommunityMember,
   type CommunityAccess,
   type ModeratorIdentityInput,
@@ -83,6 +102,7 @@ import {
   isBeaconInvocation,
   moderatorPermissionQuestions,
   normalizeCommunityText,
+  offencePointOptions,
   safeModeratorDefaults,
   type ModeratorWizardPermissions
 } from "./policy";
@@ -103,7 +123,15 @@ import {
   moderatorPermissionQuestion,
   moderatorSummaryKeyboard,
   moderatorSummaryText,
+  memberOffencesKeyboard,
+  memberOffencesText,
+  offenceDetailKeyboard,
+  offenceDetailText,
+  offenceProposalKeyboard,
+  offenceProposalText,
+  offenceSeverityKeyboard,
   permissionDiff,
+  purgeConfirmationKeyboard,
   reportCardKeyboard,
   reportCardText,
   groupBeaconHomeKeyboard,
@@ -112,6 +140,8 @@ import {
   privateBeaconHomeText,
   safetyKeyboard,
   safetyText,
+  severityRulesKeyboard,
+  severityRulesText,
   triggerDetailKeyboard,
   triggerDetailText,
   triggerActionFilterKeyboard,
@@ -134,6 +164,7 @@ const SETTINGS_PATTERN = /^(?:\/beacon(?:@\w+)?|beacon\s+(?:settings|menu)|moder
 const ADD_MODERATOR_PATTERN = /^(?:add|make)\s+(?:this\s+user\s+)?(?:a\s+)?moderator$/iu;
 const RULES_PATTERN = /^(?:\/rules(?:@\w+)?|rules|စည်းမျဉ်း(?:များ)?)$/iu;
 const floodState = new Map<string, Array<{ at: number; text: string }>>();
+const PURGE_PATTERN = /^(?:\/purge(?:@\w+)?|purge(?:\s+(?:this\s+)?topic)?)$/iu;
 
 type WizardData = {
   target: ModeratorIdentityInput;
@@ -197,6 +228,12 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     await handleMemberReport(ctx, group, config);
   });
 
+  bot.command("purge", async (ctx) => {
+    const group = await configuredGroup(ctx);
+    if (!group) return;
+    await beginTopicPurge(ctx, group, config);
+  });
+
   bot.callbackQuery(/^bc:/, async (ctx) => {
     try {
       await handleCallback(ctx, config);
@@ -219,6 +256,16 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
       joined: active,
       active
     });
+    if (active && await hasPermanentCommunityBan(group.id, String(member.user.id))) {
+      await ctx.api.banChatMember(Number(group.telegramChatId), member.user.id).catch((error) =>
+        logger.warn("Beacon could not restore a permanent ban.", {
+          groupId: group.id,
+          telegramId: String(member.user.id),
+          error: String(error)
+        })
+      );
+      return;
+    }
     if (!active) {
       const suspended = await suspendCommunityModerator(group.id, String(member.user.id));
       if (suspended) {
@@ -251,7 +298,12 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     if (!group) return;
     await updateCommunityGroupTitle(group.id, "title" in ctx.chat ? ctx.chat.title : undefined);
 
-    if (ctx.message.new_chat_members?.length || ctx.message.left_chat_member) {
+    if (
+      ctx.message.new_chat_members?.length
+      || ctx.message.left_chat_member
+      || ctx.message.forum_topic_created
+      || ctx.message.forum_topic_edited
+    ) {
       await handleServiceMessage(ctx, group, config);
       return;
     }
@@ -293,6 +345,10 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     }
     if (RULES_PATTERN.test(text)) {
       await showRules(ctx, group);
+      return;
+    }
+    if (PURGE_PATTERN.test(text)) {
+      await beginTopicPurge(ctx, group, config);
       return;
     }
     if (ADD_MODERATOR_PATTERN.test(text) && ctx.message.reply_to_message) {
@@ -355,6 +411,26 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await handleReportActionCallback(ctx, config, data);
     return;
   }
+  if (
+    data.startsWith("bc:ops:")
+    || data.startsWith("bc:opse:")
+    || data.startsWith("bc:oppt:")
+    || data.startsWith("bc:opa:")
+    || data.startsWith("bc:opp:")
+    || data.startsWith("bc:opr:")
+    || data.startsWith("bc:opban:")
+    || data.startsWith("bc:oph:")
+    || data.startsWith("bc:opd:")
+    || data.startsWith("bc:opreduce:")
+    || data.startsWith("bc:opset:")
+    || data.startsWith("bc:oppardon:")
+    || data.startsWith("bc:oppardonok:")
+    || data.startsWith("bc:opclear:")
+    || data.startsWith("bc:opclearok:")
+  ) {
+    await handleOffenceCallback(ctx, config, data);
+    return;
+  }
   if (data.startsWith("bc:undo:")) {
     await handleUndoCallback(ctx, config, data.slice("bc:undo:".length));
     return;
@@ -383,10 +459,20 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await answerCallback(ctx, "This control is for Beacon moderators.", true);
     return;
   }
+  const ownerOnlyPolicyControl = [
+    "bc:libsearch", "bc:libactions", "bc:libgroups", "bc:libact:", "bc:libcat:", "bc:libpage:", "bc:libclear",
+    "bc:cats", "bc:cat", "bc:tradd:", "bc:tr:", "bc:trdel:", "bc:trmove:", "bc:mvto:", "bc:act:"
+  ].some((prefix) => data === prefix || data.startsWith(prefix));
+  if (!access.owner && ownerOnlyPolicyControl) {
+    await answerCallback(ctx, OWNER_ONLY, true);
+    return;
+  }
   if (ctx.chat?.type !== "private" && ![
     "bc:home",
     "bc:rules",
-    "bc:observeinfo"
+    "bc:observeinfo",
+    "bc:purge:confirm",
+    "bc:purge:cancel"
   ].includes(data)) {
     await answerCallback(ctx, "Open Beacon's private chat for sensitive controls.", true);
     return;
@@ -407,6 +493,12 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:observeinfo") {
     await answerCallback(ctx, group.observeMode ? "Observe mode is on. No automatic punishment is applied." : "Active moderation is on.", true);
     return;
+  }
+  if (data === "bc:purge:confirm") return confirmTopicPurge(ctx, group, access, config);
+  if (data === "bc:purge:cancel") {
+    await clearCommunityConversation(group.id, actorId);
+    await answerCallback(ctx, "Purge canceled.");
+    return editCard(ctx, "<b>Purge canceled</b>\nNothing was deleted.", new InlineKeyboard());
   }
   if (data === "bc:mods") return showModerators(ctx, group, true);
   if (data === "bc:mod:add") {
@@ -448,7 +540,10 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:mw:restart") return restartModeratorWizard(ctx, group);
   if (data === "bc:mw:save" || data === "bc:mw:risky") return saveModeratorWizard(ctx, group, config, data.endsWith(":risky"));
 
-  if (data === "bc:lib") return showTriggerLibrary(ctx, group, access, true);
+  if (data === "bc:lib") {
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    return showTriggerLibrary(ctx, group, access, true);
+  }
   if (data === "bc:libsearch") return beginTriggerLibrarySearch(ctx, group, access);
   if (data === "bc:libactions") {
     await answerCallback(ctx);
@@ -465,7 +560,15 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:libclear") return clearTriggerLibraryFilters(ctx, group, access);
   if (data === "bc:libadd") return beginPrivateTriggerAdd(ctx, group, access);
 
-  if (data === "bc:cats") return showTriggerGroups(ctx, group, true);
+  if (data === "bc:scores") return showSeverityRules(ctx, group, access);
+  if (data.startsWith("bc:score:")) return beginSeverityScoreEdit(ctx, group, access, data.slice("bc:score:".length));
+  if (data.startsWith("bc:threshold:")) return beginThresholdEdit(ctx, group, access, data.slice("bc:threshold:".length));
+  if (data === "bc:offences") return beginOffenceLookup(ctx, group, access);
+
+  if (data === "bc:cats") {
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    return showTriggerGroups(ctx, group, true);
+  }
   if (data === "bc:catnew") return beginTriggerGroupCreation(ctx, group, access);
   if (data.startsWith("bc:catrename:")) return beginTriggerGroupRename(ctx, group, access, data.slice("bc:catrename:".length));
   if (data.startsWith("bc:catdel:")) return beginTriggerGroupDeletion(ctx, group, access, data.slice("bc:catdel:".length));
@@ -539,11 +642,19 @@ async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise
     return;
   }
   if (/^(?:trigger library|triggers|show triggers|open triggers)$/iu.test(text)) {
+    if (!access.owner) {
+      await ctx.reply(OWNER_ONLY);
+      return;
+    }
     await showTriggerLibrary(ctx, group, access);
     return;
   }
   const search = text.match(/^(?:find|search)(?:\s+the)?\s+triggers?\s+(?:for\s+)?(.+)$/iu);
   if (search?.[1]) {
+    if (!access.owner) {
+      await ctx.reply(OWNER_ONLY);
+      return;
+    }
     await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, searchQuery: search[1], page: 0 });
     await showTriggerLibrary(ctx, group, access);
     return;
@@ -558,6 +669,10 @@ async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise
   }
   if (/^(?:moderators?|mods)$/iu.test(text) && access.owner) {
     await showModerators(ctx, group);
+    return;
+  }
+  if (/^(?:offences?|offense scores?|score policy)$/iu.test(text) && access.owner) {
+    await showSeverityRules(ctx, group, access, false);
     return;
   }
   if (RULES_PATTERN.test(text)) {
@@ -682,6 +797,77 @@ async function handleConversationMessage(
 ): Promise<boolean> {
   if (!conversation || !ctx.message?.text) return false;
   const actorId = String(ctx.from?.id ?? "");
+  if (conversation.kind === "EDIT_SEVERITY_SCORE") {
+    if (!access.owner) return true;
+    const data = jsonData(conversation.data);
+    const severity = stringValue(data.severity) as CommunityOffenceSeverity | undefined;
+    const points = Number(ctx.message.text.trim());
+    if (!severity || !Object.values(CommunityOffenceSeverity).includes(severity) || !Number.isInteger(points) || points < 0 || points > 100) {
+      await ctx.reply("Send a whole number from 0 to 100.");
+      return true;
+    }
+    await updateCommunitySeverityPoints(group.id, severity, points);
+    await clearCommunityConversation(group.id, actorId);
+    await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "OFFENCE_SEVERITY_SCORE_CHANGED", details: { severity, points } });
+    await ctx.reply(`${severity.toLowerCase()} offences now carry ${points} point${points === 1 ? "" : "s"}.`);
+    await showSeverityRules(ctx, await communityGroupById(group.id) ?? group, access, false);
+    return true;
+  }
+  if (conversation.kind === "EDIT_SCORE_THRESHOLD") {
+    if (!access.owner) return true;
+    const data = jsonData(conversation.data);
+    const kind = stringValue(data.kind) as "WARNING" | "MUTE" | "BAN" | undefined;
+    const points = Number(ctx.message.text.trim());
+    if (!kind || !["WARNING", "MUTE", "BAN"].includes(kind) || !Number.isInteger(points) || points < 1 || points > 100) {
+      await ctx.reply("Send a whole number from 1 to 100.");
+      return true;
+    }
+    const fresh = await communityGroupById(group.id) ?? group;
+    const next = {
+      WARNING: kind === "WARNING" ? points : fresh.warningScoreThreshold,
+      MUTE: kind === "MUTE" ? points : fresh.muteScoreThreshold,
+      BAN: kind === "BAN" ? points : fresh.banScoreThreshold
+    };
+    if (!(next.WARNING <= next.MUTE && next.MUTE <= next.BAN)) {
+      await ctx.reply("Thresholds must stay ordered: warning ≤ mute ≤ permanent ban.");
+      return true;
+    }
+    await updateCommunityScoreThreshold(group.id, kind, points);
+    await clearCommunityConversation(group.id, actorId);
+    await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "OFFENCE_THRESHOLD_CHANGED", details: { kind, points } });
+    await ctx.reply(`${kind.toLowerCase()} threshold set to ${points}.`);
+    await showSeverityRules(ctx, await communityGroupById(group.id) ?? group, access, false);
+    return true;
+  }
+  if (conversation.kind === "OFFENCE_LOOKUP") {
+    if (!access.owner) return true;
+    const telegramId = ctx.message.text.trim().match(/^\d+$/)?.[0];
+    if (!telegramId) {
+      await ctx.reply("Send the member's numeric Telegram ID.");
+      return true;
+    }
+    await clearCommunityConversation(group.id, actorId);
+    await showMemberOffenceHistory(ctx, group, telegramId, access, false);
+    return true;
+  }
+  if (conversation.kind === "PURGE_TOPIC_NAME") {
+    if (!access.owner) return true;
+    const name = ctx.message.text.trim();
+    const data = jsonData(conversation.data);
+    const messageThreadId = typeof data.messageThreadId === "number" ? data.messageThreadId : undefined;
+    if (!messageThreadId || name.length < 1 || name.length > 128) {
+      await ctx.reply("Send a topic name between 1 and 128 characters.");
+      return true;
+    }
+    await upsertCommunityForumTopic({ groupId: group.id, messageThreadId, name });
+    await updateCommunityConversation(conversation.id, "CONFIRM", { messageThreadId, topicName: name });
+    await ctx.reply([
+      "<b>Purge this topic?</b>",
+      "Every message will be permanently deleted and the topic will be recreated empty.",
+      "Old links and pins will stop working."
+    ].join("\n"), { parse_mode: "HTML", reply_markup: purgeConfirmationKeyboard() });
+    return true;
+  }
   if (conversation.kind === "SEARCH_TRIGGER_LIBRARY") {
     await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, searchQuery: ctx.message.text, page: 0 });
     await clearCommunityConversation(group.id, actorId);
@@ -875,6 +1061,7 @@ async function handleConversationMessage(
 async function handleNaturalPolicyCommand(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<boolean> {
   const text = ctx.message?.text?.trim() ?? "";
   if (!access.canAddTriggers) return false;
+  if (ctx.chat?.type !== "private") return false;
   const add = text.match(/^add\s+["“]?(.+?)["”]?\s+to\s+(.+)$/iu);
   if (add) {
     const pattern = add[1] ?? "";
@@ -922,6 +1109,10 @@ async function handleNaturalPolicyCommand(ctx: Context, group: CommunityGroup, a
   }
   const show = text.match(/^show\s+(?:all\s+)?(.+?)\s+triggers$/iu);
   if (show) {
+    if (!access.owner) {
+      await ctx.reply(OWNER_ONLY);
+      return true;
+    }
     const category = await triggerGroupByName(group.id, show[1] ?? "");
     if (!category) return false;
     await ctx.reply(`Open ${category.name}:`, { reply_markup: new InlineKeyboard().text(category.name, `bc:cat:${category.id}`) });
@@ -1360,8 +1551,9 @@ async function showOpenReports(ctx: Context, group: CommunityGroup): Promise<voi
 async function showOpenReport(ctx: Context, group: CommunityGroup, reportId: string): Promise<void> {
   const report = await communityReportById(reportId);
   if (!report || report.groupId !== group.id || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report is no longer open.", true);
+  const presentation = await communityReportPresentation(report);
   await answerCallback(ctx);
-  await editCard(ctx, reportCardText(report), reportCardKeyboard(report));
+  await editCard(ctx, reportCardText(report, presentation.score, presentation.offences), reportCardKeyboard(report));
 }
 
 async function handleMemberReport(ctx: Context, group: CommunityGroup, config: BeaconConfig, reason?: string): Promise<void> {
@@ -1403,7 +1595,8 @@ async function handleMemberReport(ctx: Context, group: CommunityGroup, config: B
 
 async function deliverReport(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, report: CommunityReport): Promise<void> {
   const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
-  const text = reportCardText(report);
+  const presentation = await communityReportPresentation(report);
+  const text = reportCardText(report, presentation.score, presentation.offences);
   const keyboard = reportCardKeyboard(report);
   if (report.moderatorChatId && report.moderatorMessageId) {
     try {
@@ -1419,6 +1612,273 @@ async function deliverReport(bot: Pick<Bot, "api">, config: BeaconConfig, group:
   } catch (error) {
     logger.error("Beacon could not deliver a report.", { reportId: report.id, error: String(error) });
   }
+}
+
+async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: string): Promise<void> {
+  const actorId = String(ctx.from?.id ?? "");
+  if (!actorId) return;
+
+  if (data.startsWith("bc:ops:")) {
+    const report = await communityReportById(data.slice("bc:ops:".length));
+    if (!report?.reportedTelegramId || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report cannot receive an offence score.", true);
+    if (report.reportedTelegramId === config.ownerTelegramId) return answerCallback(ctx, "Beacon's owner cannot receive an offence score.", true);
+    const access = await communityAccess(report.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can propose an offence.", true);
+    await answerCallback(ctx);
+    return editCard(ctx, [
+      "<b>Propose offence severity</b>",
+      `Member: ${escapeHtml(report.reportedDisplayName ?? report.reportedUsername ?? report.reportedTelegramId)}`,
+      `User ID: <code>${escapeHtml(report.reportedTelegramId)}</code>`,
+      "",
+      "Beacon's owner controls the points attached to each severity."
+    ].join("\n"), offenceSeverityKeyboard(report.id));
+  }
+
+  const severityMatch = data.match(/^bc:opse:(MINOR|MODERATE|SERIOUS|CRITICAL):(.+)$/);
+  if (severityMatch) {
+    const severity = severityMatch[1] as CommunityOffenceSeverity;
+    const report = await communityReportById(severityMatch[2] ?? "");
+    if (!report?.reportedTelegramId || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report is no longer open.", true);
+    if (report.reportedTelegramId === config.ownerTelegramId) return answerCallback(ctx, "Beacon's owner cannot receive an offence score.", true);
+    const access = await communityAccess(report.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can propose an offence.", true);
+    const points = await communitySeverityPoints(report.groupId, severity);
+    const keyboard = new InlineKeyboard();
+    for (const option of offencePointOptions(points)) keyboard.text(`${option}${option === points ? " · policy" : ""}`, `bc:oppt:${severity}:${option}:${report.id}`);
+    keyboard.row().text("Cancel", `bc:report:${report.id}`);
+    await answerCallback(ctx);
+    return editCard(ctx, [
+      `<b>${escapeHtml(severity.toLowerCase())} offence</b>`,
+      `Policy value: ${points} point${points === 1 ? "" : "s"}`,
+      "",
+      "Propose a score for this incident. This does not change the owner's severity policy."
+    ].join("\n"), keyboard);
+  }
+
+  const pointMatch = data.match(/^bc:oppt:(MINOR|MODERATE|SERIOUS|CRITICAL):(\d+):(.+)$/);
+  if (pointMatch) {
+    const severity = pointMatch[1] as CommunityOffenceSeverity;
+    const proposedPoints = Number(pointMatch[2]);
+    const report = await communityReportById(pointMatch[3] ?? "");
+    if (!report?.reportedTelegramId || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report is no longer open.", true);
+    if (report.reportedTelegramId === config.ownerTelegramId) return answerCallback(ctx, "Beacon's owner cannot receive an offence score.", true);
+    const access = await communityAccess(report.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can propose an offence.", true);
+    const points = await communitySeverityPoints(report.groupId, severity);
+    if (!offencePointOptions(points).includes(proposedPoints)) return answerCallback(ctx, "That score proposal is no longer available.", true);
+    const proposal = await createCommunityOffenceProposal({
+      reportId: report.id,
+      severity,
+      policyPoints: points,
+      proposedPoints,
+      proposedByTelegramId: actorId,
+      proposalReason: report.reason ?? undefined
+    });
+    const offence = proposal.offence;
+    if (!proposal.created) return answerCallback(ctx, "This report already has a pending or active offence score.", true);
+    const audit = await recordCommunityAudit({
+      groupId: report.groupId,
+      actorTelegramId: actorId,
+      action: "OFFENCE_SCORE_PROPOSED",
+      targetTelegramId: report.reportedTelegramId,
+      details: { offenceId: offence.id, reportId: report.id, severity, proposedPoints }
+    });
+    await notifyOwner(botFromContext(ctx), config, offence.group, audit.id, offenceProposalText(offence, report.evidenceText), offenceProposalKeyboard(offence.id, proposedPoints, points));
+    await answerCallback(ctx, "Proposal sent to Beacon's owner.");
+    const presentation = await communityReportPresentation(report);
+    return editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Score proposed · ${severity.toLowerCase()} · ${proposedPoints}</b>`, reportCardKeyboard(report));
+  }
+
+  const decisionMatch = data.match(/^bc:op(a|p|r):(.+)$/);
+  if (decisionMatch) {
+    const offence = await communityOffenceById(decisionMatch[2] ?? "");
+    if (!offence || offence.status !== "PENDING") return answerCallback(ctx, "This proposal is no longer pending.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (decisionMatch[1] === "r") {
+      await rejectCommunityOffence(offence.id, actorId);
+      await recordCommunityAudit({ groupId: offence.groupId, actorTelegramId: actorId, action: "OFFENCE_SCORE_REJECTED", targetTelegramId: offence.targetTelegramId, details: { offenceId: offence.id } });
+      await answerCallback(ctx, "Proposal rejected.");
+      return editCard(ctx, `${offenceProposalText(offence, offence.report?.evidenceText)}\n\n<b>Rejected</b>`, new InlineKeyboard());
+    }
+    const points = decisionMatch[1] === "p" ? offence.policyPoints : offence.proposedPoints;
+    const confirmed = await confirmCommunityOffence(offence.id, actorId, points);
+    if (!confirmed) return answerCallback(ctx, "This proposal is no longer pending.", true);
+    if (offence.reportId) await resolveCommunityReport(offence.reportId, CommunityReportStatus.ACTIONED, actorId);
+    await recordCommunityAudit({
+      groupId: offence.groupId,
+      actorTelegramId: actorId,
+      action: "OFFENCE_SCORE_CONFIRMED",
+      targetTelegramId: offence.targetTelegramId,
+      details: { offenceId: offence.id, points, score: confirmed.score, severity: offence.severity }
+    });
+    await answerCallback(ctx, "Offence score confirmed.");
+    if (confirmed.score >= offence.group.banScoreThreshold) {
+      return editCard(ctx, [
+        offenceProposalText(confirmed.offence, confirmed.offence.report?.evidenceText),
+        "",
+        `<b>Active score: ${confirmed.score}</b>`,
+        `The permanent-ban threshold is ${offence.group.banScoreThreshold}. Confirm the ban separately.`
+      ].join("\n"), new InlineKeyboard().text("Permanently ban", `bc:opban:${offence.id}`).row().text("Not now", "bc:noop"));
+    }
+    await applyScoreThresholdAction(ctx, offence.group, confirmed.offence, confirmed.score);
+    return editCard(ctx, `${offenceProposalText(confirmed.offence, confirmed.offence.report?.evidenceText)}\n\n<b>Confirmed · active score ${confirmed.score}</b>`, new InlineKeyboard());
+  }
+
+  if (data.startsWith("bc:opban:")) {
+    const offence = await communityOffenceById(data.slice("bc:opban:".length));
+    if (!offence || offence.status !== "ACTIVE") return answerCallback(ctx, "This offence is no longer active.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    const score = await communityMemberOffenceScore(offence.groupId, offence.targetTelegramId);
+    if (score < offence.group.banScoreThreshold) return answerCallback(ctx, "The member is now below the ban threshold.", true);
+    await ctx.api.banChatMember(Number(offence.group.telegramChatId), Number(offence.targetTelegramId));
+    await markCommunityOffencePermanentBan(offence.id);
+    await recordCommunityAction({ groupId: offence.groupId, actorTelegramId: actorId, targetTelegramId: offence.targetTelegramId, action: CommunityModerationActionType.BAN, source: "OFFENCE_THRESHOLD", reportId: offence.reportId ?? undefined, reason: `Active offence score ${score}`, reversible: true });
+    await recordCommunityAudit({ groupId: offence.groupId, actorTelegramId: actorId, action: "OFFENCE_THRESHOLD_PERMANENT_BAN", targetTelegramId: offence.targetTelegramId, details: { offenceId: offence.id, score } });
+    await answerCallback(ctx, "Member permanently banned.");
+    return editCard(ctx, `${offenceDetailText(offence)}\n\n<b>Permanently banned · score ${score}</b>`, new InlineKeyboard());
+  }
+
+  if (data.startsWith("bc:oph:")) {
+    const reference = data.slice("bc:oph:".length);
+    const report = await communityReportById(reference);
+    let group: CommunityGroup | null = report?.group ?? null;
+    let telegramId = report?.reportedTelegramId ?? (/^\d+$/.test(reference) ? reference : undefined);
+    if (!group && ctx.chat?.type === "private") group = await selectedCommunityGroup(ctx, config);
+    if (!group || !telegramId) return answerCallback(ctx, "Member history is unavailable.", true);
+    const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can view offence history.", true);
+    await answerCallback(ctx);
+    return showMemberOffenceHistory(ctx, group, telegramId, access, true);
+  }
+
+  if (data.startsWith("bc:opd:")) {
+    const offence = await communityOffenceById(data.slice("bc:opd:".length));
+    if (!offence) return answerCallback(ctx, "Offence not found.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can view offence history.", true);
+    await answerCallback(ctx);
+    return editCard(ctx, offenceDetailText(offence), offenceDetailKeyboard(offence, access.owner));
+  }
+
+  if (data.startsWith("bc:opreduce:")) {
+    const offence = await communityOffenceById(data.slice("bc:opreduce:".length));
+    if (!offence || offence.status !== "ACTIVE" || offence.appliedPoints === null) return answerCallback(ctx, "This offence cannot be reduced.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    const keyboard = new InlineKeyboard();
+    for (let points = 0; points < offence.appliedPoints; points += 1) {
+      keyboard.text(String(points), `bc:opset:${points}:${offence.id}`);
+      if ((points + 1) % 4 === 0) keyboard.row();
+    }
+    keyboard.row().text("Cancel", `bc:opd:${offence.id}`);
+    await answerCallback(ctx);
+    return editCard(ctx, `${offenceDetailText(offence)}\n\nChoose the reduced point value.`, keyboard);
+  }
+
+  const reduceMatch = data.match(/^bc:opset:(\d+):(.+)$/);
+  if (reduceMatch) {
+    const points = Number(reduceMatch[1]);
+    const offence = await communityOffenceById(reduceMatch[2] ?? "");
+    if (!offence || offence.status !== "ACTIVE" || offence.appliedPoints === null || points >= offence.appliedPoints) return answerCallback(ctx, "That reduction is no longer valid.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    const previousPoints = offence.appliedPoints;
+    await reduceCommunityOffence(offence.id, points);
+    await recordCommunityAudit({ groupId: offence.groupId, actorTelegramId: actorId, action: "OFFENCE_SCORE_REDUCED", targetTelegramId: offence.targetTelegramId, details: { offenceId: offence.id, previousPoints, points } });
+    await answerCallback(ctx, "Offence score reduced.");
+    return showMemberOffenceHistory(ctx, offence.group, offence.targetTelegramId, access, true);
+  }
+
+  if (data.startsWith("bc:oppardon:")) {
+    const offence = await communityOffenceById(data.slice("bc:oppardon:".length));
+    if (!offence || offence.status !== "ACTIVE") return answerCallback(ctx, "This offence is no longer active.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    await answerCallback(ctx);
+    return editCard(ctx, `${offenceDetailText(offence)}\n\n<b>Pardon this offence?</b>\nIts points will stop counting, but the audit record remains.`, new InlineKeyboard().text("Pardon offence", `bc:oppardonok:${offence.id}`).row().text("Cancel", `bc:opd:${offence.id}`));
+  }
+
+  if (data.startsWith("bc:oppardonok:")) {
+    const offence = await communityOffenceById(data.slice("bc:oppardonok:".length));
+    if (!offence) return answerCallback(ctx, "Offence not found.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    const result = await pardonCommunityOffence(offence.id, actorId, "Owner-approved pardon");
+    if (!result.count) return answerCallback(ctx, "This offence is no longer active.", true);
+    if (!(await hasPermanentCommunityBan(offence.groupId, offence.targetTelegramId))) {
+      await ctx.api.unbanChatMember(Number(offence.group.telegramChatId), Number(offence.targetTelegramId), { only_if_banned: true }).catch(() => undefined);
+    }
+    await recordCommunityAudit({ groupId: offence.groupId, actorTelegramId: actorId, action: "OFFENCE_PARDONED", targetTelegramId: offence.targetTelegramId, details: { offenceId: offence.id } });
+    await answerCallback(ctx, "Offence pardoned.");
+    return showMemberOffenceHistory(ctx, offence.group, offence.targetTelegramId, access, true);
+  }
+
+  if (data.startsWith("bc:opclear:") && !data.startsWith("bc:opclearok:")) {
+    const telegramId = data.slice("bc:opclear:".length);
+    const group = ctx.chat?.type === "private" ? await selectedCommunityGroup(ctx, config) : null;
+    if (!group) return answerCallback(ctx, "Open private controls first.", true);
+    const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    await answerCallback(ctx);
+    return editCard(ctx, `<b>Pardon all active offences?</b>\nUser ID: <code>${escapeHtml(telegramId)}</code>\n\nThe audit history will remain.`, new InlineKeyboard().text("Pardon all", `bc:opclearok:${telegramId}`).row().text("Cancel", `bc:oph:${telegramId}`));
+  }
+
+  if (data.startsWith("bc:opclearok:")) {
+    const telegramId = data.slice("bc:opclearok:".length);
+    const group = ctx.chat?.type === "private" ? await selectedCommunityGroup(ctx, config) : null;
+    if (!group) return answerCallback(ctx, "Open private controls first.", true);
+    const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    const result = await pardonAllCommunityOffences(group.id, telegramId, actorId, "Owner cleared active score");
+    await ctx.api.unbanChatMember(Number(group.telegramChatId), Number(telegramId), { only_if_banned: true }).catch(() => undefined);
+    await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "OFFENCE_SCORE_CLEARED", targetTelegramId: telegramId, details: { pardonedCount: result.count } });
+    await answerCallback(ctx, `${result.count} active offence${result.count === 1 ? "" : "s"} pardoned.`);
+    return showMemberOffenceHistory(ctx, group, telegramId, access, true);
+  }
+
+  await answerCallback(ctx, "This offence control is no longer current.", true);
+}
+
+async function applyScoreThresholdAction(ctx: Context, group: CommunityGroup, offence: NonNullable<Awaited<ReturnType<typeof communityOffenceById>>>, score: number): Promise<void> {
+  const action = score >= group.muteScoreThreshold ? CommunityModerationActionType.MUTE
+    : score >= group.warningScoreThreshold ? CommunityModerationActionType.WARN
+      : undefined;
+  if (!action) return;
+  const muteUntil = action === CommunityModerationActionType.MUTE ? new Date(Date.now() + 24 * 60 * 60_000) : undefined;
+  await applyModerationAction(botFromContext(ctx), group, {
+    action,
+    targetTelegramId: offence.targetTelegramId,
+    sourceMessageId: offence.sourceMessageId ?? undefined,
+    sourceMessageThreadId: offence.sourceMessageThreadId ?? undefined,
+    actorTelegramId: "BEACON",
+    reason: `Active offence score ${score}`,
+    muteUntil
+  });
+  await recordCommunityAction({
+    groupId: group.id,
+    actorTelegramId: "BEACON",
+    targetTelegramId: offence.targetTelegramId,
+    action,
+    source: "OFFENCE_THRESHOLD",
+    sourceMessageId: offence.sourceMessageId ?? undefined,
+    sourceMessageThreadId: offence.sourceMessageThreadId ?? undefined,
+    sourceTopicName: offence.sourceTopicName ?? undefined,
+    reportId: offence.reportId ?? undefined,
+    reason: `Active offence score ${score}`,
+    muteUntil,
+    reversible: action === CommunityModerationActionType.MUTE
+  });
+}
+
+async function communityReportPresentation(report: CommunityReport) {
+  if (!report.reportedTelegramId) return { score: 0, offences: [] };
+  const [score, offences] = await Promise.all([
+    communityMemberOffenceScore(report.groupId, report.reportedTelegramId),
+    communityMemberOffences(report.groupId, report.reportedTelegramId, 3)
+  ]);
+  return { score, offences };
 }
 
 async function handleReportActionCallback(ctx: Context, config: BeaconConfig, data: string): Promise<void> {
@@ -1440,7 +1900,8 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
   if (code === "d") {
     await resolveCommunityReport(report.id, CommunityReportStatus.DISMISSED, actorId);
     await answerCallback(ctx, "Report dismissed.");
-    return editCard(ctx, `${reportCardText(report)}\n\n<b>Dismissed</b>`, new InlineKeyboard());
+    const presentation = await communityReportPresentation(report);
+    return editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Dismissed</b>`, new InlineKeyboard());
   }
   const action = code === "w" ? CommunityModerationActionType.WARN
     : code === "x" ? CommunityModerationActionType.DELETE
@@ -1473,7 +1934,8 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
   });
   await resolveCommunityReport(report.id, CommunityReportStatus.ACTIONED, actorId);
   await answerCallback(ctx, "Action applied.");
-  await editCard(ctx, `${reportCardText(report)}\n\n<b>Actioned · ${action}</b>`, reversible
+  const presentation = await communityReportPresentation(report);
+  await editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Actioned · ${action}</b>`, reversible
     ? new InlineKeyboard().text("Undo", `bc:undo:${recorded.id}`)
     : new InlineKeyboard());
 }
@@ -1499,7 +1961,7 @@ async function enforceConfiguredPolicy(ctx: Context, group: CommunityGroup, conf
   const strongest = highestSeverityMatch(matches);
   if (!strongest) return;
   const action = strongest.triggerGroup.action;
-  await notifyPolicyMatch(botFromContext(ctx), config, group, ctx, strongest.triggerGroup, matches.map((match) => match.pattern), group.observeMode);
+  await notifyPolicyMatch(botFromContext(ctx), config, group, ctx, strongest.triggerGroup, group.observeMode);
   if (group.observeMode || action === CommunityModerationActionType.REVIEW) return;
   const muteUntil = action === CommunityModerationActionType.MUTE
     ? new Date(Date.now() + (strongest.triggerGroup.muteDurationMinutes ?? 60) * 60_000)
@@ -1608,6 +2070,27 @@ async function applyModerationAction(bot: Pick<Bot, "api">, group: CommunityGrou
 }
 
 async function handleServiceMessage(ctx: Context, group: CommunityGroup, config: BeaconConfig): Promise<void> {
+  const topicCreated = ctx.message?.forum_topic_created;
+  const topicEdited = ctx.message?.forum_topic_edited;
+  const threadId = ctx.message?.message_thread_id;
+  if (threadId && topicCreated) {
+    await upsertCommunityForumTopic({
+      groupId: group.id,
+      messageThreadId: threadId,
+      name: topicCreated.name,
+      iconColor: topicCreated.icon_color,
+      iconCustomEmojiId: topicCreated.icon_custom_emoji_id
+    });
+  } else if (threadId && topicEdited?.name) {
+    const existing = await communityForumTopic(group.id, threadId);
+    await upsertCommunityForumTopic({
+      groupId: group.id,
+      messageThreadId: threadId,
+      name: topicEdited.name,
+      iconColor: existing?.iconColor ?? undefined,
+      iconCustomEmojiId: topicEdited.icon_custom_emoji_id ?? existing?.iconCustomEmojiId ?? undefined
+    });
+  }
   for (const user of ctx.message?.new_chat_members ?? []) {
     await upsertCommunityMember({ groupId: group.id, telegramId: String(user.id), username: user.username, displayName: memberName(user), joined: true, active: true });
   }
@@ -1630,6 +2113,154 @@ async function handleServiceMessage(ctx: Context, group: CommunityGroup, config:
     }
   }
   if (group.cleanupServiceMessages && ctx.message) await deleteMessageQuietly(ctx, ctx.message.message_id);
+}
+
+async function beginTopicPurge(ctx: Context, group: CommunityGroup, config: BeaconConfig): Promise<void> {
+  const actorId = String(ctx.from?.id ?? "");
+  if (actorId !== config.ownerTelegramId) {
+    await ctx.reply(OWNER_ONLY);
+    return;
+  }
+  const messageThreadId = ctx.message?.message_thread_id;
+  if (!messageThreadId || messageThreadId === 1) {
+    await ctx.reply("Beacon cannot purge Telegram's General topic. Run this inside a non-General forum topic.");
+    return;
+  }
+  const known = await communityForumTopic(group.id, messageThreadId);
+  if (!known?.name) {
+    await startCommunityConversation({
+      groupId: group.id,
+      actorTelegramId: actorId,
+      kind: "PURGE_TOPIC_NAME",
+      step: "NAME",
+      data: { messageThreadId },
+      ttlMs: 60_000
+    });
+    await ctx.reply([
+      "<b>Topic name required</b>",
+      "Telegram does not let Beacon fetch an older topic's name.",
+      "Reply with the name Beacon should use when recreating this topic. This request expires in 60 seconds."
+    ].join("\n"), { parse_mode: "HTML" });
+    return;
+  }
+  await startCommunityConversation({
+    groupId: group.id,
+    actorTelegramId: actorId,
+    kind: "PURGE_TOPIC",
+    step: "CONFIRM",
+    data: { messageThreadId, topicName: known.name },
+    ttlMs: 60_000
+  });
+  await ctx.reply([
+    `<b>Purge “${escapeHtml(known.name)}”?</b>`,
+    "Every message will be permanently deleted and the topic will be recreated empty.",
+    "Old links and pins will stop working. Confirmation expires in 60 seconds."
+  ].join("\n"), { parse_mode: "HTML", reply_markup: purgeConfirmationKeyboard() });
+}
+
+async function confirmTopicPurge(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<void> {
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  const actorId = String(ctx.from?.id ?? "");
+  const conversation = await activeCommunityConversation(group.id, actorId);
+  if (!conversation || !["PURGE_TOPIC", "PURGE_TOPIC_NAME"].includes(conversation.kind) || conversation.step !== "CONFIRM") {
+    return answerCallback(ctx, "This purge confirmation expired.", true);
+  }
+  const data = jsonData(conversation.data);
+  const messageThreadId = typeof data.messageThreadId === "number" ? data.messageThreadId : undefined;
+  const topicName = stringValue(data.topicName);
+  const callbackThreadId = ctx.callbackQuery?.message && "message_thread_id" in ctx.callbackQuery.message
+    ? ctx.callbackQuery.message.message_thread_id
+    : undefined;
+  if (!messageThreadId || messageThreadId === 1 || !topicName || callbackThreadId !== messageThreadId) {
+    return answerCallback(ctx, "This confirmation belongs to a different topic.", true);
+  }
+  const topic = await communityForumTopic(group.id, messageThreadId);
+  await answerCallback(ctx, "Purging topic…");
+  try {
+    await ctx.api.deleteForumTopic(Number(group.telegramChatId), messageThreadId);
+    const allowedIconColors = [7322096, 16766590, 13338331, 9367192, 16749490, 16478047] as const;
+    const iconColor = topic?.iconColor && allowedIconColors.includes(topic.iconColor as (typeof allowedIconColors)[number])
+      ? topic.iconColor as (typeof allowedIconColors)[number]
+      : undefined;
+    const replacement = await ctx.api.createForumTopic(Number(group.telegramChatId), topicName, topic?.iconCustomEmojiId
+      ? { icon_custom_emoji_id: topic.iconCustomEmojiId }
+      : iconColor ? { icon_color: iconColor } : {});
+    await markCommunityForumTopicReplaced(group.id, messageThreadId, replacement.message_thread_id);
+    await upsertCommunityForumTopic({
+      groupId: group.id,
+      messageThreadId: replacement.message_thread_id,
+      name: topicName,
+      iconColor: replacement.icon_color,
+      iconCustomEmojiId: replacement.icon_custom_emoji_id
+    });
+    await clearCommunityConversation(group.id, actorId);
+    const audit = await recordCommunityAudit({
+      groupId: group.id,
+      actorTelegramId: actorId,
+      action: "FORUM_TOPIC_PURGED",
+      details: { previousThreadId: messageThreadId, replacementThreadId: replacement.message_thread_id, topicName }
+    });
+    await notifyOwner(botFromContext(ctx), config, group, audit.id, [
+      "<b>Topic purged</b>",
+      escapeHtml(topicName),
+      `New topic ID: <code>${replacement.message_thread_id}</code>`
+    ].join("\n"));
+  } catch (error) {
+    logger.error("Beacon topic purge failed.", { groupId: group.id, messageThreadId, error: String(error) });
+    await clearCommunityConversation(group.id, actorId);
+    await ctx.api.sendMessage(Number(group.telegramChatId), "Beacon could not purge and recreate that topic. Check that it can delete messages and manage topics.", threadOptions(messageThreadId)).catch(() => undefined);
+  }
+}
+
+async function showSeverityRules(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = true): Promise<void> {
+  if (!access.owner) {
+    if (ctx.callbackQuery) await answerCallback(ctx, OWNER_ONLY, true);
+    else await ctx.reply(OWNER_ONLY);
+    return;
+  }
+  const fresh = await communityGroupById(group.id) ?? group;
+  const rules = await communitySeverityRules(group.id);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, severityRulesText(fresh, rules), severityRulesKeyboard());
+  } else {
+    await ctx.reply(severityRulesText(fresh, rules), { parse_mode: "HTML", reply_markup: severityRulesKeyboard() });
+  }
+}
+
+async function beginSeverityScoreEdit(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!Object.values(CommunityOffenceSeverity).includes(value as CommunityOffenceSeverity)) return answerCallback(ctx, "Unknown severity.", true);
+  await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "EDIT_SEVERITY_SCORE", step: "POINTS", data: { severity: value } });
+  await answerCallback(ctx);
+  await editCard(ctx, `<b>${escapeHtml(value.toLowerCase())} offence points</b>\nSend a whole number from 0 to 100.`, new InlineKeyboard().text("Cancel", "bc:cancel"));
+}
+
+async function beginThresholdEdit(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!["WARNING", "MUTE", "BAN"].includes(value)) return answerCallback(ctx, "Unknown threshold.", true);
+  await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "EDIT_SCORE_THRESHOLD", step: "POINTS", data: { kind: value } });
+  await answerCallback(ctx);
+  await editCard(ctx, `<b>${escapeHtml(value.toLowerCase())} threshold</b>\nSend a whole number from 1 to 100. Thresholds must remain ordered.`, new InlineKeyboard().text("Cancel", "bc:cancel"));
+}
+
+async function beginOffenceLookup(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "OFFENCE_LOOKUP", step: "TELEGRAM_ID" });
+  await answerCallback(ctx);
+  await editCard(ctx, "<b>Find member offences</b>\nSend the member's numeric Telegram ID.", new InlineKeyboard().text("Cancel", "bc:cancel"));
+}
+
+async function showMemberOffenceHistory(ctx: Context, group: CommunityGroup, telegramId: string, access: CommunityAccess, edit: boolean): Promise<void> {
+  const [score, offences] = await Promise.all([
+    communityMemberOffenceScore(group.id, telegramId),
+    communityMemberOffences(group.id, telegramId, 10)
+  ]);
+  const name = offences[0]?.targetDisplayName ?? offences[0]?.targetUsername ?? telegramId;
+  const text = memberOffencesText({ name, telegramId, score, offences });
+  const keyboard = memberOffencesKeyboard(telegramId, offences, access.owner);
+  if (edit && ctx.callbackQuery) await editCard(ctx, text, keyboard);
+  else await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
 }
 
 async function showPrivateEntry(ctx: Context, config: BeaconConfig): Promise<void> {
@@ -1707,6 +2338,11 @@ async function showMemberHelp(ctx: Context, group: CommunityGroup): Promise<void
 }
 
 async function showTriggerLibrary(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
+  if (!access.owner) {
+    if (ctx.callbackQuery) await answerCallback(ctx, OWNER_ONLY, true);
+    else await ctx.reply(OWNER_ONLY);
+    return;
+  }
   const actorId = String(ctx.from!.id);
   let session = await communityControlSession(actorId);
   if (!session || session.selectedGroupId !== group.id) {
@@ -1757,6 +2393,7 @@ async function showTriggerLibrary(ctx: Context, group: CommunityGroup, access: C
 }
 
 async function beginTriggerLibrarySearch(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "SEARCH_TRIGGER_LIBRARY", step: "QUERY" });
   await answerCallback(ctx);
   await editCard(ctx, "<b>Search trigger library</b>\nSend a word, phrase, domain, or trigger-group name.", new InlineKeyboard().text("Cancel", "bc:cancel"));
@@ -1789,6 +2426,11 @@ async function clearTriggerLibraryFilters(ctx: Context, group: CommunityGroup, a
 }
 
 async function beginPrivateTriggerAdd(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
+  if (ctx.chat?.type !== "private") {
+    if (ctx.callbackQuery) await answerCallback(ctx, "Add triggers in Beacon's private chat.", true);
+    else await ctx.reply("Add triggers in Beacon's private chat.");
+    return;
+  }
   if (!access.canAddTriggers) {
     if (ctx.callbackQuery) await answerCallback(ctx, "You cannot add triggers.", true);
     else await ctx.reply("You cannot add triggers.");
@@ -1902,27 +2544,40 @@ async function accessFor(ctx: Context, group: CommunityGroup, config: BeaconConf
   return communityAccess(group.id, String(ctx.from?.id ?? ""), config.ownerTelegramId);
 }
 
-async function notifyPolicyMatch(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, ctx: Context, category: Pick<CommunityTriggerGroup, "name" | "action" | "deleteMessage">, patterns: string[], observe: boolean): Promise<void> {
-  const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
-  const threadId = ctx.message?.message_thread_id;
-  await bot.api.sendMessage(destination, [
-    `<b>${observe ? "Observed" : "Moderated"} · ${escapeHtml(category.name)}</b>`,
-    `Member: ${escapeHtml(ctx.from ? memberName(ctx.from) : "Unknown")}`,
-    threadId ? `Topic: ${escapeHtml(topicLabel(threadId) ?? `#${threadId}`)}` : "",
-    `Matched: ${patterns.map((pattern) => `<code>${escapeHtml(pattern)}</code>`).join(", ")}`,
-    `Proposed action: ${category.action}${category.deleteMessage ? " + delete" : ""}`
-  ].filter(Boolean).join("\n"), { parse_mode: "HTML" }).catch((error) => logger.error("Beacon policy alert failed.", { error: String(error) }));
+async function notifyPolicyMatch(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, ctx: Context, category: Pick<CommunityTriggerGroup, "name" | "action" | "deleteMessage">, observe: boolean): Promise<void> {
+  if (!ctx.message || !ctx.from) return;
+  const result = await createOrIncrementCommunityReport({
+    groupId: group.id,
+    sourceChatId: group.telegramChatId,
+    sourceMessageId: ctx.message.message_id,
+    sourceMessageThreadId: ctx.message.message_thread_id,
+    sourceTopicName: topicLabel(ctx.message.message_thread_id),
+    reporterTelegramId: "BEACON",
+    reportedTelegramId: String(ctx.from.id),
+    reportedUsername: ctx.from.username,
+    reportedDisplayName: memberName(ctx.from),
+    evidenceText: ctx.message.text ?? ctx.message.caption,
+    reason: `${observe ? "Observed" : "Moderated"} · ${category.name} · proposed ${category.action}${category.deleteMessage ? " + delete" : ""}`
+  });
+  await deliverReport(bot, config, group, result.report);
 }
 
 async function notifyStructuralMatch(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, ctx: Context, reason: string): Promise<void> {
-  const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
-  const threadId = ctx.message?.message_thread_id;
-  await bot.api.sendMessage(destination, [
-    `<b>${group.observeMode ? "Observed" : "Moderated"} · ${escapeHtml(reason)}</b>`,
-    `Member: ${escapeHtml(ctx.from ? memberName(ctx.from) : "Unknown")}`,
-    threadId ? `Topic: ${escapeHtml(topicLabel(threadId) ?? `#${threadId}`)}` : "",
-    `Message: ${ctx.message?.message_id ?? "unknown"}`
-  ].filter(Boolean).join("\n"), { parse_mode: "HTML" }).catch(() => undefined);
+  if (!ctx.message || !ctx.from) return;
+  const result = await createOrIncrementCommunityReport({
+    groupId: group.id,
+    sourceChatId: group.telegramChatId,
+    sourceMessageId: ctx.message.message_id,
+    sourceMessageThreadId: ctx.message.message_thread_id,
+    sourceTopicName: topicLabel(ctx.message.message_thread_id),
+    reporterTelegramId: "BEACON",
+    reportedTelegramId: String(ctx.from.id),
+    reportedUsername: ctx.from.username,
+    reportedDisplayName: memberName(ctx.from),
+    evidenceText: ctx.message.text ?? ctx.message.caption,
+    reason: `${group.observeMode ? "Observed" : "Moderated"} · ${reason}`
+  });
+  await deliverReport(bot, config, group, result.report);
 }
 
 async function notifyOwner(

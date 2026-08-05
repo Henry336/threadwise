@@ -5,6 +5,7 @@ import {
   inferTriggerMatchType,
   isBeaconInvocation,
   normalizeCommunityText,
+  offencePointOptions,
   safeModeratorDefaults,
   triggerMatches
 } from "./policy";
@@ -62,6 +63,12 @@ describe("Beacon policy normalization", () => {
       expect(isBeaconInvocation(value)).toBe(false);
     }
   });
+
+  it("offers bounded per-offence proposals without changing the owner's severity policy", () => {
+    expect(offencePointOptions(3)).toEqual([2, 3, 4, 5]);
+    expect(offencePointOptions(0)).toEqual([0, 1, 2]);
+    expect(offencePointOptions(100)).toEqual([99, 100]);
+  });
 });
 
 function trigger(id: string, pattern: string, matchType: "WORD" | "PHRASE" | "DOMAIN", action: "REVIEW" | "WARN" | "MUTE" | "BAN") {
@@ -77,7 +84,8 @@ function trigger(id: string, pattern: string, matchType: "WORD" | "PHRASE" | "DO
       deleteMessage: action !== "REVIEW",
       muteDurationMinutes: action === "MUTE" ? 60 : null,
       notifyModerators: true,
-      enabled: true
+      enabled: true,
+      severity: action === "BAN" ? "CRITICAL" as const : action === "MUTE" ? "SERIOUS" as const : action === "WARN" ? "MODERATE" as const : "MINOR" as const
     }
   };
 }

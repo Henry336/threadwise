@@ -23,11 +23,16 @@ Beacon is designed for one English/Burmese scholarship-information community and
 - Create, rename, and delete empty trigger groups without a deploy.
 - Select and privately manage any authorized community from Beacon's direct chat.
 - Search and filter a paginated private trigger library by text, action, or trigger group.
+- Keep that trigger library owner-only. Moderators may privately submit a proposed trigger, but cannot enumerate, remove, move, or reclassify the hidden policy pool.
 - Add, test, move, and delete triggers from Telegram without exposing the policy list in the group.
 - Let authorized moderators submit new triggers to a review-only Watchlist; the owner privately approves, reclassifies, or removes each submission before it can enforce anything.
 - Configure review, delete-and-warn, temporary mute, or ban actions with confirmation.
 - Observe matches without affecting members.
 - Aggregate duplicate reports of one message into one private review card.
+- Show the flagged text, source topic, member identity, Telegram user ID, active offence score, and recent offence history on that review card.
+- Let moderators propose a severity and incident score while reserving confirmation, severity-point policy, thresholds, reductions, pardons, and permanent bans for the immutable owner.
+- Restore owner-confirmed permanent bans when the same Telegram account rejoins, until its active banning offence is pardoned.
+- Purge one non-General forum topic through an owner-only, expiring confirmation that deletes and recreates the topic while preserving known name/icon metadata.
 - Warn, delete, mute, or ban from a report according to the moderator's capabilities.
 - Undo reversible mute and ban actions.
 - Apply flood, duplicate-message, and mass-mention controls.
@@ -56,7 +61,7 @@ BEACON_WEBHOOK_SECRET_PATH=/telegram/beacon-webhook
 1. Create a new bot identity in BotFather and copy its token directly into Render.
 2. Run `/setprivacy`, select Beacon, and choose **Disable**. Policy matching requires ordinary group messages.
 3. Add Beacon to the private testing group as an administrator.
-4. Grant **Delete messages** and **Ban users**. These rights cover removal, warning cleanup, mute, ban, lockdown, and service-message cleanup. Grant **Invite users** if moderators must undo bans.
+4. Grant **Delete messages** and **Ban users**. These rights cover removal, warning cleanup, mute, ban, lockdown, and service-message cleanup. Grant **Manage topics** if the owner will use `/purge`. Grant **Invite users** if moderators must undo bans.
 5. Start Beacon once in a private chat from the owner account. Telegram otherwise prevents the owner audit DMs.
 6. Optionally create a private moderator-review group, add Beacon and the moderators, and put its ID in `BEACON_MODERATOR_CHAT_ID`.
 7. Add the Render variables, then use **Save, rebuild, and deploy**.
@@ -78,14 +83,16 @@ Keep Observe mode enabled for this test.
 9. Reply to a harmless message with `/report`. Confirm the public command disappears, the reporter receives a private acknowledgement, and one private review card appears with its topic when applicable.
 10. Report the same message again from the same account and verify no duplicate case is created.
 11. Remove the test moderator from the group and verify Beacon suspends their permissions and DMs the owner.
+12. Open **Offence scores** in the owner's private controls, adjust only harmless test values, propose an offence from the moderator report card, and verify the owner must confirm it before the score counts.
+13. In a disposable non-General topic, run `/purge`, cancel once, then confirm once. Verify only that topic is recreated empty and the owner receives an audit DM. Never use a topic containing evidence you still need.
 
 Only after those checks should the owner turn off Observe mode or configure the production group.
 
 ## Moderator permissions
 
-The safe preset grants delete/warn and temporary mute. It does not grant permanent ban; rule editing; adding, removing, or reclassifying triggers; trigger-group management; automatic-action changes; trusted-member management; or lockdown.
+The safe preset grants delete/warn and temporary mute. It does not grant permanent ban; rule editing; trigger submissions; hidden trigger-library access; trigger-group management; automatic-action changes; trusted-member management; or lockdown.
 
-Trigger permissions are deliberately separate. `Add triggers for review` never makes a submitted trigger active: it enters the Watchlist, privately alerts the owner, and waits for approval. Removing triggers, changing severity, and managing trigger groups are independent grants. Moderator management is never grantable.
+`Add triggers for review` never makes a submitted trigger active: it enters the Watchlist, privately alerts the owner, and waits for approval. The library itself, trigger removal/reclassification, severity-point policy, enforcement thresholds, and moderator management are owner-only and are not grantable.
 
 ## Telegram control plane
 
@@ -100,6 +107,18 @@ Sensitive grants—ban, automatic-action changes, and lockdown—require a secon
 A member reports by replying to the relevant message and sending `/report`, `report this`, or the Burmese report phrase. Beacon removes the public command, stores bounded evidence temporarily, and updates one private review card when more people report the same message.
 
 Evidence text expires after 30 days. Resolving a report does not publish the reporter's identity in the group.
+
+## Offence scores and permanent bans
+
+An offence proposal is not a punishment. A moderator chooses a severity and proposes an incident score from a narrow set around the owner's configured severity value. Beacon privately asks the immutable owner to accept the proposal, use the policy value, or reject it. Only a confirmed offence contributes to the member's active score.
+
+The owner can configure severity values and ordered warning, mute, and permanent-ban thresholds in private controls. Warning and 24-hour mute thresholds can act after confirmation. Reaching the ban threshold presents a second owner-only **Permanently ban** confirmation; Beacon never silently converts a score into a permanent ban.
+
+Reducing or pardoning an offence preserves its audit record. Pardoned points stop counting. A permanent ban remains attached to the Telegram user ID and is re-applied if that account rejoins; pardoning the active banning offence or clearing the active score removes that Beacon-level rejoin block.
+
+## Topic purge
+
+`/purge` works only for the immutable owner and only inside a non-General forum topic. Telegram has no bulk delete-history API for a topic, so Beacon deletes the topic and recreates it under the same known name and icon. This removes every message in that topic, invalidates old links and pins, and gives the replacement a new topic ID. The confirmation is tied to the originating topic and expires after 60 seconds.
 
 ## Failure behavior
 

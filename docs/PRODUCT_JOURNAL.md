@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 6 August 2026 - Moderation history needs accountable escalation, not an opaque blacklist
+
+**Friction discovered:** A report queue could preserve a message and offer an immediate moderation action, but it did not answer whether a member had repeatedly offended, why a later punishment was justified, or how a pardon should affect future enforcement. Exposing the trigger pool to every moderator would also leak enforcement policy, while hard-coded severity values would force redeployments. Telegram offers no safe single call to erase one forum topic's full history, making a requested purge deceptively complex.
+
+**Decision:** Keep reports and offence history separate but linked. Moderators may preserve evidence and propose an incident score; only the immutable owner confirms scores, configures severity values and thresholds, reduces or pardons records, and confirms permanent bans. Keep the trigger pool owner-only, accept moderator trigger suggestions only in private, and implement purge by deleting/recreating only the originating non-General topic after an expiring owner confirmation.
+
+**Implementation:** Added report-linked offence records, severity policy, ordered warning/mute/ban thresholds, active-score aggregation, owner approval/rejection, history lookup, reductions and pardons, threshold warnings/mutes, second-step permanent bans, and re-ban-on-rejoin. Report cards now show bounded evidence, topic, target user ID, score, and recent history. Added owner-only private score controls and stale-callback guards for the hidden trigger library. Added forum-topic metadata capture plus `/purge` confirmation, topic identity validation, delete/recreate, replacement tracking, and private audit delivery.
+
+**Outcome/evidence:** Prisma generation, no-output TypeScript checking, and all 754 repository tests pass. Focused policy coverage verifies safe moderator defaults and bounded incident-score proposals. The ordinary build output remains locked by an already-running local Node process, so compilation was also checked through no-output typechecking rather than disturbing the live process.
+
+**Follow-up:** Deploy to the testing group first. Report a disposable message, verify that a moderator can propose but not confirm a score, confirm it as owner, test reduction/pardon, and only then test a permanent ban with a disposable account. Test `/purge` exclusively in a disposable non-General topic after granting Beacon **Manage topics**.
+
 ## 6 August 2026 - Moderation configuration belongs in a private Telegram control plane
 
 **Friction discovered:** Beacon's first release proved that policy could be changed without touching the repository, but exposing deep configuration through a group message was awkward and could reveal trigger values, report context, or moderator capabilities to ordinary members. A single `canEditRules`-style grant was also too broad: a helpful moderator who should propose a trigger should not automatically be able to remove it, reduce its severity, or rewrite enforcement. Forum topics added another context risk because an action could be correct yet appear detached from the conversation where it originated.

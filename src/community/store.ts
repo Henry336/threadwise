@@ -2,6 +2,8 @@ import {
   CommunityEnvironment,
   CommunityModerationActionType,
   CommunityModeratorStatus,
+  CommunityOffenceSeverity,
+  CommunityOffenceStatus,
   CommunityReportStatus,
   CommunityTriggerMatchType,
   Prisma,
@@ -16,12 +18,19 @@ const CONVERSATION_TTL_MS = 15 * 60_000;
 const EVIDENCE_TTL_MS = 30 * 24 * 60 * 60_000;
 
 const DEFAULT_TRIGGER_GROUPS = [
-  { name: "Watchlist", description: "Log and review uncertain matches.", action: CommunityModerationActionType.REVIEW, deleteMessage: false },
-  { name: "Mild disruption", description: "Remove low-severity disruption and warn the sender.", action: CommunityModerationActionType.WARN, deleteMessage: true },
-  { name: "Repeated promotion", description: "Remove repeated advertising and warn the sender.", action: CommunityModerationActionType.WARN, deleteMessage: true },
-  { name: "Harassment", description: "Remove harassment and temporarily mute the sender.", action: CommunityModerationActionType.MUTE, deleteMessage: true, muteDurationMinutes: 1_440 },
-  { name: "Known scams", description: "High-confidence scam domains or exact repeated templates. Starts in review mode until explicitly promoted.", action: CommunityModerationActionType.REVIEW, deleteMessage: false }
+  { name: "Watchlist", description: "Log and review uncertain matches.", action: CommunityModerationActionType.REVIEW, deleteMessage: false, severity: CommunityOffenceSeverity.MINOR },
+  { name: "Mild disruption", description: "Remove low-severity disruption and warn the sender.", action: CommunityModerationActionType.WARN, deleteMessage: true, severity: CommunityOffenceSeverity.MODERATE },
+  { name: "Repeated promotion", description: "Remove repeated advertising and warn the sender.", action: CommunityModerationActionType.WARN, deleteMessage: true, severity: CommunityOffenceSeverity.MODERATE },
+  { name: "Harassment", description: "Remove harassment and temporarily mute the sender.", action: CommunityModerationActionType.MUTE, deleteMessage: true, muteDurationMinutes: 1_440, severity: CommunityOffenceSeverity.SERIOUS },
+  { name: "Known scams", description: "High-confidence scam domains or exact repeated templates. Starts in review mode until explicitly promoted.", action: CommunityModerationActionType.REVIEW, deleteMessage: false, severity: CommunityOffenceSeverity.CRITICAL }
 ] as const;
+
+const DEFAULT_SEVERITY_POINTS: Record<CommunityOffenceSeverity, number> = {
+  MINOR: 1,
+  MODERATE: 2,
+  SERIOUS: 3,
+  CRITICAL: 5
+};
 
 export type ModeratorPermissionsInput = {
   canWarnDelete: boolean;
@@ -97,6 +106,7 @@ export async function ensureConfiguredCommunityGroups(config: BeaconConfig): Pro
       }
     });
     await ensureDefaultTriggerGroups(group.id);
+    await ensureDefaultSeverityRules(group.id);
     groups.push(group);
   }
   return groups;
@@ -113,8 +123,19 @@ async function ensureDefaultTriggerGroups(groupId: string): Promise<void> {
         description: category.description,
         action: category.action,
         deleteMessage: category.deleteMessage,
+        severity: category.severity,
         muteDurationMinutes: "muteDurationMinutes" in category ? category.muteDurationMinutes : null
       },
+      update: {}
+    });
+  }
+}
+
+async function ensureDefaultSeverityRules(groupId: string): Promise<void> {
+  for (const severity of Object.values(CommunityOffenceSeverity)) {
+    await prisma.communitySeverityRule.upsert({
+      where: { groupId_severity: { groupId, severity } },
+      create: { groupId, severity, points: DEFAULT_SEVERITY_POINTS[severity] },
       update: {}
     });
   }
@@ -223,10 +244,10 @@ export async function communityAccess(groupId: string, telegramId: string, owner
     canBan: Boolean(active && moderator?.canBan),
     canEditRules: Boolean(active && moderator?.canEditRules),
     canAddTriggers: Boolean(active && moderator?.canAddTriggers),
-    canRemoveTriggers: Boolean(active && moderator?.canRemoveTriggers),
-    canChangeTriggerSeverity: Boolean(active && moderator?.canChangeTriggerSeverity),
-    canManageTriggerGroups: Boolean(active && moderator?.canManageTriggerGroups),
-    canChangeAutomaticActions: Boolean(active && moderator?.canChangeAutomaticActions),
+    canRemoveTriggers: false,
+    canChangeTriggerSeverity: false,
+    canManageTriggerGroups: false,
+    canChangeAutomaticActions: false,
     canManageTrustedMembers: Boolean(active && moderator?.canManageTrustedMembers),
     canLockdown: Boolean(active && moderator?.canLockdown)
   };
@@ -306,7 +327,9 @@ export async function startCommunityConversation(input: {
   step: string;
   data?: Record<string, unknown>;
   messageId?: number;
+  ttlMs?: number;
 }): Promise<void> {
+  const expiresAt = new Date(Date.now() + (input.ttlMs ?? CONVERSATION_TTL_MS));
   await prisma.communityConversation.upsert({
     where: { groupId_actorTelegramId: { groupId: input.groupId, actorTelegramId: input.actorTelegramId } },
     create: {
@@ -316,14 +339,14 @@ export async function startCommunityConversation(input: {
       step: input.step,
       data: (input.data ?? {}) as Prisma.InputJsonValue,
       messageId: input.messageId,
-      expiresAt: new Date(Date.now() + CONVERSATION_TTL_MS)
+      expiresAt
     },
     update: {
       kind: input.kind,
       step: input.step,
       data: (input.data ?? {}) as Prisma.InputJsonValue,
       messageId: input.messageId,
-      expiresAt: new Date(Date.now() + CONVERSATION_TTL_MS)
+      expiresAt
     }
   });
 }
@@ -686,6 +709,206 @@ export async function createOrIncrementCommunityReport(input: {
     include: { reporters: true }
   });
   return { report, incremented: true };
+}
+
+export async function communitySeverityRules(groupId: string) {
+  await ensureDefaultSeverityRules(groupId);
+  return prisma.communitySeverityRule.findMany({ where: { groupId }, orderBy: { points: "asc" } });
+}
+
+export async function communitySeverityPoints(groupId: string, severity: CommunityOffenceSeverity): Promise<number> {
+  await ensureDefaultSeverityRules(groupId);
+  const rule = await prisma.communitySeverityRule.findUnique({ where: { groupId_severity: { groupId, severity } } });
+  return rule?.points ?? DEFAULT_SEVERITY_POINTS[severity];
+}
+
+export async function updateCommunitySeverityPoints(groupId: string, severity: CommunityOffenceSeverity, points: number) {
+  return prisma.communitySeverityRule.upsert({
+    where: { groupId_severity: { groupId, severity } },
+    create: { groupId, severity, points },
+    update: { points }
+  });
+}
+
+export async function updateCommunityScoreThreshold(groupId: string, kind: "WARNING" | "MUTE" | "BAN", points: number) {
+  const data = kind === "WARNING" ? { warningScoreThreshold: points }
+    : kind === "MUTE" ? { muteScoreThreshold: points }
+      : { banScoreThreshold: points };
+  return prisma.communityGroup.update({ where: { id: groupId }, data });
+}
+
+export async function createCommunityOffenceProposal(input: {
+  reportId: string;
+  severity: CommunityOffenceSeverity;
+  policyPoints: number;
+  proposedPoints: number;
+  proposedByTelegramId: string;
+  proposalReason?: string;
+}) {
+  const report = await communityReportById(input.reportId);
+  if (!report?.reportedTelegramId) throw new Error("OFFENCE_TARGET_REQUIRED");
+  const existing = await prisma.communityOffence.findUnique({ where: { reportId: report.id }, include: { group: true, report: true } });
+  if (existing && (existing.status === CommunityOffenceStatus.PENDING || existing.status === CommunityOffenceStatus.ACTIVE)) {
+    return { offence: existing, created: false };
+  }
+  const offence = await prisma.communityOffence.upsert({
+    where: { reportId: report.id },
+    create: {
+      groupId: report.groupId,
+      reportId: report.id,
+      targetTelegramId: report.reportedTelegramId,
+      targetUsername: report.reportedUsername,
+      targetDisplayName: report.reportedDisplayName,
+      sourceChatId: report.sourceChatId,
+      sourceMessageId: report.sourceMessageId,
+      sourceMessageThreadId: report.sourceMessageThreadId,
+      sourceTopicName: report.sourceTopicName,
+      categoryName: report.reason,
+      severity: input.severity,
+      policyPoints: input.policyPoints,
+      proposedPoints: input.proposedPoints,
+      proposedByTelegramId: input.proposedByTelegramId,
+      proposalReason: input.proposalReason,
+      status: CommunityOffenceStatus.PENDING
+    },
+    update: {
+      severity: input.severity,
+      policyPoints: input.policyPoints,
+      proposedPoints: input.proposedPoints,
+      proposedByTelegramId: input.proposedByTelegramId,
+      proposalReason: input.proposalReason,
+      appliedPoints: null,
+      status: CommunityOffenceStatus.PENDING,
+      confirmedByTelegramId: null,
+      confirmedAt: null,
+      pardonedByTelegramId: null,
+      pardonedAt: null,
+      pardonReason: null
+    },
+    include: { group: true, report: true }
+  });
+  return { offence, created: true };
+}
+
+export async function communityOffenceById(id: string) {
+  return prisma.communityOffence.findUnique({ where: { id }, include: { group: true, report: true } });
+}
+
+export async function confirmCommunityOffence(id: string, actorTelegramId: string, points: number) {
+  return prisma.$transaction(async (tx) => {
+    const offence = await tx.communityOffence.findUnique({ where: { id } });
+    if (!offence || offence.status !== CommunityOffenceStatus.PENDING) return null;
+    const active = await tx.communityOffence.update({
+      where: { id },
+      data: {
+        status: CommunityOffenceStatus.ACTIVE,
+        appliedPoints: points,
+        confirmedByTelegramId: actorTelegramId,
+        confirmedAt: new Date()
+      },
+      include: { group: true, report: true }
+    });
+    const score = await tx.communityOffence.aggregate({
+      where: { groupId: active.groupId, targetTelegramId: active.targetTelegramId, status: CommunityOffenceStatus.ACTIVE },
+      _sum: { appliedPoints: true }
+    });
+    return { offence: active, score: score._sum.appliedPoints ?? 0 };
+  });
+}
+
+export async function rejectCommunityOffence(id: string, actorTelegramId: string) {
+  return prisma.communityOffence.updateMany({
+    where: { id, status: CommunityOffenceStatus.PENDING },
+    data: { status: CommunityOffenceStatus.REJECTED, confirmedByTelegramId: actorTelegramId, confirmedAt: new Date() }
+  });
+}
+
+export async function communityMemberOffenceScore(groupId: string, telegramId: string): Promise<number> {
+  const result = await prisma.communityOffence.aggregate({
+    where: { groupId, targetTelegramId: telegramId, status: CommunityOffenceStatus.ACTIVE },
+    _sum: { appliedPoints: true }
+  });
+  return result._sum.appliedPoints ?? 0;
+}
+
+export async function communityMemberOffences(groupId: string, telegramId: string, take = 10) {
+  return prisma.communityOffence.findMany({
+    where: { groupId, targetTelegramId: telegramId },
+    orderBy: { createdAt: "desc" },
+    take
+  });
+}
+
+export async function pardonCommunityOffence(id: string, actorTelegramId: string, reason?: string) {
+  return prisma.communityOffence.updateMany({
+    where: { id, status: CommunityOffenceStatus.ACTIVE },
+    data: {
+      status: CommunityOffenceStatus.PARDONED,
+      pardonedByTelegramId: actorTelegramId,
+      pardonedAt: new Date(),
+      pardonReason: reason?.slice(0, 500)
+    }
+  });
+}
+
+export async function reduceCommunityOffence(id: string, points: number) {
+  return prisma.communityOffence.updateMany({
+    where: { id, status: CommunityOffenceStatus.ACTIVE },
+    data: { appliedPoints: points }
+  });
+}
+
+export async function pardonAllCommunityOffences(groupId: string, telegramId: string, actorTelegramId: string, reason?: string) {
+  return prisma.communityOffence.updateMany({
+    where: { groupId, targetTelegramId: telegramId, status: CommunityOffenceStatus.ACTIVE },
+    data: {
+      status: CommunityOffenceStatus.PARDONED,
+      pardonedByTelegramId: actorTelegramId,
+      pardonedAt: new Date(),
+      pardonReason: reason?.slice(0, 500)
+    }
+  });
+}
+
+export async function markCommunityOffencePermanentBan(id: string): Promise<void> {
+  await prisma.communityOffence.update({ where: { id }, data: { permanentBanApplied: true } });
+}
+
+export async function hasPermanentCommunityBan(groupId: string, telegramId: string): Promise<boolean> {
+  return Boolean(await prisma.communityOffence.findFirst({
+    where: {
+      groupId,
+      targetTelegramId: telegramId,
+      status: CommunityOffenceStatus.ACTIVE,
+      permanentBanApplied: true
+    },
+    select: { id: true }
+  }));
+}
+
+export async function upsertCommunityForumTopic(input: {
+  groupId: string;
+  messageThreadId: number;
+  name: string;
+  iconColor?: number;
+  iconCustomEmojiId?: string;
+}) {
+  return prisma.communityForumTopic.upsert({
+    where: { groupId_messageThreadId: { groupId: input.groupId, messageThreadId: input.messageThreadId } },
+    create: input,
+    update: { name: input.name, iconColor: input.iconColor, iconCustomEmojiId: input.iconCustomEmojiId, active: true }
+  });
+}
+
+export async function communityForumTopic(groupId: string, messageThreadId: number) {
+  return prisma.communityForumTopic.findUnique({ where: { groupId_messageThreadId: { groupId, messageThreadId } } });
+}
+
+export async function markCommunityForumTopicReplaced(groupId: string, messageThreadId: number, replacementThreadId: number): Promise<void> {
+  await prisma.communityForumTopic.updateMany({
+    where: { groupId, messageThreadId },
+    data: { active: false, replacedByThreadId: replacementThreadId }
+  });
 }
 
 export async function communityReportById(id: string) {

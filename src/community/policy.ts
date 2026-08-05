@@ -22,6 +22,7 @@ export type CommunityPolicyTrigger = {
     muteDurationMinutes: number | null;
     notifyModerators: boolean;
     enabled: boolean;
+    severity: "MINOR" | "MODERATE" | "SERIOUS" | "CRITICAL";
   };
 };
 
@@ -74,6 +75,18 @@ export function highestSeverityMatch(matches: CommunityPolicyTrigger[]): Communi
   return [...matches].sort((left, right) => rank[right.triggerGroup.action] - rank[left.triggerGroup.action])[0];
 }
 
+export function offencePointOptions(policyPoints: number): number[] {
+  const safePolicyPoints = Number.isFinite(policyPoints)
+    ? Math.min(100, Math.max(0, Math.round(policyPoints)))
+    : 0;
+  return [...new Set([
+    Math.max(0, safePolicyPoints - 1),
+    safePolicyPoints,
+    Math.min(100, safePolicyPoints + 1),
+    Math.min(100, safePolicyPoints + 2)
+  ])].sort((left, right) => left - right);
+}
+
 export function containsTelegramInvite(text: string): boolean {
   return /(?:https?:\/\/)?(?:t\.me|telegram\.me|telegram\.dog)\/(?:joinchat\/|\+)[a-z0-9_-]+/i.test(text);
 }
@@ -102,15 +115,23 @@ export const moderatorPermissionQuestions = [
   { key: "canBan", label: "Can permanently ban members?", recommended: false, sensitive: true },
   { key: "canEditRules", label: "Can edit the English and Burmese rules?", recommended: false },
   { key: "canAddTriggers", label: "Can submit new triggers for owner review?", recommended: false },
-  { key: "canRemoveTriggers", label: "Can remove triggers?", recommended: false },
-  { key: "canChangeTriggerSeverity", label: "Can move triggers between severity groups?", recommended: false },
-  { key: "canManageTriggerGroups", label: "Can create, rename, or delete trigger groups?", recommended: false },
-  { key: "canChangeAutomaticActions", label: "Can change automatic moderation actions?", recommended: false, sensitive: true },
   { key: "canManageTrustedMembers", label: "Can manage trusted-member exemptions?", recommended: false },
   { key: "canLockdown", label: "Can activate emergency lockdown?", recommended: false, sensitive: true }
 ] as const;
 
-export type ModeratorWizardPermissions = Record<(typeof moderatorPermissionQuestions)[number]["key"], boolean>;
+export type ModeratorWizardPermissions = {
+  canWarnDelete: boolean;
+  canMute: boolean;
+  canBan: boolean;
+  canEditRules: boolean;
+  canAddTriggers: boolean;
+  canRemoveTriggers: boolean;
+  canChangeTriggerSeverity: boolean;
+  canManageTriggerGroups: boolean;
+  canChangeAutomaticActions: boolean;
+  canManageTrustedMembers: boolean;
+  canLockdown: boolean;
+};
 
 export const safeModeratorDefaults: ModeratorWizardPermissions = {
   canWarnDelete: true,
@@ -127,5 +148,5 @@ export const safeModeratorDefaults: ModeratorWizardPermissions = {
 };
 
 export function hasSensitiveModeratorPermissions(permissions: ModeratorWizardPermissions): boolean {
-  return permissions.canBan || permissions.canChangeAutomaticActions || permissions.canLockdown;
+  return permissions.canBan || permissions.canLockdown;
 }

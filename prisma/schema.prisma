@@ -267,6 +267,20 @@ enum CommunityReportStatus {
   ACTIONED
 }
 
+enum CommunityOffenceSeverity {
+  MINOR
+  MODERATE
+  SERIOUS
+  CRITICAL
+}
+
+enum CommunityOffenceStatus {
+  PENDING
+  ACTIVE
+  PARDONED
+  REJECTED
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -1872,6 +1886,9 @@ model CommunityGroup {
   duplicateWindowSeconds     Int                  @default(60)
   duplicateMessageLimit      Int                  @default(3)
   massMentionLimit           Int                  @default(5)
+  warningScoreThreshold      Int                  @default(3)
+  muteScoreThreshold         Int                  @default(5)
+  banScoreThreshold          Int                  @default(8)
   rulesEnglish               String?
   rulesBurmese               String?
   createdAt                  DateTime             @default(now())
@@ -1887,6 +1904,9 @@ model CommunityGroup {
   audits           CommunityAudit[]
   conversations    CommunityConversation[]
   controlSessions  CommunityControlSession[]
+  severityRules    CommunitySeverityRule[]
+  offences         CommunityOffence[]
+  topics           CommunityForumTopic[]
 
   @@index([environment, enabled])
 }
@@ -1934,6 +1954,7 @@ model CommunityTriggerGroup {
   muteDurationMinutes  Int?
   notifyModerators     Boolean                          @default(true)
   enabled              Boolean                          @default(true)
+  severity             CommunityOffenceSeverity        @default(MINOR)
   createdAt            DateTime                         @default(now())
   updatedAt            DateTime                         @updatedAt
 
@@ -2026,9 +2047,77 @@ model CommunityReport {
 
   group     CommunityGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
   reporters CommunityReportReporter[]
+  offence   CommunityOffence?
 
   @@unique([groupId, sourceMessageId])
   @@index([groupId, status, createdAt])
+}
+
+model CommunitySeverityRule {
+  id        String                   @id @default(uuid())
+  groupId   String
+  severity  CommunityOffenceSeverity
+  points    Int
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, severity])
+  @@index([groupId])
+}
+
+model CommunityOffence {
+  id                      String                    @id @default(uuid())
+  groupId                 String
+  reportId                String?                   @unique
+  targetTelegramId        String
+  targetUsername          String?
+  targetDisplayName       String?
+  sourceChatId            String
+  sourceMessageId         Int?
+  sourceMessageThreadId   Int?
+  sourceTopicName         String?
+  categoryName            String?
+  severity                CommunityOffenceSeverity
+  policyPoints            Int
+  proposedPoints          Int
+  proposedByTelegramId    String
+  proposalReason          String?
+  appliedPoints           Int?
+  status                  CommunityOffenceStatus    @default(PENDING)
+  confirmedByTelegramId   String?
+  confirmedAt             DateTime?
+  pardonedByTelegramId    String?
+  pardonedAt              DateTime?
+  pardonReason            String?
+  permanentBanApplied     Boolean                   @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  group  CommunityGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  report CommunityReport? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  @@index([groupId, targetTelegramId, status, createdAt])
+  @@index([groupId, status, createdAt])
+}
+
+model CommunityForumTopic {
+  id                 String   @id @default(uuid())
+  groupId            String
+  messageThreadId    Int
+  name               String
+  iconColor          Int?
+  iconCustomEmojiId  String?
+  active             Boolean  @default(true)
+  replacedByThreadId Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, messageThreadId])
+  @@index([groupId, active])
 }
 
 model CommunityReportReporter {

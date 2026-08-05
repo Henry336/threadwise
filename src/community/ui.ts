@@ -1,5 +1,7 @@
 import { InlineKeyboard } from "grammy";
-import type {
+import {
+  CommunityOffenceSeverity,
+  type CommunityOffence,
   CommunityAudit,
   CommunityGroup,
   CommunityModerator,
@@ -58,8 +60,10 @@ export function privateBeaconHomeText(group: CommunityGroup): string {
 }
 
 export function privateBeaconHomeKeyboard(group: CommunityGroup, owner: boolean): InlineKeyboard {
-  const keyboard = new InlineKeyboard()
-    .text("Trigger library", "bc:lib").text("Reports", "bc:reports").row();
+  const keyboard = new InlineKeyboard();
+  if (owner) keyboard.text("Trigger library", "bc:lib").text("Reports", "bc:reports").row();
+  else keyboard.text("Submit trigger", "bc:libadd").text("Reports", "bc:reports").row();
+  if (owner) keyboard.text("Offence scores", "bc:scores").text("Offence lookup", "bc:offences").row();
   if (owner) keyboard.text("Moderators", "bc:mods").text("Rules", "bc:rules").row();
   else keyboard.text("Rules", "bc:rules").row();
   return keyboard
@@ -123,10 +127,6 @@ export function moderatorSummaryText(name: string, permissions: ModeratorWizardP
     permissionLine("Permanent ban", permissions.canBan),
     permissionLine("Edit rules", permissions.canEditRules),
     permissionLine("Add triggers for review", permissions.canAddTriggers),
-    permissionLine("Remove triggers", permissions.canRemoveTriggers),
-    permissionLine("Change trigger severity", permissions.canChangeTriggerSeverity),
-    permissionLine("Manage trigger groups", permissions.canManageTriggerGroups),
-    permissionLine("Change automatic actions", permissions.canChangeAutomaticActions),
     permissionLine("Trusted-member exemptions", permissions.canManageTrustedMembers),
     permissionLine("Emergency lockdown", permissions.canLockdown)
   ];
@@ -315,24 +315,136 @@ export function automaticActionKeyboard(): InlineKeyboard {
     .text("Cancel", "bc:cancel");
 }
 
-export function reportCardText(report: CommunityReport): string {
+export function reportCardText(report: CommunityReport, activeScore = 0, recentOffences: Array<Pick<CommunityOffence, "severity" | "appliedPoints" | "status" | "createdAt">> = []): string {
+  const history = recentOffences.slice(0, 3).map((offence) =>
+    `${offence.severity.toLowerCase()} · ${offence.appliedPoints ?? 0} point${offence.appliedPoints === 1 ? "" : "s"} · ${offence.status.toLowerCase()}`
+  );
+  const internalChatId = report.sourceChatId.startsWith("-100") ? report.sourceChatId.slice(4) : undefined;
+  const sourceLink = internalChatId ? `https://t.me/c/${internalChatId}/${report.sourceMessageId}` : undefined;
   return [
     `<b>Reported message · ${report.reportCount} report${report.reportCount === 1 ? "" : "s"}</b>`,
     `From: ${escapeHtml(report.reportedDisplayName ?? report.reportedUsername ?? report.reportedTelegramId ?? "Unknown member")}`,
+    report.reportedTelegramId ? `User ID: <code>${escapeHtml(report.reportedTelegramId)}</code>` : "",
+    `Active offence score: <b>${activeScore}</b>`,
     report.reason ? `Reason: ${escapeHtml(report.reason)}` : "",
     "",
     report.evidenceText ? escapeHtml(truncate(report.evidenceText, 1_800)) : "Media or unavailable text evidence.",
     "",
     report.sourceMessageThreadId ? `Topic: ${escapeHtml(report.sourceTopicName || `#${report.sourceMessageThreadId}`)}` : "",
-    `Source message: ${report.sourceMessageId}`
+    sourceLink ? `<a href="${sourceLink}">Open original message</a>` : `Source message: ${report.sourceMessageId}`,
+    history.length ? "\nRecent offences:\n" + history.map((row) => `• ${escapeHtml(row)}`).join("\n") : ""
   ].filter(Boolean).join("\n");
 }
 
 export function reportCardKeyboard(report: CommunityReport): InlineKeyboard {
   return new InlineKeyboard()
+    .text("Propose offence", `bc:ops:${report.id}`).text("Offence history", `bc:oph:${report.id}`).row()
     .text("Dismiss", `bc:rp:d:${report.id}`).text("Warn", `bc:rp:w:${report.id}`).row()
     .text("Mute 1h", `bc:rp:m:${report.id}`).text("Delete", `bc:rp:x:${report.id}`).row()
     .text("Ban", `bc:rp:b:${report.id}`);
+}
+
+export function severityRulesText(group: CommunityGroup, rules: Array<{ severity: CommunityOffenceSeverity; points: number }>): string {
+  const point = (severity: CommunityOffenceSeverity) => rules.find((rule) => rule.severity === severity)?.points ?? 0;
+  return [
+    "<b>Offence scoring</b>",
+    "Only Beacon's owner can change these values.",
+    "",
+    `Minor · ${point(CommunityOffenceSeverity.MINOR)} point(s)`,
+    `Moderate · ${point(CommunityOffenceSeverity.MODERATE)} point(s)`,
+    `Serious · ${point(CommunityOffenceSeverity.SERIOUS)} point(s)`,
+    `Critical · ${point(CommunityOffenceSeverity.CRITICAL)} point(s)`,
+    "",
+    `Warning threshold · ${group.warningScoreThreshold}`,
+    `Mute threshold · ${group.muteScoreThreshold}`,
+    `Permanent-ban threshold · ${group.banScoreThreshold}`
+  ].join("\n");
+}
+
+export function severityRulesKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Minor points", "bc:score:MINOR").text("Moderate points", "bc:score:MODERATE").row()
+    .text("Serious points", "bc:score:SERIOUS").text("Critical points", "bc:score:CRITICAL").row()
+    .text("Warning threshold", "bc:threshold:WARNING").row()
+    .text("Mute threshold", "bc:threshold:MUTE").text("Ban threshold", "bc:threshold:BAN").row()
+    .text("‹ Beacon", "bc:home");
+}
+
+export function offenceSeverityKeyboard(reportId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Minor", `bc:opse:MINOR:${reportId}`).text("Moderate", `bc:opse:MODERATE:${reportId}`).row()
+    .text("Serious", `bc:opse:SERIOUS:${reportId}`).text("Critical", `bc:opse:CRITICAL:${reportId}`).row()
+    .text("Cancel", "bc:cancel");
+}
+
+export function offenceProposalKeyboard(offenceId: string, proposedPoints: number, policyPoints: number): InlineKeyboard {
+  const keyboard = new InlineKeyboard().text(`Accept ${proposedPoints}`, `bc:opa:${offenceId}`).row();
+  if (policyPoints !== proposedPoints) keyboard.text(`Use policy ${policyPoints}`, `bc:opp:${offenceId}`).row();
+  return keyboard.text("Reject", `bc:opr:${offenceId}`);
+}
+
+export function offenceProposalText(offence: CommunityOffence, evidence?: string | null): string {
+  return [
+    "<b>Offence score proposed</b>",
+    `Member: ${escapeHtml(offence.targetDisplayName ?? offence.targetUsername ?? offence.targetTelegramId)}`,
+    `User ID: <code>${escapeHtml(offence.targetTelegramId)}</code>`,
+    `Severity: ${offence.severity.toLowerCase()}`,
+    `Policy score: ${offence.policyPoints}`,
+    `Moderator proposal: <b>${offence.proposedPoints}</b>`,
+    `Proposed by: <code>${escapeHtml(offence.proposedByTelegramId)}</code>`,
+    offence.proposalReason ? `Reason: ${escapeHtml(offence.proposalReason)}` : "",
+    "",
+    evidence ? escapeHtml(evidence.slice(0, 1_500)) : "Evidence text is unavailable."
+  ].filter(Boolean).join("\n");
+}
+
+export function memberOffencesText(input: {
+  name: string;
+  telegramId: string;
+  score: number;
+  offences: CommunityOffence[];
+}): string {
+  const rows = input.offences.length ? input.offences.map((offence, index) =>
+    `${index + 1}. ${offence.severity.toLowerCase()} · ${offence.appliedPoints ?? offence.proposedPoints} · ${offence.status.toLowerCase()} · ${relativeTime(offence.createdAt)}`
+  ) : ["No offence history."];
+  return [
+    "<b>Member offence history</b>",
+    escapeHtml(input.name),
+    `User ID: <code>${escapeHtml(input.telegramId)}</code>`,
+    `Active score: <b>${input.score}</b>`,
+    "",
+    ...rows
+  ].join("\n");
+}
+
+export function memberOffencesKeyboard(telegramId: string, offences: CommunityOffence[], owner: boolean): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const offence of offences.slice(0, 8)) keyboard.text(`${offence.severity.toLowerCase()} · ${offence.status.toLowerCase()}`, `bc:opd:${offence.id}`).row();
+  if (owner && offences.some((offence) => offence.status === "ACTIVE")) keyboard.text("Pardon all active", `bc:opclear:${telegramId}`).row();
+  return keyboard.text("‹ Beacon", "bc:home");
+}
+
+export function offenceDetailText(offence: CommunityOffence): string {
+  return [
+    "<b>Offence</b>",
+    `Member: ${escapeHtml(offence.targetDisplayName ?? offence.targetUsername ?? offence.targetTelegramId)}`,
+    `User ID: <code>${escapeHtml(offence.targetTelegramId)}</code>`,
+    `Severity: ${offence.severity.toLowerCase()}`,
+    `Points: ${offence.appliedPoints ?? offence.proposedPoints}`,
+    `Status: ${offence.status.toLowerCase()}`,
+    offence.proposalReason ? `Reason: ${escapeHtml(offence.proposalReason)}` : "",
+    offence.pardonReason ? `Pardon: ${escapeHtml(offence.pardonReason)}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+export function offenceDetailKeyboard(offence: CommunityOffence, owner: boolean): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (owner && offence.status === "ACTIVE") keyboard.text("Reduce points", `bc:opreduce:${offence.id}`).text("Pardon", `bc:oppardon:${offence.id}`).row();
+  return keyboard.text("‹ History", `bc:oph:${offence.reportId ?? offence.targetTelegramId}`);
+}
+
+export function purgeConfirmationKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("Purge topic", "bc:purge:confirm").row().text("Cancel", "bc:purge:cancel");
 }
 
 export function safetyText(group: CommunityGroup): string {
