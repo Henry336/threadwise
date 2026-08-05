@@ -65,6 +65,7 @@ import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
+import { editEphemeralMessageText, ephemeralDeletionTarget } from "./ephemeral";
 import { editOrReplyQuietAcknowledgementHtml, replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
 const EXTENDED_CALLBACKS = [
@@ -340,9 +341,18 @@ export async function handleExtendedStudyCallback(
     return true;
   }
   if (data === "study:canvas:sync") {
-    await editOrReplyHtml(ctx, `${bold("Syncing Canvas")}\nChecking courses, submissions, deadlines, and changes…`);
-    const summary = await syncStudyCanvas(workspace, { force: true });
-    await editOrReplyHtml(ctx, formatCanvasSummary(summary), { reply_markup: new InlineKeyboard().text("Attention", "study:attention").text("Setup", "study:onboarding") });
+    const progress = await editOrReplyHtml(ctx, `${bold("Syncing Canvas")}\nChecking courses, submissions, deadlines, and changes…`);
+    try {
+      const summary = await syncStudyCanvas(workspace, { force: true });
+      await finishCanvasProgress(ctx, progress, formatCanvasSummary(summary), new InlineKeyboard()
+        .text("Attention", "study:attention")
+        .text("Setup", "study:onboarding"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Canvas sync failed.";
+      await finishCanvasProgress(ctx, progress, `${bold("Canvas sync failed")}\n${h(message)}`, new InlineKeyboard()
+        .text("Try again", "study:canvas:sync")
+        .text("Canvas status", "study:canvas:status"));
+    }
     return true;
   }
   if (parts[1] === "canvas" && parts[2] === "missing" && parts[3] && parts[4]) {
@@ -1092,6 +1102,62 @@ function formatCanvasSummary(summary: Awaited<ReturnType<typeof syncStudyCanvas>
     `${summary.imported} new · ${summary.updated} updated · ${summary.completed} submitted`,
     summary.missing ? `${summary.missing} missing item${summary.missing === 1 ? "" : "s"} flagged for review` : "No missing items",
   ].join("\n");
+}
+
+async function finishCanvasProgress(
+  ctx: Context,
+  progress: unknown,
+  text: string,
+  keyboard: InlineKeyboard,
+): Promise<void> {
+  const ephemeral = ephemeralDeletionTarget(ctx, progress);
+  if (ephemeral) {
+    try {
+      await editEphemeralMessageText(
+        ephemeral.chatId,
+        ephemeral.receiverUserId,
+        ephemeral.ephemeralMessageId,
+        text,
+        { parse_mode: "HTML", reply_markup: keyboard },
+      );
+      return;
+    } catch (error) {
+      logger.warn("Study Canvas progress could not update its ephemeral message.", {
+        chatId: String(ephemeral.chatId),
+        error: String(error),
+      });
+    }
+  }
+
+  const message = telegramMessageTarget(progress);
+  if (message) {
+    try {
+      await ctx.api.editMessageText(message.chatId, message.messageId, text, {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      });
+      return;
+    } catch (error) {
+      logger.warn("Study Canvas progress could not update its Telegram message.", {
+        chatId: String(message.chatId),
+        messageId: message.messageId,
+        error: String(error),
+      });
+    }
+  }
+
+  // The Study group is sealed to the configured owner and bot, so this final
+  // fallback is safe and ensures a long-running sync never leaves stale status.
+  await replyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+function telegramMessageTarget(value: unknown): { chatId: number | string; messageId: number } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const message = value as { message_id?: unknown; chat?: { id?: unknown } };
+  if (typeof message.message_id !== "number") return undefined;
+  const chatId = message.chat?.id;
+  if (typeof chatId !== "number" && typeof chatId !== "string") return undefined;
+  return { chatId, messageId: message.message_id };
 }
 
 function formatJourney(journey: Awaited<ReturnType<typeof estimateStudyJourney>>): string {

@@ -114,6 +114,22 @@ export async function deleteEphemeralMessage(
   });
 }
 
+export async function editEphemeralMessageText(
+  chatId: number | string,
+  receiverUserId: number,
+  ephemeralMessageId: number,
+  text: string,
+  options: Record<string, unknown> = {}
+): Promise<void> {
+  await callTelegram("editEphemeralMessageText", {
+    chat_id: chatId,
+    receiver_user_id: receiverUserId,
+    ephemeral_message_id: ephemeralMessageId,
+    text,
+    ...options
+  });
+}
+
 export function ephemeralDeletionTarget(
   ctx: Context,
   result: unknown

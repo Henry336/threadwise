@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   callbackMatchesEphemeralReceiver,
   configureEphemeralTransport,
+  editEphemeralMessageText,
   editOrSendEphemeral,
   preferEphemeralInteraction,
   replyToIncomingEphemeral,
@@ -74,6 +75,20 @@ describe("Telegram ephemeral delivery", () => {
       receiver_user_id: 77,
       ephemeral_message_id: 91,
       text: "Page two",
+    }));
+  });
+
+  it("can finish long-running work by editing the delivered ephemeral result directly", async () => {
+    await editEphemeralMessageText(-1001, 77, 92, "Canvas synced", {
+      reply_markup: { inline_keyboard: [] },
+    });
+
+    expect(methodName(0)).toBe("editEphemeralMessageText");
+    expect(payload(0)).toEqual(expect.objectContaining({
+      chat_id: -1001,
+      receiver_user_id: 77,
+      ephemeral_message_id: 92,
+      text: "Canvas synced",
     }));
   });
 
