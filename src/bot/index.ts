@@ -19,6 +19,8 @@ import { registerFileCourier } from "./files";
 import { registerVoiceCapture } from "./voiceCapture";
 import { registerTaskImports } from "./taskImports";
 import { registerGroupTopics } from "./groupTopics";
+import { registerStudyMode } from "./study";
+import { shouldHandleStudyUpdate } from "../services/study";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -47,7 +49,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   });
 
   bot.use(async (ctx, next) => {
-    if (!privateCodexScopeForContext(ctx) && !shouldHandleGroupUpdate(ctx)) {
+    if (!privateCodexScopeForContext(ctx) && !(await shouldHandleStudyUpdate(ctx)) && !shouldHandleGroupUpdate(ctx)) {
       return;
     }
 
@@ -72,6 +74,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   });
 
   registerNoteSessions(bot);
+  registerStudyMode(bot);
   registerCommands(bot, ai);
   registerFileCourier(bot);
   registerVoiceCapture(bot, ai, token);

@@ -146,6 +146,96 @@ enum VoiceTranscriptionStatus {
   UNDONE
 }
 
+enum StudyTrafficLight {
+  GREEN
+  AMBER
+  RED
+  UNASSESSED
+}
+
+enum StudyItemType {
+  LECTURE
+  TUTORIAL
+  LAB
+  ASSIGNMENT
+  PROJECT
+  REVISION
+  TIMED_PRACTICE
+  READING
+  ADMINISTRATIVE
+}
+
+enum StudyItemStatus {
+  OPEN
+  IN_PROGRESS
+  PROCESSED
+  DONE
+  SKIPPED
+}
+
+enum StudyPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum StudyMistakeCategory {
+  CONCEPTUAL_MISUNDERSTANDING
+  WRONG_APPROACH
+  EXECUTION_CARELESS
+  TIME_MANAGEMENT
+}
+
+enum StudyMistakeStatus {
+  OPEN
+  REATTEMPT_DUE
+  RESOLVED
+}
+
+enum StudyReminderKind {
+  WEEKLY_REVIEW
+  WEEKLY_REVIEW_INCOMPLETE
+  WEEKLY_PREVIEW
+  MISTAKE_REATTEMPT
+  MODULE_RED
+  DEADLINE_APPROACHING
+  ITEM_OVERDUE
+  STUDY_BLOCK
+  TIMED_PRACTICE_MISSING
+  DAY_PREVIEW
+  CLASS_DEPARTURE
+  CLASS_FOLLOW_UP
+  CANVAS_MISSING_REVIEW
+  CANVAS_SYNC_ERROR
+}
+
+enum StudyItemSource {
+  MANUAL
+  CANVAS
+}
+
+enum StudyResourceKind {
+  NOTE
+  IMAGE
+  LINK
+  FILE
+  QUESTION
+}
+
+enum StudyCanvasSyncStatus {
+  NEVER
+  RUNNING
+  READY
+  ERROR
+}
+
+enum StudyCanvasAssignmentStatus {
+  ACTIVE
+  SUBMITTED
+  MISSING
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -155,54 +245,502 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  settings              UserSettings?
-  ideas                 Idea[]
-  tasks                 Task[]
-  notes                 Note[]
-  noteCaptureSession    NoteCaptureSession?
-  reflections           Reflection[]
-  pendingCaptures       PendingCapture[]
-  pendingNoteMerges     PendingNoteMerge[]
-  pendingItemEdits      PendingItemEdit[]
-  pendingBulkActions    PendingBulkAction[]
-  pendingSearches       PendingSearch[]
-  pendingGmailOAuth     PendingGmailOAuth[]
-  gmailConnection       GmailConnection?
-  gmailSummaries        GmailMessageSummary[]
-  pendingCalendarOAuth  PendingCalendarOAuth[]
-  calendarConnection    CalendarConnection?
-  pendingImageCaptures  PendingImageCapture[]
-  pendingImageUploads   PendingImageUpload[]
-  storedImages          StoredImage[]
-  pendingExpenses       PendingExpense[]
-  expenses              Expense[]
-  pendingMicrosoftOAuth PendingMicrosoftOAuth[]
-  microsoftConnection   MicrosoftConnection?
-  reminderHistory       ReminderDelivery[]
-  auditLogs             AuditLog[]
+  settings                   UserSettings?
+  ideas                      Idea[]
+  tasks                      Task[]
+  notes                      Note[]
+  noteCaptureSession         NoteCaptureSession?
+  reflections                Reflection[]
+  pendingCaptures            PendingCapture[]
+  pendingNoteMerges          PendingNoteMerge[]
+  pendingItemEdits           PendingItemEdit[]
+  pendingBulkActions         PendingBulkAction[]
+  pendingSearches            PendingSearch[]
+  pendingGmailOAuth          PendingGmailOAuth[]
+  gmailConnection            GmailConnection?
+  gmailSummaries             GmailMessageSummary[]
+  pendingCalendarOAuth       PendingCalendarOAuth[]
+  calendarConnection         CalendarConnection?
+  pendingImageCaptures       PendingImageCapture[]
+  pendingImageUploads        PendingImageUpload[]
+  storedImages               StoredImage[]
+  pendingExpenses            PendingExpense[]
+  expenses                   Expense[]
+  pendingMicrosoftOAuth      PendingMicrosoftOAuth[]
+  microsoftConnection        MicrosoftConnection?
+  reminderHistory            ReminderDelivery[]
+  auditLogs                  AuditLog[]
   availabilityCalendarEvents AvailabilityCalendarEvent[]
-  groupWorkspace        GroupWorkspace? @relation("GroupWorkspaceOwner")
-  geminiIdeaJobs        GeminiIdeaJob[]
-  voiceTranscriptionJobs VoiceTranscriptionJob[]
-  pendingTaskImports    PendingTaskImport[]
+  groupWorkspace             GroupWorkspace?             @relation("GroupWorkspaceOwner")
+  geminiIdeaJobs             GeminiIdeaJob[]
+  voiceTranscriptionJobs     VoiceTranscriptionJob[]
+  pendingTaskImports         PendingTaskImport[]
+  studyWorkspace             StudyWorkspace?
+}
+
+model StudyWorkspace {
+  id                         String    @id @default(uuid())
+  ownerUserId                String    @unique
+  ownerTelegramId            String    @unique
+  boundChatId                String?   @unique
+  semesterName               String    @default("NUS semester")
+  semesterStartDate          DateTime?
+  timezone                   String    @default("Asia/Singapore")
+  active                     Boolean   @default(false)
+  weeklyReviewDay            Int       @default(6)
+  weeklyReviewTime           String    @default("20:30")
+  weeklyPreviewDay           Int       @default(7)
+  weeklyPreviewTime          String    @default("19:00")
+  quietHoursStart            String?   @default("01:30")
+  quietHoursEnd              String?   @default("09:00")
+  maxRemindersPerDay         Int       @default(4)
+  timedPracticeStartWeek     Int       @default(4)
+  studyBlockRemindersEnabled Boolean   @default(false)
+  canvasSyncEnabled          Boolean   @default(true)
+  activeModuleId             String?
+  activeOriginId             String?
+  activeOriginUntil          DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  owner              User                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  modules            StudyModule[]            @relation("StudyWorkspaceModules")
+  activeModule       StudyModule?             @relation("StudyWorkspaceActiveModule", fields: [activeModuleId], references: [id], onDelete: SetNull)
+  weeks              StudyWeek[]
+  items              StudyItem[]
+  sessions           StudySession[]
+  mistakes           StudyMistake[]
+  weeklyReviews      WeeklyReview[]
+  scheduleBlocks     StudyScheduleBlock[]
+  conversation       StudyConversation?
+  reminderDeliveries StudyReminderDelivery[]
+  resources          StudyResource[]
+  pendingCaptures    StudyPendingCapture[]
+  noteCaptureSession StudyNoteCaptureSession?
+  canvasSync         StudyCanvasSync?
+  canvasAssignments  StudyCanvasAssignment[]
+  origins            StudyLocationOrigin[]    @relation("StudyWorkspaceOrigins")
+  activeOrigin       StudyLocationOrigin?     @relation("StudyWorkspaceActiveOrigin", fields: [activeOriginId], references: [id], onDelete: SetNull)
+
+  @@index([active, boundChatId])
+  @@index([activeModuleId])
+  @@index([activeOriginId, activeOriginUntil])
+}
+
+model StudyModule {
+  id               String            @id @default(uuid())
+  workspaceId      String
+  code             String
+  name             String
+  active           Boolean           @default(true)
+  displayOrder     Int               @default(0)
+  color            String?
+  workloadGroup    String?
+  canvasCourseId   String?
+  canvasCourseName String?
+  canvasLastSeenAt DateTime?
+  currentMastery   StudyTrafficLight @default(UNASSESSED)
+  masteryReason    String?
+  redSince         DateTime?
+  lastRedWarningAt DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  workspace           StudyWorkspace            @relation("StudyWorkspaceModules", fields: [workspaceId], references: [id], onDelete: Cascade)
+  activeFor           StudyWorkspace[]          @relation("StudyWorkspaceActiveModule")
+  items               StudyItem[]
+  sessions            StudySession[]
+  mistakes            StudyMistake[]
+  scheduleBlocks      StudyScheduleBlock[]
+  resources           StudyResource[]
+  pendingCaptures     StudyPendingCapture[]
+  noteCaptureSessions StudyNoteCaptureSession[]
+  canvasAssignments   StudyCanvasAssignment[]
+
+  @@unique([workspaceId, code])
+  @@unique([workspaceId, canvasCourseId])
+  @@index([workspaceId, active, displayOrder])
+  @@index([workspaceId, currentMastery])
+}
+
+model StudyWeek {
+  id              String            @id @default(uuid())
+  workspaceId     String
+  number          Int
+  startDate       DateTime
+  endDate         DateTime
+  overallStatus   StudyTrafficLight @default(UNASSESSED)
+  reviewCompleted Boolean           @default(false)
+  topPriorities   String[]
+  reflection      String?
+  overloadNotes   String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     StudyItem[]
+  review    WeeklyReview?
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, startDate, endDate])
+}
+
+model StudyItem {
+  id              String            @id @default(uuid())
+  workspaceId     String
+  moduleId        String
+  weekId          String?
+  publicId        String
+  type            StudyItemType
+  title           String
+  notes           String?
+  source          StudyItemSource   @default(MANUAL)
+  titleOverridden Boolean           @default(false)
+  dueAtOverridden Boolean           @default(false)
+  status          StudyItemStatus   @default(OPEN)
+  priority        StudyPriority     @default(NORMAL)
+  dueAt           DateTime?
+  plannedMinutes  Int?
+  actualMinutes   Int               @default(0)
+  mastery         StudyTrafficLight @default(UNASSESSED)
+  masteryReason   String?
+  processedAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  workspace        StudyWorkspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module           StudyModule            @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  week             StudyWeek?             @relation(fields: [weekId], references: [id], onDelete: SetNull)
+  sessions         StudySession[]
+  mistakes         StudyMistake[]
+  canvasAssignment StudyCanvasAssignment?
+
+  @@unique([workspaceId, publicId])
+  @@index([workspaceId, status, dueAt])
+  @@index([moduleId, status, createdAt])
+  @@index([weekId, status])
+  @@index([workspaceId, mastery])
+}
+
+model StudySession {
+  id              String    @id @default(uuid())
+  workspaceId     String
+  moduleId        String
+  itemId          String?
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationMinutes Int?
+  method          String
+  result          String?
+  topicsMixed     String[]
+  attemptedScore  Float?
+  maximumScore    Float?
+  usedNotes       Boolean?
+  timed           Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  item      StudyItem?     @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, startedAt])
+  @@index([workspaceId, endedAt])
+  @@index([moduleId, timed, startedAt])
+}
+
+model StudyMistake {
+  id             String               @id @default(uuid())
+  workspaceId    String
+  moduleId       String
+  itemId         String?
+  publicId       String
+  source         String
+  category       StudyMistakeCategory
+  cause          String
+  prevention     String
+  firstAttemptAt DateTime
+  revisitAt      DateTime?
+  status         StudyMistakeStatus   @default(OPEN)
+  resolvedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  item      StudyItem?     @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, publicId])
+  @@index([workspaceId, status, revisitAt])
+  @@index([moduleId, status])
+}
+
+model WeeklyReview {
+  id                     String   @id @default(uuid())
+  workspaceId            String
+  weekId                 String   @unique
+  moduleStatuses         Json
+  wins                   String[]
+  unresolvedTopics       String[]
+  nextWeekPriorities     String[]
+  lostTimeCauses         String[]
+  overloadNotes          String?
+  workloadCompatible     Boolean?
+  protectedOverflowBlock String?
+  summary                String?
+  completedAt            DateTime
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  week      StudyWeek      @relation(fields: [weekId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, completedAt])
+}
+
+model StudyScheduleBlock {
+  id                  String   @id @default(uuid())
+  workspaceId         String
+  moduleId            String?
+  dayOfWeek           Int
+  startTime           String
+  endTime             String
+  startWeek           Int?
+  endWeek             Int?
+  label               String
+  blockType           String
+  venueId             String?
+  venueName           String?
+  destinationStopId   String?
+  preparation         String[] @default([])
+  defaultOriginId     String?
+  travelBufferMinutes Int      @default(15)
+  reminderLeadMinutes Int      @default(10)
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace     StudyWorkspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module        StudyModule?         @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  defaultOrigin StudyLocationOrigin? @relation(fields: [defaultOriginId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, active, dayOfWeek])
+  @@index([defaultOriginId])
+}
+
+model StudyResource {
+  id               String            @id @default(uuid())
+  workspaceId      String
+  moduleId         String
+  publicId         String
+  kind             StudyResourceKind
+  title            String
+  body             String?
+  url              String?
+  tags             String[]          @default([])
+  telegramFileId   String?
+  telegramUniqueId String?
+  mediaKind        String?
+  mimeType         String?
+  fileName         String?
+  fileSize         Int?
+  caption          String?
+  ocrText          String?
+  ocrConfidence    Float?
+  sourceMessageId  Int?
+  pinnedAt         DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, publicId])
+  @@unique([workspaceId, telegramUniqueId])
+  @@index([workspaceId, kind, createdAt])
+  @@index([moduleId, kind, pinnedAt, createdAt])
+  @@index([workspaceId, archivedAt])
+}
+
+model StudyPendingCapture {
+  id               String             @id @default(uuid())
+  token            String             @unique
+  workspaceId      String
+  moduleId         String?
+  sourceText       String?
+  telegramFileId   String?
+  telegramUniqueId String?
+  mediaKind        String?
+  mimeType         String?
+  fileName         String?
+  fileSize         Int?
+  sourceMessageId  Int?
+  selectedKind     StudyResourceKind?
+  expiresAt        DateTime
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule?   @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, expiresAt])
+}
+
+model StudyNoteCaptureSession {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  moduleId    String
+  chatId      String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace StudyWorkspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  segments  StudyNoteCaptureSegment[]
+
+  @@index([expiresAt])
+}
+
+model StudyNoteCaptureSegment {
+  id                String   @id @default(uuid())
+  sessionId         String
+  telegramMessageId Int
+  text              String
+  createdAt         DateTime @default(now())
+
+  session StudyNoteCaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, telegramMessageId])
+  @@index([sessionId, createdAt])
+}
+
+model StudyCanvasSync {
+  id                  String                @id @default(uuid())
+  workspaceId         String                @unique
+  status              StudyCanvasSyncStatus @default(NEVER)
+  canvasUserId        String?
+  canvasUserName      String?
+  lastAttemptAt       DateTime?
+  lastSuccessfulAt    DateTime?
+  nextSyncAt          DateTime              @default(now())
+  lastError           String?
+  consecutiveFailures Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextSyncAt])
+}
+
+model StudyCanvasAssignment {
+  id                 String                      @id @default(uuid())
+  workspaceId        String
+  moduleId           String
+  itemId             String                      @unique
+  canvasCourseId     String
+  canvasAssignmentId String
+  title              String
+  description        String?
+  htmlUrl            String?
+  dueAt              DateTime?
+  unlockAt           DateTime?
+  lockAt             DateTime?
+  submissionState    String?
+  submittedAt        DateTime?
+  workflowState      String?
+  status             StudyCanvasAssignmentStatus @default(ACTIVE)
+  sourceUpdatedAt    DateTime?
+  lastSeenAt         DateTime
+  missingSince       DateTime?
+  needsReview        Boolean                     @default(false)
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  item      StudyItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, canvasAssignmentId])
+  @@index([workspaceId, status, dueAt])
+  @@index([moduleId, status, dueAt])
+  @@index([workspaceId, needsReview])
+}
+
+model StudyLocationOrigin {
+  id              String   @id @default(uuid())
+  workspaceId     String
+  name            String
+  providerVenueId String?
+  providerStopId  String?
+  latitude        Float?
+  longitude       Float?
+  isDefault       Boolean  @default(false)
+  active          Boolean  @default(true)
+  displayOrder    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace      StudyWorkspace       @relation("StudyWorkspaceOrigins", fields: [workspaceId], references: [id], onDelete: Cascade)
+  activeFor      StudyWorkspace[]     @relation("StudyWorkspaceActiveOrigin")
+  scheduleBlocks StudyScheduleBlock[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, active, displayOrder])
+}
+
+model StudyConversation {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  kind        String
+  step        String
+  payload     Json
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model StudyReminderDelivery {
+  id           String            @id @default(uuid())
+  workspaceId  String
+  kind         StudyReminderKind
+  entityKey    String
+  dedupeKey    String            @unique
+  scheduledFor DateTime
+  sentAt       DateTime?
+  chatId       String
+  messageId    String?
+  createdAt    DateTime          @default(now())
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, sentAt])
+  @@index([workspaceId, kind, scheduledFor])
 }
 
 model GroupWorkspace {
-  id             String   @id @default(uuid())
-  ownerUserId    String   @unique
-  telegramChatId String   @unique
-  title          String
-  username       String?
+  id                String   @id @default(uuid())
+  ownerUserId       String   @unique
+  telegramChatId    String   @unique
+  title             String
+  username          String?
   threadwiseTopicId Int?
-  isActive       Boolean  @default(true)
-  botStatus      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive          Boolean  @default(true)
+  botStatus         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  ownerUser User              @relation("GroupWorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  members   GroupMembership[]
-  activity  GroupActivity[]
-  availabilityPolls AvailabilityPoll[]
+  ownerUser          User                @relation("GroupWorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members            GroupMembership[]
+  activity           GroupActivity[]
+  availabilityPolls  AvailabilityPoll[]
   pendingTaskImports PendingTaskImport[]
 
   @@index([isActive, updatedAt])
@@ -282,7 +820,7 @@ model AvailabilityPoll {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
-  workspace      GroupWorkspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace      GroupWorkspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   responses      AvailabilityResponse[]
   calendarEvents AvailabilityCalendarEvent[]
 
@@ -292,15 +830,15 @@ model AvailabilityPoll {
 }
 
 model AvailabilityResponse {
-  id              String   @id @default(uuid())
+  id              String     @id @default(uuid())
   pollId          String
   telegramId      String
   timezone        String
   availableStarts DateTime[]
-  wantsCalendar   Boolean  @default(false)
-  respondedAt     DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  wantsCalendar   Boolean    @default(false)
+  respondedAt     DateTime   @default(now())
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   poll AvailabilityPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
 
@@ -330,13 +868,13 @@ model GroupActivity {
   id              String            @id @default(uuid())
   workspaceId     String
   actorTelegramId String
-  actorName        String
-  type             GroupActivityType
-  taskPublicId     String?
-  taskTitle        String?
-  summary          String
-  metadata         Json?
-  createdAt        DateTime          @default(now())
+  actorName       String
+  type            GroupActivityType
+  taskPublicId    String?
+  taskTitle       String?
+  summary         String
+  metadata        Json?
+  createdAt       DateTime          @default(now())
 
   workspace GroupWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -345,17 +883,17 @@ model GroupActivity {
 }
 
 model GroupMembership {
-  id           String            @id @default(uuid())
-  workspaceId  String
-  telegramId   String
-  username     String?
-  firstName    String?
-  lastName     String?
-  role         GroupMemberRole   @default(MEMBER)
-  status       GroupMemberStatus @default(ACTIVE)
-  lastSeenAt   DateTime           @default(now())
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id          String            @id @default(uuid())
+  workspaceId String
+  telegramId  String
+  username    String?
+  firstName   String?
+  lastName    String?
+  role        GroupMemberRole   @default(MEMBER)
+  status      GroupMemberStatus @default(ACTIVE)
+  lastSeenAt  DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   workspace GroupWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -365,27 +903,27 @@ model GroupMembership {
 }
 
 model UserSettings {
-  id                      String       @id @default(uuid())
-  userId                  String       @unique
-  reminderIntervalMinutes Int          @default(180)
-  timezone                String       @default("Asia/Singapore")
-  quietHoursStart         String?      @default("22:00")
-  quietHoursEnd           String?      @default("08:00")
-  maxRemindersPerDay      Int          @default(200)
-  dueNudgeMinutes         Int          @default(3)
-  reminderMode            ReminderMode @default(INDIVIDUAL)
-  reminderChatId          String?
-  expenseCurrency         String       @default("SGD")
-  ocrLanguages            String       @default("eng")
-  directNudgesEnabled     Boolean      @default(false)
-  calendarAutoSync        Boolean      @default(false)
-  excelAutoSync           Boolean      @default(false)
-  voiceCleanupMode        VoiceCleanupMode @default(LIGHT)
-  voiceTranscriptionModel String       @default("gpt-4o-mini-transcribe")
-  voiceLanguageHint       String?
-  voiceAutoTranscribeAudio Boolean      @default(false)
-  createdAt               DateTime     @default(now())
-  updatedAt               DateTime     @updatedAt
+  id                       String           @id @default(uuid())
+  userId                   String           @unique
+  reminderIntervalMinutes  Int              @default(180)
+  timezone                 String           @default("Asia/Singapore")
+  quietHoursStart          String?          @default("22:00")
+  quietHoursEnd            String?          @default("08:00")
+  maxRemindersPerDay       Int              @default(200)
+  dueNudgeMinutes          Int              @default(3)
+  reminderMode             ReminderMode     @default(INDIVIDUAL)
+  reminderChatId           String?
+  expenseCurrency          String           @default("SGD")
+  ocrLanguages             String           @default("eng")
+  directNudgesEnabled      Boolean          @default(false)
+  calendarAutoSync         Boolean          @default(false)
+  excelAutoSync            Boolean          @default(false)
+  voiceCleanupMode         VoiceCleanupMode @default(LIGHT)
+  voiceTranscriptionModel  String           @default("gpt-4o-mini-transcribe")
+  voiceLanguageHint        String?
+  voiceAutoTranscribeAudio Boolean          @default(false)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -458,7 +996,7 @@ model Task {
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
 
-  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   reminderHistory ReminderDelivery[]
   assignees       TaskAssignee[]
   importItem      PendingTaskImportItem?
@@ -510,9 +1048,9 @@ model Note {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mergedIntoNote    Note?  @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
-  mergedSourceNotes Note[] @relation("NoteMerge")
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mergedIntoNote         Note?                   @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
+  mergedSourceNotes      Note[]                  @relation("NoteMerge")
   voiceTranscriptionJobs VoiceTranscriptionJob[]
 
   @@unique([userId, publicId])
@@ -575,14 +1113,14 @@ model Reflection {
 }
 
 model PendingCapture {
-  id         String      @id @default(uuid())
-  userId     String
+  id              String      @id @default(uuid())
+  userId          String
   actorTelegramId String?
-  kind       CaptureKind
-  sourceText String
-  payload    Json
-  expiresAt  DateTime
-  createdAt  DateTime    @default(now())
+  kind            CaptureKind
+  sourceText      String
+  payload         Json
+  expiresAt       DateTime
+  createdAt       DateTime    @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -774,7 +1312,7 @@ model PendingImageUpload {
 }
 
 model StoredImage {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   userId           String
   publicId         String
   telegramFileId   String
@@ -786,8 +1324,8 @@ model StoredImage {
   ocrText          String?
   ocrConfidence    Float?
   pinnedAt         DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -945,9 +1483,9 @@ model CodexProject {
   gitReady         Boolean?
   gitError         String?
 
-  jobs       CodexJob[]
-  threads    CodexThread[]
-  activeFor  CodexChatState[]
+  jobs      CodexJob[]
+  threads   CodexThread[]
+  activeFor CodexChatState[]
 
   @@unique([ownerTelegramId, telegramChatId, alias])
   @@unique([ownerTelegramId, telegramChatId, path])
@@ -1015,20 +1553,20 @@ model GeminiIdeaJob {
 }
 
 model CodexThread {
-  id               String   @id
-  ownerTelegramId  String
-  telegramChatId   String
-  projectId        String
-  title            String
-  preview          String?
-  source           String
-  status           String?
-  enabled          Boolean  @default(true)
-  threadCreatedAt  DateTime?
-  threadUpdatedAt  DateTime?
-  lastSeenAt       DateTime @default(now())
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String    @id
+  ownerTelegramId String
+  telegramChatId  String
+  projectId       String
+  title           String
+  preview         String?
+  source          String
+  status          String?
+  enabled         Boolean   @default(true)
+  threadCreatedAt DateTime?
+  threadUpdatedAt DateTime?
+  lastSeenAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   project   CodexProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   activeFor CodexChatState[]
@@ -1038,12 +1576,12 @@ model CodexThread {
 }
 
 model CodexJob {
-  id               String         @id @default(uuid())
-  ownerTelegramId  String
-  telegramChatId   String
-  projectId        String
-  status           CodexJobStatus @default(PENDING)
-  prompt           String
+  id                       String         @id @default(uuid())
+  ownerTelegramId          String
+  telegramChatId           String
+  projectId                String
+  status                   CodexJobStatus @default(PENDING)
+  prompt                   String
   telegramRequestMessageId Int?
   threadId         String?
   threadTitle      String?
@@ -1120,20 +1658,20 @@ model CodexJobApproval {
 }
 
 model CodexPublishAudit {
-  id               String   @id @default(uuid())
-  jobId            String
-  ownerTelegramId  String
-  telegramChatId   String
-  workerId         String
-  eventKey         String
-  action           String
-  status           String
-  branch           String?
-  commitSha        String?
-  prNumber         Int?
-  prUrl             String?
-  details          Json?
-  createdAt        DateTime @default(now())
+  id              String   @id @default(uuid())
+  jobId           String
+  ownerTelegramId String
+  telegramChatId  String
+  workerId        String
+  eventKey        String
+  action          String
+  status          String
+  branch          String?
+  commitSha       String?
+  prNumber        Int?
+  prUrl           String?
+  details         Json?
+  createdAt       DateTime @default(now())
 
   job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -1159,11 +1697,11 @@ model CodexJobAttachment {
 }
 
 model CodexJobMessage {
-  id          String   @id @default(uuid())
-  jobId       String
-  chatId      String
-  messageId   Int
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  jobId     String
+  chatId    String
+  messageId Int
+  createdAt DateTime @default(now())
 
   job CodexJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -1240,39 +1778,39 @@ model FileCourierAudit {
 }
 
 model VoiceTranscriptionJob {
-  id                        String                     @id @default(uuid())
-  userId                    String
-  requesterTelegramId       String
-  telegramChatId            String
-  telegramMessageId         Int
-  telegramFileId            String
-  telegramFileUniqueId      String?
-  sourceKind                String
-  durationSeconds           Int?
-  mimeType                  String?
-  fileName                  String?
-  fileSize                  Int?
-  cleanupMode               VoiceCleanupMode
-  transcriptionModel        String
-  languageHint              String?
-  status                    VoiceTranscriptionStatus   @default(PENDING)
-  processorId               String?
-  leaseExpiresAt            DateTime?
-  attemptCount              Int                        @default(0)
-  rawTranscript             String?
-  cleanedText               String?
-  cleanedNoteId             String?
-  cleanupError              String?
-  error                     String?
-  acknowledgementMessageId  Int?
-  telegramResultMessageId   Int?
-  deliveredAt               DateTime?
-  startedAt                 DateTime?
-  transcribedAt             DateTime?
-  completedAt               DateTime?
-  undoneAt                  DateTime?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
+  id                       String                   @id @default(uuid())
+  userId                   String
+  requesterTelegramId      String
+  telegramChatId           String
+  telegramMessageId        Int
+  telegramFileId           String
+  telegramFileUniqueId     String?
+  sourceKind               String
+  durationSeconds          Int?
+  mimeType                 String?
+  fileName                 String?
+  fileSize                 Int?
+  cleanupMode              VoiceCleanupMode
+  transcriptionModel       String
+  languageHint             String?
+  status                   VoiceTranscriptionStatus @default(PENDING)
+  processorId              String?
+  leaseExpiresAt           DateTime?
+  attemptCount             Int                      @default(0)
+  rawTranscript            String?
+  cleanedText              String?
+  cleanedNoteId            String?
+  cleanupError             String?
+  error                    String?
+  acknowledgementMessageId Int?
+  telegramResultMessageId  Int?
+  deliveredAt              DateTime?
+  startedAt                DateTime?
+  transcribedAt            DateTime?
+  completedAt              DateTime?
+  undoneAt                 DateTime?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
   user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   cleanedNote Note? @relation(fields: [cleanedNoteId], references: [id], onDelete: SetNull)

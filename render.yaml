@@ -54,6 +54,20 @@ services:
         value: "180"
       - key: BOT_ALLOWED_TELEGRAM_IDS
         sync: false
+      - key: STUDY_OWNER_TELEGRAM_ID
+        sync: false
+      - key: STUDY_ALLOWED_CHAT_ID
+        sync: false
+      - key: CANVAS_ACCESS_TOKEN
+        sync: false
+      - key: CANVAS_BASE_URL
+        value: https://canvas.nus.edu.sg/api/v1
+      - key: STUDY_CANVAS_SYNC_INTERVAL_MINUTES
+        value: "30"
+      - key: STUDY_TRANSIT_BASE_URL
+        value: https://improved-nextbus.vercel.app
+      - key: STUDY_EXTERNAL_REQUEST_TIMEOUT_MS
+        value: "12000"
       - key: CODEX_OWNER_TELEGRAM_ID
         sync: false
       - key: CODEX_TELEGRAM_CHAT_ID

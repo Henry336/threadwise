@@ -81,7 +81,8 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
       updatedAt: true,
       settings: { select: { updatedAt: true } },
       calendarConnection: { select: { updatedAt: true } },
-      microsoftConnection: { select: { updatedAt: true } }
+      microsoftConnection: { select: { updatedAt: true } },
+      studyWorkspace: { select: { id: true, updatedAt: true } }
     }
   });
   if (!user) throw new DashboardUserNotFoundError();
@@ -95,6 +96,17 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
     database.availabilityPoll.aggregate({ where: { workspace: { ownerUserId: user.id } }, _count: true, _max: { updatedAt: true } }),
     database.pendingTaskImport.aggregate({ where: { ownerUserId: user.id }, _count: true, _max: { updatedAt: true } })
   ]);
+  const study = user.studyWorkspace
+    ? await Promise.all([
+        database.studyResource.aggregate({ where: { workspaceId: user.studyWorkspace.id }, _count: true, _max: { updatedAt: true } }),
+        database.studyCanvasSync.findUnique({ where: { workspaceId: user.studyWorkspace.id }, select: { updatedAt: true } }),
+        database.auditLog.aggregate({
+          where: { userId: user.id, action: { startsWith: "study." } },
+          _count: true,
+          _max: { createdAt: true },
+        }),
+      ])
+    : undefined;
 
   return JSON.stringify([
     stamp(user.updatedAt),
@@ -107,7 +119,9 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
     aggregateStamp(images),
     aggregateStamp(expenses),
     aggregateStamp(availability),
-    aggregateStamp(taskImports)
+    aggregateStamp(taskImports),
+    stamp(user.studyWorkspace?.updatedAt),
+    ...(study ? [aggregateStamp(study[0]), stamp(study[1]?.updatedAt), `${study[2]._count}:${stamp(study[2]._max.createdAt)}`] : [])
   ]);
 }
 

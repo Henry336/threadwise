@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-03
+Updated: 2026-08-05
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -10,6 +10,78 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Entries from 22 July 2026 onward are contemporaneous unless explicitly labelled otherwise.
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
+
+## 5 August 2026 — Deep work needed a first-class view, not a second source of truth
+
+**Friction discovered:** Phase 1 made academic capture reliable inside Telegram, but concentrated study sessions still required reading compact chat cards, hopping between module fragments, and mentally combining Canvas work, notes, screenshots, mistakes, mastery, and weekly priorities. Reusing the personal or shared-group dashboard would expose irrelevant navigation and make Study Mode feel like a bolted-on theme. A client-only hidden menu would also be inadequate because direct URLs and forged API requests could still reveal the private surface.
+
+**Decision:** Build a third, module-first dashboard architecture backed by the same Study records as Telegram. Reveal it only for the exact configured owner and exact actively bound Study group; repeat that authorization on every server request and return an opaque not-found response for every mismatch. Keep the dashboard deterministic and use AI for none of its core retrieval, ranking, editing, or synchronization paths.
+
+**Implementation:** Added sealed Study workspace discovery and API services; dedicated Overview, Module Shelf, Work, Library, Review, Search, Deep Work, and Settings views; module/work/resource CRUD; protected image/file delivery; OCR-backed live search; mastery and mistake controls; weekly planning/review; session timers; read-only Canvas sync and missing-assignment decisions; origins and schedule blocks; active-module synchronization; and server-sent event reconciliation. The interface has independent desktop/mobile composition, dark-mode parity, keyboard focus, minimum touch targets, reduced motion, explicit sync state, and the approved Ari loader.
+
+**Outcome/evidence:** Focused tests verify exact owner/chat/binding access, non-owner workspace discovery, personal and ordinary-group isolation, inactive bindings, direct Study URL denial, and proxy method/path allowlists. The completed local gate passed 81 backend test files and 700 tests, Prisma validation, TypeScript checking and clean-directory emit; the dashboard passed all 29 tests, lint, standalone TypeScript checking, and an isolated production build. An Impeccable static scan is clean. Real-browser checks covered the desktop Overview, compact Work layout, long Settings form, Ari loading state, and light/dark parity; they exposed a narrow-layout constraint that was corrected before handoff. The final contract pass also caught and fixed new-module colour rejection, blank optional work fields being serialized as invalid nulls, an incorrect All-status filter, forms clearing after failed mutations, and mastery-signal changes erasing the existing rationale. PostgreSQL remains the sole source of truth, and no browser receives database, Telegram, Canvas, or provider credentials.
+
+**Follow-up:** Before deployment, live-test the configured owner/group with one Telegram capture, Canvas sync, dashboard edit, protected image/file, focus session, workspace switch away and back, and reverse Telegram lookup. After deployment, repeat direct-URL denial with a non-owner account and monitor the first real weekly preview/review cycle.
+
+## 4 August 2026 — Private academic control without a second productivity product
+
+**Friction discovered:** Ordinary tasks could record coursework but could not represent academic weeks, processed material, explicit mastery, planned-versus-actual study time, mistake reattempts, or timed cumulative practice. Important module notes and screenshots became scattered across Telegram, while a spreadsheet-first or second-bot workflow would split capture from the place already being used. The original external discussion also assumed AI was central even though predictable academic operations need speed and auditability more than synthesis.
+
+**Decision:** Add Study Mode as a dedicated deterministic domain inside the existing Threadwise bot, PostgreSQL database, and reminder loop. Restrict it to one configured owner and one configured two-member group, route every owner message in that sealed group to Study Mode, keep every query workspace-scoped, and exclude the records from ordinary search and the dashboard until a separately authorized Study interface is built. Completing local work must never submit to Canvas or silently claim mastery.
+
+**Implementation:** Added academic workspace/module/week/item/session/mistake/review/schedule models; a compact master sheet; button-led onboarding; broad natural-language capture and navigation; explicit traffic-light mastery; planned and actual time; mistake reattempts; timed-practice checks; weekly planning/review; and six CSV exports. The first bare `/study` binds only after exact actor/chat and two-member verification. All later interactions repeat those checks, membership changes unbind the workspace, and proactive output fails closed.
+
+**Outcome/evidence:** Authorization, binding, workspace scoping, lifecycle, review, mistake, week-boundary, attention, reminder, and export tests exercise the deterministic foundation. The complete backend gate passed 80 test files and 690 tests, Prisma schema validation, TypeScript typechecking, and a production TypeScript emit. The feature remains disabled unless both exact Study environment values are configured, so no ordinary user or group receives a partial surface.
+
+**Follow-up:** After an approved migration and deployment, configure the exact owner/group values, run first-use onboarding, and verify the complete Telegram path before beginning the separate private dashboard phase.
+
+### Canvas drift without turning Threadwise into an LMS client
+
+**Friction discovered:** Manually copying assignments makes the Study list stale, but treating Threadwise as a Canvas replacement would create a dangerous second source of truth. Assignment titles and due dates may be deliberately corrected locally, submitted work should close automatically, and an assignment that disappears from an API response must not be silently deleted.
+
+**Decision:** Mirror only active-course assignment state through a read-only Canvas token every 30 minutes by default. Preserve explicit local title and date overrides, let Canvas submissions close the linked local item, never submit from Threadwise, and flag disappeared assignments for a Keep local or Archive decision.
+
+**Implementation:** Added paginated Canvas fetching, a single-flight sync guard, bounded retry/backoff for transient errors, stable course/assignment mappings, submitted-state rules, deduplication, local override flags, sync health, missing-item review controls, and a configurable cadence. Previously submitted history is not imported merely to inflate the work list.
+
+**Outcome/evidence:** Pure tests cover module mapping, submission classification, priority thresholds, and pagination links. Runtime errors retain bounded status rather than exposing tokens or silently losing tracked work.
+
+**Follow-up:** Add `CANVAS_ACCESS_TOKEN` only as a Render secret, run a manual sync after deployment, compare active assignments against Canvas, then observe at least one real submission and one changed/deleted assignment before considering the integration validated.
+
+### Fast prioritisation without an AI dependency
+
+**Friction discovered:** A raw deadline list does not answer “what needs attention?”, but sending every request to an AI service adds latency, cost, and non-repeatable results. Old low-priority reminders could also consume a daily cap before urgent deadlines.
+
+**Decision:** Score attention deterministically from due proximity, overdue age, explicit priority, module and item mastery, backlog age, planned effort, week position, and Canvas uncertainty. Prioritise proactive candidates by product urgency before scheduled age.
+
+**Implementation:** Added a documented attention scorer, recommended next actions, Saturday 8:30 PM reviews, Sunday 7:00 PM previews, restart-safe delivery claims, quiet hours, a separate daily cap, and reminder-kind priority ordering.
+
+**Outcome/evidence:** Tests show overdue/high-priority work in a red module outranks ordinary undated work and that deadline candidates precede housekeeping under the cap. The same inputs always produce the same explanation and score.
+
+**Follow-up:** Compare the top three recommendations with real weekly decisions and tune weights only from observed false positives/negatives, not from a desire to make the score look sophisticated.
+
+### Module knowledge was easy to capture but hard to retrieve
+
+**Friction discovered:** A useful CS2100 note, screenshot, link, or question could be sent quickly but later disappear into generic history. Long Telegram notes exceeded presentation limits, and ordinary acknowledgements doubled chat growth during active note-taking.
+
+**Decision:** Treat each module as a scoped capture and recall context. Support reply capture, searchable local OCR, silent durable note sessions, immediate ambiguity choices, and full-detail pagination without changing stored text.
+
+**Implementation:** Added module resources for notes, questions, links, images, and files; an active-module hub; `save this to CS2100` reply handling; Task/Note/Question/Resource fallbacks; local image OCR; pinned/searchable resources; 30-minute durable note drafts; exact paragraph joining; and page sizing after HTML escaping with Unicode-safe boundaries.
+
+**Outcome/evidence:** Parser, reply-language, title, long escaped text, emoji, and durable note-session tests pass. Resource records are isolated by Study workspace and module, and saved bodies remain complete even when Telegram needs several pages.
+
+**Follow-up:** Live-test reply capture across text, URL, photo, and document messages and verify OCR results on real lecture screenshots before tuning search ranking.
+
+### Travel uncertainty around a campus timetable
+
+**Friction discovered:** Knowing a class start time is insufficient when the owner may leave from home, a temporary campus location, or another saved origin. Re-entering origins is tedious, but copying another app’s full transport feature set would broaden Study Mode unnecessarily.
+
+**Decision:** Keep travel secondary and bounded: saved/default origins, temporary overrides, and a journey estimate through the existing public Improved NextBus service.
+
+**Implementation:** Added natural-language add/use/rename/remove origin commands, location-message support, temporary active origins, and route estimates. The implementation was checked against the live project’s `/api/venues`, `/api/stops`, and `/api/directions` response contracts.
+
+**Outcome/evidence:** Generic sentences beginning with “use” no longer get mistaken for origin changes, while explicit phrases such as `use origin Home for 3 hours` remain deterministic.
+
+**Follow-up:** Measure live campus route accuracy and failure behavior after deployment; retain a clear “estimate unavailable” response rather than fabricating a departure time.
 
 ## Reconstructed product history
 
@@ -283,6 +355,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 **Outcome/evidence:** An eight-row TODO now renders as six items on page one and two on page two without a hidden `+N more` remainder. Focused formatter/service coverage and TypeScript typechecking pass.
 
 **Follow-up:** Verify page editing and callback behavior in a live Telegram group after Render deploy, especially when two members browse the shared card concurrently.
+
+### 5 August 2026 — Error-check and harden both Study Mode phases
+
+**Friction discovered:** Phase 1 and Phase 2 worked in focused tests, but an independent Impeccable review found that the dashboard still treated eight destinations as equal choices, could remain on an indefinite loader after startup failure, styled errors too much like success, advertised keyboard shortcuts that did not work, and lost a Deep Work target after refresh. Sheets did not consistently trap and restore focus or protect drafts, weekly planning could silently discard priorities after the third, and operational text was too small or low-contrast in several desktop and mobile states. The final React 19 lint pass also caught synchronous effect hydration and render-time ref access that TypeScript alone did not detect.
+
+**Decision:** Keep the deterministic Study backend and its private owner/group gate, but rebuild the dashboard around academic decisions rather than data categories. Adapt the strongest relevant 21st.dev patterns—grouped navigation, a mobile action dock, command-palette shortcuts, progressive settings, and a stepwise review wizard—without importing a generic component aesthetic. Treat accessibility, error recovery, and interruption safety as functional requirements rather than visual polish.
+
+**Implemented:** Grouped the workspace into Today, Organize, Reflect, and Manage; added a four-action mobile dock with progressive disclosure; made Ctrl/Cmd+K, G-chords, and `?` functional; added a concise keyboard guide; separated loading, live, reconnecting, offline, success, and error states; added a recoverable startup error; retained Deep Work targets across refreshes and connected session completion to task completion or mistake capture; rebuilt weekly review as an autosaved four-step flow with three explicit priority fields; rebuilt settings as four focused panels; made modal focus, Escape, restoration, backdrop close, and dirty-draft protection consistent; replaced hard-coded owner identity; and raised operational type, contrast, and touch targets across both themes and mobile layouts. The backend snapshot now returns the item linked to an open focus session.
+
+**Outcome/evidence:** The dual-agent critique moved from 24/40 to 38/40. The final Impeccable static detector reports no findings in either the Study component or stylesheet. Dashboard TypeScript, lint, all 29 contract tests, and an isolated production build pass. Backend TypeScript and all 39 Study-focused tests pass. A parallel full-backend run reached 699/700 because the unrelated Windows temporary-directory publisher test timed out under contention; that complete seven-test file passes in isolation, so no Study regression was found.
+
+**Follow-up:** Perform one authenticated production visual pass in the exact private Study group on desktop/mobile and light/dark themes, including a screen-reader spot check. Keep contextual first-use help for Canvas and Review as a small later polish item; do not add bulk controls or another navigation destination until actual semester usage proves the need.
 
 ## Journal entry template
 

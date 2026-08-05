@@ -4,9 +4,9 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.28.0**
+Current backend release: **v0.30.0**
 
-Documentation verified against the repository: **2026-07-26**
+Documentation verified against the repository: **2026-08-05**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -97,6 +97,7 @@ small Telegram edit/reply or authenticated dashboard response
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
 - Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, and reminders. The group keeps one public Threadwise anchor; pressing it opens a receiver-bound ephemeral menu visible only to that member, so simultaneous navigation does not collide. Shared work cards remain public. Addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
+- Provides an owner-only private Study Mode in one separately configured two-member group. It combines deterministic natural-language capture, module-scoped work/notes/questions/images/files, silent note sessions, searchable local OCR, read-only Canvas sync, explainable attention ranking, weekly previews/reviews, travel origins and NextBus estimates, traffic-light mastery, sessions, mistake reattempts, timed practice, restrained reminders, and a dedicated live Study dashboard without requiring AI.
 - Imports a pasted group checklist when it begins with `TODO:` or `ACTION ITEMS:`. Threadwise parses bullets, numbered lines, and plain checked/unchecked rows; preserves done markers, dates, Telegram assignees, and team-owner labels; and leaves uncertain ownership for review instead of guessing. The sender or a group owner/admin can correct rows in the dashboard before committing them; imported rows immediately use the normal shared task and assignment flows.
 - Uses strict group activation boundaries: a plain use of the word “Threadwise” or a mention of another bot never triggers capture. Exact bot mentions, replies, slash commands, and the two explicit task-list headings remain intentional entry points.
 - Lets a verified group owner/admin create an optional dedicated Threadwise forum topic from group settings. This is an organizational aid, not a requirement; existing groups keep working in their current chat.
@@ -421,6 +422,8 @@ ADMIN_STATUS_TOKEN
 WEBHOOK_URL
 WEBHOOK_SECRET_PATH
 BOT_ALLOWED_TELEGRAM_IDS
+STUDY_OWNER_TELEGRAM_ID
+STUDY_ALLOWED_CHAT_ID
 CODEX_OWNER_TELEGRAM_ID
 CODEX_TELEGRAM_CHAT_ID
 CODEX_WORKER_TOKEN
@@ -467,6 +470,90 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 You can also allow a whole group by adding its chat id, either as `-1001234567890` or `chat:-1001234567890`. If a group is allowlisted, any member of that group can use the shared group scope. If only individual Telegram ids are allowlisted, group messages from non-allowlisted people are ignored silently so the bot does not clutter the chat.
 
 Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
+
+## Private Study Mode
+
+Study Mode is a private academic operating system inside the existing Threadwise bot. It uses the same PostgreSQL database and reminder loop, but its records live in dedicated, workspace-scoped study tables and are excluded from ordinary Threadwise search.
+
+The authenticated web dashboard exposes Study Mode only while this exact group workspace is selected. Its dedicated navigation is **Overview, Modules, Work, Library, Review, Search, Deep Work, and Settings**. Personal workspaces and every other group keep their existing interface and cannot discover the Study routes. Direct URLs and API calls return the same opaque not-found response unless the signed Telegram principal, configured owner, configured chat, current Telegram membership, and active database binding all agree.
+
+Telegram and the Study dashboard share the same records rather than synchronizing two copies. Captures and Canvas changes appear through server-sent event reconciliation; dashboard edits are immediately visible when the bot next queries the item. Module selection, mastery, work status, notes, pinned images, mistake records, weekly plans, sessions, Canvas review decisions, origins, and schedule blocks all use the same domain services.
+
+It is disabled unless both exact numeric identifiers are configured on Render:
+
+```text
+STUDY_OWNER_TELEGRAM_ID=YOUR_NUMERIC_TELEGRAM_USER_ID
+STUDY_ALLOWED_CHAT_ID=YOUR_PRIVATE_GROUP_CHAT_ID
+CANVAS_ACCESS_TOKEN=YOUR_CANVAS_ACCESS_TOKEN
+CANVAS_BASE_URL=https://canvas.nus.edu.sg/api/v1
+STUDY_CANVAS_SYNC_INTERVAL_MINUTES=30
+STUDY_TRANSIT_BASE_URL=https://improved-nextbus.vercel.app
+```
+
+Only the two Study identifiers are required to activate the private surface. Canvas remains unavailable until its token is configured; Threadwise uses that credential only for read operations. The transit integration uses the public Improved NextBus API and needs no key. Never paste the Canvas token into Telegram or commit it to this repository.
+
+If `BOT_ALLOWED_TELEGRAM_IDS` is in use, its existing rules must also allow the owner in that group. Study Mode then applies its stricter independent gate on every command, callback, guided reply, and proactive delivery:
+
+1. The actor must be the configured owner.
+2. The chat must be the configured group or supergroup.
+3. The database workspace must be actively bound to that exact chat.
+4. Telegram must report that the group contains only the owner and Threadwise.
+
+If another account joins, Study Mode unbinds when Telegram delivers the membership update. Every interactive request and reminder also rechecks the member count and fails closed if privacy cannot be verified. Keep Telegram history hidden from new members as an additional precaution because Telegram, not Threadwise, controls visibility of already-sent group messages.
+
+After the schema migration and environment configuration have been deployed, send `/study` in the exact configured group. Threadwise verifies the sealed group, binds it, and opens button-led onboarding. `/study bind` remains an explicit fallback.
+
+Study Mode is natural-language first. Examples include:
+
+```text
+todo: finish tutorial for CS2100 Friday 6pm
+CS2100 note: cache misses stall the pipeline
+question: why is sign extension needed? for CS2100
+open CS2102
+start note session
+what needs attention?
+what is coming up this week?
+sync my Canvas assignments
+add origin Home at Kent Ridge MRT
+when should I leave to COM3 from Home?
+```
+
+Reply to an existing Telegram text, link, photo, or document with `save this to CS2100`; add `as a task`, `as a note`, or `as a question` when the type is not obvious. If an ordinary message is ambiguous, Threadwise immediately offers Task, Note, Question, and Resource buttons rather than waiting for AI. When a module is active, captures belong to it unless another module is named.
+
+A Study note session stores every message immediately as one durable paragraph and otherwise remains silent. Save note joins the exact paragraphs with blank lines. After roughly 30 minutes of inactivity, a non-empty session auto-saves and an empty session closes. Long notes are paginated at safe paragraph, sentence, or Unicode boundaries for Telegram; the stored body is not truncated.
+
+Canvas is a read-only mirror, not an LMS replacement. Automatic sync runs every `STUDY_CANVAS_SYNC_INTERVAL_MINUTES`; a manual sync is available in onboarding and through `sync Canvas`. Active, overdue, upcoming, and undated unsubmitted assignments are deduplicated. A Canvas submission closes the linked Study item, while local completion never submits. Local title and due-date overrides are preserved, and assignments that disappear are flagged for Keep local or Archive instead of being deleted.
+
+`What needs attention?` uses an explainable local score based on deadline proximity, overdue age, priority, explicit mastery, backlog age, planned effort, week position, and Canvas uncertainty. It does not call an AI service. Weekly review defaults to Saturday at 8:30 PM and the next-week preview to Sunday at 7:00 PM. Urgent deadlines take precedence over housekeeping when the separate Study daily cap is reached.
+
+`/study setup` asks for the semester name, the Monday that begins Week 1, and the IANA timezone. It seeds the current modules, preliminary timetable, and editable weekly study structure. Saved travel origins can be made default, activated temporarily, renamed, or removed. Route estimates use the public Improved NextBus API; failure returns an unavailable estimate rather than invented travel data.
+
+The main commands are:
+
+```text
+/study                  master-sheet dashboard
+/study help             concise command reference
+/study week             current academic week
+/study plan             guided weekly planning
+/study add              guided study-item creation
+/study done STUDY-1     complete an item without changing mastery
+/study processed STUDY-1
+/study mastery CS2100 amber optional reason
+/study start            start a module/item-linked session
+/study stop             stop the active session and record a result
+/study mistake          guided mistake record
+/study mistakes         unresolved and due reattempts
+/study review           guided weekly review
+/study upcoming         deadlines and open planned work
+/study modules          add, edit, or archive modules
+/study schedule         inspect or edit schedule blocks
+/study export           send six CSV files
+/study unbind           explicit inline-confirmed unbinding
+```
+
+Slash commands above are compatibility and precision fallbacks; the button interface and natural phrases are the primary interaction. Core behavior is deterministic and does not require `OPENAI_API_KEY`. Mastery changes only when the owner explicitly records it; completing an item never silently declares a topic mastered. Study reminders share the normal database-backed polling loop but use separate daily caps, quiet hours, durable dedupe rows, and conservative rules for reviews, reattempts, red modules, Canvas uncertainty, important deadlines, optional study blocks, and missing timed practice.
+
+`/study export` sends UTF-8 CSV files for the weekly dashboard, items, sessions, module mastery, mistakes, and weekly reviews. In Excel, use **Data → From Text/CSV**, choose UTF-8 if prompted, and load each file as its own worksheet. PostgreSQL remains the source of truth; re-import is not part of the MVP.
 
 ## Private Codex Mode
 
@@ -802,10 +889,10 @@ npm audit
 git diff --check
 ```
 
-Verified for v0.26.0 on 2026-07-26:
+Verified for v0.30.0 on 2026-08-04:
 
-- 58 test files passed
-- 547 tests passed
+- 80 test files passed
+- 690 tests passed
 - TypeScript typecheck passed
 - Production build passed
 

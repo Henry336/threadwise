@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Private Study dashboard
+- Added a dedicated Study workspace to the authenticated dashboard with Overview, Module Shelf, Work, Library, Review, live Search, Deep Work, and Settings. It is a separate information architecture rather than a recoloured personal or group dashboard.
+- Kept the surface invisible everywhere except the exact configured Telegram owner inside the exact configured and actively bound Study group. Workspace discovery, direct URLs, every API request, live events, resource bytes, and mutations fail closed through the same owner/chat/binding gate.
+- Added module-scoped work editing, completion and archival; complete note/link/question editing; pinned and searchable Telegram images/files with protected delivery; OCR recall; mastery controls; mistake reattempts; weekly plans/reviews; focus sessions; Canvas sync and missing-assignment decisions; saved origins; and recurring study blocks.
+- Added server-sent event reconciliation so Telegram captures, Canvas changes, and dashboard mutations share PostgreSQL as one source of truth. Selecting a module in the dashboard also updates the active Telegram Study context.
+- Added a responsive module-first interface for desktop and mobile, full dark-mode parity, 44-pixel minimum controls, keyboard focus states, reduced-motion handling, accessible sheets, an explicit sync state, and the approved Ari untangling loader.
+- Added authorization and contract tests for workspace switching, non-owner discovery, direct Study routes, proxy methods, forged paths, and inactive bindings. The completed local gate passed all 700 backend tests, TypeScript checking, Prisma validation, clean-directory TypeScript emit, all 29 dashboard tests, lint, standalone TypeScript checking, an isolated production Next.js build, the Impeccable static scan, and real-browser desktop/mobile light/dark checks. No push or deployment was performed as part of this local Phase 2 implementation.
+- Hardened the creation and review contracts discovered during final QA: module colours persist on first save, blank optional work fields are omitted on creation, the All filter includes every status, failed mutations keep their form data, and mastery changes preserve an existing written rationale.
+
+### Private Study Mode
+- Added an owner-only Study domain for one explicitly configured and database-bound two-member Telegram group. Every interaction verifies the exact owner, exact chat, active binding, and current member count; membership changes lock the workspace, and proactive output fails closed when privacy cannot be reverified.
+- Added dedicated Prisma models for the Study workspace, modules, weeks, work items, Canvas mappings/sync state, resources, silent note-session drafts, pending captures, sessions, mistakes, reviews, travel origins, schedule blocks, guided conversations, and idempotent reminder deliveries. Study records remain outside ordinary Threadwise search and dashboard routes.
+- Added deterministic natural-language handling for work capture, module switching, notes, questions, resources, attention, weekly previews, Canvas status/sync, sessions, mastery, search, travel origins, and routes. Ambiguous text immediately offers Task, Note, Question, or Resource instead of waiting for AI.
+- Added reply capture such as `save this to CS2100`, including replied text, links, photos, and documents. Module-scoped images retain their Telegram media reference and receive local OCR indexing for later search.
+- Added durable, silent module note sessions. Each Telegram message is stored immediately as one paragraph; Save joins the exact text with blank lines, and 30 minutes of inactivity auto-saves without depending on process memory.
+- Added complete long-note pagination based on post-HTML-escape length and Unicode code points, preventing Telegram truncation and broken emoji while leaving stored note bodies unchanged.
+- Added read-only NUS Canvas synchronization every 30 minutes by default, with bounded retries and pagination, deduplication, local title/due-date overrides, automatic closure after a real Canvas submission, and explicit review when an assignment disappears. Local completion never submits to Canvas.
+- Added a deterministic attention engine that ranks deadlines, overdue work, explicit priority, module/item mastery, backlog age, planned effort, and Canvas uncertainty without an AI service.
+- Added Saturday-evening weekly reviews and Sunday-evening previews, separate quiet hours and daily caps, restart-safe delivery claims, and urgency ordering so housekeeping cannot crowd out overdue or near-due work.
+- Added configurable saved and temporary travel origins plus journey estimates through the existing Improved NextBus public API. The implementation was checked against the current `improved-nextbus` route contract.
+- Added first-use `/study` onboarding, button-led controls, natural-language-first help, clearer reply instructions, module resources, editable preliminary schedule, planned-versus-actual sessions, mistake reattempts, timed-practice tracking, explicit mastery, and six UTF-8 CSV exports.
+- Added focused authorization, persistence, Canvas mapping, parser, attention, reminder ordering, pagination, Unicode, and durable note-session tests. No production migration, secret change, push, or deployment was performed as part of Phase 1.
+
 ### Complete Telegram TODO review
 - Replaced the seven-row TODO preview cutoff with six-task pages that edit the existing Telegram message, so every parsed task can be inspected without opening the dashboard.
 - Added previous/next navigation, preserved original task numbering and import-wide counts, and made `Import N` explicitly apply to the complete reviewed list rather than only the visible page.

@@ -25,7 +25,10 @@ describe("version status", () => {
         failedDeliveries: 0,
         directNudgesSent: 1,
         directNudgesSkipped: 1,
-        directNudgeFailures: 0
+        directNudgeFailures: 0,
+        studyRemindersSent: 0,
+        studyRemindersFailed: 0,
+        studyReminderUnsafeChat: false
       }
     }, new Date("2026-07-06T01:05:00.000Z"));
 

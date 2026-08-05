@@ -7,6 +7,7 @@ import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
+import { runStudyReminderPass } from "./studyReminders";
 
 type ReminderTask = Prisma.TaskGetPayload<{
   include: { user: { include: { settings: true } }; assignees: true };
@@ -32,6 +33,9 @@ export type ReminderDiagnostics = {
   directNudgesSent: number;
   directNudgesSkipped: number;
   directNudgeFailures: number;
+  studyRemindersSent: number;
+  studyRemindersFailed: number;
+  studyReminderUnsafeChat: boolean;
 };
 
 let reminderDiagnostics: ReminderDiagnostics = {
@@ -43,7 +47,10 @@ let reminderDiagnostics: ReminderDiagnostics = {
   failedDeliveries: 0,
   directNudgesSent: 0,
   directNudgesSkipped: 0,
-  directNudgeFailures: 0
+  directNudgeFailures: 0,
+  studyRemindersSent: 0,
+  studyRemindersFailed: 0,
+  studyReminderUnsafeChat: false
 };
 let activeReminderRun: Promise<ReminderDiagnostics> | undefined;
 
@@ -87,7 +94,10 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     failedDeliveries: 0,
     directNudgesSent: 0,
     directNudgesSkipped: 0,
-    directNudgeFailures: 0
+    directNudgeFailures: 0,
+    studyRemindersSent: 0,
+    studyRemindersFailed: 0,
+    studyReminderUnsafeChat: false
   };
 
   try {
@@ -230,6 +240,15 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       }
     }
 
+    try {
+      const study = await runStudyReminderPass(bot, now);
+      run.studyRemindersSent = study.sent;
+      run.studyRemindersFailed = study.failed;
+      run.studyReminderUnsafeChat = study.unsafeChat;
+    } catch (error) {
+      run.studyRemindersFailed += 1;
+      logger.error("Study reminder pass failed without interrupting normal reminders.", { error: String(error) });
+    }
     run.lastFinishedAt = new Date().toISOString();
     reminderDiagnostics = run;
     return run;

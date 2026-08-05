@@ -1,8 +1,8 @@
 # Architecture Notes
 
-Updated: 2026-08-03
+Updated: 2026-08-05
 
-Current backend release: v0.26.0
+Current backend release: v0.30.0
 
 Threadwise is intentionally split into small modules so future contributors can change one feature without reshaping the whole bot.
 
@@ -53,6 +53,14 @@ Shared group control panels use Telegram Bot API receiver-bound ephemeral delive
 
 Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSession` records the owner and expiry; each incoming message is appended immediately as an ordered `NoteCaptureSegment`. While active, ordinary classification pauses and the reply keyboard contains Save note and Cancel. Save joins exact segments with blank lines; the background sweep auto-saves non-empty inactive sessions after roughly 30 minutes and discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence, then safe character boundaries while leaving the stored note unchanged.
 
+Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
+
+Study services are split by responsibility. `study.ts` owns weeks, modules, work, sessions, mistakes, reviews, schedule blocks, dashboard aggregation, and CSV exports. `studyNaturalLanguage.ts` performs deterministic intent and module extraction. `studyCanvas.ts` owns a single-flight, paginated, retry-bounded, read-only Canvas mirror. `studyAttention.ts` scores work from deadlines, explicit priority, mastery, backlog age, effort, and source uncertainty. `studyResources.ts` owns module resources, reply/pending captures, local OCR metadata, durable silent note sessions, and Unicode-safe Telegram pagination. `studyTransit.ts` consumes the public Improved NextBus contract and manages saved/default/temporary origins. `studyReminders.ts` derives and prioritizes proactive candidates while `studyCapture.ts` and `study.ts` keep Telegram handlers thin.
+
+Study privacy fails closed. Each command and callback verifies the exact actor, exact chat, active binding, and current two-member count. The `chat_member` handler unbinds the workspace if another human joins; reminders and auto-save acknowledgements recheck the group before proactive output. Study queries include `workspaceId`, and the feature remains absent from global search and every ordinary personal/group dashboard route.
+
+The Phase 2 Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. Protected Telegram image/file bytes are fetched server-side only after this lookup, with bounded size, safe MIME, filename, and browser headers.
+
 Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
@@ -69,6 +77,8 @@ The dashboard is a separate Next.js/Vercel client. It never connects directly to
 6. Route handlers validate payloads with the schemas in `src/dashboard/schemas.ts` and call the same domain services used by Telegram.
 7. Mutation paths publish scoped events through `src/dashboard/realtime.ts`; `/api/v1/dashboard/events` streams them with private/no-store semantics so the client can refresh the affected data.
 
+When the resolved workspace is Study Mode, the Next.js client switches to a dedicated module-first shell and requests `/api/v1/dashboard/study/snapshot`. Study mutations call the same services used by Telegram for work, resources, mastery, sessions, mistakes, weekly reviews, Canvas state, origins, and schedule blocks. Realtime revisions include Study workspace/resource/Canvas/audit changes and are keyed to the signed owner, so either surface updates the other without a second data store.
+
 TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. This is independent of ordinary assignment self-service, where a member controls only their own assignment response.
 
 Group authorization has two layers. Current members may read shared data and mutate only their own availability/assignment state. Owner/admin operations—such as changing group settings or finalizing a scheduling poll—perform a fresh Telegram role check. The server fails closed when a required check cannot establish the privilege.
@@ -84,6 +94,8 @@ The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusa
 5. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
 6. It records one `ReminderDelivery` row per included task while counting the shared Telegram message only once against the daily message limit, then removes superseded main-chat reminders.
 7. It advances `nextReminderAt` or the recurring calendar occurrence. Undated group tasks use the group's configurable interval (six hours by default), slow to daily after three unanswered follow-ups, and reset that streak after meaningful task activity.
+
+The same loop invokes a separately scoped Study reminder pass after normal task processing. It derives candidates from PostgreSQL, verifies the private group before every pass, applies Study workspace quiet hours and its daily cap, and claims a unique `StudyReminderDelivery.dedupeKey` before sending. Saturday review, Sunday preview, due mistake reattempts, red modules, Canvas uncertainty, important deadlines, optional study blocks, and missing timed practice therefore remain restart-safe without creating a second scheduler. Eligible candidates are sorted by product urgency before scheduled age so overdue and near-due work cannot be displaced by housekeeping when the daily cap is reached. A Study pass failure is isolated and cannot interrupt ordinary Threadwise reminders.
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 

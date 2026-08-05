@@ -11,6 +11,8 @@ import { startCodexDeliveryLoop } from "./bot/codex";
 import { startGeminiIdeaDeliveryLoop } from "./bot/geminiIdeas";
 import { startFileCourierDeliveryLoop } from "./bot/files";
 import { startVoiceCaptureRecoveryLoop } from "./bot/voiceCapture";
+import { startStudyCanvasSyncLoop } from "./services/studyCanvas";
+import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
 
 async function main() {
   const ai = createAiProvider();
@@ -21,6 +23,8 @@ async function main() {
   const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
   const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
   const voiceCaptureLoop = startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN);
+  const studyCanvasSyncLoop = startStudyCanvasSyncLoop();
+  const studyNoteCaptureLoop = startStudyNoteCaptureExpiryLoop(bot);
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
@@ -31,6 +35,8 @@ async function main() {
     if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
     if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);
     clearInterval(voiceCaptureLoop);
+    clearInterval(studyCanvasSyncLoop);
+    clearInterval(studyNoteCaptureLoop);
     await server?.close();
     await bot.stop();
     await prisma.$disconnect();

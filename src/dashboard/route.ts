@@ -111,6 +111,60 @@ import {
   refreshAvailabilityPollCardWithToken,
   sendAvailabilityReminderWithToken,
 } from "../bot/scheduling";
+import { StudyModeError } from "../services/study";
+import {
+  DashboardStudyAccessError,
+  archiveDashboardStudyItem,
+  archiveDashboardStudyResource,
+  archiveDashboardStudyScheduleBlock,
+  completeDashboardStudyItem,
+  createDashboardStudyItem,
+  createDashboardStudyMistake,
+  createDashboardStudyModule,
+  createDashboardStudyOrigin,
+  createDashboardStudyResource,
+  createDashboardStudyScheduleBlock,
+  deleteDashboardStudyOrigin,
+  getDashboardStudyResource,
+  getDashboardStudySnapshot,
+  listDashboardStudyResources,
+  loadDashboardStudyResourceContent,
+  requireDashboardStudyWorkspace,
+  resolveDashboardStudyCanvasAssignment,
+  resolveDashboardStudyMistake,
+  saveDashboardStudyWeeklyPlan,
+  saveDashboardStudyWeeklyReview,
+  searchDashboardStudy,
+  startDashboardStudySession,
+  stopDashboardStudySession,
+  studyCanvasAssignmentActionSchema,
+  studyIdParamsSchema,
+  studyItemCreateSchema,
+  studyItemUpdateSchema,
+  studyMistakeCreateSchema,
+  studyModuleCreateSchema,
+  studyModuleUpdateSchema,
+  studyOriginCreateSchema,
+  studyOriginUpdateSchema,
+  studyResourceCreateSchema,
+  studyResourceQuerySchema,
+  studyResourceUpdateSchema,
+  studyScheduleCreateSchema,
+  studySearchQuerySchema,
+  studySessionResultSchema,
+  studySessionStartSchema,
+  studySessionStopSchema,
+  studySettingsUpdateSchema,
+  studyWeeklyPlanSchema,
+  studyWeeklyReviewSchema,
+  syncDashboardStudyCanvas,
+  updateDashboardStudyItem,
+  updateDashboardStudyModule,
+  updateDashboardStudyOrigin,
+  updateDashboardStudyResource,
+  updateDashboardStudySession,
+  updateDashboardStudySettings,
+} from "./study";
 import {
   cancelTaskImport,
   getTaskImportReview,
@@ -308,7 +362,10 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
         "X-Accel-Buffering": "no"
       });
       reply.raw.write("retry: 2500\n\n");
-      const unsubscribe = subscribeDashboardChanges(scope.ownerTelegramId, (event) => {
+      const revisionTelegramId = scope.workspace.mode === "STUDY"
+        ? scope.principalTelegramId
+        : scope.ownerTelegramId;
+      const unsubscribe = subscribeDashboardChanges(revisionTelegramId, (event) => {
         if (!reply.raw.destroyed) reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
       });
       const heartbeat = setInterval(() => {
@@ -326,6 +383,177 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       return sendDashboardError(reply, error, "live_sync");
     }
   });
+
+  server.get("/api/v1/dashboard/study/snapshot", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { study: await getDashboardStudySnapshot(workspace) };
+  }, "study_snapshot"));
+
+  server.post("/api/v1/dashboard/study/modules", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { module: await createDashboardStudyModule(workspace, studyModuleCreateSchema.parse(request.body)) };
+  }, "study_create_module"));
+
+  server.patch("/api/v1/dashboard/study/modules/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { module: await updateDashboardStudyModule(workspace, id, studyModuleUpdateSchema.parse(request.body)) };
+  }, "study_update_module"));
+
+  server.post("/api/v1/dashboard/study/items", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { item: await createDashboardStudyItem(workspace, studyItemCreateSchema.parse(request.body)) };
+  }, "study_create_item"));
+
+  server.patch("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { item: await updateDashboardStudyItem(workspace, id, studyItemUpdateSchema.parse(request.body)) };
+  }, "study_update_item"));
+
+  server.delete("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    await archiveDashboardStudyItem(workspace, id);
+    return { archived: true };
+  }, "study_archive_item"));
+
+  server.post("/api/v1/dashboard/study/items/:id/complete", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { item: await completeDashboardStudyItem(workspace, id, false) };
+  }, "study_complete_item"));
+
+  server.get("/api/v1/dashboard/study/resources", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { resources: await listDashboardStudyResources(workspace, studyResourceQuerySchema.parse(request.query)) };
+  }, "study_list_resources"));
+
+  server.post("/api/v1/dashboard/study/resources", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { resource: await createDashboardStudyResource(workspace, studyResourceCreateSchema.parse(request.body)) };
+  }, "study_create_resource"));
+
+  server.get("/api/v1/dashboard/study/resources/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { resource: await getDashboardStudyResource(workspace, id) };
+  }, "study_get_resource"));
+
+  server.patch("/api/v1/dashboard/study/resources/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { resource: await updateDashboardStudyResource(workspace, id, studyResourceUpdateSchema.parse(request.body)) };
+  }, "study_update_resource"));
+
+  server.delete("/api/v1/dashboard/study/resources/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    await archiveDashboardStudyResource(workspace, id);
+    return { archived: true };
+  }, "study_archive_resource"));
+
+  server.get("/api/v1/dashboard/study/resources/:id/content", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    const content = await loadDashboardStudyResourceContent(workspace, id, options.telegramBotToken);
+    reply.header("Cache-Control", "private, max-age=300");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
+    reply.header("Content-Disposition", `${content.inline ? "inline" : "attachment"}; filename="${content.fileName}"`);
+    reply.type(content.contentType);
+    return reply.send(Buffer.from(content.bytes));
+  }, "study_resource_content"));
+
+  server.get("/api/v1/dashboard/study/search", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const query = studySearchQuerySchema.parse(request.query);
+    return { query: query.q, results: await searchDashboardStudy(workspace, query) };
+  }, "study_search"));
+
+  server.post("/api/v1/dashboard/study/sessions/start", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { session: await startDashboardStudySession(workspace, studySessionStartSchema.parse(request.body)) };
+  }, "study_start_session"));
+
+  server.post("/api/v1/dashboard/study/sessions/stop", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { session: await stopDashboardStudySession(workspace, studySessionStopSchema.parse(request.body ?? {})) };
+  }, "study_stop_session"));
+
+  server.patch("/api/v1/dashboard/study/sessions/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { session: await updateDashboardStudySession(workspace, id, studySessionResultSchema.parse(request.body)) };
+  }, "study_update_session"));
+
+  server.post("/api/v1/dashboard/study/mistakes", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { mistake: await createDashboardStudyMistake(workspace, studyMistakeCreateSchema.parse(request.body)) };
+  }, "study_create_mistake"));
+
+  server.post("/api/v1/dashboard/study/mistakes/:id/resolve", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { mistake: await resolveDashboardStudyMistake(workspace, id) };
+  }, "study_resolve_mistake"));
+
+  server.patch("/api/v1/dashboard/study/weekly-plan", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { week: await saveDashboardStudyWeeklyPlan(workspace, studyWeeklyPlanSchema.parse(request.body)) };
+  }, "study_weekly_plan"));
+
+  server.post("/api/v1/dashboard/study/review", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { review: await saveDashboardStudyWeeklyReview(workspace, studyWeeklyReviewSchema.parse(request.body)) };
+  }, "study_weekly_review"));
+
+  server.patch("/api/v1/dashboard/study/settings", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { settings: await updateDashboardStudySettings(workspace, studySettingsUpdateSchema.parse(request.body)) };
+  }, "study_update_settings"));
+
+  server.post("/api/v1/dashboard/study/canvas/sync", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { sync: await syncDashboardStudyCanvas(workspace) };
+  }, "study_canvas_sync"));
+
+  server.patch("/api/v1/dashboard/study/canvas/assignments/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    const input = studyCanvasAssignmentActionSchema.parse(request.body);
+    return { assignment: await resolveDashboardStudyCanvasAssignment(workspace, id, input.action) };
+  }, "study_canvas_review"));
+
+  server.post("/api/v1/dashboard/study/origins", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { origin: await createDashboardStudyOrigin(workspace, studyOriginCreateSchema.parse(request.body)) };
+  }, "study_create_origin"));
+
+  server.patch("/api/v1/dashboard/study/origins/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { origin: await updateDashboardStudyOrigin(workspace, id, studyOriginUpdateSchema.parse(request.body)) };
+  }, "study_update_origin"));
+
+  server.delete("/api/v1/dashboard/study/origins/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    await deleteDashboardStudyOrigin(workspace, id);
+    return { deleted: true };
+  }, "study_delete_origin"));
+
+  server.post("/api/v1/dashboard/study/schedule", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { block: await createDashboardStudyScheduleBlock(workspace, studyScheduleCreateSchema.parse(request.body)) };
+  }, "study_create_schedule"));
+
+  server.delete("/api/v1/dashboard/study/schedule/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    await archiveDashboardStudyScheduleBlock(workspace, id);
+    return { archived: true };
+  }, "study_archive_schedule"));
 
   server.get("/api/v1/dashboard/scheduling/polls", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     return { polls: await listAvailabilityPolls(schedulingScope(scope)) };
@@ -689,6 +917,17 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
   }
   if (error instanceof DashboardGroupAccessError) {
     return reply.code(403).send({ error: "group_access_denied", message: error.message });
+  }
+  if (error instanceof DashboardStudyAccessError) {
+    return reply.code(404).send({ error: "not_found" });
+  }
+  if (error instanceof StudyModeError) {
+    const status = error.code === "not_found" ? 404
+      : error.code === "forbidden" ? 404
+        : error.code === "conflict" ? 409
+          : error.code === "disabled" || error.code === "not_bound" ? 412
+            : 400;
+    return reply.code(status).send({ error: `study_${error.code}`, message: error.message });
   }
   if (error instanceof GroupSchedulingError) {
     const status = error.code === "not_found" ? 404

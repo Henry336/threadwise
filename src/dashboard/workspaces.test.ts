@@ -1,6 +1,6 @@
 import { GroupMemberRole, GroupMemberStatus, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
-import { assertWorkspaceManager, DashboardGroupAccessError, resolveDashboardWorkspace } from "./workspaces";
+import { assertWorkspaceManager, DashboardGroupAccessError, listDashboardWorkspaces, resolveDashboardWorkspace } from "./workspaces";
 
 describe("dashboard group workspace authorization", () => {
   const workspaceId = "6cd8f630-05f4-48c0-b7fb-ffacbc4ff1a2";
@@ -36,6 +36,49 @@ describe("dashboard group workspace authorization", () => {
       where: { workspaceId_telegramId: { workspaceId, telegramId: "123456789" } },
       create: expect.objectContaining({ status: GroupMemberStatus.ACTIVE, role: GroupMemberRole.ADMIN })
     }));
+  });
+
+  it("labels only the configured owner's exact bound group as Study Mode", async () => {
+    const telegramId = "900000001";
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ firstName: "Henry", username: "henry" })) },
+      groupMembership: { findMany: vi.fn(async () => ([
+        {
+          role: GroupMemberRole.OWNER,
+          workspace: { id: workspaceId, title: "Study", telegramChatId: "-100900000001", _count: { members: 1 } },
+        },
+        {
+          role: GroupMemberRole.OWNER,
+          workspace: { id: "7cd8f630-05f4-48c0-b7fb-ffacbc4ff1a3", title: "Other", telegramChatId: "-100999", _count: { members: 3 } },
+        },
+      ])) },
+      studyWorkspace: { findFirst: vi.fn(async () => ({ boundChatId: "-100900000001" })) },
+    } as unknown as PrismaClient;
+
+    const workspaces = await listDashboardWorkspaces(telegramId, database, {
+      ownerTelegramId: telegramId,
+      allowedChatId: "-100900000001",
+    });
+
+    expect(workspaces.find((workspace) => workspace.name === "Study")?.mode).toBe("STUDY");
+    expect(workspaces.find((workspace) => workspace.name === "Other")?.mode).toBeUndefined();
+    expect(workspaces.find((workspace) => workspace.kind === "PERSONAL")?.mode).toBeUndefined();
+  });
+
+  it("never probes for a Study workspace for another Telegram user", async () => {
+    const studyLookup = vi.fn();
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ firstName: "Guest", username: null })) },
+      groupMembership: { findMany: vi.fn(async () => []) },
+      studyWorkspace: { findFirst: studyLookup },
+    } as unknown as PrismaClient;
+
+    await listDashboardWorkspaces("123456789", database, {
+      ownerTelegramId: "900000001",
+      allowedChatId: "-100900000001",
+    });
+
+    expect(studyLookup).not.toHaveBeenCalled();
   });
 
   it("fails closed when the opaque workspace does not exist", async () => {

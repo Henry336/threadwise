@@ -1,5 +1,6 @@
 import { Api } from "grammy";
 import { GroupMemberRole, GroupMemberStatus, type PrismaClient } from "@prisma/client";
+import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
 
 const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/;
@@ -12,6 +13,7 @@ export type DashboardWorkspace = {
   name: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
   memberCount?: number;
+  mode?: "STUDY";
 };
 
 export type DashboardWorkspaceScope = {
@@ -73,10 +75,11 @@ export async function verifyTelegramGroupMembership(
 
 export async function listDashboardWorkspaces(
   telegramId: string,
-  database: PrismaClient = prisma
+  database: PrismaClient = prisma,
+  studyConfig = privateStudyConfig(),
 ): Promise<DashboardWorkspace[]> {
   if (!PERSONAL_TELEGRAM_ID.test(telegramId)) throw new DashboardGroupAccessError();
-  const [personal, memberships] = await Promise.all([
+  const [personal, memberships, studyWorkspace] = await Promise.all([
     database.user.findUnique({
       where: { telegramId },
       select: { firstName: true, username: true }
@@ -89,7 +92,17 @@ export async function listDashboardWorkspaces(
         }
       },
       orderBy: { lastSeenAt: "desc" }
-    })
+    }),
+    studyConfig?.ownerTelegramId === telegramId
+      ? database.studyWorkspace.findFirst({
+          where: {
+            ownerTelegramId: telegramId,
+            boundChatId: studyConfig.allowedChatId,
+            active: true,
+          },
+          select: { boundChatId: true },
+        })
+      : Promise.resolve(null),
   ]);
   const workspaces: DashboardWorkspace[] = [];
   if (personal) {
@@ -106,7 +119,8 @@ export async function listDashboardWorkspaces(
       kind: "GROUP",
       name: membership.workspace.title,
       role: membership.role,
-      memberCount: membership.workspace._count.members
+      memberCount: membership.workspace._count.members,
+      ...(studyWorkspace?.boundChatId === membership.workspace.telegramChatId ? { mode: "STUDY" as const } : {}),
     });
   }
   return workspaces;
@@ -117,7 +131,8 @@ export async function resolveDashboardWorkspace(
   requestedWorkspaceId: string | undefined,
   botToken: string | undefined,
   database: PrismaClient = prisma,
-  verifyMembership: MembershipVerifier = verifyTelegramGroupMembership
+  verifyMembership: MembershipVerifier = verifyTelegramGroupMembership,
+  studyConfig = privateStudyConfig(),
 ): Promise<DashboardWorkspaceScope> {
   if (!PERSONAL_TELEGRAM_ID.test(principalTelegramId)) throw new DashboardGroupAccessError();
   if (!requestedWorkspaceId || requestedWorkspaceId === "personal") {
@@ -139,6 +154,17 @@ export async function resolveDashboardWorkspace(
   if (!workspace?.isActive || !botToken) throw new DashboardGroupAccessError();
 
   const role = await verifyMembership(botToken, workspace.telegramChatId, principalTelegramId);
+  const studyWorkspace = studyConfig?.ownerTelegramId === principalTelegramId
+    && studyConfig.allowedChatId === workspace.telegramChatId
+    ? await database.studyWorkspace.findFirst({
+        where: {
+          ownerTelegramId: principalTelegramId,
+          boundChatId: workspace.telegramChatId,
+          active: true,
+        },
+        select: { id: true },
+      })
+    : null;
   await database.groupMembership.upsert({
     where: {
       workspaceId_telegramId: {
@@ -164,7 +190,8 @@ export async function resolveDashboardWorkspace(
       kind: "GROUP",
       name: workspace.title,
       role,
-      memberCount: Math.max(workspace._count.members, 1)
+      memberCount: Math.max(workspace._count.members, 1),
+      ...(studyWorkspace ? { mode: "STUDY" as const } : {}),
     }
   };
 }

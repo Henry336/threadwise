@@ -1,8 +1,8 @@
 # Threadwise Case Study
 
-Updated: 2026-07-26
+Updated: 2026-08-05
 
-Current backend release: v0.26.0
+Current backend release: v0.30.0
 
 ## Summary
 
@@ -98,6 +98,16 @@ This scope correction came from observing that a long feature list weakened Thre
 - A distinct group dashboard with Overview, Work, People, Progress, Activity, Resources, and Find a time.
 - **Find a time** polls with proposed ranges, duration, participant time zones, a touch-friendly availability grid, overlap ranking, response progress, verified organizer controls, finalization, reminders to non-respondents, and optional per-member Calendar export.
 
+### Private Study Mode
+
+- A sealed academic workspace available only to one configured Telegram owner in one configured two-member group, with exact actor/chat/binding checks and proactive delivery that fails closed.
+- Natural-language and button-led capture for module work, notes, questions, links, screenshots, files, mastery, sessions, Canvas sync, attention, weekly planning, and travel—without making an AI service part of the critical path.
+- Read-only application behavior around Canvas: automatic 30-minute assignment sync, stable deduplication, local title/date overrides, automatic closure after a real submission, and explicit review when Canvas stops returning an assignment.
+- An explainable attention engine that combines deadline proximity, overdue age, explicit priority, module/item mastery, backlog age, planned effort, week position, and Canvas uncertainty.
+- Module-scoped recall with local screenshot OCR, reply capture, searchable resources, complete long-note pagination, and silent durable note sessions that auto-save after inactivity.
+- Restart-safe Saturday reviews, Sunday previews, restrained deadline/mistake/mastery reminders, saved or temporary travel origins, and public Improved NextBus journey estimates.
+- A sealed, responsive Study dashboard with its own Overview, Module Shelf, Work, Library, Review, live Search, Deep Work, and Settings architecture. It manages the same PostgreSQL records as Telegram, including OCR-backed resources and read-only Canvas state, while direct routes and API calls fail closed outside the exact owner and group.
+
 ### Synchronized dashboard
 
 - Short-lived EdDSA-signed dashboard API requests; the browser receives neither database credentials nor provider tokens.
@@ -106,6 +116,7 @@ This scope correction came from observing that a long feature list weakened Thre
 - Group membership revalidation and permission-aware collaboration controls.
 - Server-sent events for near-live synchronization between Telegram-backed data and the dashboard.
 - Separate personal and group information architectures instead of presenting the group dashboard as a larger personal dashboard.
+- A third, owner-only Study information architecture that appears only for the configured academic group and remains absent from every other workspace.
 
 ## Architecture
 
@@ -163,6 +174,11 @@ The product has been shaped by direct use and feedback from several testers and 
 - **The personal and group dashboards felt too similar.** Group navigation now emphasizes people, handoffs, progress, activity, resources, and scheduling; personal-only experiments remain absent.
 - **External integrations weakened the product story.** Gmail was retired, Expenses/Excel were frozen, and Calendar became a secondary mirror.
 - **The original database region added 1–2.5 seconds to many requests.** The data was migrated from Seoul to Singapore and exact row counts were verified before cutover.
+- **Academic work was scattered across generic tasks, Canvas, module notes, screenshots, and travel planning.** A private Study domain now keeps these records module-scoped while reusing Threadwise’s capture/recall strengths.
+- **An early Study proposal assumed AI would decide what mattered.** Attention and natural-language routing were made deterministic so the same state produces a fast, explainable result without an API key.
+- **Copying Canvas manually caused drift, but automatic two-way control was unsafe.** Threadwise now reads assignment/submission state only, preserves local overrides, and never submits coursework.
+- **Note-taking acknowledgements interrupted the act of writing.** Study note sessions persist every message silently as a paragraph, then save explicitly or after 30 minutes of inactivity.
+- **Telegram reply content could not be filed into a module in one action.** Reply capture now accepts phrases such as `save this to CS2100` for text, links, photos, and documents.
 
 These decisions are recorded with their rationale in [`docs/PRODUCT_JOURNAL.md`](docs/PRODUCT_JOURNAL.md).
 
@@ -174,11 +190,11 @@ The important ownership is not merely authorship of individual lines. The system
 
 ## Validation
 
-As of v0.26.0 on 2026-07-26:
+As of v0.30.0 on 2026-08-04:
 
 ```text
-58 test files passed
-547 tests passed
+80 test files passed
+690 tests passed
 TypeScript typecheck passed
 Production build passed
 ```
