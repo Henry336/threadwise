@@ -65,6 +65,7 @@ const workspace: StudyWorkspace = {
   activeModuleId: null,
   activeOriginId: null,
   activeOriginUntil: null,
+  travelMutedUntil: null,
   quietHoursStart: "01:30",
   quietHoursEnd: "09:00",
   maxRemindersPerDay: 4,

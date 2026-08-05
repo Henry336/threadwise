@@ -21,11 +21,20 @@ import { registerTaskImports } from "./taskImports";
 import { registerGroupTopics } from "./groupTopics";
 import { registerStudyMode } from "./study";
 import { shouldHandleStudyUpdate } from "../services/study";
+import { handleTelegramGroupMigrationUpdate } from "../services/telegramChatMigrations";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
   configureEphemeralTransport(token);
   const allowlist = allowedTelegramIds();
+
+  // Telegram emits this service update when a basic group becomes a
+  // supergroup. Process it before allowlisting/routing so stored reminders and
+  // workspace identity do not remain attached to the retired chat ID.
+  bot.use(async (ctx, next) => {
+    if (await handleTelegramGroupMigrationUpdate(ctx)) return;
+    await next();
+  });
 
   bot.use(async (ctx, next) => {
     if (!allowlist || allowlist.size === 0) {

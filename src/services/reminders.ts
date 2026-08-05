@@ -8,6 +8,7 @@ import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageForm
 import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
 import { runStudyReminderPass } from "./studyReminders";
+import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
 
 type ReminderTask = Prisma.TaskGetPayload<{
   include: { user: { include: { settings: true } }; assignees: true };
@@ -187,10 +188,12 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       });
 
       try {
-        const sentMessage = await bot.api.sendMessage(chatId, message, {
+        const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, {
           ...HTML_REPLY,
           reply_markup: reminderActionsKeyboard(task)
         });
+        const sentMessage = delivery.message;
+        const deliveredChatId = delivery.chatId;
 
         const nextSchedule = nextTaskScheduleAfterDelivery({
           now,
@@ -204,7 +207,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
             data: {
               userId: task.userId,
               taskId: task.id,
-              chatId,
+              chatId: deliveredChatId,
               messageId: String(sentMessage.message_id)
             }
           }),
@@ -220,7 +223,12 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         ]);
 
         run.remindersSent += 1;
-        await deleteSupersededReminderMessage(bot, previousReminder, sentMessage.message_id, task.publicId);
+        await deleteSupersededReminderMessage(
+          bot,
+          previousReminder ? { ...previousReminder, chatId: deliveredChatId } : null,
+          sentMessage.message_id,
+          task.publicId
+        );
         try {
           const direct = await sendDirectAssigneeNudges(bot, task);
           run.directNudgesSent += direct.sent;
@@ -318,10 +326,12 @@ async function sendGroupUndatedReminderBatch(
   ))).filter((reminder): reminder is { chatId: string; messageId: string } => Boolean(reminder?.messageId));
 
   try {
-    const sentMessage = await bot.api.sendMessage(chatId, formatGroupUndatedReminderDigest(tasks), {
+    const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatGroupUndatedReminderDigest(tasks), {
       ...HTML_REPLY,
       reply_markup: groupUndatedReminderKeyboard(tasks)
     });
+    const sentMessage = delivery.message;
+    const deliveredChatId = delivery.chatId;
     const messageId = String(sentMessage.message_id);
 
     await prisma.$transaction(tasks.flatMap((task) => {
@@ -329,7 +339,7 @@ async function sendGroupUndatedReminderBatch(
       const nextInterval = nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, nextCount);
       return [
         prisma.reminderDelivery.create({
-          data: { userId: task.userId, taskId: task.id, chatId, messageId }
+          data: { userId: task.userId, taskId: task.id, chatId: deliveredChatId, messageId }
         }),
         prisma.task.update({
           where: { id: task.id },
@@ -345,7 +355,12 @@ async function sendGroupUndatedReminderBatch(
     }));
 
     run.remindersSent += 1;
-    await deleteSupersededReminderMessages(bot, previousReminders, sentMessage.message_id, tasks.map((task) => task.publicId));
+    await deleteSupersededReminderMessages(
+      bot,
+      previousReminders.map((reminder) => ({ ...reminder, chatId: deliveredChatId })),
+      sentMessage.message_id,
+      tasks.map((task) => task.publicId)
+    );
 
     for (const task of tasks) {
       try {

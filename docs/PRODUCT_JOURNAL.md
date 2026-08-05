@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 5 August 2026 - Telegram group IDs are lifecycle state
+
+**Friction discovered:** Two releases failed to deploy because a strict Study fixture did not include the newly required travel mute field. Meanwhile, the live reminder worker repeatedly sent to a retired basic-group ID after Telegram upgraded that chat to a supergroup, producing a new 400 error every 15 minutes. A Telegram group ID had been treated as permanent even though Telegram explicitly replaces it during an upgrade.
+
+**Decision:** Reproduce deployment from a clean checkout, keep strict fixtures aligned with the Prisma contract, and treat a group-to-supergroup upgrade as an identity migration rather than an ordinary delivery failure. Repair should be automatic and non-destructive.
+
+**Implementation:** Added the missing fixture field; processed Telegram migration service messages before normal bot routing; parsed `migrate_to_chat_id` from grammY API errors; updated stored reminder destinations and delivery history; moved the existing group user/workspace identifiers when no replacement record conflicts; and retried the original reminder exactly once against the replacement ID. If both old and new identities already contain data, Threadwise repairs delivery but deliberately avoids silently merging or deleting either workspace.
+
+**Outcome/evidence:** The exact isolated Render build passes. The complete backend suite passes all 742 tests, including focused migration extraction, persistence, and retry coverage. The next failed delivery from an already-upgraded group can self-heal the stale destination instead of maintaining the recurring error loop.
+
+**Follow-up:** Confirm the next Render deploy succeeds and watch one reminder cycle. If logs report an identity conflict, reconcile the two preserved group records explicitly rather than guessing which data to discard.
+
 ## 5 August 2026 — Stored integration state is not operational health
 
 **Friction discovered:** Three separate interfaces appeared configured while failing at the moment of use. The Study dashboard rendered a computed pre-semester week as `—`; travel-origin setup promised venues and stops but only performed a single venue lookup and sent instructions questions into ambiguous capture; and Google Calendar treated the presence of an OAuth row as proof that its token was still usable. Archiving also left an already-created Calendar event behind, so Threadwise and Google could disagree about whether work was active.

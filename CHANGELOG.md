@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Telegram supergroup migration recovery
+- Fixed the production TypeScript build regression caused by the new Study travel mute field being absent from a strict persistence fixture.
+- Added first-class handling for Telegram's basic-group-to-supergroup service update before normal routing and allowlist middleware.
+- Made reminder delivery recover from Telegram's `migrate_to_chat_id` response automatically: Threadwise updates stored reminder destinations and delivery history, preserves the existing group user/workspace identity when the replacement ID is unused, and retries the failed message once against the new chat.
+- Added focused migration parsing, persistence, and retry tests; the exact clean Render build and all 742 backend tests pass.
+
 ### Study routing, Calendar health, and task lifecycle
 - Replaced the misleading pre-semester `Week 0` state with an explicit pre-semester label in the private Study dashboard, including the local date on which Week 1 begins.
 - Made travel-origin setup deterministic and discoverable. Questions such as `How do I add a travel origin?` now open guided setup instead of ambiguous capture, common aliases such as `PGPR` resolve to PGP, and origin search now combines campus venues with direct NUS bus-stop results.
