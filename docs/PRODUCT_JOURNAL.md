@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-05
+Updated: 2026-08-06
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -10,6 +10,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Entries from 22 July 2026 onward are contemporaneous unless explicitly labelled otherwise.
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
+
+## 6 August 2026 - A separate identity can reuse infrastructure without confusing the product
+
+**Friction discovered:** Threadwise's paid Render service already provided the reliable always-on process needed by a scholarship community, but Threadwise's public identity and Capture/Coordinate/Recall product promise did not describe moderation. Reusing the same Telegram identity would confuse both products. A generic off-the-shelf moderator was available but required a separate paid plan, and hard-coded keyword changes would create repeated deployments and bot downtime. The group is currently small, so a deep multi-role hierarchy would add operational burden before it added safety.
+
+**Decision:** Run a second Telegram identity, Beacon, inside the existing Threadwise process while keeping its behavior, token, webhook, group allowlist, commands, and data separate. Use only Owner and Moderator roles. The owner ID is immutable deployment configuration; `Manage moderators` is never grantable. Moderators receive only explicitly selected capabilities. Policies must be editable from Telegram and begin in observe or review-only states.
+
+**Implementation:** Added an optional dual-bot startup path and second webhook; exact testing and production group bindings; database-backed moderators, policy categories, triggers, trusted members, membership state, reports, actions, audits, conversations, and update claims; a sequential permission wizard with a safe preset and second confirmation for ban, automatic-action, or lockdown access; private owner audit DMs; automatic moderator suspension after leaving; configurable word, phrase, and domain policy matching; Zawgyi-to-Unicode normalization; policy testing; report deduplication and temporary evidence; flood, duplicate, mention, new-member, and lockdown controls; and reversible mute/ban actions. Trigger categories themselves can be created, renamed, and safely removed without a redeploy.
+
+**Outcome/evidence:** Prisma validation and TypeScript checking pass. Focused policy tests cover Myanmar normalization, boundary-safe word matching, domain matching, severity ordering, and the non-destructive recommended permission preset. A focused runtime test exposed that the initially selected Myanmar package omitted its compiled Node files; it was replaced before deployment. A production dependency audit then found two unrelated transitive advisories, and compatible patch upgrades reduced the audit result to zero known vulnerabilities.
+
+**Follow-up:** Create the Beacon identity in BotFather, disable privacy mode, add it as an administrator only to the private testing group, set the Render secrets, start Beacon once in the owner's private chat, and exercise the live safety checklist in `docs/BEACON.md`. Keep observe mode on until real messages show that the trigger set has an acceptable false-positive rate. Add the production group ID only after testing.
 
 ## 5 August 2026 - Reminder delivery and callback ownership diverged
 

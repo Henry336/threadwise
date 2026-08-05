@@ -1,6 +1,6 @@
 {
   "name": "threadwise",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Threadwise turns Telegram messages into things people can find, remember, and finish.",
   "main": "dist/main.js",
   "scripts": {
@@ -37,6 +37,7 @@
     "fastify": "^5.1.0",
     "grammy": "^1.33.0",
     "jose": "^5.10.0",
+    "knayi-myscript": "^2.8.3",
     "luxon": "^3.5.0",
     "openai": "^4.76.0",
     "sharp": "^0.35.3",

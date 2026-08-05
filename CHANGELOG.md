@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Beacon community moderator
+- Added Beacon as an optional second Telegram bot identity in the existing Threadwise Render process. It has an independent token, webhook path, command list, group allowlist, and database domain; leaving Beacon unconfigured has no effect on the main Threadwise bot.
+- Added an immutable environment-owned owner identity. Only that owner can add, edit, remove, or restore moderators; `Manage moderators` is deliberately not a grantable permission.
+- Added a button-led moderator permission wizard with a safe recommended preset, granular warn/delete, mute, ban, policy, trusted-member, automatic-action, and lockdown capabilities, plus a second confirmation for sensitive grants.
+- Added private owner DMs and durable audit rows for moderator additions, removals, permission changes, automatic-action changes, lockdown, safety thresholds, trusted-member exemptions, and automatic suspension when a moderator leaves the group.
+- Added database-backed trigger groups and word, phrase, and domain triggers. Categories can be created, renamed, emptied, and removed in Telegram; triggers can be added, tested, moved, and deleted without a code change or redeploy.
+- Added observe-first moderation, configurable automatic review/warn/delete/mute/ban actions, flood and duplicate protection, mass-mention limits, trusted-member exemptions, new-member posting pauses, and confirmed emergency lockdown.
+- Added reply-based member reports with public-command cleanup, private acknowledgement, temporary evidence, duplicate aggregation, a compact private review card, granular action permissions, and undo for mute or ban.
+- Added English and Burmese member-facing rules and warnings, including Zawgyi detection and Unicode normalization before policy matching.
+- Added exact testing/production group allowlists, moderator membership suspension, service-message cleanup, processed-update idempotency, evidence expiry, and a dedicated Beacon deployment/setup guide.
+- Replaced two vulnerable transitive production packages with compatible patched versions discovered during the release audit.
+
 ### Legacy group task controls
 - Restored every action on older group reminder cards after a Telegram group-to-supergroup migration could leave the task attached to a preserved historical group identity while callback handling resolved the replacement identity.
 - Added a chat-scoped compatibility resolver: a historical task owner is accepted only when that owner is a group identity whose current reminder destination exactly matches the chat where the button was pressed. No cross-chat or global task fallback is permitted.

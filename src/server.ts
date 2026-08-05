@@ -65,7 +65,16 @@ const FILE_COURIER_CONTENT_TYPE = "application/x-threadwise-file";
 export async function startServer(
   bot: Bot,
   ai: AiProvider,
-  options: { port: number; webhookPath: string; adminStatusToken?: string; dashboardPublicKey?: string; telegramBotToken?: string }
+  options: {
+    port: number;
+    webhookPath: string;
+    adminStatusToken?: string;
+    dashboardPublicKey?: string;
+    telegramBotToken?: string;
+    beaconBot?: Bot;
+    beaconWebhookPath?: string;
+    beaconWebhookSecret?: string;
+  }
 ) {
   const server = Fastify({ logger: false });
   server.addContentTypeParser(FILE_COURIER_CONTENT_TYPE, (_request, payload, done) => {
@@ -705,6 +714,18 @@ export async function startServer(
   });
 
   server.post(options.webhookPath, webhookCallback(bot, "fastify"));
+  if (options.beaconBot && options.beaconWebhookPath) {
+    if (options.beaconWebhookPath === options.webhookPath) {
+      throw new Error("Beacon and Threadwise must use different webhook paths.");
+    }
+    const beaconHandler = webhookCallback(options.beaconBot, "fastify");
+    server.post(options.beaconWebhookPath, async (request, reply) => {
+      if (!secureTokenEqual(headerToken(request.headers["x-telegram-bot-api-secret-token"]), options.beaconWebhookSecret)) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      return beaconHandler(request, reply);
+    });
+  }
 
   server.get("/calendar/oauth/callback", async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string };
@@ -721,7 +742,11 @@ export async function startServer(
   });
 
   await server.listen({ port: options.port, host: "0.0.0.0" });
-  logger.info("HTTP server started.", { port: options.port, webhookPath: options.webhookPath });
+  logger.info("HTTP server started.", {
+    port: options.port,
+    webhookPath: options.webhookPath,
+    beaconWebhookPath: options.beaconBot ? options.beaconWebhookPath : undefined
+  });
 
   return server;
 }
@@ -751,6 +776,13 @@ function isAdminAuthorized(authorization: string | undefined, adminHeader: strin
   const token = authToken(authorization) ?? headerToken(adminHeader);
   if (!token) return false;
   const actual = Buffer.from(token);
+  const expected = Buffer.from(expectedToken);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function secureTokenEqual(actualToken: string | undefined, expectedToken: string | undefined): boolean {
+  if (!actualToken || !expectedToken) return false;
+  const actual = Buffer.from(actualToken);
   const expected = Buffer.from(expectedToken);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }

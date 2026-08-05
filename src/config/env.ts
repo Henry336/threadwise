@@ -24,6 +24,12 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   WEBHOOK_URL: optional(z.string().url()),
   WEBHOOK_SECRET_PATH: z.string().startsWith("/").default("/telegram/webhook"),
+  BEACON_BOT_TOKEN: optional(z.string()),
+  BEACON_OWNER_TELEGRAM_ID: optional(z.string().regex(/^\d+$/)),
+  BEACON_TEST_CHAT_ID: optional(z.string().regex(/^-\d+$/)),
+  BEACON_PRODUCTION_CHAT_ID: optional(z.string().regex(/^-\d+$/)),
+  BEACON_MODERATOR_CHAT_ID: optional(z.string().regex(/^-?\d+$/)),
+  BEACON_WEBHOOK_SECRET_PATH: z.string().startsWith("/").default("/telegram/beacon-webhook"),
   GOOGLE_CLIENT_ID: optional(z.string()),
   GOOGLE_CLIENT_SECRET: optional(z.string()),
   GOOGLE_CALENDAR_REDIRECT_URI: optional(z.string().url()),
@@ -79,6 +85,25 @@ export type PrivateStudyConfig = {
   ownerTelegramId: string;
   allowedChatId: string;
 };
+
+export type BeaconConfig = {
+  ownerTelegramId: string;
+  testChatId?: string;
+  productionChatId?: string;
+  moderatorChatId?: string;
+  webhookPath: string;
+};
+
+export function beaconConfig(): BeaconConfig | undefined {
+  if (!env.BEACON_BOT_TOKEN || !env.BEACON_OWNER_TELEGRAM_ID) return undefined;
+  return {
+    ownerTelegramId: env.BEACON_OWNER_TELEGRAM_ID,
+    testChatId: env.BEACON_TEST_CHAT_ID,
+    productionChatId: env.BEACON_PRODUCTION_CHAT_ID,
+    moderatorChatId: env.BEACON_MODERATOR_CHAT_ID,
+    webhookPath: env.BEACON_WEBHOOK_SECRET_PATH
+  };
+}
 
 export function privateStudyConfig(): PrivateStudyConfig | undefined {
   if (!env.STUDY_OWNER_TELEGRAM_ID || !env.STUDY_ALLOWED_CHAT_ID) return undefined;

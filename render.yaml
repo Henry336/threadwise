@@ -32,6 +32,18 @@ services:
         sync: false
       - key: WEBHOOK_SECRET_PATH
         value: /telegram/webhook
+      - key: BEACON_BOT_TOKEN
+        sync: false
+      - key: BEACON_OWNER_TELEGRAM_ID
+        sync: false
+      - key: BEACON_TEST_CHAT_ID
+        sync: false
+      - key: BEACON_PRODUCTION_CHAT_ID
+        sync: false
+      - key: BEACON_MODERATOR_CHAT_ID
+        sync: false
+      - key: BEACON_WEBHOOK_SECRET_PATH
+        value: /telegram/beacon-webhook
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

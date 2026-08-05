@@ -199,3 +199,28 @@ OAuth pending-state rows bind the signed-in Telegram user, expire, and can prese
 Normal task cards do not display long template URLs. Users interact through a contextual Calendar button, dashboard Connections, or plain-language requests. `/calendar` remains a compatibility entry point.
 
 Gmail was removed from the active runtime in July 2026. Its legacy schema objects are retained inertly to avoid destructive data removal during the lifecycle revamp and should only be dropped in a separately reviewed retention migration.
+
+## Beacon dual-bot boundary
+
+Beacon is an optional second grammY `Bot` instance created in `src/main.ts`. It shares the Fastify process, Prisma client, PostgreSQL database, and Render service with Threadwise, but uses a separate Telegram token, webhook path, update-id table, command list, allowlist, and `Community*` tables. The process derives a Telegram webhook header secret from the Beacon token, supplies it to `setWebhook`, and rejects requests without a timing-safe header match.
+
+```text
+Telegram → primary webhook → Threadwise bot → User / Group / Study domains
+Telegram → Beacon webhook  → Beacon bot     → Community* moderation domain
+```
+
+`BEACON_TEST_CHAT_ID` and `BEACON_PRODUCTION_CHAT_ID` are the only chats Beacon recognizes. `BEACON_OWNER_TELEGRAM_ID` is the immutable authorization root. Group rows can change operational settings but cannot redefine that root. Moderator capabilities never include moderator management.
+
+Beacon's message path is deterministic:
+
+1. Claim the Beacon-specific Telegram update ID.
+2. Reject chats outside the configured allowlist.
+3. Resolve owner, active moderator, trusted member, or ordinary member access.
+4. Handle an active configuration conversation, member report, rules request, or owner/moderator command.
+5. Exempt owner, active moderators, and trusted members from automatic enforcement.
+6. Evaluate lockdown/new-member/flood/duplicate/mention controls.
+7. Normalize Unicode and Zawgyi text, then evaluate database-backed word, phrase, and domain triggers.
+8. Notify privately in Observe mode or execute the confirmed configured action in Active mode.
+9. Record moderation actions and configuration audits independently of Telegram message delivery.
+
+Report evidence is bounded and expires. Duplicate reports use `(groupId, sourceMessageId)` plus a per-reporter unique key, so one message produces one review case and one reporter cannot inflate it repeatedly.

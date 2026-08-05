@@ -236,6 +236,37 @@ enum StudyCanvasAssignmentStatus {
   MISSING
 }
 
+enum CommunityEnvironment {
+  TEST
+  PRODUCTION
+}
+
+enum CommunityModeratorStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum CommunityTriggerMatchType {
+  WORD
+  PHRASE
+  DOMAIN
+}
+
+enum CommunityModerationActionType {
+  REVIEW
+  WARN
+  DELETE
+  MUTE
+  BAN
+}
+
+enum CommunityReportStatus {
+  OPEN
+  DISMISSED
+  ACTIONED
+}
+
 model User {
   id         String   @id @default(uuid())
   telegramId String   @unique
@@ -1821,4 +1852,246 @@ model VoiceTranscriptionJob {
   @@index([status, leaseExpiresAt, createdAt])
   @@index([userId, telegramChatId, createdAt])
   @@index([telegramFileUniqueId])
+}
+
+model CommunityGroup {
+  id                         String               @id @default(uuid())
+  telegramChatId             String               @unique
+  title                      String?
+  environment                CommunityEnvironment
+  ownerTelegramId            String
+  moderatorReviewChatId      String?
+  enabled                    Boolean              @default(true)
+  observeMode                Boolean              @default(true)
+  lockdownMode               Boolean              @default(false)
+  pauseNewMemberPosting      Boolean              @default(false)
+  newMemberPauseHours        Int                  @default(24)
+  cleanupServiceMessages     Boolean              @default(true)
+  floodWindowSeconds         Int                  @default(10)
+  floodMessageLimit          Int                  @default(6)
+  duplicateWindowSeconds     Int                  @default(60)
+  duplicateMessageLimit      Int                  @default(3)
+  massMentionLimit           Int                  @default(5)
+  rulesEnglish               String?
+  rulesBurmese               String?
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+
+  moderators       CommunityModerator[]
+  triggerGroups    CommunityTriggerGroup[]
+  triggers         CommunityTrigger[]
+  trustedMembers   CommunityTrustedMember[]
+  members          CommunityMember[]
+  reports          CommunityReport[]
+  actions          CommunityModerationAction[]
+  audits           CommunityAudit[]
+  conversations    CommunityConversation[]
+
+  @@index([environment, enabled])
+}
+
+model CommunityModerator {
+  id                        String                   @id @default(uuid())
+  groupId                   String
+  telegramId                String
+  username                  String?
+  firstName                 String?
+  lastName                  String?
+  status                    CommunityModeratorStatus @default(ACTIVE)
+  canWarn                   Boolean                  @default(true)
+  canDelete                 Boolean                  @default(true)
+  canMute                   Boolean                  @default(true)
+  canBan                    Boolean                  @default(false)
+  canEditRules              Boolean                  @default(false)
+  canChangeAutomaticActions Boolean                  @default(false)
+  canManageTrustedMembers   Boolean                  @default(false)
+  canLockdown               Boolean                  @default(false)
+  addedByTelegramId         String
+  suspendedAt               DateTime?
+  removedAt                 DateTime?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, telegramId])
+  @@index([telegramId, status])
+}
+
+model CommunityTriggerGroup {
+  id                   String                            @id @default(uuid())
+  groupId              String
+  name                 String
+  normalizedName       String
+  description          String?
+  action               CommunityModerationActionType   @default(REVIEW)
+  deleteMessage        Boolean                          @default(false)
+  muteDurationMinutes  Int?
+  notifyModerators     Boolean                          @default(true)
+  enabled              Boolean                          @default(true)
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+
+  group    CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  triggers CommunityTrigger[]
+
+  @@unique([groupId, normalizedName])
+  @@index([groupId, enabled])
+}
+
+model CommunityTrigger {
+  id                String                    @id @default(uuid())
+  groupId           String
+  triggerGroupId    String
+  pattern           String
+  normalizedPattern String
+  matchType         CommunityTriggerMatchType @default(PHRASE)
+  language          String                    @default("ANY")
+  createdByTelegramId String
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  group        CommunityGroup        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  triggerGroup CommunityTriggerGroup @relation(fields: [triggerGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, normalizedPattern])
+  @@index([triggerGroupId])
+}
+
+model CommunityTrustedMember {
+  id                String   @id @default(uuid())
+  groupId           String
+  telegramId        String
+  username          String?
+  displayName       String?
+  note              String?
+  addedByTelegramId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, telegramId])
+  @@index([telegramId])
+}
+
+model CommunityMember {
+  id             String   @id @default(uuid())
+  groupId        String
+  telegramId     String
+  username       String?
+  displayName    String?
+  active         Boolean  @default(true)
+  joinedAt       DateTime @default(now())
+  leftAt         DateTime?
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, telegramId])
+  @@index([groupId, active, joinedAt])
+}
+
+model CommunityReport {
+  id                       String                @id @default(uuid())
+  groupId                  String
+  sourceChatId             String
+  sourceMessageId          Int
+  reportedTelegramId       String?
+  reportedUsername         String?
+  reportedDisplayName      String?
+  evidenceText             String?
+  evidenceExpiresAt        DateTime
+  reason                   String?
+  status                   CommunityReportStatus @default(OPEN)
+  reportCount              Int                   @default(1)
+  moderatorChatId          String?
+  moderatorMessageId       Int?
+  resolvedByTelegramId     String?
+  resolvedAt               DateTime?
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  group     CommunityGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  reporters CommunityReportReporter[]
+
+  @@unique([groupId, sourceMessageId])
+  @@index([groupId, status, createdAt])
+}
+
+model CommunityReportReporter {
+  id                 String   @id @default(uuid())
+  reportId           String
+  reporterTelegramId String
+  createdAt          DateTime @default(now())
+
+  report CommunityReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, reporterTelegramId])
+  @@index([reporterTelegramId])
+}
+
+model CommunityModerationAction {
+  id                  String                           @id @default(uuid())
+  groupId             String
+  actorTelegramId     String
+  targetTelegramId    String?
+  action              CommunityModerationActionType
+  source              String
+  sourceMessageId     Int?
+  reportId            String?
+  reason              String?
+  muteUntil           DateTime?
+  reversible          Boolean                          @default(false)
+  undoneAt            DateTime?
+  undoneByTelegramId  String?
+  createdAt           DateTime                         @default(now())
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@index([targetTelegramId, createdAt])
+}
+
+model CommunityAudit {
+  id                      String   @id @default(uuid())
+  groupId                 String
+  actorTelegramId         String
+  action                  String
+  targetTelegramId        String?
+  details                 Json?
+  ownerNotificationStatus String?
+  createdAt               DateTime @default(now())
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@index([actorTelegramId, createdAt])
+}
+
+model CommunityConversation {
+  id              String   @id @default(uuid())
+  groupId         String
+  actorTelegramId String
+  kind            String
+  step            String
+  data            Json
+  messageId       Int?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  group CommunityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, actorTelegramId])
+  @@index([expiresAt])
+}
+
+model CommunityProcessedUpdate {
+  updateId  Int      @id
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
