@@ -123,6 +123,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-06 (Claude):** Added a "Possible future additions" section to `docs/BEACON.md`:
+  a dedicated moderator group (deferred until the community is bigger than volunteer-worthy)
+  and a member-queryable rules/scholarship-info flow (bot answers privately, deletes the
+  member's question, keeps repeat Q&A out of the group log — deferred until the pinned
+  announcement is observed to be insufficient). Neither is scheduled or implemented.
 - **2026-08-06 (Claude):** Reviewed both repos for continuity ("could a new AI continue if one
   tool went away?"). Verdict: code + all reasoning are in git and portable; Claude's memory was
   empty (nothing trapped). Created canonical `CLAUDE.md` in both repos + `AGENTS.md` pointers;
