@@ -127,3 +127,10 @@ Reducing or pardoning an offence preserves its audit record. Pardoned points sto
 - If the owner has not started Beacon privately, the audit row remains stored with a failed-delivery status.
 - If a reporter cannot receive a private DM, Beacon sends a short self-deleting acknowledgement in the group.
 - If a stale button references removed state, Beacon asks the moderator to reopen the current menu.
+
+## Possible future additions
+
+Not yet decided or scheduled; noted here so the reasoning isn't lost.
+
+- **Dedicated moderator group:** deferred until the community has enough members to justify it. Ask for moderator volunteers later instead of standing one up now with a thin trigger library and one confirming owner.
+- **Member-queryable rules/scholarship info:** a member asks Beacon a question privately; Beacon answers from the maintained rules/scholarship info and deletes the member's question so neither message stays in the visible chat history. Considered against relying on a pinned announcement/rules message, which is free but passive — it only helps if the member scrolls up and reads the whole block. The query flow answers the specific question and keeps repeat Q&A out of the group log entirely, which matters more as member count grows. Tradeoff: it's a knowledge base to build and keep in sync, not just an editable text block. Recommendation: keep the pinned announcement as the baseline for now, and only build this once repeated ad-hoc questions in chat actually show the pinned text isn't enough.
