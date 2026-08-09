@@ -1,5 +1,7 @@
 # Telegram Remote Operator
 
+Reviewed against backend v0.32.0: **2026-08-10**
+
 Threadwise's private Codex chat is a controlled remote operator, not a second
 unrestricted desktop session.
 

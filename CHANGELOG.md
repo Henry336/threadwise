@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### v0.32.0 documentation reconciliation
+- Reconciled both Threadwise repositories' current-behavior documentation with immediate group assignment, unassigned claiming, creator/admin reassignment, progressive Telegram action budgets, exact dashboard deep links, Study Timetable/travel, and Beacon's Telegram-only role-adaptive control plane.
+- Updated the case study, architecture guide, voice rules, contributor handoffs, dashboard product/design references, current release dates, and the complete 97-file/786-test backend verification baseline.
+- Preserved historical release and verification entries while explicitly labelling old test/audit snapshots and legacy accept/decline/block/handoff commands so they cannot be mistaken for active workflows.
+
 ### Beacon progressive-disclosure control plane
 - Replaced Beacon's flat private control wall with role-adaptive homes: the immutable owner sees Review queue, Members & offences, Policy, and More; moderators see only their granted operational destinations.
 - Reduced the ordinary group surface to Rules and How to report. Authorized staff receive a private-controls deep link, while ordinary members never see policy, score, trigger, audit, safety, or moderator controls.

@@ -1,5 +1,7 @@
 # Voice Notes to Clean Notes
 
+Reviewed against backend v0.32.0: **2026-08-10**
+
 Voice transcription is a Threadwise Capture feature. It is separate from Ideas Intelligence.
 
 ## Telegram flow

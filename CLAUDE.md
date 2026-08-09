@@ -75,6 +75,10 @@ Tests live next to code as `*.test.ts` and double as executable examples.
 - Telegram copy convention: content first, then a compact metadata block (IDs/dates), then
   guidance. Change copy in the formatter helpers (`src/utils/messageFormat.ts`,
   `src/bot/formatters.ts`, per-service card formatters), not inline in handlers.
+- Follow `One message, one decision` in Telegram. Ordinary item cards stay within three
+  immediate actions and two rows; secondary management should use a focused subflow or an exact
+  dashboard deep link. Assignment is immediate, unassigned work may be claimed, and only the
+  creator or a freshly verified group admin may reassign existing work.
 - Voice: calm, capable, human; lead with the outcome; restrained semantic emoji. See
   `docs/VOICE_AND_TONE.md`.
 
@@ -84,7 +88,9 @@ Tests live next to code as `*.test.ts` and double as executable examples.
   actor/chat/binding/member-count. Split across `src/bot/study*.ts` and
   `src/services/study*.ts`. Has its own live dashboard.
 - **Beacon** — separately branded community-moderation bot that shares this Render process
-  (second Telegram identity, gated by `BEACON_BOT_TOKEN`). See `docs/BEACON.md`.
+  (second Telegram identity, gated by `BEACON_BOT_TOKEN`). It has no dashboard: ordinary members,
+  owner, and moderators receive progressively disclosed Telegram homes, while every hidden or
+  destructive callback is re-authorized server-side. See `docs/BEACON.md`.
 - **Codex worker** — a laptop-side worker (`src/codexWorker.ts`, `src/codexTaskSync.ts`,
   `scripts/*-codex-worker.ps1`) runs local Codex/Gemini read-only for `/idea` develop and
   private code tasks. Setup: `docs/PRIVATE_CODEX_IMPLEMENTATION_NOTES.md`,
@@ -94,8 +100,9 @@ Tests live next to code as `*.test.ts` and double as executable examples.
 
 ## Continuity — what survives if you lose this machine or a given AI tool
 
-The **code and all reasoning live in git** (both repos are clean and pushed), so any AI in
-any environment can continue from a clone. The knowledge is *not* trapped in one assistant's
+The **code and all reasoning live in git**, so any AI in any environment can continue from a
+clone. Verify both repositories' current branches and working trees before assuming the latest
+local change has been pushed. The knowledge is *not* trapped in one assistant's
 proprietary memory. Two things are **not** in git and are the real single points of failure:
 
 1. **Secrets** (`.env`, `.env.region-migration`) are gitignored. They exist only on this
@@ -122,6 +129,21 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-10 (Codex):** Reconciled backend and dashboard documentation with backend v0.32.0
+  and the latest interaction hierarchy. Current docs now describe immediate group assignment,
+  unassigned claiming, exact dashboard continuation, Study Timetable/travel, and Beacon's
+  Telegram-only role-adaptive control plane. Historical changelog/journal/test snapshots remain
+  labelled as historical rather than rewritten.
+- **2026-08-10 (Codex):** Implemented Beacon's progressive-disclosure control plane. Public
+  members now see only Rules and How to report; owner/moderator private homes, report actions,
+  trigger submissions, offence lookup, and destructive confirmations are role-appropriate and
+  re-authorized against stale/crafted callbacks. Complete backend gate: 97 files, 786 passed,
+  6 intentional skips, Prisma validation/generation, typecheck, and isolated production emit.
+- **2026-08-09 (Codex):** Simplified Threadwise group interactions around `One message, one
+  decision`, exact dashboard deep links, immediate assignments, race-safe unassigned claiming,
+  and creator/admin-only reassignment. Legacy accept/decline/block/handoff inputs now explain the
+  current model without mutating state.
 
 - **2026-08-06 (Claude):** Added a "Possible future additions" section to `docs/BEACON.md`:
   a dedicated moderator group (deferred until the community is bigger than volunteer-worthy)

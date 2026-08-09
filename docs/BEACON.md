@@ -1,5 +1,9 @@
 # Beacon Community Moderator
 
+Updated: 2026-08-10
+
+Current backend release: v0.32.0
+
 Beacon is a second Telegram bot identity that runs inside the existing Threadwise Node.js service. It reuses the paid Render process and PostgreSQL connection, but it does not present itself as Threadwise and does not expose a dashboard.
 
 ## Product boundary

@@ -101,6 +101,8 @@ The IDs remain deployment configuration rather than source-code constants. The m
 
 ## Verification performed
 
+This section is the historical verification snapshot for the original private-Codex release, not the current repository-wide baseline. Use the root README for the latest complete gate.
+
 - TypeScript typecheck: passed.
 - Production TypeScript build: passed.
 - Prisma schema validation: passed.
@@ -112,8 +114,8 @@ The IDs remain deployment configuration rather than source-code constants. The m
 - Official SDK smoke test with explicit model/reasoning controls: passed and returned a real Codex thread id.
 - Production dependency audit:
   - Safe non-breaking updates were applied, including patched `fast-uri` and `find-my-way`.
-  - Nine reported high-severity findings remain in the old archive/glob chain transitively required by `exceljs@4.4.0`.
-  - npm's only automatic remedy is `--force`, which proposes a breaking downgrade to `exceljs@4.1.1`; that unsafe forced change was intentionally not applied.
+  - At this release snapshot, nine reported findings remained in the old archive/glob chain transitively required by `exceljs@4.4.0`; the unsafe `npm audit --force` downgrade was not applied.
+  - Later compatible dependency overrides and patches cleared the known production advisories. Run `npm audit` again for the current network-backed result rather than treating either historical snapshot as permanent.
 
 ## Live operational setup
 

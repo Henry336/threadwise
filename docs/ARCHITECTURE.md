@@ -1,8 +1,8 @@
 # Architecture Notes
 
-Updated: 2026-08-05
+Updated: 2026-08-10
 
-Current backend release: v0.30.0
+Current backend release: v0.32.0
 
 Threadwise is intentionally split into small modules so future contributors can change one feature without reshaping the whole bot.
 
@@ -43,7 +43,7 @@ Forum groups can optionally create one dedicated Threadwise topic. Creation is a
 
 `ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
 
-Group task assignment is task metadata, not just title text. `Task.assignedUsername`, `Task.assignedTelegramId`, and `Task.assignedDisplayName` are set from leading `@username` mentions or Telegram text-mention entities when available. The reminder and task formatters show `Assigned To`, and natural commands such as `assign task 2 to @henry_derek` update the stored assignee.
+Group task assignment is durable metadata, not just title text. New assignments take effect immediately; no acceptance step is required. Any active member may claim currently unassigned work through a race-safe mutation. Assignees may complete or snooze their own work, while assignment and reassignment require the task creator or a freshly verified Telegram group owner/admin. Legacy accept, decline, block, unblock, and handoff commands/callbacks return an explanation of the current model without mutating state. Existing historical assignment/audit rows remain readable.
 
 Group availability is modeled separately from tasks. `AvailabilityPoll` owns the shared scheduling window and optimistic revision; `AvailabilityResponse` is unique per poll and human Telegram id; `AvailabilityCalendarEvent` records only that human's optional provider event. `src/services/groupScheduling.ts` generates the bounded grid, verifies every selected cell, ranks only contiguous windows long enough for the requested duration, filters responses to current active members, and never places another member's raw cell choices in the returned view.
 
@@ -59,9 +59,9 @@ Study services are split by responsibility. `study.ts` owns weeks, modules, work
 
 Study privacy fails closed. Each command and callback verifies the exact actor, exact chat, active binding, and current two-member count. The `chat_member` handler unbinds the workspace if another human joins; reminders and auto-save acknowledgements recheck the group before proactive output. Study queries include `workspaceId`, and the feature remains absent from global search and every ordinary personal/group dashboard route.
 
-The Phase 2 Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. Protected Telegram image/file bytes are fetched server-side only after this lookup, with bounded size, safe MIME, filename, and browser headers.
+The Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. The current shell includes Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings. Timetable derives a weekly/day view from recurring schedule blocks and planned work while keeping deadline markers distinct from scheduled study time; class blocks may carry a destination, normal origin, and travel buffer. Protected Telegram image/file bytes are fetched server-side only after this lookup, with bounded size, safe MIME, filename, and browser headers.
 
-Inline item actions stay intentionally shallow. Task buttons can complete, snooze, star, edit, and cancel. Note buttons can star, edit, and archive. Idea buttons can star and edit. Save/edit/action replies include inline undo or cancel buttons where supported, so users do not need to remember `/undo` or `cancel edit`. Edit buttons create a short-lived `PendingItemEdit` record, then the next normal user message is applied to the selected title/body/details/concept field with undo support.
+Inline item actions follow `One message, one decision`. An ordinary task, note, idea, or image card renders no more than three immediate actions across no more than two rows. Task cards prioritize completion, snooze, and an exact dashboard continuation; list rows reveal numbered item controls only after an explicit Choose action. Secondary editing, starring, archiving/cancellation, Calendar, and assignment management remain available through exact dashboard links or focused Telegram subflows rather than one permanent button wall. Save/edit/action replies retain inline undo or cancel controls where supported, and `PendingItemEdit` keeps text-edit continuations restart-safe.
 
 Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
@@ -79,9 +79,9 @@ The dashboard is a separate Next.js/Vercel client. It never connects directly to
 
 When the resolved workspace is Study Mode, the Next.js client switches to a dedicated module-first shell and requests `/api/v1/dashboard/study/snapshot`. Study mutations call the same services used by Telegram for work, resources, mastery, sessions, mistakes, weekly reviews, Canvas state, origins, and schedule blocks. Realtime revisions include Study workspace/resource/Canvas/audit changes and are keyed to the signed owner, so either surface updates the other without a second data store.
 
-TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. This is independent of ordinary assignment self-service, where a member controls only their own assignment response.
+TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. Review deep links select the correct opaque workspace and exact batch. Once imported, ordinary work follows immediate assignment: assignees complete or snooze, an active member may claim an unassigned task, and creator/admin authority controls reassignment.
 
-Group authorization has two layers. Current members may read shared data and mutate only their own availability/assignment state. Owner/admin operations—such as changing group settings or finalizing a scheduling poll—perform a fresh Telegram role check. The server fails closed when a required check cannot establish the privilege.
+Group authorization has two layers. Current members may read shared data, mutate only their own availability, claim an unassigned task, and complete/snooze work assigned to them. Creator/admin operations—including assignment/reassignment—and owner/admin operations such as changing group settings or finalizing a scheduling poll perform the appropriate fresh Telegram checks. The server fails closed when a required check cannot establish the privilege.
 
 The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusable file IDs, raw group chat IDs, or another member's availability cells. Saved image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup.
 
@@ -213,6 +213,8 @@ Telegram → Beacon webhook  → Beacon bot     → Community* moderation domain
 
 Sensitive configuration uses Telegram private chat as the control plane. `CommunityControlSession` stores only the authorized operator's selected group and current trigger-library filters. Every callback rechecks owner/moderator access; a deep link may select a group only after the same server-side authorization. Public group menus never render trigger values, report evidence, moderator permissions, audits, or safety configuration.
 
+Beacon's interface is role-adaptive and progressively disclosed. The ordinary public group card contains only Rules and How to report. The owner private home contains Review queue, Members & offences, Policy, and More; a moderator private home contains Review queue, Rules, More, and Submit trigger only when explicitly granted. Policy contains owner-only trigger, scoring, automatic-action, and pending-submission controls. More contains only operational destinations the current actor can actually use. Rendering hides unavailable controls, while `controlAccess.ts` and callback handlers independently reject owner-only, private-only, stale, or crafted callback data.
+
 Moderator trigger contributions are staged rather than trusted implicitly. A moderator with `canAddTriggers` writes only to the review-only Watchlist with `pendingApproval = true`. Pending rows are excluded from `policyTriggersForGroup`, cannot replace an existing normalized trigger, and become enforceable only after the owner approves them or moves them into a chosen action group. Removal, severity changes, trigger-group management, and automatic-action changes are separate permission columns.
 
 Beacon's message path is deterministic:
@@ -220,7 +222,7 @@ Beacon's message path is deterministic:
 1. Claim the Beacon-specific Telegram update ID.
 2. Reject chats outside the configured allowlist.
 3. Resolve owner, active moderator, trusted member, or ordinary member access.
-4. Handle an active configuration conversation, member report, rules request, or owner/moderator command.
+4. Handle an active private configuration conversation, member report, public rules/report-help request, or role-adaptive owner/moderator command.
 5. Exempt owner, active moderators, and trusted members from automatic enforcement.
 6. Evaluate lockdown/new-member/flood/duplicate/mention controls.
 7. Normalize Unicode and Zawgyi text, then evaluate database-backed word, phrase, and domain triggers.
@@ -228,5 +230,7 @@ Beacon's message path is deterministic:
 9. Record moderation actions and configuration audits independently of Telegram message delivery.
 
 Report evidence is bounded and expires. Duplicate reports use `(groupId, sourceMessageId)` plus a per-reporter unique key, so one message produces one review case and one reporter cannot inflate it repeatedly.
+
+The initial report card exposes only Dismiss, Take action, and Offence history. Take action edits that card and reveals only warning/deletion/mute/score/ban operations the current actor is permitted to execute. Trigger values remain owner-only through current menus, natural-language search, legacy callbacks, approval routes, and audit summaries; a permitted moderator can submit a non-enforcing trigger proposal only in Beacon's private chat. Permanent report bans and score-threshold bans use confirmations bound to the actor, group, target, source report/offence, topic context, and expiry.
 
 Forum topics share one group policy. The report and moderation-action records preserve `message_thread_id`; warnings are sent back into that thread and private review/audit surfaces display the source topic. This keeps context without introducing premature per-topic rule trees.

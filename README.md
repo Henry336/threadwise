@@ -6,7 +6,7 @@ Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, 
 
 Current backend release: **v0.32.0**
 
-Documentation verified against the repository: **2026-08-09**
+Documentation verified against the backend and dashboard repositories: **2026-08-10**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -107,6 +107,7 @@ small Telegram edit/reply or authenticated dashboard response
 - Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Applies group assignments immediately. Members may claim unassigned work; assignees can complete or snooze it; the task creator or a verified current Telegram group administrator can assign or reassign it. Accept, decline, block, and handoff inputs are retained only as graceful legacy explanations and do not mutate task state.
+- Uses progressive disclosure in Telegram: an ordinary card presents one immediate decision with at most three actions across two rows, then moves secondary management into an exact dashboard deep link. Group home always keeps a direct dashboard action, while TODO review links open the precise batch rather than a generic landing page.
 - Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people.
 - Lets a group agree on a meeting time with `/findtime`, `/schedule`, or natural requests such as `find a time for rehearsal next week for 90 minutes`. Members mark availability in a touch-friendly Mini App, one Telegram card updates with response progress and best overlaps, and a verified owner/admin finalizes the time.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
@@ -156,11 +157,6 @@ small Telegram edit/reply or authenticated dashboard response
 /unassign 1
 /unassign 1 @alex
 /mytasks
-/accept TASK-1
-/decline TASK-1 already committed elsewhere
-/block TASK-1 waiting for access
-/unblock TASK-1
-/handoff TASK-1 @alex
 /undo
 /rename 1 Follow up with Sam
 /rename NOTE-1 Deployment notes
@@ -217,13 +213,15 @@ small Telegram edit/reply or authenticated dashboard response
 
 `/start` installs the two persistent private-chat shortcuts and opens the compact button menu without a separate onboarding wall of text. `/help` shows a full capability guide with topic buttons, natural examples, and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands.
 
+Older `/accept`, `/decline`, `/block`, `/unblock`, and `/handoff` inputs are compatibility-only. Threadwise explains the current assignment model without changing state: assignment is immediate, an active member may claim unassigned work, and only the task creator or a freshly verified Telegram owner/admin may reassign existing work.
+
 Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI work. It understands broad variations including "what's on my plate?", "open my reminders", "keep this in mind: ...", "brainwave: ...", "put this on my list", "give me a heads-up at 1.30pm", "I finished task 2", "put off task 2", "task 2 is due Friday", "I don't need task 2 anymore", "where is the note about passports?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, dotted and spoken clocks, parts of day, day-after-tomorrow, noon/midnight, weekday shorthand, numeric day-first and named-month dates, EOD, next week, next month, and ordinals. If a message is not recognized confidently, Threadwise responds immediately with Task, Note, Idea, and Ignore choices; the selected action is actor-scoped in groups.
 
 In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the exact bot username or reply to one of its messages, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. A deliberate pasted list may instead begin with `TODO:` or `ACTION ITEMS:`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode. With BotFather privacy enabled, Telegram may not deliver unmentioned heading blocks to the bot; exact mentions and replies remain reliable.
 
-`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings, assigning work to other members, and availability-poll management require a currently verified owner or administrator. Each active member can still respond to their own assignments and availability. Expenses, the frozen Excel surface, personal export, and account deletion remain personal-only. A finalized group meeting may be copied to each member's own connected Google Calendar without exposing that connection to the group.
+`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings, assignment/reassignment, and availability-poll management require a currently verified owner or administrator, except that any active member may claim an unassigned task and each member controls only their own availability. Assignees may complete or snooze their work; accepting, declining, blocking, and handing off are no longer active assignment states. Expenses, the frozen Excel surface, personal export, and account deletion remain personal-only. A finalized group meeting may be copied to each member's own connected Google Calendar without exposing that connection to the group.
 
-The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, unassigned, awaiting-reply, blocked work, and active availability polls; **Work** includes confirmed meetings; **People** shows assignment load without ranking people; **Progress** derives done, next, and blocked items; **Activity** records meaningful movement; **Resources** collects shared notes, ideas, and visual references; and **Find a time** provides the full availability grid. Web changes use the same database rows queried by the bot and update the compact Telegram card without adding chat clutter.
+The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, assigned, unassigned, open, completed, and active availability state; **Work** includes confirmed meetings; **People** shows assignment load without ranking people; **Progress** derives the current work picture; **Activity** records meaningful movement; **Resources** collects shared notes, ideas, and visual references; and **Find a time** provides the full availability grid. Historical blocked or awaiting-reply records remain readable, but new assignments do not require those transitions. Web changes use the same database rows queried by the bot and update the compact Telegram card without adding chat clutter.
 
 Private assignee nudges are deliberately opt-in. Each person opens the bot privately once and sends `/settings dm on` (or starts the bot through its `start=dm` link). When a shared assigned task becomes due, Threadwise still posts the normal group reminder and separately DMs every opted-in assignee it can match. Someone who has not started the bot, has disabled DMs, or was entered only as a plain name is skipped without blocking anyone else's reminder. Send `/settings dm off` privately to stop the extra nudges.
 
@@ -477,7 +475,7 @@ Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find t
 
 Study Mode is a private academic operating system inside the existing Threadwise bot. It uses the same PostgreSQL database and reminder loop, but its records live in dedicated, workspace-scoped study tables and are excluded from ordinary Threadwise search.
 
-The authenticated web dashboard exposes Study Mode only while this exact group workspace is selected. Its dedicated navigation is **Overview, Modules, Work, Library, Review, Search, Deep Work, and Settings**. Personal workspaces and every other group keep their existing interface and cannot discover the Study routes. Direct URLs and API calls return the same opaque not-found response unless the signed Telegram principal, configured owner, configured chat, current Telegram membership, and active database binding all agree.
+The authenticated web dashboard exposes Study Mode only while this exact group workspace is selected. Its dedicated navigation is **Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings**. Timetable combines recurring module blocks, planned study work, deadlines, and class-travel configuration; saved travel origins remain under Settings. Personal workspaces and every other group keep their existing interface and cannot discover the Study routes. Direct URLs and API calls return the same opaque not-found response unless the signed Telegram principal, configured owner, configured chat, current Telegram membership, and active database binding all agree.
 
 Telegram and the Study dashboard share the same records rather than synchronizing two copies. Captures and Canvas changes appear through server-sent event reconciliation; dashboard edits are immediately visible when the bot next queries the item. Module selection, mastery, work status, notes, pinned images, mistake records, weekly plans, sessions, Canvas review decisions, origins, and schedule blocks all use the same domain services.
 
@@ -556,6 +554,19 @@ The main commands are:
 Slash commands above are compatibility and precision fallbacks; the button interface and natural phrases are the primary interaction. Core behavior is deterministic and does not require `OPENAI_API_KEY`. Mastery changes only when the owner explicitly records it; completing an item never silently declares a topic mastered. Study reminders share the normal database-backed polling loop but use separate daily caps, quiet hours, durable dedupe rows, and conservative rules for reviews, reattempts, red modules, Canvas uncertainty, important deadlines, optional study blocks, and missing timed practice.
 
 `/study export` sends UTF-8 CSV files for the weekly dashboard, items, sessions, module mastery, mistakes, and weekly reviews. In Excel, use **Data → From Text/CSV**, choose UTF-8 if prompted, and load each file as its own worksheet. PostgreSQL remains the source of truth; re-import is not part of the MVP.
+
+## Beacon Community Moderator
+
+Beacon is an optional second Telegram bot identity running in the same Render process. It shares infrastructure with Threadwise but has a separate token, webhook, allowlist, update claims, commands, and `Community*` data. It has no dashboard and does not present itself as Threadwise.
+
+- Ordinary group members see only **Rules** and **How to report**.
+- The immutable owner manages Review queue, Members & offences, Policy, and More from Beacon's private chat.
+- Moderators receive only the private operational destinations and report actions granted to them; inaccessible controls are hidden and still rejected server-side if invoked through stale or crafted callbacks.
+- Initial report cards show bounded evidence and only **Dismiss**, **Take action**, and **Offence history**. Take action reveals only permitted warning, deletion, mute, score, or ban controls.
+- Trigger values, trigger search, severity policy, automatic actions, moderator management, and owner audit history remain owner-only. A permitted moderator can submit a proposed trigger only in private; it cannot enforce before owner approval.
+- Permanent bans and other destructive operations use short-lived confirmations bound to the actor, community, target, source report/offence, and topic where applicable.
+
+Use [docs/BEACON.md](docs/BEACON.md) for the complete operating model, BotFather setup, permissions, live-test checklist, failure behavior, and future additions.
 
 ## Private Codex Mode
 
@@ -891,12 +902,13 @@ npm audit
 git diff --check
 ```
 
-Verified for v0.30.0 on 2026-08-04:
+Latest complete backend gate, verified for v0.32.0 on 2026-08-10:
 
-- 80 test files passed
-- 690 tests passed
+- 97 test files passed
+- 786 tests passed; 6 intentional skips
+- Prisma schema validation and client generation passed
 - TypeScript typecheck passed
-- Production build passed
+- Isolated production TypeScript emit passed
 
 `npm audit` and live deployment health are environment/network checks; run them when preparing a release rather than assuming a historical result remains current.
 

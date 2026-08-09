@@ -2,7 +2,7 @@
 
 Status: **completed in production in July 2026**
 
-Document reviewed: **2026-07-26**
+Document reviewed: **2026-08-10**
 
 Threadwise moved from a Supabase project in Seoul (`ap-northeast-2`) to a new project in Singapore (`ap-southeast-1`). Supabase projects cannot change region in place, so this was a database-to-database migration followed by a Render connection-string cutover.
 

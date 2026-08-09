@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 10 August 2026 - Fast iteration needs one current story across both repositories
+
+**Friction discovered:** The latest Threadwise and Beacon behavior was recorded in the changelog and product journal, but the case study and architecture guide still identified v0.30.0, presented acceptance/blocking/handoff as active group workflows, and used the earlier test baseline. The backend README listed legacy commands beside active commands, while both dashboard references omitted the shipped Study Timetable and still described assignment-response state that had been removed. A contributor could therefore read individually accurate historical documents and assemble an inaccurate current product.
+
+**Decision:** Treat current-behavior documentation as a cross-repository release surface. Preserve historical changelog, critique, and feature-verification snapshots; update only claims that describe the product now. Label compatibility commands and historical test/audit results explicitly, keep the root README and case study on the current release, and make each repository's `CLAUDE.md` the current handoff pointer.
+
+**Implementation:** Reconciled the backend README, case study, architecture, Beacon guide, voice guide, private-Codex verification note, changelog, and contributor handoff with v0.32.0. Reconciled the dashboard README, architecture, product/design context, changelog, and contributor handoff with immediate assignment, progressive Telegram-to-dashboard continuation, and the current Study navigation. Feature-specific runbooks whose behavior did not change remain intact.
+
+**Outcome/evidence:** Repository-wide Markdown scans now separate current claims from historical snapshots, local links resolve to tracked files, current version references match `package.json`, and diff whitespace checks pass. The latest code-verification evidence remains the completed v0.32.0 gate: 97 test files, 786 passing tests, 6 intentional skips, Prisma validation/generation, TypeScript checking, and an isolated production emit.
+
+**Follow-up:** Include current-surface documentation and both contributor working logs in every cross-repository feature phase. Do not update a version/date alone; search for removed commands, permissions, navigation labels, validation counts, and future-work claims that changed meaning.
+
 ## 10 August 2026 - A Telegram control plane still needs information hierarchy
 
 **Friction discovered:** Beacon deliberately has no dashboard, but its growing Telegram feature set had accumulated a flat wall of reports, triggers, scores, moderators, safety controls, audits, and enforcement actions. Ordinary members could encounter staff-oriented navigation, moderators could see buttons they were not authorized to use, and each report exposed every punishment before the reviewer had even chosen to act. The result was cognitively noisy and made sensitive policy boundaries harder to reason about.

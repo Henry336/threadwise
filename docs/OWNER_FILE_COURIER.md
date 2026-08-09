@@ -1,6 +1,7 @@
 # Owner-only laptop file courier
 
 Date: 2026-07-29
+Reviewed against backend v0.32.0: 2026-08-10
 
 ## Boundary
 
