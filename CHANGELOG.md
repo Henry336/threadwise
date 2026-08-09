@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Beacon progressive-disclosure control plane
+- Replaced Beacon's flat private control wall with role-adaptive homes: the immutable owner sees Review queue, Members & offences, Policy, and More; moderators see only their granted operational destinations.
+- Reduced the ordinary group surface to Rules and How to report. Authorized staff receive a private-controls deep link, while ordinary members never see policy, score, trigger, audit, safety, or moderator controls.
+- Simplified initial report cards to Dismiss, Take action, and Offence history. Take action edits the same card and reveals only the current moderator's permitted warning, deletion, mute, score-proposal, or permanent-ban actions.
+- Nested owner configuration under focused Policy and More screens, including an owner-only pending-trigger inbox and exact review-queue counters.
+- Centralized callback authorization so current, stale, searched, and crafted trigger-library controls remain owner-only. Moderator trigger suggestions are accepted only in Beacon's private chat.
+- Hardened permanent report and score-threshold bans with expiring actor-, group-, target-, report/offence-, and source-context-bound confirmations.
+- Added focused rendering and authorization regression coverage for owner, moderator, and ordinary-member surfaces, action hiding, button budgets, Back navigation, evidence context, and private trigger submission.
+
 ### Progressive Telegram interaction hierarchy
 - Reworked ordinary Telegram cards around one immediate decision, no more than three visible actions, and no more than two rows. Secondary editing, starring, archiving, assignment, and other management controls now live in exact dashboard deep links.
 - Replaced default numbered list keypads with `Choose an item`, `View all`, and pagination. Choosing an item temporarily reveals numbered controls with a direct Back action, preserving complete Telegram browsing without showing every control at once.

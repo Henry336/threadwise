@@ -29,7 +29,7 @@ Beacon is designed for one English/Burmese scholarship-information community and
 - Configure review, delete-and-warn, temporary mute, or ban actions with confirmation.
 - Observe matches without affecting members.
 - Aggregate duplicate reports of one message into one private review card.
-- Show the flagged text, source topic, member identity, Telegram user ID, active offence score, and recent offence history on that review card.
+- Show the flagged text, source topic, member identity, Telegram user ID, active offence score, and report count on the compact review card; open offence history only when requested.
 - Let moderators propose a severity and incident score while reserving confirmation, severity-point policy, thresholds, reductions, pardons, and permanent bans for the immutable owner.
 - Restore owner-confirmed permanent bans when the same Telegram account rejoins, until its active banning offence is pardoned.
 - Purge one non-General forum topic through an owner-only, expiring confirmation that deletes and recreates the topic while preserving known name/icon metadata.
@@ -73,17 +73,17 @@ Do not paste the BotFather token into Telegram, source control, screenshots, or 
 Keep Observe mode enabled for this test.
 
 1. In the configured testing group, send `/beacon`, `Beacon`, `Hey Beacon`, or `menu`.
-2. Press **Open private controls**. Beacon's private chat remembers the selected group and always shows which community is being managed.
-3. Open **Moderators → Add moderator** and send the intended person's numeric Telegram ID.
+2. Press **Private controls**. Beacon's private chat remembers the selected group and always shows which community is being managed.
+3. Open **More → Moderators → Add moderator** and send the intended person's numeric Telegram ID.
 4. Choose **Use safe recommended permissions**, review the result, and confirm. Verify the owner receives a private audit DM.
-5. Open **Trigger library**, choose **Add trigger**, and add a harmless unique phrase such as `beacon-policy-test-8362` to a review-only group.
+5. Open **Policy → Trigger library**, choose **Add trigger**, and add a harmless unique phrase such as `beacon-policy-test-8362` to a review-only group.
 6. Use **Test message** to confirm the match without affecting a member.
 7. Grant a test moderator only **Add triggers for review**. Have them submit a second harmless phrase privately and verify it cannot match until the owner approves it from the private DM.
 8. Send the approved phrase normally and confirm an Observe notification arrives privately.
-9. Reply to a harmless message with `/report`. Confirm the public command disappears, the reporter receives a private acknowledgement, and one private review card appears with its topic when applicable.
+9. Reply to a harmless message with `/report`. Confirm the public command disappears, the reporter receives a private acknowledgement, and one private review card appears with its topic when applicable. Verify the card initially shows only **Dismiss**, **Take action**, and **Offence history**.
 10. Report the same message again from the same account and verify no duplicate case is created.
 11. Remove the test moderator from the group and verify Beacon suspends their permissions and DMs the owner.
-12. Open **Offence scores** in the owner's private controls, adjust only harmless test values, propose an offence from the moderator report card, and verify the owner must confirm it before the score counts.
+12. Open **Policy → Offence scoring** in the owner's private controls, adjust only harmless test values, propose an offence through **Take action**, and verify the owner must confirm it before the score counts.
 13. In a disposable non-General topic, run `/purge`, cancel once, then confirm once. Verify only that topic is recreated empty and the owner receives an audit DM. Never use a topic containing evidence you still need.
 
 Only after those checks should the owner turn off Observe mode or configure the production group.
@@ -96,15 +96,23 @@ The safe preset grants delete/warn and temporary mute. It does not grant permane
 
 ## Telegram control plane
 
-The group menu is intentionally small. It shows rules and observe status, then links authorized staff to private controls. Trigger values, report queues, audits, moderator permissions, safety thresholds, and policy changes remain in Beacon's private chat.
+Beacon has no dashboard. Its complete control plane remains in Telegram, organized around progressive disclosure.
 
-Private controls support buttons and short natural-language requests such as `trigger library`, `find triggers for scholarship`, `add trigger`, `reports`, `moderators`, and `Beacon`. A saved control session remembers the selected group; use **Switch community** before changing another group's policy.
+The ordinary group card contains only **Rules** and **How to report**. Authorized staff additionally receive a deep link to private controls; ordinary members do not see report queues, triggers, scores, audits, safety settings, or moderator configuration.
+
+The owner's private home contains **Review queue**, **Members & offences**, **Policy**, and **More**. Policy contains Rules, Trigger library, Offence scoring, Automatic actions, and pending Trigger submissions. More contains Safety, Moderators, Recent actions, Audit history, and Switch community.
+
+A moderator's private home contains **Review queue**, **Rules**, **More**, and **Submit trigger** only when that grant is active. More renders only destinations the moderator can actually use. Trigger values, severity policy, automatic-action configuration, moderator management, and owner audit history remain invisible and are re-authorized again when a callback is handled.
+
+Private controls support buttons and short natural-language requests such as `Beacon`, `Hey Beacon`, `menu`, `reports`, `rules`, `submit trigger`, and `offence history for 123456789`. Owner-only calls also include `trigger library`, trigger search, `policy`, and `moderators`. A saved control session remembers the selected group; use **Switch community** before changing another group's policy.
 
 Sensitive grants—ban, automatic-action changes, and lockdown—require a second confirmation. Every moderator addition, removal, and permission change is stored in `CommunityAudit` and privately delivered to the immutable owner when Telegram allows the DM.
 
 ## Reports and evidence
 
 A member reports by replying to the relevant message and sending `/report`, `report this`, or the Burmese report phrase. Beacon removes the public command, stores bounded evidence temporarily, and updates one private review card when more people report the same message.
+
+The initial review card shows the bounded evidence, source topic, member identity, numeric Telegram ID, active offence score, and report count. It offers only **Dismiss**, **Take action**, and **Offence history**. Take action edits that same card and reveals only the current moderator's granted actions; Back returns to the report without leaving abandoned control cards.
 
 Evidence text expires after 30 days. Resolving a report does not publish the reporter's identity in the group.
 

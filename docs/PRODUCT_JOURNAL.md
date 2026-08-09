@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-09
+Updated: 2026-08-10
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -10,6 +10,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Entries from 22 July 2026 onward are contemporaneous unless explicitly labelled otherwise.
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
+
+## 10 August 2026 - A Telegram control plane still needs information hierarchy
+
+**Friction discovered:** Beacon deliberately has no dashboard, but its growing Telegram feature set had accumulated a flat wall of reports, triggers, scores, moderators, safety controls, audits, and enforcement actions. Ordinary members could encounter staff-oriented navigation, moderators could see buttons they were not authorized to use, and each report exposed every punishment before the reviewer had even chosen to act. The result was cognitively noisy and made sensitive policy boundaries harder to reason about.
+
+**Decision:** Keep Beacon entirely Telegram-based while applying progressive disclosure: show the next likely decision, not every capability. Give ordinary members only Rules and How to report; give owner and moderators different private homes; place configuration under Policy, operational utilities under More, member mutations under Members & offences, and punishments behind Take action. Hide inaccessible controls when rendering and independently reject unauthorized callbacks, including stale or crafted callback data.
+
+**Implementation:** Added role-adaptive public/private keyboards, review-queue counters, focused Policy and More submenus, a pending trigger-submission inbox, permission-filtered report actions, contextual Back navigation, and concise report cards retaining bounded evidence, topic, identity, numeric Telegram ID, offence score, and report count. Trigger values remain owner-only through menus, natural language, searches, legacy callbacks, approval paths, and audit summaries. Moderator submissions now require a granted permission and Beacon's private chat. Permanent report and score-threshold bans now use expiring confirmations bound to the actor, community, report/offence, target, and source context.
+
+**Outcome/evidence:** Focused policy, authorization, and UI tests cover ordinary/owner/moderator menus, hidden actions, button budgets, crafted callback classification, private-only submissions, report context, and Back destinations. Prisma validation and generation pass, TypeScript is clean, the complete repository suite passes 97 files and 786 tests with 6 intentional skips, and an isolated production TypeScript emit succeeds without touching the running build output.
+
+**Follow-up:** Live-test the owner and one limited moderator side by side. Confirm that an ordinary group invocation has only two actions, the moderator cannot discover trigger values through any old card, report actions edit one card, and every submenu returns to one predictable parent. Tune wording if needed; do not restore the flat control wall.
 
 ## 9 August 2026 - Shared work needs progressive disclosure, not a wall of controls
 

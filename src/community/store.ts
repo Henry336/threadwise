@@ -511,6 +511,7 @@ export async function listCommunityTriggerLibrary(input: {
   query?: string | null;
   action?: CommunityModerationActionType | null;
   triggerGroupId?: string | null;
+  pendingApproval?: boolean;
   page?: number;
   pageSize?: number;
 }) {
@@ -519,6 +520,7 @@ export async function listCommunityTriggerLibrary(input: {
   const query = input.query?.trim();
   const where: Prisma.CommunityTriggerWhereInput = {
     groupId: input.groupId,
+    pendingApproval: input.pendingApproval,
     triggerGroupId: input.triggerGroupId || undefined,
     triggerGroup: input.action ? { action: input.action } : undefined,
     OR: query
@@ -1016,6 +1018,19 @@ export async function cycleCommunityMentionLimit(group: CommunityGroup) {
 
 export async function listOpenCommunityReports(groupId: string, take = 8) {
   return prisma.communityReport.findMany({ where: { groupId, status: CommunityReportStatus.OPEN }, orderBy: { createdAt: "desc" }, take });
+}
+
+export async function countOpenCommunityReports(groupId: string): Promise<number> {
+  return prisma.communityReport.count({ where: { groupId, status: CommunityReportStatus.OPEN } });
+}
+
+export async function listPendingCommunityTriggers(groupId: string, take = 8) {
+  return prisma.communityTrigger.findMany({
+    where: { groupId, pendingApproval: true },
+    include: { triggerGroup: true },
+    orderBy: { createdAt: "asc" },
+    take,
+  });
 }
 
 export async function expireCommunityEvidence(): Promise<number> {

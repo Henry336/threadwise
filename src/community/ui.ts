@@ -11,26 +11,8 @@ import {
   CommunityTriggerGroup
 } from "@prisma/client";
 import type { ModeratorWizardPermissions } from "./policy";
-
-export function beaconHomeText(group: CommunityGroup): string {
-  const mode = group.observeMode ? "Observe" : "Active";
-  const environment = group.environment === "TEST" ? "Testing group" : "Scholarship community";
-  return [
-    "<b>Beacon</b>",
-    `${environment} · ${mode}`,
-    "",
-    "English · မြန်မာ",
-    "Moderation and community safety, configured here in Telegram."
-  ].join("\n");
-}
-
-export function beaconHomeKeyboard(group: CommunityGroup): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("Moderators", "bc:mods").text("Trigger groups", "bc:cats").row()
-    .text(group.observeMode ? "Observe mode: On" : "Active moderation", "bc:observe").text("Safety", "bc:safety").row()
-    .text("Reports", "bc:reports").text("Recent actions", "bc:actions").row()
-    .text("Rules", "bc:rules");
-}
+import type { CommunityAccess } from "./store";
+import { canOpenBeaconSafety, hasBeaconOperationalHistory } from "./controlAccess";
 
 export function communityPickerText(): string {
   return [
@@ -49,42 +31,80 @@ export function communityPickerKeyboard(groups: CommunityGroup[]): InlineKeyboar
   return keyboard;
 }
 
-export function privateBeaconHomeText(group: CommunityGroup): string {
+export function privateBeaconHomeText(group: CommunityGroup, owner: boolean): string {
   return [
-    "<b>Beacon private controls</b>",
+    `<b>${owner ? "Beacon owner controls" : "Beacon moderator controls"}</b>`,
     `Managing: <b>${escapeHtml(group.title || "Configured community")}</b>`,
-    `${group.environment === "TEST" ? "Testing" : "Production"} · ${group.observeMode ? "Observe mode" : "Active moderation"}`,
-    "",
-    "Sensitive policy lists and permission changes stay in this private chat."
+    `${group.environment === "TEST" ? "Testing" : "Production"} · ${group.observeMode ? "Observe mode" : "Active moderation"}`
   ].join("\n");
 }
 
-export function privateBeaconHomeKeyboard(group: CommunityGroup, owner: boolean): InlineKeyboard {
+export function privateBeaconHomeKeyboard(access: CommunityAccess, reviewCount: number): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  if (owner) keyboard.text("Trigger library", "bc:lib").text("Reports", "bc:reports").row();
-  else keyboard.text("Submit trigger", "bc:libadd").text("Reports", "bc:reports").row();
-  if (owner) keyboard.text("Offence scores", "bc:scores").text("Offence lookup", "bc:offences").row();
-  if (owner) keyboard.text("Moderators", "bc:mods").text("Rules", "bc:rules").row();
-  else keyboard.text("Rules", "bc:rules").row();
-  return keyboard
-    .text(group.observeMode ? "Observe mode: On" : "Active moderation", "bc:observe").text("Safety", "bc:safety").row()
-    .text("Recent actions", "bc:actions").text("Recent changes", "bc:audits").row()
-    .text("Switch community", "bc:switch");
+  const queue = reviewCount > 0 ? `Review queue · ${reviewCount}` : "Review queue";
+  if (access.owner) {
+    return keyboard
+      .text(queue, "bc:reports").text("Members & offences", "bc:members").row()
+      .text("Policy", "bc:policy").text("More", "bc:more");
+  }
+  keyboard.text(queue, "bc:reports");
+  if (access.canAddTriggers) keyboard.text("Submit trigger", "bc:libadd");
+  keyboard.row().text("Rules", "bc:rules").text("More", "bc:more");
+  return keyboard;
 }
 
 export function groupBeaconHomeText(group: CommunityGroup): string {
   return [
     "<b>Beacon</b>",
-    `${group.observeMode ? "Observe mode" : "Active moderation"} · ${escapeHtml(group.title || "This community")}`,
-    "",
-    "Sensitive configuration is managed privately."
+    "Community moderation and reporting."
   ].join("\n");
 }
 
-export function groupBeaconHomeKeyboard(privateControlsUrl: string): InlineKeyboard {
+export function groupBeaconHomeKeyboard(privateControlsUrl?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard().text("Rules", "bc:rules").text("How to report", "bc:reporthelp");
+  if (privateControlsUrl) keyboard.row().url("Private controls", privateControlsUrl);
+  return keyboard;
+}
+
+export function beaconMoreText(group: CommunityGroup): string {
+  return `<b>More</b>\n${escapeHtml(group.title || "Configured community")}`;
+}
+
+export function beaconMoreKeyboard(access: CommunityAccess): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (canOpenBeaconSafety(access)) keyboard.text("Safety", "bc:safety");
+  if (access.owner) keyboard.text("Moderators", "bc:mods");
+  if (canOpenBeaconSafety(access) || access.owner) keyboard.row();
+  if (hasBeaconOperationalHistory(access)) keyboard.text("Recent actions", "bc:actions");
+  if (access.owner) keyboard.text("Audit history", "bc:audits");
+  if (hasBeaconOperationalHistory(access) || access.owner) keyboard.row();
+  if (!access.owner) keyboard.text("Rules", "bc:rules").row();
+  return keyboard.text("Switch community", "bc:switch").row().text("‹ Home", "bc:home");
+}
+
+export function beaconPolicyText(): string {
+  return "<b>Policy</b>\nChoose one area to configure.";
+}
+
+export function beaconPolicyKeyboard(pendingCount = 0): InlineKeyboard {
+  const pending = pendingCount > 0 ? `Trigger submissions · ${pendingCount}` : "Trigger submissions";
   return new InlineKeyboard()
-    .url("Review reports privately", privateControlsUrl).text("Observe status", "bc:observeinfo").row()
-    .text("Rules", "bc:rules").url("Open private controls", privateControlsUrl);
+    .text("Rules", "bc:rules").text("Trigger library", "bc:lib").row()
+    .text("Offence scoring", "bc:scores").text("Automatic actions", "bc:cats").row()
+    .text(pending, "bc:pending").row()
+    .text("‹ Home", "bc:home");
+}
+
+export function reportHelpText(): string {
+  return [
+    "<b>Report a message</b>",
+    "Reply to the message, then send <code>report this</code> or <code>/report</code>.",
+    "Beacon removes the public command and sends the report to moderators."
+  ].join("\n");
+}
+
+export function publicBeaconKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("Rules", "bc:rules").text("How to report", "bc:reporthelp");
 }
 
 export function moderatorListText(moderators: CommunityModerator[]): string {
@@ -103,7 +123,7 @@ export function moderatorListKeyboard(moderators: CommunityModerator[]): InlineK
   for (const moderator of moderators.slice(0, 8)) {
     keyboard.text(`Edit · ${truncate(displayModerator(moderator), 24)}`, `bc:mod:${moderator.id}`).row();
   }
-  return keyboard.text("‹ Beacon", "bc:home");
+  return keyboard.text("‹ More", "bc:more");
 }
 
 export function moderatorPermissionQuestion(label: string, recommended: boolean, step: number, total: number): string {
@@ -172,8 +192,8 @@ export function moderatorDetailKeyboard(moderator: CommunityModerator): InlineKe
 
 export function triggerGroupsText(groups: Array<CommunityTriggerGroup & { triggers: CommunityTrigger[] }>): string {
   return [
-    "<b>Trigger groups</b>",
-    "Triggers are stored in Beacon and take effect without a redeploy.",
+    "<b>Automatic actions</b>",
+    "Each trigger group has one enforcement action.",
     "",
     ...groups.map((group) => `${escapeHtml(group.name)} · ${group.triggers.length} · ${actionLabel(group)}`)
   ].join("\n");
@@ -182,7 +202,7 @@ export function triggerGroupsText(groups: Array<CommunityTriggerGroup & { trigge
 export function triggerGroupsKeyboard(groups: CommunityTriggerGroup[]): InlineKeyboard {
   const keyboard = new InlineKeyboard().text("New trigger group", "bc:catnew").row();
   for (const group of groups) keyboard.text(group.name, `bc:cat:${group.id}`).row();
-  return keyboard.text("‹ Beacon", "bc:home");
+  return keyboard.text("‹ Policy", "bc:policy");
 }
 
 export function triggerLibraryText(input: {
@@ -237,7 +257,22 @@ export function triggerLibraryKeyboard(input: {
     if (input.page + 1 < input.pages) keyboard.text("→", `bc:libpage:${input.page + 1}`);
     keyboard.row();
   }
-  return keyboard.text("‹ Beacon", "bc:home");
+  return keyboard.text("‹ Policy", "bc:policy");
+}
+
+export function pendingTriggersText(items: Array<CommunityTrigger & { triggerGroup: CommunityTriggerGroup }>): string {
+  return [
+    "<b>Trigger submissions</b>",
+    items.length ? `${items.length} awaiting owner review.` : "Nothing is awaiting review.",
+    "",
+    ...items.map((trigger, index) => `${index + 1}. <code>${escapeHtml(trigger.pattern)}</code> · ${escapeHtml(trigger.triggerGroup.name)}`)
+  ].join("\n");
+}
+
+export function pendingTriggersKeyboard(items: Array<CommunityTrigger & { triggerGroup: CommunityTriggerGroup }>): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const trigger of items) keyboard.text(`Review · ${truncate(trigger.pattern, 24)}`, `bc:tr:${trigger.id}`).row();
+  return keyboard.text("‹ Policy", "bc:policy");
 }
 
 export function triggerActionFilterKeyboard(): InlineKeyboard {
@@ -275,7 +310,7 @@ export function triggerGroupKeyboard(group: CommunityTriggerGroup & { triggers: 
     keyboard.text(`Manage · ${truncate(trigger.pattern, 28)}`, `bc:tr:${trigger.id}`).row();
   }
   if (group.triggers.length === 0) keyboard.text("Delete empty group", `bc:catdel:${group.id}`).row();
-  return keyboard.text("‹ Trigger groups", "bc:cats");
+  return keyboard.text("‹ Automatic actions", "bc:cats");
 }
 
 export function triggerDetailText(trigger: CommunityTrigger & { triggerGroup: CommunityTriggerGroup }): string {
@@ -315,10 +350,7 @@ export function automaticActionKeyboard(): InlineKeyboard {
     .text("Cancel", "bc:cancel");
 }
 
-export function reportCardText(report: CommunityReport, activeScore = 0, recentOffences: Array<Pick<CommunityOffence, "severity" | "appliedPoints" | "status" | "createdAt">> = []): string {
-  const history = recentOffences.slice(0, 3).map((offence) =>
-    `${offence.severity.toLowerCase()} · ${offence.appliedPoints ?? 0} point${offence.appliedPoints === 1 ? "" : "s"} · ${offence.status.toLowerCase()}`
-  );
+export function reportCardText(report: CommunityReport, activeScore = 0): string {
   const internalChatId = report.sourceChatId.startsWith("-100") ? report.sourceChatId.slice(4) : undefined;
   const sourceLink = internalChatId ? `https://t.me/c/${internalChatId}/${report.sourceMessageId}` : undefined;
   return [
@@ -328,20 +360,29 @@ export function reportCardText(report: CommunityReport, activeScore = 0, recentO
     `Active offence score: <b>${activeScore}</b>`,
     report.reason ? `Reason: ${escapeHtml(report.reason)}` : "",
     "",
-    report.evidenceText ? escapeHtml(truncate(report.evidenceText, 1_800)) : "Media or unavailable text evidence.",
+    report.evidenceText ? escapeHtml(truncate(report.evidenceText, 1_400)) : "Media or unavailable text evidence.",
     "",
     report.sourceMessageThreadId ? `Topic: ${escapeHtml(report.sourceTopicName || `#${report.sourceMessageThreadId}`)}` : "",
-    sourceLink ? `<a href="${sourceLink}">Open original message</a>` : `Source message: ${report.sourceMessageId}`,
-    history.length ? "\nRecent offences:\n" + history.map((row) => `• ${escapeHtml(row)}`).join("\n") : ""
+    sourceLink ? `<a href="${sourceLink}">Open original message</a>` : `Source message: ${report.sourceMessageId}`
   ].filter(Boolean).join("\n");
 }
 
 export function reportCardKeyboard(report: CommunityReport): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Propose offence", `bc:ops:${report.id}`).text("Offence history", `bc:oph:${report.id}`).row()
-    .text("Dismiss", `bc:rp:d:${report.id}`).text("Warn", `bc:rp:w:${report.id}`).row()
-    .text("Mute 1h", `bc:rp:m:${report.id}`).text("Delete", `bc:rp:x:${report.id}`).row()
-    .text("Ban", `bc:rp:b:${report.id}`);
+    .text("Dismiss", `bc:rp:d:${report.id}`).text("Take action", `bc:rpa:${report.id}`).row()
+    .text("Offence history", `bc:oph:${report.id}`);
+}
+
+export function reportActionKeyboard(report: CommunityReport, access: CommunityAccess): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (access.canWarn) keyboard.text("Warn", `bc:rp:w:${report.id}`);
+  if (access.canDelete) keyboard.text("Delete", `bc:rp:x:${report.id}`);
+  if (access.canWarn || access.canDelete) keyboard.row();
+  if (access.canMute) keyboard.text("Temporary mute", `bc:rp:m:${report.id}`);
+  if (access.owner || access.moderator) keyboard.text("Propose offence score", `bc:ops:${report.id}`);
+  if (access.canMute || access.owner || access.moderator) keyboard.row();
+  if (access.canBan) keyboard.text("Permanent ban", `bc:rp:b:${report.id}`).row();
+  return keyboard.text("‹ Report", `bc:report:${report.id}`);
 }
 
 export function severityRulesText(group: CommunityGroup, rules: Array<{ severity: CommunityOffenceSeverity; points: number }>): string {
@@ -367,7 +408,7 @@ export function severityRulesKeyboard(): InlineKeyboard {
     .text("Serious points", "bc:score:SERIOUS").text("Critical points", "bc:score:CRITICAL").row()
     .text("Warning threshold", "bc:threshold:WARNING").row()
     .text("Mute threshold", "bc:threshold:MUTE").text("Ban threshold", "bc:threshold:BAN").row()
-    .text("‹ Beacon", "bc:home");
+    .text("‹ Policy", "bc:policy");
 }
 
 export function offenceSeverityKeyboard(reportId: string): InlineKeyboard {
@@ -417,11 +458,13 @@ export function memberOffencesText(input: {
   ].join("\n");
 }
 
-export function memberOffencesKeyboard(telegramId: string, offences: CommunityOffence[], owner: boolean): InlineKeyboard {
+export function memberOffencesKeyboard(telegramId: string, offences: CommunityOffence[], owner: boolean, reportId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const offence of offences.slice(0, 8)) keyboard.text(`${offence.severity.toLowerCase()} · ${offence.status.toLowerCase()}`, `bc:opd:${offence.id}`).row();
   if (owner && offences.some((offence) => offence.status === "ACTIVE")) keyboard.text("Pardon all active", `bc:opclear:${telegramId}`).row();
-  return keyboard.text("‹ Beacon", "bc:home");
+  return reportId
+    ? keyboard.text("‹ Report", `bc:report:${reportId}`)
+    : keyboard.text("‹ Members & offences", "bc:members");
 }
 
 export function offenceDetailText(offence: CommunityOffence): string {
@@ -459,14 +502,19 @@ export function safetyText(group: CommunityGroup): string {
   ].join("\n");
 }
 
-export function safetyKeyboard(group: CommunityGroup): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("Trusted members", "bc:trusted").row()
-    .text("Cycle flood limit", "bc:flood").text("Cycle duplicates", "bc:dupes").row()
-    .text("Cycle mention limit", "bc:mentions").row()
-    .text(group.pauseNewMemberPosting ? "Allow new members" : "Pause new members", "bc:newpause").row()
-    .text(group.lockdownMode ? "End lockdown" : "Emergency lockdown", "bc:lockdown").row()
-    .text("‹ Beacon", "bc:home");
+export function safetyKeyboard(group: CommunityGroup, access: CommunityAccess): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (access.owner || access.canChangeAutomaticActions) {
+    keyboard.text(group.observeMode ? "End observe mode" : "Enable observe mode", "bc:observe").row()
+      .text("Flood limit", "bc:flood").text("Duplicate limit", "bc:dupes").row()
+      .text("Mention limit", "bc:mentions").row();
+  }
+  if (access.owner || access.canManageTrustedMembers) keyboard.text("Trusted members", "bc:trusted").row();
+  if (access.owner || access.canLockdown) {
+    keyboard.text(group.pauseNewMemberPosting ? "Allow new members" : "Pause new members", "bc:newpause").row()
+      .text(group.lockdownMode ? "End lockdown" : "Emergency lockdown", "bc:lockdown").row();
+  }
+  return keyboard.text("‹ More", "bc:more");
 }
 
 export function trustedMembersText(members: Array<{ telegramId: string; username: string | null; displayName: string | null }>): string {

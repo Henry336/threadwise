@@ -33,6 +33,7 @@ import {
   communitySeverityRules,
   communityTriggerById,
   communityTriggerByGlobalId,
+  countOpenCommunityReports,
   createCommunityTriggerGroup,
   createCommunityOffenceProposal,
   createOrIncrementCommunityReport,
@@ -47,6 +48,7 @@ import {
   isNewCommunityMemberPaused,
   isTrustedCommunityMember,
   listOpenCommunityReports,
+  listPendingCommunityTriggers,
   listCommunityTriggerLibrary,
   listManageableCommunityGroups,
   listCommunityModerators,
@@ -107,11 +109,22 @@ import {
   type ModeratorWizardPermissions
 } from "./policy";
 import {
+  canOpenBeaconSafety,
+  canSubmitTriggerPrivately,
+  canUseOwnerMutation,
+  canUseReportAction,
+  hasBeaconOperationalHistory,
+  isBeaconOwnerOnlyControl,
+  isBeaconPublicGroupControl
+} from "./controlAccess";
+import {
   actionsText,
   auditsText,
   automaticActionKeyboard,
-  beaconHomeKeyboard,
-  beaconHomeText,
+  beaconMoreKeyboard,
+  beaconMoreText,
+  beaconPolicyKeyboard,
+  beaconPolicyText,
   communityPickerKeyboard,
   communityPickerText,
   displayModerator,
@@ -130,14 +143,19 @@ import {
   offenceProposalKeyboard,
   offenceProposalText,
   offenceSeverityKeyboard,
+  pendingTriggersKeyboard,
+  pendingTriggersText,
   permissionDiff,
   purgeConfirmationKeyboard,
   reportCardKeyboard,
   reportCardText,
+  reportActionKeyboard,
+  reportHelpText,
   groupBeaconHomeKeyboard,
   groupBeaconHomeText,
   privateBeaconHomeKeyboard,
   privateBeaconHomeText,
+  publicBeaconKeyboard,
   safetyKeyboard,
   safetyText,
   severityRulesKeyboard,
@@ -212,8 +230,11 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     const group = await configuredGroup(ctx);
     if (!group) return;
     const access = await accessFor(ctx, group, config);
-    if (!access.owner && !access.moderator) return;
-    await showGroupHome(ctx, group);
+    if (!access.owner && !access.moderator) {
+      await showMemberHelp(ctx, group);
+      return;
+    }
+    await showGroupHome(ctx, group, access);
   });
 
   bot.command("rules", async (ctx) => {
@@ -334,12 +355,12 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     if (conversation && await handleConversationMessage(ctx, group, conversation, access, config)) return;
 
     if (SETTINGS_PATTERN.test(text)) {
-      if (!access.owner && !access.moderator) return;
-      await showGroupHome(ctx, group);
+      if (!access.owner && !access.moderator) await showMemberHelp(ctx, group);
+      else await showGroupHome(ctx, group, access);
       return;
     }
     if (isBeaconInvocation(text)) {
-      if (access.owner || access.moderator) await showGroupHome(ctx, group);
+      if (access.owner || access.moderator) await showGroupHome(ctx, group, access);
       else await showMemberHelp(ctx, group);
       return;
     }
@@ -407,8 +428,12 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     return showPrivateHome(ctx, group, access, true);
   }
 
-  if (data.startsWith("bc:rp:")) {
+  if (data.startsWith("bc:rp:") || data.startsWith("bc:rpbok:")) {
     await handleReportActionCallback(ctx, config, data);
+    return;
+  }
+  if (data.startsWith("bc:rpa:")) {
+    await showReportActions(ctx, config, data.slice("bc:rpa:".length));
     return;
   }
   if (
@@ -419,6 +444,7 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     || data.startsWith("bc:opp:")
     || data.startsWith("bc:opr:")
     || data.startsWith("bc:opban:")
+    || data.startsWith("bc:opbanok:")
     || data.startsWith("bc:oph:")
     || data.startsWith("bc:opd:")
     || data.startsWith("bc:opreduce:")
@@ -455,15 +481,16 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     return;
   }
   const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
+  if (ctx.chat?.type !== "private" && isBeaconPublicGroupControl(data)) {
+    if (data === "bc:rules") return showPublicRules(ctx, group, true);
+    if (data === "bc:reporthelp") return showReportHelp(ctx, true);
+    return showMemberHelp(ctx, group, true);
+  }
   if (!access.owner && !access.moderator) {
     await answerCallback(ctx, "This control is for Beacon moderators.", true);
     return;
   }
-  const ownerOnlyPolicyControl = [
-    "bc:libsearch", "bc:libactions", "bc:libgroups", "bc:libact:", "bc:libcat:", "bc:libpage:", "bc:libclear",
-    "bc:cats", "bc:cat", "bc:tradd:", "bc:tr:", "bc:trdel:", "bc:trmove:", "bc:mvto:", "bc:act:"
-  ].some((prefix) => data === prefix || data.startsWith(prefix));
-  if (!access.owner && ownerOnlyPolicyControl) {
+  if (!access.owner && isBeaconOwnerOnlyControl(data)) {
     await answerCallback(ctx, OWNER_ONLY, true);
     return;
   }
@@ -481,14 +508,22 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:home") {
     return ctx.chat?.type === "private"
       ? showPrivateHome(ctx, group, access, true)
-      : showGroupHome(ctx, group, true);
+      : showGroupHome(ctx, group, access, true);
+  }
+  if (data === "bc:more") {
+    await answerCallback(ctx);
+    return editCard(ctx, beaconMoreText(group), beaconMoreKeyboard(access));
+  }
+  if (data === "bc:policy") {
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
+    return showPolicy(ctx, group, true);
   }
   if (data === "bc:cancel") {
     await clearCommunityConversation(group.id, actorId);
     await answerCallback(ctx, "Canceled.");
     return ctx.chat?.type === "private"
       ? showPrivateHome(ctx, group, access, true)
-      : showGroupHome(ctx, group, true);
+      : showGroupHome(ctx, group, access, true);
   }
   if (data === "bc:observeinfo") {
     await answerCallback(ctx, group.observeMode ? "Observe mode is on. No automatic punishment is applied." : "Active moderation is on.", true);
@@ -500,9 +535,12 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
     await answerCallback(ctx, "Purge canceled.");
     return editCard(ctx, "<b>Purge canceled</b>\nNothing was deleted.", new InlineKeyboard());
   }
-  if (data === "bc:mods") return showModerators(ctx, group, true);
+  if (data === "bc:mods") {
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
+    return showModerators(ctx, group, true);
+  }
   if (data === "bc:mod:add") {
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     await startCommunityConversation({ groupId: group.id, actorTelegramId: actorId, kind: "MODERATOR_TARGET", step: "TARGET" });
     await answerCallback(ctx);
     return editCard(ctx, [
@@ -514,14 +552,14 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   }
   if (data.startsWith("bc:mod:")) return showModerator(ctx, group, data.slice("bc:mod:".length));
   if (data.startsWith("bc:modedit:")) {
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     const moderator = await communityModeratorById(group.id, data.slice("bc:modedit:".length));
     if (!moderator) return answerCallback(ctx, "Moderator not found.", true);
     await beginExistingModeratorWizard(ctx, group, moderator);
     return;
   }
   if (data.startsWith("bc:modrm:")) {
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     const moderator = await communityModeratorById(group.id, data.slice("bc:modrm:".length));
     if (!moderator) return answerCallback(ctx, "Moderator not found.", true);
     await startCommunityConversation({
@@ -541,7 +579,7 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:mw:save" || data === "bc:mw:risky") return saveModeratorWizard(ctx, group, config, data.endsWith(":risky"));
 
   if (data === "bc:lib") {
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     return showTriggerLibrary(ctx, group, access, true);
   }
   if (data === "bc:libsearch") return beginTriggerLibrarySearch(ctx, group, access);
@@ -559,14 +597,18 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data.startsWith("bc:libpage:")) return setTriggerLibraryPage(ctx, group, access, Number(data.slice("bc:libpage:".length)));
   if (data === "bc:libclear") return clearTriggerLibraryFilters(ctx, group, access);
   if (data === "bc:libadd") return beginPrivateTriggerAdd(ctx, group, access);
+  if (data === "bc:pending") {
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
+    return showPendingTriggers(ctx, group, true);
+  }
 
   if (data === "bc:scores") return showSeverityRules(ctx, group, access);
   if (data.startsWith("bc:score:")) return beginSeverityScoreEdit(ctx, group, access, data.slice("bc:score:".length));
   if (data.startsWith("bc:threshold:")) return beginThresholdEdit(ctx, group, access, data.slice("bc:threshold:".length));
-  if (data === "bc:offences") return beginOffenceLookup(ctx, group, access);
+  if (data === "bc:offences" || data === "bc:members") return beginOffenceLookup(ctx, group, access);
 
   if (data === "bc:cats") {
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     return showTriggerGroups(ctx, group, true);
   }
   if (data === "bc:catnew") return beginTriggerGroupCreation(ctx, group, access);
@@ -587,7 +629,11 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
 
   if (data === "bc:observe") return beginObserveToggle(ctx, group, access);
   if (data === "bc:observeok") return confirmObserveToggle(ctx, group, access, config);
-  if (data === "bc:safety") return editCard(ctx, safetyText(group), safetyKeyboard(group));
+  if (data === "bc:safety") {
+    if (!canOpenBeaconSafety(access)) return answerCallback(ctx, "You do not have access to safety controls.", true);
+    await answerCallback(ctx);
+    return editCard(ctx, safetyText(group), safetyKeyboard(group, access));
+  }
   if (data === "bc:trusted") return showTrustedMembers(ctx, group, access);
   if (data === "bc:trustedadd") return beginTrustedMemberInput(ctx, group, access);
   if (data.startsWith("bc:trustedrm:")) return confirmTrustedMemberRemoval(ctx, group, access, config, data.slice("bc:trustedrm:".length));
@@ -598,20 +644,22 @@ async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void>
   if (data === "bc:lockdown") return beginLockdownToggle(ctx, group, access);
   if (data === "bc:lockok") return confirmLockdownToggle(ctx, group, access, config);
   if (data === "bc:actions") {
+    if (!hasBeaconOperationalHistory(access)) return answerCallback(ctx, "You do not have access to moderation history.", true);
     const actions = await recentCommunityActions(group.id);
     await answerCallback(ctx);
-    return editCard(ctx, actionsText(actions), new InlineKeyboard().text("‹ Beacon", "bc:home"));
+    return editCard(ctx, actionsText(actions), new InlineKeyboard().text("‹ More", "bc:more"));
   }
   if (data === "bc:audits") {
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     const audits = await recentCommunityAudits(group.id);
     await answerCallback(ctx);
-    return editCard(ctx, auditsText(audits), new InlineKeyboard().text("‹ Beacon", "bc:home"));
+    return editCard(ctx, auditsText(audits), new InlineKeyboard().text("‹ More", "bc:more"));
   }
   if (data === "bc:reports") return showOpenReports(ctx, group);
   if (data.startsWith("bc:report:")) return showOpenReport(ctx, group, data.slice("bc:report:".length));
   if (data === "bc:rules") {
     await answerCallback(ctx);
-    return showRules(ctx, group, true);
+    return showRules(ctx, group, true, access);
   }
   if (data === "bc:rule:en" || data === "bc:rule:my") return beginRuleEdit(ctx, group, access, data.endsWith(":en") ? "EN" : "MY");
 
@@ -659,7 +707,7 @@ async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise
     await showTriggerLibrary(ctx, group, access);
     return;
   }
-  if (/^(?:add|new)\s+trigger$/iu.test(text)) {
+  if (/^(?:(?:add|new|submit)\s+trigger|trigger submission)$/iu.test(text)) {
     await beginPrivateTriggerAdd(ctx, group, access);
     return;
   }
@@ -675,8 +723,25 @@ async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise
     await showSeverityRules(ctx, group, access, false);
     return;
   }
+  const offenceHistory = text.match(/^(?:show\s+)?offen[cs]e history (?:for\s+)?(\d+)$/iu);
+  if (offenceHistory?.[1]) {
+    await showMemberOffenceHistory(ctx, group, offenceHistory[1], access, false);
+    return;
+  }
+  if (/^(?:members(?:\s+and|\s*&)?\s+offences|member lookup)$/iu.test(text)) {
+    await beginOffenceLookup(ctx, group, access, false);
+    return;
+  }
+  if (/^policy$/iu.test(text) && access.owner) {
+    await showPolicy(ctx, group, false);
+    return;
+  }
+  if (/^more$/iu.test(text)) {
+    await ctx.reply(beaconMoreText(group), { parse_mode: "HTML", reply_markup: beaconMoreKeyboard(access) });
+    return;
+  }
   if (RULES_PATTERN.test(text)) {
-    await showRules(ctx, group);
+    await showRules(ctx, group, false, access);
     return;
   }
   if (await handleNaturalPolicyCommand(ctx, group, access, config)) return;
@@ -684,8 +749,11 @@ async function handlePrivateMessage(ctx: Context, config: BeaconConfig): Promise
   await ctx.reply([
     `<b>Managing: ${escapeHtml(group.title || "Configured community")}</b>`,
     "I didn't recognize that control.",
-    "Try <code>trigger library</code>, <code>add trigger</code>, <code>reports</code>, or <code>Beacon</code>."
-  ].join("\n"), { parse_mode: "HTML", reply_markup: privateBeaconHomeKeyboard(group, access.owner) });
+    "Use the controls below or send <code>Beacon</code>."
+  ].join("\n"), {
+    parse_mode: "HTML",
+    reply_markup: privateBeaconHomeKeyboard(access, await countOpenCommunityReports(group.id))
+  });
 }
 
 async function handleTriggerApprovalCallback(ctx: Context, config: BeaconConfig, data: string): Promise<void> {
@@ -697,7 +765,7 @@ async function handleTriggerApprovalCallback(ctx: Context, config: BeaconConfig,
     const trigger = await communityTriggerByGlobalId(triggerId);
     if (!trigger?.pendingApproval) return answerCallback(ctx, "This submission is no longer awaiting review.", true);
     const access = await communityAccess(trigger.groupId, actorId, config.ownerTelegramId);
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     await selectCommunityControlGroup(actorId, trigger.groupId);
 
     if (data.startsWith("bc:tap:")) {
@@ -749,7 +817,7 @@ async function handleTriggerApprovalCallback(ctx: Context, config: BeaconConfig,
   const group = await selectedCommunityGroup(ctx, config);
   if (!group) return answerCallback(ctx, "Choose a community first.", true);
   const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
   const conversation = await activeCommunityConversation(group.id, actorId);
 
   if (data.startsWith("bc:apto:")) {
@@ -840,7 +908,8 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "OFFENCE_LOOKUP") {
-    if (!access.owner) return true;
+    if (!access.owner && !access.moderator) return true;
+    if (ctx.chat?.type !== "private") return true;
     const telegramId = ctx.message.text.trim().match(/^\d+$/)?.[0];
     if (!telegramId) {
       await ctx.reply("Send the member's numeric Telegram ID.");
@@ -869,6 +938,7 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "SEARCH_TRIGGER_LIBRARY") {
+    if (!access.owner || ctx.chat?.type !== "private") return true;
     await updateCommunityControlTriggerFilters({ actorTelegramId: actorId, searchQuery: ctx.message.text, page: 0 });
     await clearCommunityConversation(group.id, actorId);
     await showTriggerLibrary(ctx, group, access);
@@ -901,7 +971,12 @@ async function handleConversationMessage(
     return true;
   }
   if (conversation.kind === "ADD_TRIGGER") {
-    if (!access.canAddTriggers) return true;
+    if (!canSubmitTriggerPrivately(access, ctx.chat?.type)) {
+      if (!access.canAddTriggers) return true;
+      await deleteMessageQuietly(ctx, ctx.message.message_id);
+      await ctx.api.sendMessage(Number(actorId), "Continue the trigger submission in Beacon's private chat.").catch(() => undefined);
+      return true;
+    }
     const data = jsonData(conversation.data);
     const triggerGroupId = stringValue(data.triggerGroupId);
     if (!triggerGroupId) return true;
@@ -1212,7 +1287,7 @@ async function restartModeratorWizard(ctx: Context, group: CommunityGroup): Prom
 async function saveModeratorWizard(ctx: Context, group: CommunityGroup, config: BeaconConfig, sensitiveConfirmed: boolean): Promise<void> {
   const actorId = String(ctx.from!.id);
   const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
   const conversation = await activeCommunityConversation(group.id, actorId);
   if (!conversation || conversation.kind !== "MODERATOR_WIZARD") return answerCallback(ctx, "This setup expired. Start again.", true);
   const data = wizardData(conversation.data);
@@ -1451,7 +1526,7 @@ async function confirmObserveToggle(ctx: Context, group: CommunityGroup, access:
   await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Beacon mode changed</b>\n${next ? "Observe mode" : "Active moderation"}`);
   await answerCallback(ctx, next ? "Observe mode enabled." : "Automatic moderation enabled.");
   if (ctx.chat?.type === "private") await showPrivateHome(ctx, updated, access, true);
-  else await showGroupHome(ctx, updated, true);
+  else await showGroupHome(ctx, updated, access, true);
 }
 
 async function toggleNewMemberPause(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<void> {
@@ -1460,7 +1535,7 @@ async function toggleNewMemberPause(ctx: Context, group: CommunityGroup, access:
   const audit = await recordCommunityAudit({ groupId: group.id, actorTelegramId: String(ctx.from!.id), action: "NEW_MEMBER_POSTING_CHANGED", details: { enabled: updated.pauseNewMemberPosting, hours: updated.newMemberPauseHours } });
   await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>New-member posting changed</b>\n${updated.pauseNewMemberPosting ? `Paused for ${updated.newMemberPauseHours} hours after joining.` : "Posting allowed."}`);
   await answerCallback(ctx, "Safety control updated.");
-  await editCard(ctx, safetyText(updated), safetyKeyboard(updated));
+  await editCard(ctx, safetyText(updated), safetyKeyboard(updated, access));
 }
 
 async function beginLockdownToggle(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
@@ -1484,7 +1559,7 @@ async function confirmLockdownToggle(ctx: Context, group: CommunityGroup, access
   const audit = await recordCommunityAudit({ groupId: group.id, actorTelegramId: actorId, action: "LOCKDOWN_CHANGED", details: { enabled: next } });
   await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Emergency lockdown ${next ? "activated" : "ended"}</b>`);
   await answerCallback(ctx, next ? "Lockdown activated." : "Lockdown ended.");
-  await editCard(ctx, safetyText(updated), safetyKeyboard(updated));
+  await editCard(ctx, safetyText(updated), safetyKeyboard(updated, access));
 }
 
 async function showTrustedMembers(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
@@ -1526,7 +1601,7 @@ async function cycleSafetySetting(ctx: Context, group: CommunityGroup, access: C
   const audit = await recordCommunityAudit({ groupId: group.id, actorTelegramId: String(ctx.from!.id), action: `SAFETY_${setting}_CHANGED`, details });
   await notifyOwner(botFromContext(ctx), config, group, audit.id, `<b>Safety threshold changed</b>\n${setting.toLowerCase()} · ${escapeHtml(JSON.stringify(details))}`);
   await answerCallback(ctx, "Safety threshold updated.");
-  await editCard(ctx, safetyText(updated), safetyKeyboard(updated));
+  await editCard(ctx, safetyText(updated), safetyKeyboard(updated, access));
 }
 
 async function beginRuleEdit(ctx: Context, group: CommunityGroup, access: CommunityAccess, language: "EN" | "MY"): Promise<void> {
@@ -1537,23 +1612,34 @@ async function beginRuleEdit(ctx: Context, group: CommunityGroup, access: Commun
 }
 
 async function showOpenReports(ctx: Context, group: CommunityGroup): Promise<void> {
-  const reports = await listOpenCommunityReports(group.id);
+  const [reports, total] = await Promise.all([
+    listOpenCommunityReports(group.id),
+    countOpenCommunityReports(group.id),
+  ]);
   const keyboard = new InlineKeyboard();
   for (const report of reports) keyboard.text(`${report.reportCount} · ${report.reportedDisplayName ?? report.reportedUsername ?? "Report"}`, `bc:report:${report.id}`).row();
-  keyboard.text("‹ Beacon", "bc:home");
-  await answerCallback(ctx);
-  await editCard(ctx, [
+  keyboard.text("‹ Home", "bc:home");
+  const text = [
     "<b>Open reports</b>",
-    reports.length ? `${reports.length} report case${reports.length === 1 ? "" : "s"}. Full report cards are also delivered privately.` : "No reports need review."
-  ].join("\n"), keyboard);
+    total ? `${total} report case${total === 1 ? "" : "s"}.` : "No reports need review."
+  ].join("\n");
+  if (ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, keyboard);
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+  }
 }
 
 async function showOpenReport(ctx: Context, group: CommunityGroup, reportId: string): Promise<void> {
   const report = await communityReportById(reportId);
-  if (!report || report.groupId !== group.id || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report is no longer open.", true);
+  if (!report || report.groupId !== group.id || report.status !== CommunityReportStatus.OPEN) {
+    await answerCallback(ctx, "This report is no longer open.", true);
+    return showOpenReports(ctx, group);
+  }
   const presentation = await communityReportPresentation(report);
   await answerCallback(ctx);
-  await editCard(ctx, reportCardText(report, presentation.score, presentation.offences), reportCardKeyboard(report));
+  await editCard(ctx, reportCardText(report, presentation.score), reportCardKeyboard(report));
 }
 
 async function handleMemberReport(ctx: Context, group: CommunityGroup, config: BeaconConfig, reason?: string): Promise<void> {
@@ -1596,7 +1682,7 @@ async function handleMemberReport(ctx: Context, group: CommunityGroup, config: B
 async function deliverReport(bot: Pick<Bot, "api">, config: BeaconConfig, group: CommunityGroup, report: CommunityReport): Promise<void> {
   const destination = group.moderatorReviewChatId ?? config.moderatorChatId ?? config.ownerTelegramId;
   const presentation = await communityReportPresentation(report);
-  const text = reportCardText(report, presentation.score, presentation.offences);
+  const text = reportCardText(report, presentation.score);
   const keyboard = reportCardKeyboard(report);
   if (report.moderatorChatId && report.moderatorMessageId) {
     try {
@@ -1686,7 +1772,7 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     await notifyOwner(botFromContext(ctx), config, offence.group, audit.id, offenceProposalText(offence, report.evidenceText), offenceProposalKeyboard(offence.id, proposedPoints, points));
     await answerCallback(ctx, "Proposal sent to Beacon's owner.");
     const presentation = await communityReportPresentation(report);
-    return editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Score proposed · ${severity.toLowerCase()} · ${proposedPoints}</b>`, reportCardKeyboard(report));
+    return editCard(ctx, `${reportCardText(report, presentation.score)}\n\n<b>Score proposed · ${severity.toLowerCase()} · ${proposedPoints}</b>`, reportCardKeyboard(report));
   }
 
   const decisionMatch = data.match(/^bc:op(a|p|r):(.+)$/);
@@ -1694,7 +1780,7 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     const offence = await communityOffenceById(decisionMatch[2] ?? "");
     if (!offence || offence.status !== "PENDING") return answerCallback(ctx, "This proposal is no longer pending.", true);
     const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     if (decisionMatch[1] === "r") {
       await rejectCommunityOffence(offence.id, actorId);
       await recordCommunityAudit({ groupId: offence.groupId, actorTelegramId: actorId, action: "OFFENCE_SCORE_REJECTED", targetTelegramId: offence.targetTelegramId, details: { offenceId: offence.id } });
@@ -1729,9 +1815,48 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     const offence = await communityOffenceById(data.slice("bc:opban:".length));
     if (!offence || offence.status !== "ACTIVE") return answerCallback(ctx, "This offence is no longer active.", true);
     const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     const score = await communityMemberOffenceScore(offence.groupId, offence.targetTelegramId);
     if (score < offence.group.banScoreThreshold) return answerCallback(ctx, "The member is now below the ban threshold.", true);
+    await startCommunityConversation({
+      groupId: offence.groupId,
+      actorTelegramId: actorId,
+      kind: "OFFENCE_PERMANENT_BAN",
+      step: "CONFIRM",
+      data: { offenceId: offence.id, targetTelegramId: offence.targetTelegramId, score }
+    });
+    await answerCallback(ctx);
+    return editCard(ctx, [
+      "<b>Permanently ban this member?</b>",
+      `User ID: <code>${escapeHtml(offence.targetTelegramId)}</code>`,
+      `Active offence score: <b>${score}</b>`,
+      "",
+      "They cannot rejoin until the owner pardons the ban."
+    ].join("\n"), new InlineKeyboard()
+      .text("Confirm permanent ban", `bc:opbanok:${offence.id}`).row()
+      .text("Cancel", `bc:opd:${offence.id}`));
+  }
+
+  if (data.startsWith("bc:opbanok:")) {
+    const offence = await communityOffenceById(data.slice("bc:opbanok:".length));
+    if (!offence || offence.status !== "ACTIVE") return answerCallback(ctx, "This offence is no longer active.", true);
+    const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
+    const confirmation = await activeCommunityConversation(offence.groupId, actorId);
+    const bound = confirmation?.kind === "OFFENCE_PERMANENT_BAN" ? jsonData(confirmation.data) : {};
+    const score = await communityMemberOffenceScore(offence.groupId, offence.targetTelegramId);
+    if (
+      !confirmation
+      || confirmation.kind !== "OFFENCE_PERMANENT_BAN"
+      || stringValue(bound.offenceId) !== offence.id
+      || stringValue(bound.targetTelegramId) !== offence.targetTelegramId
+      || Number(bound.score) !== score
+      || score < offence.group.banScoreThreshold
+    ) {
+      await answerCallback(ctx, "This confirmation expired or the score changed. Reopen the offence and try again.", true);
+      return editCard(ctx, offenceDetailText(offence), offenceDetailKeyboard(offence, true));
+    }
+    await clearCommunityConversation(offence.groupId, actorId);
     await ctx.api.banChatMember(Number(offence.group.telegramChatId), Number(offence.targetTelegramId));
     await markCommunityOffencePermanentBan(offence.id);
     await recordCommunityAction({ groupId: offence.groupId, actorTelegramId: actorId, targetTelegramId: offence.targetTelegramId, action: CommunityModerationActionType.BAN, source: "OFFENCE_THRESHOLD", reportId: offence.reportId ?? undefined, reason: `Active offence score ${score}`, reversible: true });
@@ -1750,7 +1875,7 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
     if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can view offence history.", true);
     await answerCallback(ctx);
-    return showMemberOffenceHistory(ctx, group, telegramId, access, true);
+    return showMemberOffenceHistory(ctx, group, telegramId, access, true, report?.id);
   }
 
   if (data.startsWith("bc:opd:")) {
@@ -1766,7 +1891,7 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     const offence = await communityOffenceById(data.slice("bc:opreduce:".length));
     if (!offence || offence.status !== "ACTIVE" || offence.appliedPoints === null) return answerCallback(ctx, "This offence cannot be reduced.", true);
     const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     const keyboard = new InlineKeyboard();
     for (let points = 0; points < offence.appliedPoints; points += 1) {
       keyboard.text(String(points), `bc:opset:${points}:${offence.id}`);
@@ -1795,7 +1920,7 @@ async function handleOffenceCallback(ctx: Context, config: BeaconConfig, data: s
     const offence = await communityOffenceById(data.slice("bc:oppardon:".length));
     if (!offence || offence.status !== "ACTIVE") return answerCallback(ctx, "This offence is no longer active.", true);
     const access = await communityAccess(offence.groupId, actorId, config.ownerTelegramId);
-    if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+    if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
     await answerCallback(ctx);
     return editCard(ctx, `${offenceDetailText(offence)}\n\n<b>Pardon this offence?</b>\nIts points will stop counting, but the audit record remains.`, new InlineKeyboard().text("Pardon offence", `bc:oppardonok:${offence.id}`).row().text("Cancel", `bc:opd:${offence.id}`));
   }
@@ -1873,23 +1998,43 @@ async function applyScoreThresholdAction(ctx: Context, group: CommunityGroup, of
 }
 
 async function communityReportPresentation(report: CommunityReport) {
-  if (!report.reportedTelegramId) return { score: 0, offences: [] };
-  const [score, offences] = await Promise.all([
-    communityMemberOffenceScore(report.groupId, report.reportedTelegramId),
-    communityMemberOffences(report.groupId, report.reportedTelegramId, 3)
-  ]);
-  return { score, offences };
+  if (!report.reportedTelegramId) return { score: 0 };
+  return { score: await communityMemberOffenceScore(report.groupId, report.reportedTelegramId) };
+}
+
+async function showReportActions(ctx: Context, config: BeaconConfig, reportId: string): Promise<void> {
+  const report = await communityReportById(reportId);
+  if (!report) {
+    await answerCallback(ctx, "This report is no longer open.", true);
+    return;
+  }
+  const access = await communityAccess(report.groupId, String(ctx.from?.id ?? ""), config.ownerTelegramId);
+  if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can review reports.", true);
+  if (report.status !== CommunityReportStatus.OPEN) {
+    await answerCallback(ctx, "This report is no longer open. Showing the current queue.", true);
+    return showOpenReports(ctx, report.group);
+  }
+  const presentation = await communityReportPresentation(report);
+  await answerCallback(ctx);
+  await editCard(ctx, `${reportCardText(report, presentation.score)}\n\n<b>Take action</b>`, reportActionKeyboard(report, access));
 }
 
 async function handleReportActionCallback(ctx: Context, config: BeaconConfig, data: string): Promise<void> {
+  const confirmedBan = data.startsWith("bc:rpbok:");
   const match = data.match(/^bc:rp:([dwmxb]):(.+)$/);
-  if (!match) return answerCallback(ctx, "Unknown report action.", true);
-  const report = await communityReportById(match[2] ?? "");
-  if (!report || report.status !== CommunityReportStatus.OPEN) return answerCallback(ctx, "This report is already closed.", true);
+  const code = confirmedBan ? "b" : match?.[1];
+  const reportId = confirmedBan ? data.slice("bc:rpbok:".length) : match?.[2];
+  if (!code || !reportId) return answerCallback(ctx, "Unknown report action.", true);
+  const report = await communityReportById(reportId);
+  if (!report) return answerCallback(ctx, "This report is no longer available.", true);
   const actorId = String(ctx.from!.id);
   const access = await communityAccess(report.groupId, actorId, config.ownerTelegramId);
-  const code = match[1] ?? "";
-  if (!reportPermission(access, code)) return answerCallback(ctx, "You do not have permission for that action.", true);
+  if (!access.owner && !access.moderator) return answerCallback(ctx, "Only Beacon moderators can review reports.", true);
+  if (report.status !== CommunityReportStatus.OPEN) {
+    await answerCallback(ctx, "This report is already closed. Showing the current queue.", true);
+    return showOpenReports(ctx, report.group);
+  }
+  if (!canUseReportAction(access, code)) return answerCallback(ctx, "You do not have permission for that action.", true);
   if (report.reportedTelegramId === config.ownerTelegramId) {
     return answerCallback(ctx, "Beacon's owner cannot be moderated by Beacon.", true);
   }
@@ -1897,11 +2042,49 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
     const targetAccess = await communityAccess(report.groupId, report.reportedTelegramId, config.ownerTelegramId);
     if (targetAccess.moderator) return answerCallback(ctx, "Only Beacon's owner can moderate another moderator.", true);
   }
+  if (code === "b" && !confirmedBan) {
+    await startCommunityConversation({
+      groupId: report.groupId,
+      actorTelegramId: actorId,
+      kind: "REPORT_PERMANENT_BAN",
+      step: "CONFIRM",
+      data: {
+        reportId: report.id,
+        sourceChatId: report.sourceChatId,
+        sourceMessageThreadId: report.sourceMessageThreadId,
+      },
+    });
+    await answerCallback(ctx);
+    return editCard(ctx, [
+      "<b>Permanently ban this member?</b>",
+      escapeHtml(report.reportedDisplayName ?? report.reportedUsername ?? report.reportedTelegramId ?? "Unknown member"),
+      report.reportedTelegramId ? `User ID: <code>${escapeHtml(report.reportedTelegramId)}</code>` : "",
+      "",
+      "They will be prevented from rejoining until the owner pardons the ban."
+    ].filter(Boolean).join("\n"), new InlineKeyboard()
+      .text("Confirm permanent ban", `bc:rpbok:${report.id}`).row()
+      .text("‹ Take action", `bc:rpa:${report.id}`));
+  }
+  if (confirmedBan) {
+    const confirmation = await activeCommunityConversation(report.groupId, actorId);
+    const bound = confirmation?.kind === "REPORT_PERMANENT_BAN" ? jsonData(confirmation.data) : {};
+    if (
+      !confirmation
+      || confirmation.kind !== "REPORT_PERMANENT_BAN"
+      || stringValue(bound.reportId) !== report.id
+      || stringValue(bound.sourceChatId) !== report.sourceChatId
+      || (typeof bound.sourceMessageThreadId === "number" ? bound.sourceMessageThreadId : null) !== (report.sourceMessageThreadId ?? null)
+    ) {
+      await answerCallback(ctx, "This confirmation expired. Reopen the report and try again.", true);
+      return showOpenReport(ctx, report.group, report.id);
+    }
+    await clearCommunityConversation(report.groupId, actorId);
+  }
   if (code === "d") {
     await resolveCommunityReport(report.id, CommunityReportStatus.DISMISSED, actorId);
     await answerCallback(ctx, "Report dismissed.");
     const presentation = await communityReportPresentation(report);
-    return editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Dismissed</b>`, new InlineKeyboard());
+    return editCard(ctx, `${reportCardText(report, presentation.score)}\n\n<b>Dismissed</b>`, new InlineKeyboard());
   }
   const action = code === "w" ? CommunityModerationActionType.WARN
     : code === "x" ? CommunityModerationActionType.DELETE
@@ -1935,7 +2118,7 @@ async function handleReportActionCallback(ctx: Context, config: BeaconConfig, da
   await resolveCommunityReport(report.id, CommunityReportStatus.ACTIONED, actorId);
   await answerCallback(ctx, "Action applied.");
   const presentation = await communityReportPresentation(report);
-  await editCard(ctx, `${reportCardText(report, presentation.score, presentation.offences)}\n\n<b>Actioned · ${action}</b>`, reversible
+  await editCard(ctx, `${reportCardText(report, presentation.score)}\n\n<b>Actioned · ${action}</b>`, reversible
     ? new InlineKeyboard().text("Undo", `bc:undo:${recorded.id}`)
     : new InlineKeyboard());
 }
@@ -2159,7 +2342,7 @@ async function beginTopicPurge(ctx: Context, group: CommunityGroup, config: Beac
 }
 
 async function confirmTopicPurge(ctx: Context, group: CommunityGroup, access: CommunityAccess, config: BeaconConfig): Promise<void> {
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
   const actorId = String(ctx.from?.id ?? "");
   const conversation = await activeCommunityConversation(group.id, actorId);
   if (!conversation || !["PURGE_TOPIC", "PURGE_TOPIC_NAME"].includes(conversation.kind) || conversation.step !== "CONFIRM") {
@@ -2213,7 +2396,7 @@ async function confirmTopicPurge(ctx: Context, group: CommunityGroup, access: Co
 }
 
 async function showSeverityRules(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = true): Promise<void> {
-  if (!access.owner) {
+  if (!canUseOwnerMutation(access)) {
     if (ctx.callbackQuery) await answerCallback(ctx, OWNER_ONLY, true);
     else await ctx.reply(OWNER_ONLY);
     return;
@@ -2229,7 +2412,7 @@ async function showSeverityRules(ctx: Context, group: CommunityGroup, access: Co
 }
 
 async function beginSeverityScoreEdit(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
   if (!Object.values(CommunityOffenceSeverity).includes(value as CommunityOffenceSeverity)) return answerCallback(ctx, "Unknown severity.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "EDIT_SEVERITY_SCORE", step: "POINTS", data: { severity: value } });
   await answerCallback(ctx);
@@ -2237,28 +2420,39 @@ async function beginSeverityScoreEdit(ctx: Context, group: CommunityGroup, acces
 }
 
 async function beginThresholdEdit(ctx: Context, group: CommunityGroup, access: CommunityAccess, value: string): Promise<void> {
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+  if (!canUseOwnerMutation(access)) return answerCallback(ctx, OWNER_ONLY, true);
   if (!["WARNING", "MUTE", "BAN"].includes(value)) return answerCallback(ctx, "Unknown threshold.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "EDIT_SCORE_THRESHOLD", step: "POINTS", data: { kind: value } });
   await answerCallback(ctx);
   await editCard(ctx, `<b>${escapeHtml(value.toLowerCase())} threshold</b>\nSend a whole number from 1 to 100. Thresholds must remain ordered.`, new InlineKeyboard().text("Cancel", "bc:cancel"));
 }
 
-async function beginOffenceLookup(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
-  if (!access.owner) return answerCallback(ctx, OWNER_ONLY, true);
+async function beginOffenceLookup(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = true): Promise<void> {
+  if (!access.owner && !access.moderator) {
+    if (ctx.callbackQuery) await answerCallback(ctx, "Only Beacon moderators can view offence history.", true);
+    return;
+  }
+  if (ctx.chat?.type !== "private") return answerCallback(ctx, "Open Beacon's private chat for member history.", true);
   await startCommunityConversation({ groupId: group.id, actorTelegramId: String(ctx.from!.id), kind: "OFFENCE_LOOKUP", step: "TELEGRAM_ID" });
-  await answerCallback(ctx);
-  await editCard(ctx, "<b>Find member offences</b>\nSend the member's numeric Telegram ID.", new InlineKeyboard().text("Cancel", "bc:cancel"));
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, "<b>Members & offences</b>\nSend the member's numeric Telegram ID.", new InlineKeyboard().text("‹ Home", "bc:home"));
+  } else {
+    await ctx.reply("<b>Members & offences</b>\nSend the member's numeric Telegram ID.", {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("‹ Home", "bc:home"),
+    });
+  }
 }
 
-async function showMemberOffenceHistory(ctx: Context, group: CommunityGroup, telegramId: string, access: CommunityAccess, edit: boolean): Promise<void> {
+async function showMemberOffenceHistory(ctx: Context, group: CommunityGroup, telegramId: string, access: CommunityAccess, edit: boolean, reportId?: string): Promise<void> {
   const [score, offences] = await Promise.all([
     communityMemberOffenceScore(group.id, telegramId),
     communityMemberOffences(group.id, telegramId, 10)
   ]);
   const name = offences[0]?.targetDisplayName ?? offences[0]?.targetUsername ?? telegramId;
   const text = memberOffencesText({ name, telegramId, score, offences });
-  const keyboard = memberOffencesKeyboard(telegramId, offences, access.owner);
+  const keyboard = memberOffencesKeyboard(telegramId, offences, access.owner, reportId);
   if (edit && ctx.callbackQuery) await editCard(ctx, text, keyboard);
   else await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
 }
@@ -2305,8 +2499,9 @@ async function selectedCommunityGroup(ctx: Context, config: BeaconConfig): Promi
 
 async function showPrivateHome(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
   const fresh = await communityGroupById(group.id) ?? group;
-  const text = privateBeaconHomeText(fresh);
-  const keyboard = privateBeaconHomeKeyboard(fresh, access.owner);
+  const reviewCount = await countOpenCommunityReports(group.id);
+  const text = privateBeaconHomeText(fresh, access.owner);
+  const keyboard = privateBeaconHomeKeyboard(access, reviewCount);
   if (edit && ctx.callbackQuery) {
     await answerCallback(ctx);
     await editCard(ctx, text, keyboard);
@@ -2315,12 +2510,12 @@ async function showPrivateHome(ctx: Context, group: CommunityGroup, access: Comm
   }
 }
 
-async function showGroupHome(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
+async function showGroupHome(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
   const fresh = await communityGroupById(group.id) ?? group;
   const username = ctx.me.username;
   const privateControlsUrl = `https://t.me/${username}?start=manage_${fresh.id}`;
   const text = groupBeaconHomeText(fresh);
-  const keyboard = groupBeaconHomeKeyboard(privateControlsUrl);
+  const keyboard = groupBeaconHomeKeyboard(access.owner || access.moderator ? privateControlsUrl : undefined);
   if (edit && ctx.callbackQuery) {
     await answerCallback(ctx);
     await editCard(ctx, text, keyboard);
@@ -2329,12 +2524,56 @@ async function showGroupHome(ctx: Context, group: CommunityGroup, edit = false):
   }
 }
 
-async function showMemberHelp(ctx: Context, group: CommunityGroup): Promise<void> {
-  await ctx.reply([
+async function showMemberHelp(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
+  const text = [
     "<b>Beacon</b>",
-    "Reply to a message with <code>report this</code> to report it privately.",
-    "Send <code>rules</code> to view this community's rules."
-  ].join("\n"), { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("Rules", "bc:rules") });
+    "Community moderation and reporting."
+  ].join("\n");
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, publicBeaconKeyboard());
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: publicBeaconKeyboard() });
+  }
+}
+
+async function showReportHelp(ctx: Context, edit = false): Promise<void> {
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, reportHelpText(), new InlineKeyboard().text("‹ Beacon", "bc:public"));
+  } else {
+    await ctx.reply(reportHelpText(), { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("‹ Beacon", "bc:public") });
+  }
+}
+
+async function showPublicRules(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
+  const text = communityRulesText(group);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, text, new InlineKeyboard().text("‹ Beacon", "bc:public"));
+  } else {
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("‹ Beacon", "bc:public") });
+  }
+}
+
+async function showPolicy(ctx: Context, group: CommunityGroup, edit: boolean): Promise<void> {
+  const pending = await listPendingCommunityTriggers(group.id, 100);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, beaconPolicyText(), beaconPolicyKeyboard(pending.length));
+  } else {
+    await ctx.reply(beaconPolicyText(), { parse_mode: "HTML", reply_markup: beaconPolicyKeyboard(pending.length) });
+  }
+}
+
+async function showPendingTriggers(ctx: Context, group: CommunityGroup, edit: boolean): Promise<void> {
+  const pending = await listPendingCommunityTriggers(group.id);
+  if (edit && ctx.callbackQuery) {
+    await answerCallback(ctx);
+    await editCard(ctx, pendingTriggersText(pending), pendingTriggersKeyboard(pending));
+  } else {
+    await ctx.reply(pendingTriggersText(pending), { parse_mode: "HTML", reply_markup: pendingTriggersKeyboard(pending) });
+  }
 }
 
 async function showTriggerLibrary(ctx: Context, group: CommunityGroup, access: CommunityAccess, edit = false): Promise<void> {
@@ -2426,14 +2665,14 @@ async function clearTriggerLibraryFilters(ctx: Context, group: CommunityGroup, a
 }
 
 async function beginPrivateTriggerAdd(ctx: Context, group: CommunityGroup, access: CommunityAccess): Promise<void> {
-  if (ctx.chat?.type !== "private") {
+  if (!canSubmitTriggerPrivately(access, ctx.chat?.type)) {
+    if (ctx.chat?.type === "private") {
+      if (ctx.callbackQuery) await answerCallback(ctx, "You cannot add triggers.", true);
+      else await ctx.reply("You cannot add triggers.");
+      return;
+    }
     if (ctx.callbackQuery) await answerCallback(ctx, "Add triggers in Beacon's private chat.", true);
     else await ctx.reply("Add triggers in Beacon's private chat.");
-    return;
-  }
-  if (!access.canAddTriggers) {
-    if (ctx.callbackQuery) await answerCallback(ctx, "You cannot add triggers.", true);
-    else await ctx.reply("You cannot add triggers.");
     return;
   }
   if (!access.owner) {
@@ -2454,14 +2693,6 @@ async function beginPrivateTriggerAdd(ctx: Context, group: CommunityGroup, acces
     await answerCallback(ctx);
     await editCard(ctx, "<b>Add trigger</b>\nChoose its trigger group. The group's action determines how Beacon responds.", keyboard);
   } else await ctx.reply("Choose a trigger group:", { reply_markup: keyboard });
-}
-
-async function showHome(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
-  const fresh = await communityGroupById(group.id) ?? group;
-  if (edit) {
-    await answerCallback(ctx);
-    await editCard(ctx, beaconHomeText(fresh), beaconHomeKeyboard(fresh));
-  } else await ctx.reply(beaconHomeText(fresh), { parse_mode: "HTML", reply_markup: beaconHomeKeyboard(fresh) });
 }
 
 async function showModerators(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
@@ -2505,15 +2736,22 @@ async function showTrigger(ctx: Context, group: CommunityGroup, access: Communit
   }));
 }
 
-async function showRules(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
-  const text = [
+function communityRulesText(group: CommunityGroup): string {
+  return [
     "<b>Community rules</b>",
     group.rulesEnglish?.trim() || "Be respectful, stay relevant, protect personal information, and do not advertise or mislead members.",
     "",
     group.rulesBurmese?.trim() || "အချင်းချင်း လေးစားပါ။ သက်ဆိုင်ရာ အကြောင်းအရာများကိုသာ မျှဝေပြီး ကိုယ်ရေးအချက်အလက်များကို ကာကွယ်ပါ။ ကြော်ငြာခြင်းနှင့် လှည့်ဖြားခြင်း မပြုလုပ်ပါနှင့်။"
   ].join("\n");
-  if (edit) await editCard(ctx, text, new InlineKeyboard().text("Edit English", "bc:rule:en").text("Edit Burmese", "bc:rule:my").row().text("‹ Beacon", "bc:home"));
-  else await ctx.reply(text, { parse_mode: "HTML" });
+}
+
+async function showRules(ctx: Context, group: CommunityGroup, edit = false, access?: CommunityAccess): Promise<void> {
+  const text = communityRulesText(group);
+  const keyboard = new InlineKeyboard();
+  if (access?.canEditRules) keyboard.text("Edit English", "bc:rule:en").text("Edit Burmese", "bc:rule:my").row();
+  keyboard.text(access?.owner ? "‹ Policy" : "‹ Home", access?.owner ? "bc:policy" : "bc:home");
+  if (edit) await editCard(ctx, text, keyboard);
+  else await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
 }
 
 async function sendPermissionQuestion(ctx: Context, data: WizardData): Promise<void> {
@@ -2631,15 +2869,6 @@ function writablePermissions() {
     can_pin_messages: false,
     can_manage_topics: false
   };
-}
-
-function reportPermission(access: CommunityAccess, code: string): boolean {
-  if (access.owner) return true;
-  if (code === "d") return Boolean(access.moderator);
-  if (code === "w") return access.canWarn;
-  if (code === "x") return access.canDelete;
-  if (code === "m") return access.canMute;
-  return access.canBan;
 }
 
 function actionChoice(code: string): ActionChoice | undefined {
