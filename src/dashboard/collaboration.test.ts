@@ -16,7 +16,7 @@ describe("dashboard collaboration permissions", () => {
       groupWorkspace: {
         findUnique: vi.fn(async () => ({
           id: "workspace-1",
-          ownerUser: { id: "group-owner-1" },
+          ownerUser: { id: "group-owner-1", telegramId: "9999" },
           members: [
             { telegramId: "1001", username: "henry", firstName: "Henry", lastName: null, status: GroupMemberStatus.ACTIVE },
             { telegramId: "2002", username: "alex", firstName: "Alex", lastName: null, status: GroupMemberStatus.ACTIVE }
@@ -30,6 +30,9 @@ describe("dashboard collaboration permissions", () => {
           title: "Prepare launch notes",
           assignees: []
         }))
+      },
+      groupActivity: {
+        findFirst: vi.fn(async () => ({ actorTelegramId: "9999" }))
       },
       $transaction: transaction
     } as unknown as PrismaClient;

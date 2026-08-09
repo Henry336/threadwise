@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Progressive Telegram interaction hierarchy
+- Reworked ordinary Telegram cards around one immediate decision, no more than three visible actions, and no more than two rows. Secondary editing, starring, archiving, assignment, and other management controls now live in exact dashboard deep links.
+- Replaced default numbered list keypads with `Choose an item`, `View all`, and pagination. Choosing an item temporarily reveals numbered controls with a direct Back action, preserving complete Telegram browsing without showing every control at once.
+- Simplified group assignments to immediate assignment, unassigned claiming, completion, snoozing, reassignment by the task creator or a verified current Telegram administrator, and read-only viewing for everyone else. Accept, decline, block, and handoff remain graceful legacy inputs but no longer mutate state.
+- Added a permanent group-dashboard action to the compact group home and exact task, note, idea, image, and TODO-review links that select the correct workspace and open the intended record or batch.
+- Condensed TODO review cards to three preview rows plus a remainder count and `Review & edit`, `Import`, and `Cancel`. Repeated imports remain idempotent through durable import-item keys and imported-state checks.
+- Added a migration that normalizes legacy assignment states to accepted while retaining the historical activity audit, plus focused button-budget, authorization, deep-link, list-selection, legacy-compatibility, and import tests.
+
 ### Beacon offence ledger and owner-only topic purge
 - Added an owner-confirmed offence ledger to every configured Beacon community. Report cards now preserve the flagged text, topic, member identity, numeric Telegram ID, current score, and recent offence history for moderator review.
 - Added moderator proposals for offence severity and per-incident points. The immutable owner remains the only person who can confirm or reject a score, change the points assigned to each severity, or change warning, mute, and permanent-ban thresholds.

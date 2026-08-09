@@ -49,6 +49,8 @@ const collaborationTelegramId = z.string().regex(/^[1-9]\d{0,19}$/);
 export const taskCollaborationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assign"), targetTelegramId: collaborationTelegramId }).strict(),
   z.object({ action: z.literal("unassign"), assigneeId: z.string().uuid() }).strict(),
+  z.object({ action: z.literal("claim") }).strict(),
+  // Retained so old dashboard clients fail gracefully instead of surfacing a schema error.
   z.object({ action: z.literal("accept"), assigneeId: collaborationAssigneeId }).strict(),
   z.object({ action: z.literal("decline"), assigneeId: collaborationAssigneeId, reason: collaborationReason }).strict(),
   z.object({ action: z.literal("block"), assigneeId: collaborationAssigneeId, reason: collaborationReason }).strict(),

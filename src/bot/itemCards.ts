@@ -26,7 +26,8 @@ export async function buildItemCard(
   timezone = "UTC",
   heading?: string,
   includeDefaultBack = true,
-  requestedNotePage = 1
+  requestedNotePage = 1,
+  workspaceId?: string,
 ) {
   if (kind === "task") {
     const task = await findTaskReference(userId, reference);
@@ -66,7 +67,7 @@ export async function buildItemCard(
       keyboard: itemActionsKeyboard("note", note, includeDefaultBack, {
         page,
         totalPages: pages.length
-      }),
+      }, workspaceId),
       notePage: { page, totalPages: pages.length }
     };
   }
@@ -81,7 +82,7 @@ export async function buildItemCard(
     idea.tags.length ? `#${idea.tags.map((tag) => h(tag)).join("  #")}` : undefined,
     idea.pinnedAt ? "⭐ Starred" : undefined
   ]);
-  return { text, keyboard: itemActionsKeyboard("idea", idea, includeDefaultBack) };
+  return { text, keyboard: itemActionsKeyboard("idea", idea, includeDefaultBack, undefined, workspaceId) };
 }
 
 export function buildArchivedNoteCard(

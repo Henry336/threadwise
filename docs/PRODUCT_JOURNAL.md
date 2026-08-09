@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-06
+Updated: 2026-08-09
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -10,6 +10,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Entries from 22 July 2026 onward are contemporaneous unless explicitly labelled otherwise.
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
+
+## 9 August 2026 - Shared work needs progressive disclosure, not a wall of controls
+
+**Friction discovered:** A tester found Threadwise's task and TODO interfaces overstimulating because Telegram exposed assignment states, editing tools, list selectors, navigation, and secondary actions simultaneously. Accepting or blocking an assignment added ceremony without changing who owned the work; member-to-member handoff also weakened creator/admin control. Generic dashboard links then made the escape hatch less useful because people still had to find the relevant record again.
+
+**Decision:** Adopt `One message, one decision`. Keep ordinary cards to three immediate actions and two rows, expose numbered controls only after an explicit choice, and use exact dashboard links for secondary management. Treat assignment as immediate. Preserve claiming for unassigned work, but reserve reassignment for the task creator or a currently verified Telegram group administrator. Retain old callbacks and language as graceful compatibility paths without preserving obsolete state transitions.
+
+**Implementation:** Added contextual personal/group task keyboards, collapsed list controls, compact group-home navigation, exact record and TODO-review deep links, creator/assignee/admin authorization shared by Telegram and dashboard mutations, claim race protection, immediate accepted assignments, legacy-state normalization, and a three-row TODO preview with an idempotent import path. The group dashboard removed acceptance, blocking, and handoff controls while retaining live data and in-place editing for authorized actors.
+
+**Outcome/evidence:** Backend typechecking, focused authorization/navigation/import tests, and the dashboard production build pass. The new tests explicitly verify button budgets, selection expansion and Back, group task audiences, role restrictions, and exact deep-link targets.
+
+**Follow-up:** Live-test one private task, one unassigned group claim, one creator reassignment, one unauthorized member attempt, one legacy task card, and one repeated TODO import. Use feedback to tune labels, not to restore simultaneous secondary controls.
 
 ## 6 August 2026 - Moderation history needs accountable escalation, not an opaque blacklist
 

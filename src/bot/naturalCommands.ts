@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { InputFile } from "grammy";
-import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
+import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
@@ -17,7 +17,8 @@ import {
 import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
 import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
-import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
+import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -29,7 +30,7 @@ import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl,
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
@@ -65,6 +66,10 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       return true;
     }
     try {
+      if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+        await ctx.reply("Bulk task changes are reserved for current Telegram group administrators. Open an assigned task to update it individually.");
+        return true;
+      }
       const preview = await createBulkActionPreview(user.id, String(ctx.from.id), bulkRequest);
       await replyHtml(ctx, formatBulkActionPreview(preview), {
         reply_markup: bulkActionConfirmationKeyboard(preview.pending.id)
@@ -138,14 +143,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (isGroupChat(ctx) && /^(?:show |list |open )?(?:unassigned tasks|tasks with no owner|tasks without an owner)$/.test(lower)) {
-    const tasks = (await listOpenTasks(user.id)).filter((task) => !task.assignees?.length || task.assignees.every((assignee) => assignee.status === TaskAssigneeStatus.DECLINED));
+    const tasks = (await listOpenTasks(user.id)).filter((task) => !task.assignees?.length);
     await replyFilteredGroupTasks(ctx, tasks, user.settings?.timezone ?? "UTC", "Unassigned tasks");
     return true;
   }
 
   if (isGroupChat(ctx) && /^(?:show |list |open )?(?:blocked tasks|blockers|what(?:'s| is) blocked)$/.test(lower)) {
-    const tasks = (await listOpenTasks(user.id)).filter((task) => task.assignees?.some((assignee) => assignee.status === TaskAssigneeStatus.BLOCKED));
-    await replyFilteredGroupTasks(ctx, tasks, user.settings?.timezone ?? "UTC", "Blocked tasks");
+    await ctx.reply("Blocked is no longer a task status. Keep blockers in each task's details so the assignment remains clear.");
     return true;
   }
 
@@ -376,6 +380,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const restoreMatch = trimmed.match(/^(?:restore|recover|bring back)\s+(?:(?:archived|my)\s+)?(?:(?:task|note|idea)\s+)?(\S+)$/i);
   if (restoreMatch?.[1]) {
+    if (isGroupChat(ctx) && looksLikeTaskReference(restoreMatch[1])) {
+      await assertNaturalGroupTaskAction(ctx, user.id, restoreMatch[1], "manage");
+    }
     const message = await restoreArchivedItem(user.id, normalizePublicId(restoreMatch[1]));
     await replyHtml(ctx, message ?? "I couldn't find that archived item. Try archived notes, archived ideas, or archived tasks.");
     return true;
@@ -420,11 +427,16 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewNoteMatch?.[1]) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(viewNoteMatch[1]));
+      const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
       const card = await buildItemCard(
         user.id,
         "note",
         note.publicId,
-        user.settings?.timezone ?? "UTC"
+        user.settings?.timezone ?? "UTC",
+        undefined,
+        true,
+        1,
+        workspace?.id,
       );
       await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
@@ -444,7 +456,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (viewIdeaMatch?.[1] && /^(\d+|IDEA-\d+)$/i.test(viewIdeaMatch[1])) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
-      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+      const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -463,7 +476,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (ideaListMatch?.[1]) {
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
-      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+      const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -482,39 +496,42 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
             quietHoursStart: user.settings.quietHoursStart,
             quietHoursEnd: user.settings.quietHoursEnd
           }
-        : undefined), { reply_markup: taskActionsKeyboard(task, true, isGroupChat(ctx)) });
+        : undefined), { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForNaturalCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) });
     } catch {
       await ctx.reply("I couldn't find that task. tasks will show the current list.");
     }
     return true;
   }
 
-  const assignmentStatusMatch = trimmed.match(/^(?:accept|acknowledge|take)\s+(?:the\s+)?(?:assignment\s+for\s+)?(?:task\s+)?(\S+)$/i)
-    ?? trimmed.match(/^i(?:'m|\s+am)\s+(?:on|taking|handling)\s+(?:task\s+)?(\S+)$/i)
+  const claimMatch = trimmed.match(/^(?:claim|take|pick\s+up)\s+(?:the\s+)?(?:unassigned\s+)?(?:task\s+)?(\S+)$/i)
     ?? trimmed.match(/^i(?:'ll|\s+will)\s+(?:take|handle)\s+(?:task\s+)?(\S+)$/i);
+  if (isGroupChat(ctx) && claimMatch?.[1]) {
+    const task = await claimGroupTask(user.id, claimMatch[1], collaborationActorFromContext(ctx));
+    await replyHtml(ctx, `${bold("Task claimed")} ${code(task.publicId)}\n${h(task.title)}`);
+    return true;
+  }
+
+  const assignmentStatusMatch = trimmed.match(/^(?:accept|acknowledge)\s+(?:the\s+)?(?:assignment\s+for\s+)?(?:task\s+)?(\S+)$/i)
+    ?? trimmed.match(/^i(?:'m|\s+am)\s+(?:on|taking|handling)\s+(?:task\s+)?(\S+)$/i);
   const declineAssignmentMatch = trimmed.match(/^(?:decline|pass on|cannot take|can't take)\s+(?:the\s+)?(?:assignment\s+for\s+)?(?:task\s+)?(\S+)(?:\s+(?:because|since)\s+(.+))?$/i);
   const blockAssignmentMatch = trimmed.match(/^(?:block|mark)\s+(?:task\s+)?(\S+)\s+(?:as\s+)?blocked(?:\s+(?:because|on|by)\s+(.+))?$/i)
     ?? trimmed.match(/^block\s+(?:task\s+)?(\S+)(?:\s+(?:because|on|by)\s+(.+))?$/i)
     ?? trimmed.match(/^i(?:'m|\s+am)\s+blocked\s+(?:on\s+)?(?:task\s+)?(\S+)(?:\s+(?:because|by)\s+(.+))?$/i);
   const unblockAssignmentMatch = trimmed.match(/^(?:unblock|clear\s+(?:the\s+)?blocker\s+(?:on|for))\s+(?:task\s+)?(\S+)$/i);
   if (isGroupChat(ctx) && assignmentStatusMatch?.[1]) {
-    const task = await setTaskAssignmentStatus(user.id, assignmentStatusMatch[1], collaborationActorFromContext(ctx), TaskAssigneeStatus.ACCEPTED);
-    await replyHtml(ctx, `${bold("Assignment accepted")} ${code(task.publicId)}\n${h(task.title)}`);
+    await ctx.reply("Assignments now take effect immediately. Use “claim TASK-1” only when a task is unassigned.");
     return true;
   }
   if (isGroupChat(ctx) && declineAssignmentMatch?.[1]) {
-    const task = await setTaskAssignmentStatus(user.id, declineAssignmentMatch[1], collaborationActorFromContext(ctx), TaskAssigneeStatus.DECLINED, declineAssignmentMatch[2]);
-    await replyHtml(ctx, `${bold("Assignment declined")} ${code(task.publicId)}${declineAssignmentMatch[2] ? `\n${h(declineAssignmentMatch[2])}` : ""}`);
+    await ctx.reply("Declining assignments was removed. Ask the task creator or a current group administrator to reassign it.");
     return true;
   }
   if (isGroupChat(ctx) && blockAssignmentMatch?.[1]) {
-    const task = await setTaskAssignmentStatus(user.id, blockAssignmentMatch[1], collaborationActorFromContext(ctx), TaskAssigneeStatus.BLOCKED, blockAssignmentMatch[2]);
-    await replyHtml(ctx, `${bold("Task blocked")} ${code(task.publicId)}${blockAssignmentMatch[2] ? `\n${h(blockAssignmentMatch[2])}` : ""}`);
+    await ctx.reply("Blocked is no longer an assignment state. Add the blocker to the task details so the work stays assigned.");
     return true;
   }
   if (isGroupChat(ctx) && unblockAssignmentMatch?.[1]) {
-    const task = await setTaskAssignmentStatus(user.id, unblockAssignmentMatch[1], collaborationActorFromContext(ctx), TaskAssigneeStatus.ACCEPTED);
-    await replyHtml(ctx, `${bold("Blocker cleared")} ${code(task.publicId)}\n${h(task.title)}`);
+    await ctx.reply("Blocked is no longer an assignment state. Edit the task details when the blocker is resolved.");
     return true;
   }
 
@@ -523,6 +540,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|completed|finished)$/i)
     ?? trimmed.match(/^i(?:'ve|\s+have)?\s+(?:done|completed|finished|checked\s+off)\s+(?:task\s+)?(\S+)$/i);
   if (doneMatch?.[1]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, doneMatch[1], "complete");
     const completion = await completeTask(user.id, normalizePublicId(doneMatch[1]));
     if (completion.alreadyCompleted) {
       await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
@@ -539,6 +557,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const snoozeMatch = trimmed.match(/^(?:snooze|delay|pause|put\s+off)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i)
     ?? trimmed.match(/^(?:remind|nudge)\s+me\s+(?:about\s+)?(?:task\s+)?(\S+)\s+(?:again\s+)?(?:in|after)\s+(.+)$/i);
   if (snoozeMatch?.[1]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, snoozeMatch[1], "snooze");
     const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
     await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
     return true;
@@ -549,6 +568,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^(?:make|set)\s+(?:task\s+)?(\S+)\s+due\s+(.+)$/i)
     ?? trimmed.match(/^(?:task\s+)?(\S+)\s+(?:is|should\s+be)\s+due\s+(.+)$/i);
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, rescheduleMatch[1], "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
     return true;
@@ -556,24 +576,14 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   const handoffMatch = trimmed.match(/^(?:hand\s*off|handover|pass)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i);
   if (isGroupChat(ctx) && handoffMatch?.[1] && handoffMatch[2]) {
-    const reasonParts = handoffMatch[2].match(/^(.+?)\s+(?:because|since)\s+(.+)$/i);
-    const targetText = reasonParts?.[1] ?? handoffMatch[2];
-    const reason = reasonParts?.[2];
-    const task = await handoffTaskAssignment(
-      user.id,
-      handoffMatch[1],
-      collaborationActorFromContext(ctx),
-      targetText,
-      taskCreationOptionsFromContext(ctx, targetText),
-      reason,
-    );
-    await replyHtml(ctx, `${bold("Task handed off")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${reason ? `\n${h(reason)}` : ""}`);
+    await ctx.reply("Task handoffs were removed. The task creator or a current Telegram group administrator can reassign it with “assign TASK-1 to @username”.");
     return true;
   }
 
   const assignment = parseNaturalTaskAssignment(trimmed);
   if (assignment) {
     const [reference, assignee] = assignment;
+    await assertNaturalGroupTaskAction(ctx, user.id, reference, "manage");
     const task = await assignTask(user.id, normalizePublicId(reference), assignee, taskCreationOptionsFromContext(ctx, assignee));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
@@ -587,6 +597,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const removeOneAssignee = trimmed.match(/^(?:unassign|remove)\s+(.+?)\s+from\s+(?:task\s+)?(\S+)$/i);
   const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignees? (?:from|on))\s+(?:task\s+)?(\S+)$/i);
   if (removeOneAssignee?.[1] && removeOneAssignee[2]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, removeOneAssignee[2], "manage");
     const task = await unassignTask(user.id, normalizePublicId(removeOneAssignee[2]), removeOneAssignee[1], taskCreationOptionsFromContext(ctx, removeOneAssignee[1]));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
@@ -596,6 +607,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     return true;
   }
   if (unassignMatch?.[1]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, unassignMatch[1], "manage");
     const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
@@ -608,6 +620,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i)
     ?? trimmed.match(/^i\s+(?:don't|do\s+not)\s+need\s+(?:task\s+)?(\S+)\s+anymore$/i);
   if (cancelMatch?.[1]) {
+    await assertNaturalGroupTaskAction(ctx, user.id, cancelMatch[1], "manage");
     const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
     await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
     return true;
@@ -619,6 +632,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     ?? trimmed.match(/^make\s+(?:task\s+)?(.+)\s+important$/i);
   const pinMatch = trimmed.match(/^(pin|star|important|unpin|unstar)\s+(?:task\s+|note\s+|idea\s+)?(.+)$/i);
   if (removeImportantMatch?.[1]) {
+    if (isGroupChat(ctx) && looksLikeTaskReference(removeImportantMatch[1])) {
+      await assertNaturalGroupTaskAction(ctx, user.id, removeImportantMatch[1], "manage");
+    }
     const item = await pinItem(user.id, normalizePublicId(removeImportantMatch[1]), false);
     await replyHtml(ctx, `${formatPinResult(item, false)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
     return true;
@@ -626,6 +642,9 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (markImportantMatch?.[1] || (pinMatch?.[1] && pinMatch[2])) {
     const shouldPin = Boolean(markImportantMatch) || ["pin", "star", "important"].includes(pinMatch?.[1]?.toLowerCase() ?? "");
     const reference = markImportantMatch?.[1] ?? pinMatch?.[2] ?? "";
+    if (isGroupChat(ctx) && looksLikeTaskReference(reference)) {
+      await assertNaturalGroupTaskAction(ctx, user.id, reference, "manage");
+    }
     const item = await pinItem(user.id, normalizePublicId(reference), shouldPin);
     await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
     return true;
@@ -654,6 +673,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (renameParsed) {
     if (renameParsed.field === "description") {
       const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+      await assertNaturalGroupTaskAction(ctx, user.id, taskReference, "manage");
       const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), renameParsed.title);
     await replyHtml(ctx, `${bold("✅ Task details updated")} ${code(task.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
       return true;
@@ -686,6 +706,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     }
 
     const taskReference = renameParsed.reference.toLowerCase().startsWith("task ") ? renameParsed.reference.slice(5) : renameParsed.reference;
+    await assertNaturalGroupTaskAction(ctx, user.id, taskReference, "manage");
     const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), renameParsed.title);
     await replyHtml(ctx, `${bold("✅ Task renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
     return true;
@@ -853,6 +874,39 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   return false;
+}
+
+function looksLikeTaskReference(reference: string): boolean {
+  const normalized = reference.trim();
+  return /^\d+$/.test(normalized)
+    || /^TASK-\d+$/i.test(normalized)
+    || /^task\s+/i.test(normalized);
+}
+
+async function assertNaturalGroupTaskAction(
+  ctx: Context,
+  ownerUserId: string,
+  reference: string,
+  action: "complete" | "snooze" | "manage",
+): Promise<void> {
+  if (!isGroupChat(ctx)) return;
+  await assertGroupTaskAction(
+    ownerUserId,
+    reference,
+    collaborationActorFromContext(ctx),
+    await isGroupManager(ctx),
+    action,
+  );
+}
+
+async function groupTaskKeyboardForNaturalCommand(ctx: Context, ownerUserId: string, taskReference: string) {
+  const access = await getGroupTaskAccess(
+    ownerUserId,
+    taskReference,
+    collaborationActorFromContext(ctx),
+    await isGroupManager(ctx),
+  );
+  return groupTaskActionsKeyboard(access.task.id, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
 async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId: string, reference: string) {

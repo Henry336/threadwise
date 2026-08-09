@@ -1,6 +1,6 @@
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
-import { DASHBOARD_URL, groupDashboardUrl } from "./links";
+import { DASHBOARD_URL, dashboardViewUrl, groupDashboardItemUrl, groupDashboardUrl } from "./links";
 
 type TaskActionTarget = string | Pick<TaskListItem, "id" | "pinnedAt" | "dueAt" | "calendarEventId" | "calendarEventUrl">;
 type ItemKind = "task" | "note" | "idea";
@@ -10,7 +10,10 @@ export type ActiveListNavigation = {
   page: number;
   totalPages: number;
   numberOffset: number;
+  workspaceId?: string;
 };
+
+export type GroupTaskAudience = "unassigned" | "assignee" | "manager" | "other";
 
 export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -22,16 +25,27 @@ export function startMenuKeyboard(): InlineKeyboard {
 
 export function groupStartMenuKeyboard(workspaceId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("Find a time", "menu:find-time").row()
-    .text("📋 Shared tasks", "menu:tasks").text("📝 Shared notes", "menu:notes").row()
-    .text("💡 Shared ideas", "menu:ideas").text("🖼️ Shared images", "menu:images").row()
-    .text("🔎 Search", "menu:search").text("❓ Group help", "menu:help").row();
+    .text("Shared work", "menu:tasks").text("Capture & recall", "menu:group-library").row()
+    .text("Find a time", "menu:find-time").text("Search", "menu:search").row();
   if (workspaceId) {
-    keyboard.url("🌐 Group dashboard", groupDashboardUrl(workspaceId)).text("⚙️ Group settings", "menu:settings").row();
-  } else {
-    keyboard.text("⚙️ Group settings", "menu:settings").row();
+    keyboard.url("Open group dashboard ↗", groupDashboardUrl(workspaceId)).row();
   }
-  return keyboard;
+  return keyboard.text("More", "menu:group-more");
+}
+
+export function groupLibraryMenuKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("Notes", "menu:notes").text("Ideas", "menu:ideas").row()
+    .text("Images", "menu:images").text("Search", "menu:search").row();
+  if (workspaceId) keyboard.url("Open library ↗", groupDashboardUrl(workspaceId, "library")).row();
+  return keyboard.text("‹ Group menu", "menu:home");
+}
+
+export function groupMoreMenuKeyboard(workspaceId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("Help", "menu:help").text("Settings", "menu:settings").row();
+  if (workspaceId) keyboard.url("Open group dashboard ↗", groupDashboardUrl(workspaceId)).row();
+  return keyboard.text("‹ Group menu", "menu:home");
 }
 
 export const PRIVATE_MENU_LABELS = {
@@ -67,7 +81,7 @@ export function dashboardLinkKeyboard(): InlineKeyboard {
 }
 
 export function groupDashboardLinkKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard().url("Open shared group dashboard", groupDashboardUrl(workspaceId));
+  return new InlineKeyboard().url("Open group dashboard ↗", groupDashboardUrl(workspaceId));
 }
 
 export function tasksModeKeyboard(): InlineKeyboard {
@@ -328,30 +342,40 @@ export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | 
 export function taskActionsKeyboard(
   task: TaskActionTarget,
   includeBack = true,
-  includeCollaboration = false,
+  _includeCollaboration = false,
   includeFullReminder = false
 ): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
-  const isPinned = typeof task === "string" ? false : Boolean(task.pinnedAt);
-
   const keyboard = new InlineKeyboard()
     .text("✅ Done", `task:done:${taskId}`)
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row();
-  const hasDueDate = typeof task !== "string" && Boolean(task.dueAt);
-  const isCalendarLinked = typeof task !== "string" && Boolean(task.calendarEventId);
-  if (hasDueDate && !includeCollaboration) {
-    keyboard.text(isCalendarLinked ? "✓ Calendar" : "📅 Calendar", `task:calendar:${taskId}`)
-      .text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`).row();
-  } else {
-    keyboard.text(isPinned ? "☆ Unstar" : "⭐ Star", `item:task:${isPinned ? "unpin" : "pin"}:${taskId}`).row();
-  }
-  keyboard.text("✏️ Title", `item:task:edit:title:${taskId}`)
-    .text("📝 Details", `item:task:edit:description:${taskId}`);
-  if (includeFullReminder) keyboard.row().text("📖 View full", `task:view-full:${taskId}`);
-  if (includeCollaboration) addTaskCollaborationActions(keyboard, taskId);
-  keyboard.row().text("🗑 Cancel", `task:cancel:${taskId}`);
+  keyboard.webApp(includeFullReminder ? "View task ↗" : "Manage task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }));
   if (includeBack) keyboard.text("‹ Tasks", "menu:tasks");
+  return keyboard;
+}
+
+export function groupTaskActionsKeyboard(
+  taskId: string,
+  audience: GroupTaskAudience,
+  workspaceId: string,
+  expanded = false,
+  backCallback = "menu:tasks",
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (audience === "unassigned") {
+    keyboard.text("Claim", `task:claim:${taskId}`).text("View", `task:view-full:${taskId}`);
+    return keyboard;
+  }
+  if (audience === "assignee" || audience === "manager") {
+    keyboard.text("Done", `task:done:${taskId}`).text("Snooze", `task:snooze:${taskId}`).row();
+  }
+  if (!expanded) {
+    keyboard.text("View", `task:view-full:${taskId}`);
+    return keyboard;
+  }
+  keyboard.url(audience === "manager" ? "Manage task ↗" : "Open task ↗", groupDashboardItemUrl(workspaceId, "tasks", "task", taskId));
+  keyboard.text("‹ Back", backCallback);
   return keyboard;
 }
 
@@ -360,38 +384,38 @@ export function reminderActionsKeyboard(task: TaskActionTarget, includeCollabora
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
-  return taskActionsKeyboard(task, true, includeCollaboration)
-    .row()
+  return taskActionsKeyboard(task, false, includeCollaboration)
     .text("↩️ Undo save", "undo:last");
 }
 
 export function addTaskCollaborationActions(keyboard: InlineKeyboard, taskId: string): InlineKeyboard {
-  return keyboard
-    .row()
-    .text("🤝 Accept mine", `task:accept:${taskId}`)
-    .text("⛔ Block mine", `task:block:${taskId}`);
+  return keyboard.row().text("View assignment", `task:view-full:${taskId}`);
 }
 
-export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation, selecting = false): InlineKeyboard | undefined {
   if (tasks.length === 0) {
     return undefined;
   }
 
   const keyboard = new InlineKeyboard();
-  const visibleTasks = tasks.slice(0, maxButtons);
-  for (const [index, task] of visibleTasks.entries()) {
-    const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard.text(String(number), `item:task:open:${task.id}:${navigation?.page ?? 1}`);
+  if (selecting) {
+    const visibleTasks = tasks.slice(0, maxButtons);
+    for (const [index, task] of visibleTasks.entries()) {
+      const number = (navigation?.numberOffset ?? 0) + index + 1;
+      keyboard.text(String(number), `item:task:open:${task.id}:${navigation?.page ?? 1}`);
+    }
+    keyboard.row().text("‹ Back", `list:tasks:${navigation?.page ?? 1}`);
+    return keyboard;
   }
-
-  appendActiveListNavigation(keyboard, navigation, "tasks");
+  keyboard.text("Choose an item", `list:choose:tasks:${navigation?.page ?? 1}`)
+    .url("View all ↗", navigation?.workspaceId ? groupDashboardUrl(navigation.workspaceId, "tasks") : dashboardViewUrl("tasks"));
+  appendActiveListNavigation(keyboard, navigation);
 
   return keyboard;
 }
 
 export function itemCreatedKeyboard(kind: Exclude<ItemKind, "task">, item: ItemActionTarget): InlineKeyboard {
-  return itemActionsKeyboard(kind, item)
-    .row()
+  return itemActionsKeyboard(kind, item, false)
     .text("↩️ Undo save", "undo:last");
 }
 
@@ -417,11 +441,9 @@ export function itemActionsKeyboard(
   kind: ItemKind,
   item: ItemActionTarget,
   includeBack = true,
-  notePage?: { page: number; totalPages: number }
+  notePage?: { page: number; totalPages: number },
+  workspaceId?: string,
 ): InlineKeyboard {
-  const action = item.pinnedAt ? "unpin" : "pin";
-  const bodyField = kind === "task" ? "description" : kind === "note" ? "body" : "concept";
-  const bodyLabel = kind === "task" ? "details" : bodyField;
   const keyboard = new InlineKeyboard();
   if (kind === "note" && notePage && notePage.totalPages > 1) {
     if (notePage.page > 1) keyboard.text("←", `item:note:page:${item.id}:${notePage.page - 1}`);
@@ -429,43 +451,35 @@ export function itemActionsKeyboard(
     if (notePage.page < notePage.totalPages) keyboard.text("→", `item:note:page:${item.id}:${notePage.page + 1}`);
     keyboard.row();
   }
-  keyboard
-    .text(item.pinnedAt ? "☆ Unstar" : "⭐ Star", `item:${kind}:${action}:${item.id}`)
-    .text("✏️ Title", `item:${kind}:edit:title:${item.id}`)
-    .text(`📝 ${bodyLabel.charAt(0).toUpperCase()}${bodyLabel.slice(1)}`, `item:${kind}:edit:${bodyField}:${item.id}`);
-
-  if (kind === "note") {
-    keyboard.row().text("🗃 Archive", `item:note:archive:${item.id}`);
-  }
-
-  if (kind === "idea") {
-    keyboard.row()
-      .text("✨ Idea brief", `item:idea:brief:${item.id}`)
-      .text("🧠 Develop", `gemini-idea:develop:${item.id}`);
-    keyboard.row()
-      .text("🥊 Challenge", `gemini-idea:challenge:${item.id}`)
-      .text("➡️ Next steps", `gemini-idea:next:${item.id}`);
-    keyboard.row().text("☑️ Task plan", `gemini-idea:tasks:${item.id}`);
-  }
-
+  const view = kind === "task" ? "tasks" : `${kind}s`;
+  const label = kind === "note" ? "Edit note ↗" : kind === "idea" ? "Develop idea ↗" : "Manage task ↗";
+  keyboard.url(label, workspaceId
+    ? groupDashboardItemUrl(workspaceId, view, kind, item.id)
+    : dashboardViewUrl(view, { kind, id: item.id }));
   if (includeBack) keyboard.text(`‹ ${kind === "task" ? "Tasks" : kind === "note" ? "Notes" : "Ideas"}`, `menu:${kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas"}`);
 
   return keyboard;
 }
 
-export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 3, navigation?: ActiveListNavigation): InlineKeyboard | undefined {
+export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 3, navigation?: ActiveListNavigation, selecting = false): InlineKeyboard | undefined {
   if (items.length === 0) {
     return undefined;
   }
 
   const keyboard = new InlineKeyboard();
-  const visibleItems = items.slice(0, maxButtons);
-  for (const [index, item] of visibleItems.entries()) {
-    const number = (navigation?.numberOffset ?? 0) + index + 1;
-    keyboard.text(String(number), `item:${kind}:open:${item.publicId ?? item.id}:${navigation?.page ?? 1}`);
+  if (selecting) {
+    const visibleItems = items.slice(0, maxButtons);
+    for (const [index, item] of visibleItems.entries()) {
+      const number = (navigation?.numberOffset ?? 0) + index + 1;
+      keyboard.text(String(number), `item:${kind}:open:${item.publicId ?? item.id}:${navigation?.page ?? 1}`);
+    }
+    keyboard.row().text("‹ Back", `list:${kind === "note" ? "notes" : "ideas"}:${navigation?.page ?? 1}`);
+    return keyboard;
   }
-
-  appendActiveListNavigation(keyboard, navigation, kind === "note" ? "notes" : "ideas");
+  const listKind = kind === "note" ? "notes" : "ideas";
+  keyboard.text("Choose an item", `list:choose:${listKind}:${navigation?.page ?? 1}`)
+    .url("View all ↗", navigation?.workspaceId ? groupDashboardUrl(navigation.workspaceId, listKind) : dashboardViewUrl(listKind));
+  appendActiveListNavigation(keyboard, navigation);
 
   return keyboard;
 }
@@ -479,7 +493,6 @@ export function ideaBriefKeyboard(ideaReference: string): InlineKeyboard {
 function appendActiveListNavigation(
   keyboard: InlineKeyboard,
   navigation?: ActiveListNavigation,
-  fallbackKind?: ActiveListNavigation["kind"]
 ): void {
   if (navigation && navigation.totalPages > 1) {
     keyboard.row();
@@ -487,11 +500,6 @@ function appendActiveListNavigation(
     keyboard.text(`${navigation.page}/${navigation.totalPages}`, `list:${navigation.kind}:${navigation.page}`);
     if (navigation.page < navigation.totalPages) keyboard.text("→", `list:${navigation.kind}:${navigation.page + 1}`);
   }
-  const kind = navigation?.kind ?? fallbackKind;
-  keyboard.row().text(
-    `‹ ${kind === "tasks" ? "Tasks" : kind === "notes" ? "Notes" : kind === "ideas" ? "Ideas" : "Main menu"}`,
-    kind ? `menu:${kind}` : "menu:home"
-  );
 }
 
 export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
@@ -585,14 +593,22 @@ export function storedImageListKeyboard(
   page: number,
   totalPages: number,
   numberOffset: number,
-  searchId?: string
+  searchId?: string,
+  selecting = false,
+  workspaceId?: string,
 ): InlineKeyboard | undefined {
   if (!images.length) return undefined;
   const keyboard = new InlineKeyboard();
-  images.forEach((item, index) => {
-    keyboard.text(`🖼️ Open ${numberOffset + index + 1}`, `stored-image:open:${item.id}`);
-    if (index < images.length - 1) keyboard.row();
-  });
+  if (selecting) {
+    images.forEach((item, index) => {
+      keyboard.text(String(numberOffset + index + 1), `stored-image:open:${item.id}`);
+    });
+    const back = searchId ? `stored-image:search:${searchId}:${page}` : `stored-image:page:${page}`;
+    return keyboard.row().text("‹ Back", back);
+  }
+  const choose = searchId ? `stored-image:choose-search:${searchId}:${page}` : `stored-image:choose:${page}`;
+  keyboard.text("Choose an image", choose)
+    .url("View gallery ↗", workspaceId ? groupDashboardUrl(workspaceId, "images") : dashboardViewUrl("images"));
   if (totalPages > 1) {
     keyboard.row();
     const pagePrefix = searchId ? `stored-image:search:${searchId}` : "stored-image:page";
@@ -600,15 +616,12 @@ export function storedImageListKeyboard(
     keyboard.text(`Page ${page}/${totalPages}`, `${pagePrefix}:${page}`);
     if (page < totalPages) keyboard.text("Next →", `${pagePrefix}:${page + 1}`);
   }
-  keyboard.row().text("‹ Main menu", "menu:home");
   return keyboard;
 }
 
 export function storedImageActionsKeyboard(imageId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✏️ Edit caption", `stored-image:caption:${imageId}`)
-    .text("🗑️ Delete", `stored-image:delete:${imageId}`)
-    .row()
+    .webApp("View gallery ↗", dashboardViewUrl("images", { kind: "image", id: imageId }))
     .text("‹ Images", "menu:images");
 }
 

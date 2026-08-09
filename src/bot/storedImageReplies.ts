@@ -3,23 +3,27 @@ import { createStoredImageSearch, findStoredImageById, findStoredImageReference,
 import { bold, code, editOrReplyHtml, HTML_REPLY } from "../utils/html";
 import { menuBackKeyboard, storedImageActionsKeyboard, storedImageListKeyboard } from "./keyboards";
 import { rememberNewControlCard, replyControlCardHtml } from "./controlCards";
+import { isGroupChat } from "./groupRouting";
+import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 
-export async function replyStoredImageList(ctx: Context, userId: string, timezone = "UTC", requestedPage = 1, replaceCurrent = false): Promise<number> {
+export async function replyStoredImageList(ctx: Context, userId: string, timezone = "UTC", requestedPage = 1, replaceCurrent = false, selecting = false): Promise<number> {
   const page = await listStoredImages(userId, requestedPage);
   const send = replaceCurrent ? editOrReplyHtml : replyControlCardHtml;
+  const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
   await send(ctx, formatStoredImageList(page, timezone), {
-    reply_markup: storedImageListKeyboard(page.images, page.page, page.totalPages, page.offset) ?? menuBackKeyboard()
+    reply_markup: storedImageListKeyboard(page.images, page.page, page.totalPages, page.offset, undefined, selecting, workspace?.id) ?? menuBackKeyboard()
   });
   return page.page;
 }
 
-export async function replyStoredImageSearch(ctx: Context, userId: string, query: string, timezone = "UTC", requestedPage = 1, pendingId?: string, scope: StoredImageSearchScope = "all", replaceCurrent = false): Promise<{ page: number; pendingId: string }> {
+export async function replyStoredImageSearch(ctx: Context, userId: string, query: string, timezone = "UTC", requestedPage = 1, pendingId?: string, scope: StoredImageSearchScope = "all", replaceCurrent = false, selecting = false): Promise<{ page: number; pendingId: string }> {
   const pending = pendingId ? await findStoredImageSearch(userId, pendingId) : await createStoredImageSearch(userId, query, scope);
   const savedScope = (pending.kinds.find((kind) => kind === "caption" || kind === "text") ?? "all") as StoredImageSearchScope;
   const page = await searchStoredImages(userId, pending.query, requestedPage, savedScope);
   const send = replaceCurrent ? editOrReplyHtml : replyControlCardHtml;
+  const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
   await send(ctx, formatStoredImageList(page, timezone), {
-    reply_markup: storedImageListKeyboard(page.images, page.page, page.totalPages, page.offset, pending.id) ?? menuBackKeyboard()
+    reply_markup: storedImageListKeyboard(page.images, page.page, page.totalPages, page.offset, pending.id, selecting, workspace?.id) ?? menuBackKeyboard()
   });
   return { page: page.page, pendingId: pending.id };
 }

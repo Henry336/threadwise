@@ -2,11 +2,28 @@ const DEFAULT_DASHBOARD_URL = "https://threadwise-dashboard.vercel.app";
 
 export const DASHBOARD_URL = normalizeDashboardUrl(process.env.DASHBOARD_URL);
 
+export type DashboardItemKind = "task" | "note" | "idea" | "image";
+
+export function dashboardViewUrl(view: string, item?: { kind: DashboardItemKind; id: string }): string {
+  const target = new URL("/dashboard", DASHBOARD_URL);
+  target.searchParams.set("view", view);
+  if (item) {
+    target.searchParams.set("item", item.id);
+    target.searchParams.set("kind", item.kind);
+  }
+  return target.toString();
+}
+
 export function groupDashboardUrl(workspaceId: string, view?: string): string {
-  const url = new URL("/api/workspace/select", DASHBOARD_URL);
-  url.searchParams.set("workspace", workspaceId);
-  url.searchParams.set("next", view ? `/dashboard?view=${view}` : "/dashboard");
-  return url.toString();
+  return groupDashboardTargetUrl(workspaceId, view ? `/dashboard?view=${encodeURIComponent(view)}` : "/dashboard");
+}
+
+export function groupDashboardItemUrl(workspaceId: string, view: string, kind: DashboardItemKind, id: string): string {
+  const target = new URL("/dashboard", DASHBOARD_URL);
+  target.searchParams.set("view", view);
+  target.searchParams.set("kind", kind);
+  target.searchParams.set("item", id);
+  return groupDashboardTargetUrl(workspaceId, `${target.pathname}${target.search}`);
 }
 
 export function groupTaskImportReviewUrl(workspaceId: string, importId: string): string {
@@ -52,4 +69,11 @@ function normalizeDashboardUrl(value: string | undefined): string {
   } catch {
     return DEFAULT_DASHBOARD_URL;
   }
+}
+
+function groupDashboardTargetUrl(workspaceId: string, target: string): string {
+  const url = new URL("/api/workspace/select", DASHBOARD_URL);
+  url.searchParams.set("workspace", workspaceId);
+  url.searchParams.set("next", target);
+  return url.toString();
 }

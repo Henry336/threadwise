@@ -19,7 +19,7 @@ import { formatDateTimeForUser } from "../utils/dates";
 import { bold, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { userFacingError } from "./errorResponses";
 import { isExplicitGroupTaskImport, isGroupChat } from "./groupRouting";
-import { groupDashboardUrl, groupTaskImportReviewUrl } from "./links";
+import { groupTaskImportReviewUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
@@ -50,7 +50,7 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
         telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
       });
       const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
-        reply_markup: taskImportKeyboard(taskImport, 0),
+        reply_markup: taskImportPreviewKeyboard(taskImport, 0),
       }) as { message_id?: number };
       if (message.message_id) {
         try {
@@ -94,7 +94,7 @@ async function handleTaskImportPageCallback(ctx: Context, importId: string, requ
     const page = clampTaskImportPage(taskImport, requestedPage);
     await ctx.answerCallbackQuery({ text: `Page ${page + 1} of ${taskImportPageCount(taskImport)}` });
     await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), page), {
-      reply_markup: taskImportKeyboard(taskImport, page),
+      reply_markup: taskImportPreviewKeyboard(taskImport, page),
     });
   } catch (error) {
     const message = error instanceof TaskImportError ? error.message : userFacingError(error, "That review page couldn't be opened just now.");
@@ -125,7 +125,7 @@ async function handleTaskImportCallback(
       if (!sender && !isManager) throw new TaskImportError("Only the sender or a group administrator can open this review.", "forbidden");
       await ctx.answerCallbackQuery({ text: "Review refreshed" });
       await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), 0), {
-        reply_markup: taskImportKeyboard(taskImport, 0),
+        reply_markup: taskImportPreviewKeyboard(taskImport, 0),
       });
       return;
     }
@@ -142,7 +142,7 @@ async function handleTaskImportCallback(
       await editOrReplyHtml(ctx, [
         bold("Some tasks need another look"),
         `${result.imported} imported · ${result.failed} need review${result.skipped ? ` · ${result.skipped} skipped` : ""}`,
-      ].join("\n"), { reply_markup: taskImportKeyboard(result.taskImport, 0) });
+      ].join("\n"), { reply_markup: taskImportPreviewKeyboard(result.taskImport, 0) });
       return;
     }
     await editOrReplyQuietAcknowledgementHtml(
@@ -165,10 +165,7 @@ export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezo
   const completed = included.filter((item) => item.initialStatus === TaskStatus.DONE).length;
   const assigned = included.filter((item) => Array.isArray(item.assignees) && item.assignees.length > 0).length;
   const teamOwned = included.filter((item) => item.teamOwnerLabel).length;
-  const pageCount = taskImportPageCount(taskImport);
-  const page = clampTaskImportPage(taskImport, requestedPage);
-  const pageStart = page * TASK_IMPORT_PAGE_SIZE;
-  const rows = included.slice(pageStart, pageStart + TASK_IMPORT_PAGE_SIZE).map((item) => {
+  const rows = included.slice(0, 3).map((item) => {
     const owner = importOwnerLabel(item.assignees, item.teamOwnerLabel);
     const due = item.dueAt ? ` · ${formatDateTimeForUser(item.dueAt, timezone)}` : "";
     const status = item.initialStatus === TaskStatus.DONE ? " · done" : "";
@@ -178,32 +175,23 @@ export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezo
     ? "Fix the failed rows in Edit details, then retry."
     : "Import when ready. Use Edit details only to make corrections.";
   return [
-    bold(`TODO review${pageCount > 1 ? ` · Page ${page + 1}/${pageCount}` : ""}`),
+    bold("TODO review"),
     `${included.length} task${included.length === 1 ? "" : "s"} found · ${assigned} assigned${teamOwned ? ` · ${teamOwned} team-owned` : ""}${completed ? ` · ${completed} done` : ""}`,
     "",
     ...rows,
+    ...(included.length > rows.length ? [h(`+${included.length - rows.length} more`)] : []),
     "",
     h(state),
   ].join("\n");
 }
 
-function taskImportKeyboard(taskImport: TaskImportReview, requestedPage: number): InlineKeyboard {
+export function taskImportPreviewKeyboard(taskImport: TaskImportReview, _requestedPage = 0): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  const page = clampTaskImportPage(taskImport, requestedPage);
-  const pageCount = taskImportPageCount(taskImport);
-  if (pageCount > 1) {
-    if (page > 0) keyboard.text("←", `ti:page:${taskImport.id}:${page - 1}`);
-    keyboard.text(`${page + 1}/${pageCount}`, `ti:pageinfo:${taskImport.id}:${page}`);
-    if (page < pageCount - 1) keyboard.text("→", `ti:page:${taskImport.id}:${page + 1}`);
-    keyboard.row();
-  }
-  keyboard.url("Edit details", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
+  keyboard.url("Review & edit ↗", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
   if (taskImport.status === TaskImportStatus.PENDING || taskImport.status === TaskImportStatus.PARTIAL) {
-    const includedCount = includedTaskImportItems(taskImport).length;
-    keyboard.text(taskImport.status === TaskImportStatus.PARTIAL ? "Retry ready rows" : `Import ${includedCount}`, `ti:import:${taskImport.id}`)
-      .text("Cancel", `ti:cancel:${taskImport.id}`).row();
+    keyboard.text(taskImport.status === TaskImportStatus.PARTIAL ? "Retry ready rows" : "Import", `ti:import:${taskImport.id}`)
+      .text("Cancel", `ti:cancel:${taskImport.id}`);
   }
-  keyboard.url("Group work", groupDashboardUrl(taskImport.workspaceId, "work"));
   return keyboard;
 }
 

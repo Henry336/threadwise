@@ -7,6 +7,8 @@ import { editOrReplyHtml } from "../utils/html";
 import { formatOpenTasks } from "./formatters";
 import { itemListKeyboard, modeBackKeyboard, taskListKeyboard } from "./keyboards";
 import { replyControlCardHtml } from "./controlCards";
+import { isGroupChat } from "./groupRouting";
+import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 
 export type ActiveListKind = "tasks" | "notes" | "ideas";
 const ACTIVE_LIST_PAGE_SIZE = 3;
@@ -17,13 +19,15 @@ export async function replyActiveList(
   kind: ActiveListKind,
   requestedPage = 1,
   replaceCurrent = false,
-  extraAction?: { label: string; callbackData: string }
+  extraAction?: { label: string; callbackData: string },
+  selecting = false,
 ): Promise<number> {
   const send = replaceCurrent ? editOrReplyHtml : replyControlCardHtml;
+  const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
   if (kind === "tasks") {
     const page = paginateList(await listOpenTasks(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
-    const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-    const keyboard = taskListKeyboard(page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("tasks");
+    const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset, workspaceId: workspace?.id };
+    const keyboard = taskListKeyboard(page.items, ACTIVE_LIST_PAGE_SIZE, navigation, selecting) ?? modeBackKeyboard("tasks");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
     await send(ctx, formatOpenTasks(page.items, user.settings?.timezone ?? "UTC", page), { reply_markup: keyboard });
     return page.page;
@@ -31,16 +35,16 @@ export async function replyActiveList(
 
   if (kind === "notes") {
     const page = paginateList(await listRecentNotes(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
-    const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-    const keyboard = itemListKeyboard("note", page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("notes");
+    const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset, workspaceId: workspace?.id };
+    const keyboard = itemListKeyboard("note", page.items, ACTIVE_LIST_PAGE_SIZE, navigation, selecting) ?? modeBackKeyboard("notes");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
     await send(ctx, formatRecentNotes(page.items, page), { reply_markup: keyboard });
     return page.page;
   }
 
   const page = paginateList(await listRecentIdeas(user.id), requestedPage, ACTIVE_LIST_PAGE_SIZE);
-  const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset };
-  const keyboard = itemListKeyboard("idea", page.items, ACTIVE_LIST_PAGE_SIZE, navigation) ?? modeBackKeyboard("ideas");
+  const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset, workspaceId: workspace?.id };
+  const keyboard = itemListKeyboard("idea", page.items, ACTIVE_LIST_PAGE_SIZE, navigation, selecting) ?? modeBackKeyboard("ideas");
   if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
   await send(ctx, formatRecentIdeas(page.items, page), { reply_markup: keyboard });
   return page.page;

@@ -11,6 +11,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import type { DashboardWorkspaceScope } from "./workspaces";
 import { assertWorkspaceManager, DashboardGroupAccessError } from "./workspaces";
+import { claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
 
 const ACTIVITY_LIMIT = 60;
 
@@ -64,7 +65,7 @@ export type DashboardGroupCollaboration = {
 };
 
 export type DashboardCollaborationAction = {
-  action: "assign" | "unassign" | "accept" | "decline" | "block" | "unblock" | "handoff";
+  action: "assign" | "unassign" | "claim" | "accept" | "decline" | "block" | "unblock" | "handoff";
   assigneeId?: string;
   targetTelegramId?: string;
   reason?: string;
@@ -122,9 +123,9 @@ export async function getDashboardGroupCollaboration(
       initials: initials(displayName),
       role: member.role,
       lastSeenAt: member.lastSeenAt.toISOString(),
-      openTasks: assigned.filter((task) => task.assignees.some((assignee) => assigneeMatchesMember(assignee, member) && assignee.status !== TaskAssigneeStatus.DECLINED)).length,
-      blockedTasks: assigned.filter((task) => task.assignees.some((assignee) => assigneeMatchesMember(assignee, member) && assignee.status === TaskAssigneeStatus.BLOCKED)).length,
-      awaitingTasks: assigned.filter((task) => task.assignees.some((assignee) => assigneeMatchesMember(assignee, member) && assignee.status === TaskAssigneeStatus.PENDING)).length,
+      openTasks: assigned.length,
+      blockedTasks: 0,
+      awaitingTasks: 0,
     } satisfies DashboardGroupMember;
   });
 
@@ -144,9 +145,9 @@ export async function getDashboardGroupCollaboration(
     })),
     summary: {
       overdue: open.filter((task) => task.dueAt && task.dueAt.getTime() < now.getTime()).length,
-      unassigned: open.filter((task) => task.assignees.length === 0 || task.assignees.every((item) => item.status === TaskAssigneeStatus.DECLINED)).length,
-      awaitingAcknowledgement: open.filter((task) => task.assignees.some((item) => item.status === TaskAssigneeStatus.PENDING)).length,
-      blocked: open.filter((task) => task.assignees.some((item) => item.status === TaskAssigneeStatus.BLOCKED)).length,
+      unassigned: open.filter((task) => task.assignees.length === 0).length,
+      awaitingAcknowledgement: 0,
+      blocked: 0,
       createdThisWeek: tasks.filter((task) => task.createdAt >= weekStart).length,
       completedThisWeek: tasks.filter((task) => task.completedAt && task.completedAt >= weekStart).length,
       handoffsThisWeek: workspace.activity.filter((item) => item.type === GroupActivityType.TASK_HANDED_OFF && item.createdAt >= weekStart).length,
@@ -182,23 +183,31 @@ export async function updateDashboardTaskCollaboration(
   });
   if (!task) throw new DashboardGroupAccessError("That shared task no longer exists.");
 
-  const actorName = memberName(actor);
-  const now = new Date();
-  const reason = input.reason?.replace(/\s+/g, " ").trim().slice(0, 500) || undefined;
-  let bridgeMessage = "";
-  const assignment = input.action === "assign"
-    ? undefined
-    : input.assigneeId
-      ? task.assignees.find((item) => item.id === input.assigneeId)
-      : task.assignees.find((item) => assigneeIsActor(item, actor));
-
-  if (input.action === "assign") {
-    await assertWorkspaceManager(scope, botToken);
-  } else {
-    if (!assignment) throw new DashboardGroupAccessError("That assignment no longer exists.");
-    if (!assigneeIsActor(assignment, actor)) await assertWorkspaceManager(scope, botToken);
+  const collaborationActor = {
+    telegramId: actor.telegramId,
+    username: actor.username ?? undefined,
+    displayName: memberName(actor),
+  };
+  const legacyAction = input.action === "accept" || input.action === "decline" || input.action === "block" || input.action === "unblock" || input.action === "handoff";
+  if (legacyAction) {
+    return { updated: true };
   }
 
+  if (input.action === "claim") {
+    const claimed = await claimGroupTask(workspace.ownerUser.id, task.id, collaborationActor, database);
+    await mirrorToTelegram(scope, `${collaborationActor.displayName} claimed ${claimed.publicId}.`, botToken);
+    return { updated: true };
+  }
+
+  let access = await getGroupTaskAccess(workspace.ownerUser.id, task.id, collaborationActor, false, database);
+  if (!access.canManage) {
+    await assertWorkspaceManager(scope, botToken);
+    access = await getGroupTaskAccess(workspace.ownerUser.id, task.id, collaborationActor, true, database);
+  }
+  if (!access.canManage) throw new DashboardGroupAccessError("Only the task creator or a current Telegram group administrator can change its assignment.");
+
+  const now = new Date();
+  let bridgeMessage = "";
   await database.$transaction(async (tx) => {
     if (input.action === "assign") {
       const target = targetMember(workspace.members, input.targetTelegramId);
@@ -208,9 +217,9 @@ export async function updateDashboardTaskCollaboration(
           telegramId: target.telegramId,
           username: target.username,
           displayName: memberName(target),
-          status: TaskAssigneeStatus.PENDING,
+          status: TaskAssigneeStatus.ACCEPTED,
           statusReason: null,
-          respondedAt: null,
+          respondedAt: now,
         },
         create: {
           taskId: task.id,
@@ -218,59 +227,22 @@ export async function updateDashboardTaskCollaboration(
           telegramId: target.telegramId,
           username: target.username,
           displayName: memberName(target),
+          status: TaskAssigneeStatus.ACCEPTED,
+          respondedAt: now,
         },
       });
-      bridgeMessage = `${actorName} assigned ${task.publicId} to ${memberName(target)}.`;
+      bridgeMessage = `${collaborationActor.displayName} assigned ${task.publicId} to ${memberName(target)}.`;
       await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_ASSIGNED, task, bridgeMessage);
     } else {
+      const assignment = input.assigneeId ? task.assignees.find((item) => item.id === input.assigneeId) : undefined;
       if (!assignment) throw new DashboardGroupAccessError("That assignment no longer exists.");
-
-      if (input.action === "unassign") {
-        await tx.taskAssignee.delete({ where: { id: assignment.id } });
-        bridgeMessage = `${actorName} removed ${assignmentLabel(assignment)} from ${task.publicId}.`;
-        await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_UNASSIGNED, task, bridgeMessage);
-      } else if (input.action === "handoff") {
-        const target = targetMember(workspace.members, input.targetTelegramId);
-        await tx.taskAssignee.delete({ where: { id: assignment.id } });
-        await tx.taskAssignee.upsert({
-          where: { taskId_normalizedKey: { taskId: task.id, normalizedKey: `id:${target.telegramId}` } },
-          update: { telegramId: target.telegramId, username: target.username, displayName: memberName(target), status: TaskAssigneeStatus.PENDING, statusReason: null, respondedAt: null },
-          create: { taskId: task.id, normalizedKey: `id:${target.telegramId}`, telegramId: target.telegramId, username: target.username, displayName: memberName(target) },
-        });
-        bridgeMessage = `${actorName} handed ${task.publicId} to ${memberName(target)}${reason ? ` — ${reason}` : ""}.`;
-        await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_HANDED_OFF, task, bridgeMessage);
-      } else {
-        const status = input.action === "accept"
-          ? TaskAssigneeStatus.ACCEPTED
-          : input.action === "decline"
-            ? TaskAssigneeStatus.DECLINED
-            : input.action === "block"
-              ? TaskAssigneeStatus.BLOCKED
-              : TaskAssigneeStatus.ACCEPTED;
-        await tx.taskAssignee.update({
-          where: { id: assignment.id },
-          data: {
-            status,
-            statusReason: input.action === "block" || input.action === "decline" ? reason ?? null : null,
-            respondedAt: now,
-            ...(!assignment.telegramId ? { telegramId: actor.telegramId } : {}),
-          },
-        });
-        const verb = input.action === "accept" ? "accepted" : input.action === "decline" ? "declined" : input.action === "block" ? "blocked" : "unblocked";
-        const activityType = input.action === "accept"
-          ? GroupActivityType.ASSIGNMENT_ACCEPTED
-          : input.action === "decline"
-            ? GroupActivityType.ASSIGNMENT_DECLINED
-            : input.action === "block"
-              ? GroupActivityType.TASK_BLOCKED
-              : GroupActivityType.TASK_UNBLOCKED;
-        bridgeMessage = `${actorName} ${verb} ${task.publicId}${reason ? ` — ${reason}` : ""}.`;
-        await createActivity(tx, workspace.id, actor, activityType, task, bridgeMessage);
-      }
+      await tx.taskAssignee.delete({ where: { id: assignment.id } });
+      bridgeMessage = `${collaborationActor.displayName} removed ${assignmentLabel(assignment)} from ${task.publicId}.`;
+      await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_UNASSIGNED, task, bridgeMessage);
     }
 
     const remaining = await tx.taskAssignee.findMany({ where: { taskId: task.id }, orderBy: { createdAt: "asc" } });
-    const primary = remaining.find((item) => item.status !== TaskAssigneeStatus.DECLINED) ?? remaining[0];
+    const primary = remaining[0];
     await tx.task.update({
       where: { id: task.id },
       data: {
@@ -285,6 +257,46 @@ export async function updateDashboardTaskCollaboration(
 
   await mirrorToTelegram(scope, bridgeMessage, botToken);
   return { updated: true };
+}
+
+export async function assertDashboardTaskMutation(
+  scope: DashboardWorkspaceScope,
+  taskReference: string,
+  action: "complete" | "manage",
+  botToken?: string,
+  database: PrismaClient = prisma,
+): Promise<void> {
+  if (scope.workspace.kind !== "GROUP") return;
+  const workspace = await database.groupWorkspace.findUnique({
+    where: { id: scope.workspace.id },
+    include: {
+      ownerUser: { select: { id: true } },
+      members: { where: { status: GroupMemberStatus.ACTIVE } },
+    },
+  });
+  if (!workspace) throw new DashboardGroupAccessError();
+  const actor = workspace.members.find((member) => member.telegramId === scope.principalTelegramId);
+  if (!actor) throw new DashboardGroupAccessError();
+  const collaborationActor = {
+    telegramId: actor.telegramId,
+    username: actor.username ?? undefined,
+    displayName: memberName(actor),
+  };
+
+  let access = await getGroupTaskAccess(workspace.ownerUser.id, taskReference, collaborationActor, false, database);
+  const initiallyAllowed = action === "complete" ? access.canComplete : access.canManage;
+  if (initiallyAllowed) return;
+
+  await assertWorkspaceManager(scope, botToken);
+  access = await getGroupTaskAccess(workspace.ownerUser.id, taskReference, collaborationActor, true, database);
+  const allowed = action === "complete" ? access.canComplete : access.canManage;
+  if (!allowed) {
+    throw new DashboardGroupAccessError(
+      action === "complete"
+        ? "Only an assignee, the task creator, or a current Telegram group administrator can complete this task."
+        : "Only the task creator or a current Telegram group administrator can change this task.",
+    );
+  }
 }
 
 export async function recordDashboardTaskMutation(

@@ -1,7 +1,7 @@
 import { TaskImportItemStatus, TaskImportStatus, TaskStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import type { TaskImportReview } from "../services/taskImports";
-import { formatTaskImportPreviewHtml, taskImportPageCount, TASK_IMPORT_PAGE_SIZE } from "./taskImports";
+import { formatTaskImportPreviewHtml, taskImportPreviewKeyboard } from "./taskImports";
 
 function reviewWithItems(count: number): TaskImportReview {
   const now = new Date("2026-08-04T00:00:00.000Z");
@@ -42,35 +42,19 @@ function reviewWithItems(count: number): TaskImportReview {
   };
 }
 
-describe("Telegram task import pagination", () => {
-  it("shows no more than six tasks on each page", () => {
-    const taskImport = reviewWithItems(8);
-
-    expect(TASK_IMPORT_PAGE_SIZE).toBe(6);
-    expect(taskImportPageCount(taskImport)).toBe(2);
-
-    const firstPage = formatTaskImportPreviewHtml(taskImport, "Asia/Singapore", 0);
-    expect(firstPage).toContain("Page 1/2");
-    expect(firstPage).toContain("1. Task 1");
-    expect(firstPage).toContain("6. Task 6");
-    expect(firstPage).not.toContain("7. Task 7");
-    expect(firstPage).not.toContain("+2 more");
-
-    const secondPage = formatTaskImportPreviewHtml(taskImport, "Asia/Singapore", 1);
-    expect(secondPage).toContain("Page 2/2");
-    expect(secondPage).toContain("7. Task 7");
-    expect(secondPage).toContain("8. Task 8");
-    expect(secondPage).not.toContain("6. Task 6");
+describe("Telegram task import progressive disclosure", () => {
+  it("shows only the first three tasks plus a remainder count", () => {
+    const preview = formatTaskImportPreviewHtml(reviewWithItems(8), "Asia/Singapore", 0);
+    expect(preview).toContain("1. Task 1");
+    expect(preview).toContain("3. Task 3");
+    expect(preview).toContain("+5 more");
+    expect(preview).not.toContain("4. Task 4");
   });
 
-  it("clamps stale page requests after rows are omitted", () => {
-    const taskImport = reviewWithItems(8);
-    taskImport.items[6]!.included = false;
-    taskImport.items[7]!.status = TaskImportItemStatus.SKIPPED;
-
-    expect(taskImportPageCount(taskImport)).toBe(1);
-    const page = formatTaskImportPreviewHtml(taskImport, "Asia/Singapore", 99);
-    expect(page).not.toContain("Page 2");
-    expect(page).toContain("6. Task 6");
+  it("offers one exact review link and two immediate decisions", () => {
+    const keyboard = taskImportPreviewKeyboard(reviewWithItems(8), 0);
+    expect(keyboard.inline_keyboard).toHaveLength(2);
+    expect(keyboard.inline_keyboard.flat().map((button) => button.text)).toEqual(["Review & edit ↗", "Import", "Cancel"]);
+    expect(JSON.stringify(keyboard.inline_keyboard)).toContain("import%3D11111111-1111-4111-8111-111111111111");
   });
 });

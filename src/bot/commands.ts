@@ -1,6 +1,6 @@
 import type { Bot, Context } from "grammy";
 import { InputFile } from "grammy";
-import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
+import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
@@ -58,7 +58,7 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
@@ -76,7 +76,8 @@ import { findStoredImageReference, updateStoredImageCaption } from "../services/
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, handoffTaskAssignment, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
+import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
@@ -107,12 +108,9 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command(["reschedule", "move"], async (ctx) => handleReschedule(ctx));
   bot.command("assign", async (ctx) => handleAssign(ctx));
   bot.command("unassign", async (ctx) => handleUnassign(ctx));
+  bot.command("claim", async (ctx) => handleClaim(ctx));
   bot.command("mytasks", async (ctx) => handleMyGroupTasks(ctx));
-  bot.command("accept", async (ctx) => handleAssignmentStatus(ctx, "accept", TaskAssigneeStatus.ACCEPTED));
-  bot.command("decline", async (ctx) => handleAssignmentStatus(ctx, "decline", TaskAssigneeStatus.DECLINED));
-  bot.command("block", async (ctx) => handleAssignmentStatus(ctx, "block", TaskAssigneeStatus.BLOCKED));
-  bot.command("unblock", async (ctx) => handleAssignmentStatus(ctx, "unblock", TaskAssigneeStatus.ACCEPTED));
-  bot.command("handoff", async (ctx) => handleHandoff(ctx));
+  bot.command(["accept", "decline", "block", "unblock", "handoff"], async (ctx) => handleLegacyAssignmentCommand(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
@@ -178,7 +176,8 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   if (/^(\d+|NOTE-\d+)$/i.test(text)) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
-      const card = await buildItemCard(user.id, "note", note.publicId, user.settings?.timezone ?? "UTC");
+      const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+      const card = await buildItemCard(user.id, "note", note.publicId, user.settings?.timezone ?? "UTC", undefined, true, 1, workspace?.id);
       await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
       try {
@@ -394,7 +393,7 @@ async function handleTaskDetail(ctx: Context) {
             quietHoursEnd: user.settings.quietHoursEnd
           }
         : undefined),
-      { reply_markup: taskActionsKeyboard(task, true, isGroupChat(ctx)) }
+      { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) }
     );
   } catch (error) {
     await ctx.reply(taskLookupError(error));
@@ -411,11 +410,16 @@ async function handleDone(ctx: Context) {
 
   const references = parseBulkReferences(id);
   if (references && references.length > 1) {
+    if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+      await ctx.reply("Bulk completion is reserved for current Telegram group administrators. Open an assigned task to complete it individually.");
+      return;
+    }
     await replyBulkActionPreview(ctx, user.id, { action: "complete", itemKind: "task", references });
     return;
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, id, "complete");
     const completion = await completeTask(user.id, normalizePublicId(id));
     if (completion.alreadyCompleted) {
       await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
@@ -441,6 +445,7 @@ async function handleSnooze(ctx: Context) {
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, id, "snooze");
     const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
     await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
   } catch (error) {
@@ -459,6 +464,7 @@ async function handleReschedule(ctx: Context) {
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, parsed.reference, "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
     await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
   } catch (error) {
@@ -476,6 +482,7 @@ async function handleAssign(ctx: Context) {
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
     const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
@@ -497,6 +504,7 @@ async function handleUnassign(ctx: Context) {
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
     const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
@@ -527,53 +535,60 @@ async function handleMyGroupTasks(ctx: Context) {
   await replyHtml(ctx, text, { reply_markup: taskListKeyboard(tasks, 3) });
 }
 
-async function handleAssignmentStatus(ctx: Context, command: string, status: TaskAssigneeStatus) {
+async function handleClaim(ctx: Context) {
   if (!isGroupChat(ctx)) {
-    await ctx.reply(`/${command} is for assignments in a group workspace.`);
+    await ctx.reply("/claim is for unassigned tasks in a group workspace.");
     return;
   }
   const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", command);
-  const [reference, ...reasonParts] = body.split(/\s+/).filter(Boolean);
+  const reference = commandBody(ctx.message?.text ?? "", "claim").split(/\s+/).filter(Boolean)[0];
   if (!reference) {
-    await ctx.reply(`Send it like this: /${command} TASK-1${status === TaskAssigneeStatus.BLOCKED || status === TaskAssigneeStatus.DECLINED ? " reason" : ""}`);
+    await ctx.reply("Send it like this: /claim TASK-1");
     return;
   }
   try {
-    const task = await setTaskAssignmentStatus(user.id, reference, collaborationActorFromContext(ctx), status, reasonParts.join(" "));
-    const label = status === TaskAssigneeStatus.BLOCKED
-      ? "Task blocked"
-      : status === TaskAssigneeStatus.DECLINED
-        ? "Assignment declined"
-        : command === "unblock"
-          ? "Blocker cleared"
-          : "Assignment accepted";
-    await replyHtml(ctx, `${bold(label)} ${code(task.publicId)}\n${h(task.title)}`);
+    const task = await claimGroupTask(user.id, reference, collaborationActorFromContext(ctx));
+    await replyHtml(ctx, `${bold("Task claimed")} ${code(task.publicId)}\n${h(task.title)}`);
   } catch (error) {
-    await ctx.reply(userFacingError(error, "I couldn't update that assignment."));
+    await ctx.reply(userFacingError(error, "I couldn't claim that task."));
   }
 }
 
-async function handleHandoff(ctx: Context) {
-  if (!isGroupChat(ctx)) {
-    await ctx.reply("/handoff is for assignments in a group workspace.");
-    return;
-  }
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "handoff");
-  const match = body.match(/^(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i);
-  if (!match?.[1] || !match[2]) {
-    await ctx.reply("Send it like this: /handoff TASK-1 @alex");
-    return;
-  }
-  const reasonParts = match[2].match(/^(.+?)\s+(?:because|since)\s+(.+)$/i);
-  const target = reasonParts?.[1] ?? match[2];
-  try {
-    const task = await handoffTaskAssignment(user.id, match[1], collaborationActorFromContext(ctx), target, taskCreationOptionsFromContext(ctx, target), reasonParts?.[2]);
-    await replyHtml(ctx, `${bold("Task handed off")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.`);
-  } catch (error) {
-    await ctx.reply(userFacingError(error, "I couldn't hand off that task."));
-  }
+async function handleLegacyAssignmentCommand(ctx: Context) {
+  const command = (ctx.message?.text ?? "").match(/^\/([a-z-]+)/i)?.[1] ?? "assignment";
+  await ctx.reply(
+    command === "accept"
+      ? "Assignments now take effect immediately. Use /claim TASK-1 only when a task is unassigned."
+      : command === "handoff"
+        ? "Task handoffs were removed. The task creator or a current Telegram group administrator can reassign it with /assign TASK-1 @username."
+        : "Accept, decline, and blocked assignment states were removed. Add blockers to the task details instead; the task creator or a current group administrator can edit them."
+  );
+}
+
+async function assertCommandGroupTaskAction(
+  ctx: Context,
+  ownerUserId: string,
+  reference: string,
+  action: "complete" | "snooze" | "manage",
+): Promise<void> {
+  if (!isGroupChat(ctx)) return;
+  await assertGroupTaskAction(
+    ownerUserId,
+    reference,
+    collaborationActorFromContext(ctx),
+    await isGroupManager(ctx),
+    action,
+  );
+}
+
+async function groupTaskKeyboardForCommand(ctx: Context, ownerUserId: string, taskReference: string) {
+  const access = await getGroupTaskAccess(
+    ownerUserId,
+    taskReference,
+    collaborationActorFromContext(ctx),
+    await isGroupManager(ctx),
+  );
+  return groupTaskActionsKeyboard(access.task.id, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
 function assigneeDmSetupLine(ctx: Context): string {
@@ -602,6 +617,7 @@ async function handleRename(ctx: Context) {
   try {
     if (parsed?.field === "description") {
       const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
+      await assertCommandGroupTaskAction(ctx, user.id, taskReference, "manage");
       const task = await updateTaskDescription(user.id, normalizePublicId(taskReference), title);
       await replyHtml(ctx, `${bold("✅ Task details updated")} ${code(task.publicId)}\n${code("/undo")} restores the previous version.`, { reply_markup: undoKeyboard("↩️ Undo edit") });
       return;
@@ -609,6 +625,7 @@ async function handleRename(ctx: Context) {
 
     if (/^\d+$/.test(reference) || reference.toUpperCase().startsWith("TASK-") || reference.toLowerCase().startsWith("task ")) {
       const taskReference = reference.toLowerCase().startsWith("task ") ? reference.slice(5) : reference;
+      await assertCommandGroupTaskAction(ctx, user.id, taskReference, "manage");
       const task = await renameTaskTitle(user.id, normalizePublicId(taskReference), title);
       await replyHtml(ctx, `${bold("✅ Task renamed")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} puts the old title back.`, { reply_markup: undoKeyboard("↩️ Undo rename") });
       return;
@@ -660,6 +677,9 @@ async function handlePin(ctx: Context, shouldPin: boolean) {
   }
 
   try {
+    if (isGroupChat(ctx) && looksLikeTaskReference(reference)) {
+      await assertCommandGroupTaskAction(ctx, user.id, reference, "manage");
+    }
     const item = await pinItem(user.id, normalizePublicId(reference), shouldPin);
     await replyHtml(ctx, `${formatPinResult(item, shouldPin)}${item.changed ? `\n${code("/undo")} will reverse that.` : ""}`, item.changed ? { reply_markup: undoKeyboard("Undo") } : undefined);
   } catch {
@@ -723,6 +743,9 @@ async function handleRestore(ctx: Context) {
     return;
   }
 
+  if (isGroupChat(ctx) && looksLikeTaskReference(reference)) {
+    await assertCommandGroupTaskAction(ctx, user.id, reference, "manage");
+  }
   const message = await restoreArchivedItem(user.id, normalizePublicId(reference));
   await replyHtml(ctx, message ?? "I couldn't find that archived item. Try /archived notes, /archived ideas, or /archived tasks.");
 }
@@ -742,16 +765,28 @@ async function handleCancel(ctx: Context) {
     ? { action: "delete" as const, itemKind: "task" as const, references }
     : undefined);
   if (bulkRequest) {
+    if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
+      await ctx.reply("Bulk task changes are reserved for current Telegram group administrators.");
+      return;
+    }
     await replyBulkActionPreview(ctx, user.id, bulkRequest);
     return;
   }
 
   try {
+    await assertCommandGroupTaskAction(ctx, user.id, id, "manage");
     const task = await cancelTask(user.id, normalizePublicId(id));
   await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
+}
+
+function looksLikeTaskReference(reference: string): boolean {
+  const normalized = reference.trim();
+  return /^\d+$/.test(normalized)
+    || /^TASK-\d+$/i.test(normalized)
+    || /^task\s+/i.test(normalized);
 }
 
 async function handleSettings(ctx: Context) {

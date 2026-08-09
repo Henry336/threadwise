@@ -1,5 +1,5 @@
 import { InputFile, type Bot, type Context } from "grammy";
-import { GroupActivityType, TaskAssigneeStatus } from "@prisma/client";
+import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { cancelTask, completeTask, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
@@ -20,7 +20,7 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, 
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { addTaskCollaborationActions, archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type SettingChoiceField } from "./keyboards";
+import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -34,7 +34,8 @@ import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationSt
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity, setTaskAssignmentStatus } from "../services/groupCollaboration";
+import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { preferEphemeralInteraction } from "./ephemeral";
@@ -42,7 +43,8 @@ import { beginNoteSession } from "./noteSessions";
 import { resolveGroupTaskCallbackOwner } from "../services/groupTaskCompatibility";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
-  bot.callbackQuery(/^task:(accept|block):(.+)$/, async (ctx) => handleTaskAssignmentStatus(ctx, ctx.match[2], ctx.match[1]));
+  bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):(.+)$/, async (ctx) => handleLegacyTaskAssignmentAction(ctx, ctx.match[2]));
+  bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
@@ -82,6 +84,9 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^list:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
     await handleActiveListPage(ctx, ctx.match[1], ctx.match[2]);
   });
+  bot.callbackQuery(/^list:choose:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
+    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2], true);
+  });
   bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true);
@@ -91,6 +96,16 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const user = await ensureUser(ctx);
     const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true);
     await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
+  });
+  bot.callbackQuery(/^stored-image:choose:(\d+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true, true);
+    await ctx.answerCallbackQuery({ text: `Choose from page ${page}` });
+  });
+  bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
+    const user = await ensureUser(ctx);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true, true);
+    await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
@@ -276,6 +291,18 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     });
     return;
   }
+  if (action === "group-library" && group) {
+    await editOrReplyHtml(ctx, `${bold("Capture & recall")}\nChoose what you want to keep or find.`, {
+      reply_markup: groupLibraryMenuKeyboard(workspace?.id),
+    });
+    return;
+  }
+  if (action === "group-more" && group) {
+    await editOrReplyHtml(ctx, `${bold("More")}\nHelp and shared workspace settings.`, {
+      reply_markup: groupMoreMenuKeyboard(workspace?.id),
+    });
+    return;
+  }
   if (action === "tasks") {
     await editOrReplyHtml(ctx, `${bold("📋 Tasks")}\nTasks are the things you want to do. Add a due time when you also want a reminder.`, { reply_markup: tasksModeKeyboard() });
     return;
@@ -437,13 +464,13 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
 }
 
-async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
+async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined, selecting = false) {
   if (!isActiveListKind(kindText) || !pageText) return;
   const requestedPage = Number(pageText);
   if (!Number.isInteger(requestedPage) || requestedPage < 1) return;
   const user = await ensureUser(ctx);
-  const page = await replyActiveList(ctx, user, kindText, requestedPage, true);
-  await ctx.answerCallbackQuery({ text: `Page ${page}` });
+  const page = await replyActiveList(ctx, user, kindText, requestedPage, true, undefined, selecting);
+  await ctx.answerCallbackQuery({ text: selecting ? `Choose from page ${page}` : `Page ${page}` });
 }
 
 async function handleBulkAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
@@ -576,24 +603,22 @@ async function replyInChunks(ctx: Context, text: string) {
   }
 }
 
-async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefined, action: string | undefined) {
+async function handleLegacyTaskAssignmentAction(ctx: Context, taskId: string | undefined) {
   if (!taskId || !isGroupChat(ctx)) return;
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
-    const status = action === "block" ? TaskAssigneeStatus.BLOCKED : TaskAssigneeStatus.ACCEPTED;
-    const task = await setTaskAssignmentStatus(user.id, taskId, collaborationActorFromContext(ctx), status);
-    await ctx.answerCallbackQuery({ text: action === "block" ? "Marked blocked" : "Assignment accepted" });
+    const task = await findTaskReference(user.id, taskId);
+    const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
+    await ctx.answerCallbackQuery({ text: "Assignments now take effect immediately." });
     const card = await buildItemCard(
       user.id,
       "task",
       task.publicId,
       user.settings?.timezone ?? "UTC",
-      action === "block" ? "Task marked blocked" : "Assignment accepted",
+      "Assignments now take effect immediately. Use the current task controls below.",
       false,
     );
-    addTaskCollaborationActions(card.keyboard, task.id);
-    appendListOrigin(card.keyboard, user.id, "task");
-    await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+    await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
   } catch (error) {
     await ctx.answerCallbackQuery({
       text: userFacingError(error, "I couldn't update that assignment.").slice(0, 180),
@@ -602,9 +627,30 @@ async function handleTaskAssignmentStatus(ctx: Context, taskId: string | undefin
   }
 }
 
+async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
+  if (!taskId || !isGroupChat(ctx)) return;
+  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  try {
+    const task = await claimGroupTask(user.id, taskId, collaborationActorFromContext(ctx));
+    const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
+    await ctx.answerCallbackQuery({ text: "Task claimed" });
+    await editOrReplyHtml(ctx, formatTaskDetail(task, user.settings?.timezone ?? "UTC"), { reply_markup: keyboard });
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: userFacingError(error, "I couldn't claim that task.").slice(0, 180), show_alert: true });
+  }
+}
+
 async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx)) {
+    try {
+      await getGroupTaskAccessForAction(ctx, user.id, taskId, "complete");
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot complete that task.").slice(0, 180), show_alert: true });
+      return;
+    }
+  }
   const completion = await completeTask(user.id, taskId);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
@@ -629,6 +675,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
 async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
@@ -647,12 +694,23 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
 async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx)) {
+    try {
+      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot snooze that task.").slice(0, 180), show_alert: true });
+      return;
+    }
+  }
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
   const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
-  appendListOrigin(card.keyboard, user.id, "task");
-  if (user.id === interactionUser.id) card.keyboard.row().text("↩️ Undo snooze", "undo:last");
-  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+  const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
+  if (!isGroupChat(ctx)) {
+    appendListOrigin(keyboard, user.id, "task");
+    if (user.id === interactionUser.id) keyboard.row().text("↩️ Undo snooze", "undo:last");
+  }
+  await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
 async function handleTaskReminderView(ctx: Context, taskId: string | undefined, expanded: boolean) {
@@ -664,9 +722,9 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
     const includeCollaboration = isGroupChat(ctx);
 
     if (expanded) {
-      const keyboard = taskActionsKeyboard(task, true, includeCollaboration)
-        .row()
-        .text("‹ Reminder", `task:view-summary:${task.id}`);
+      const keyboard = includeCollaboration
+        ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true, `task:view-summary:${task.id}`)
+        : taskActionsKeyboard(task, true, false).row().text("‹ Reminder", `task:view-summary:${task.id}`);
       await ctx.answerCallbackQuery({ text: "Full reminder" });
       await editOrReplyHtml(ctx, formatTaskDetail(task, timezone), { reply_markup: keyboard });
       return;
@@ -676,7 +734,9 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
     if (!reminderMode) throw new Error("Reminder settings are missing.");
     await ctx.answerCallbackQuery({ text: "Reminder" });
     await editOrReplyHtml(ctx, formatReminderMessage(task, { timezone, reminderMode }), {
-      reply_markup: reminderActionsKeyboard(task, includeCollaboration)
+      reply_markup: includeCollaboration
+        ? await groupTaskKeyboardForContext(ctx, user.id, task.id, false)
+        : reminderActionsKeyboard(task, false)
     });
   } catch (error) {
     await ctx.answerCallbackQuery({
@@ -845,6 +905,7 @@ async function showExcelPanel(ctx: Context, userId: string, chatId: string, noti
 async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const task = await findTaskReference(user.id, taskId);
   if (!isGroupChat(ctx) && task.calendarEventId) {
     await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
@@ -866,6 +927,7 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
 async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefined, removeEvent: boolean) {
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const task = await findTaskReference(user.id, taskId);
   await cancelTask(user.id, taskId);
   let eventRemoved = false;
@@ -891,6 +953,7 @@ async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefine
 async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin: boolean) {
   if (!taskId) return;
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
   const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
@@ -904,6 +967,7 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
     : interactionUser;
+  if (kind === "task" && isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, itemId, "manage"))) return;
   const item = await pinItem(user.id, itemId, shouldPin);
   await ctx.answerCallbackQuery({
     text: kind === "task"
@@ -921,6 +985,7 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   const taskUser = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
     : interactionUser;
+  if (kind === "task" && isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, taskUser.id, itemId, "manage"))) return;
   const item = await beginPendingItemEdit(
     interactionUser.id,
     kind,
@@ -1018,20 +1083,24 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
     : interactionUser;
-  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false);
-  if (kind === "task" && isGroupChat(ctx)) addTaskCollaborationActions(card.keyboard, itemId);
+  const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
+  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false, 1, workspace?.id);
+  const keyboard = kind === "task" && isGroupChat(ctx)
+    ? await groupTaskKeyboardForContext(ctx, user.id, itemId, true)
+    : card.keyboard;
   const page = Math.max(1, Number(pageText) || 1);
   const listKind = kind === "task" ? "tasks" : kind === "note" ? "notes" : "ideas";
   rememberListOrigin(user.id, kind, page);
-  card.keyboard.row().text(`‹ Back to page ${page}`, `list:${listKind}:${page}`);
+  keyboard.row().text(`‹ Back to page ${page}`, `list:${listKind}:${page}`);
   await ctx.answerCallbackQuery({ text: "Opened" });
-  await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
+  await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
 async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pageText: string | undefined) {
   if (!itemId || !pageText) return;
   const user = await ensureUser(ctx);
   const requestedPage = Math.max(1, Number(pageText) || 1);
+  const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
   const card = await buildItemCard(
     user.id,
     "note",
@@ -1039,7 +1108,8 @@ async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pa
     user.settings?.timezone ?? "UTC",
     undefined,
     false,
-    requestedPage
+    requestedPage,
+    workspace?.id,
   );
   appendListOrigin(card.keyboard, user.id, "note");
   await ctx.answerCallbackQuery({ text: `Page ${card.notePage?.page ?? 1}` });
@@ -1079,6 +1149,57 @@ async function taskCallbackUsers(
     include: { settings: true },
   });
   return { interactionUser, taskUser };
+}
+
+async function groupTaskKeyboardForContext(
+  ctx: Context,
+  ownerUserId: string,
+  taskReference: string,
+  expanded: boolean,
+  backCallback = "menu:tasks",
+) {
+  const actor = collaborationActorFromContext(ctx);
+  const access = await getGroupTaskAccess(ownerUserId, taskReference, actor, await isGroupManager(ctx));
+  return groupTaskActionsKeyboard(
+    access.task.id,
+    access.audience as GroupTaskAudience,
+    access.workspaceId,
+    expanded,
+    backCallback,
+  );
+}
+
+async function getGroupTaskAccessForAction(
+  ctx: Context,
+  ownerUserId: string,
+  taskReference: string,
+  action: "complete" | "snooze" | "manage",
+) {
+  return assertGroupTaskAction(
+    ownerUserId,
+    taskReference,
+    collaborationActorFromContext(ctx),
+    await isGroupManager(ctx),
+    action,
+  );
+}
+
+async function allowGroupTaskAction(
+  ctx: Context,
+  ownerUserId: string,
+  taskReference: string,
+  action: "complete" | "snooze" | "manage",
+): Promise<boolean> {
+  try {
+    await getGroupTaskAccessForAction(ctx, ownerUserId, taskReference, action);
+    return true;
+  } catch (error) {
+    await ctx.answerCallbackQuery({
+      text: userFacingError(error, "That action is not available to you.").slice(0, 180),
+      show_alert: true,
+    });
+    return false;
+  }
 }
 
 async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {

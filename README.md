@@ -4,9 +4,9 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.31.0**
+Current backend release: **v0.32.0**
 
-Documentation verified against the repository: **2026-08-06**
+Documentation verified against the repository: **2026-08-09**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -69,11 +69,11 @@ small Telegram edit/reply or authenticated dashboard response
 - Detects broad natural reminder language such as "could you remind me to call Mum day after tomorrow at noon?", "remind me to go to the bank at 1.30pm", "don't let me forget to submit the form tomorrow afternoon", "nudge me to check the oven in half an hour", and compound timing such as "in about 1 hour 15 mins" without requiring OpenAI. Dotted and spoken clocks, day parts, numeric day-first dates, weekday shorthand, EOD, next week, and next month are handled locally.
 - Sends personal recurring Telegram reminders every 3 hours by default. Undated group tasks default to one compact follow-up every 6 hours; after three unanswered rounds they slow to daily until someone interacts with the task. Group admins can change the shared interval from group settings.
 - Sends early warnings before dated tasks are due, then repeats them until completion.
-- Lists open tasks three readable previews per mobile page with Prev/Next controls and global active list numbers, while keeping stable task IDs for durable references.
-- Lets users view, complete, snooze, pin, rename, or cancel tasks with active list numbers, stable IDs, or inline buttons on `/tasks`. Inline actions update the current Telegram card in place when possible, and nested cards provide a Main menu or back route. Pressing Complete again reports that the task is already completed and offers a safe Restore button.
+- Lists open tasks three readable previews per mobile page with `Choose an item`, `View all`, and Prev/Next controls. Numbered item buttons appear only after the user chooses them; stable task IDs remain available for durable references.
+- Keeps ordinary task cards focused on Done, Snooze, and an exact dashboard action. Secondary editing, starring, calendar, cancellation, and assignment management remain available in the dashboard; Telegram list/detail navigation continues to edit the current card in place.
 - Supports bulk task completion and bulk task/note/idea removal with an itemized preview, requester-only Confirm/Cancel buttons, a 25-item limit, and no changes before confirmation.
 - Labels completion buttons as `Complete task` or `Complete 1` so they are not confused with finishing the save flow.
-- Shows inline star/edit buttons for tasks, notes, and ideas in list and detail views.
+- Opens exact task, note, idea, image, and TODO-review records in the correct personal or group dashboard workspace instead of sending users to a generic landing view.
 - Archives notes from note list/detail buttons, `/archive note 1`, or natural text such as `delete note 1`.
 - Shows inline undo and cancel buttons for save, completion, cancellation, snooze, pin, and edit flows where supported; callback-driven text flows reuse the current message instead of filling the chat with successive status cards.
 - Supports editing task details, note bodies, and idea concepts with undo.
@@ -106,7 +106,7 @@ small Telegram edit/reply or authenticated dashboard response
 - Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
 - Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
-- Lets assignees accept, decline, block, unblock, or hand work to another group member through compact buttons, slash commands, or natural phrases such as `I'll take task 2`, `I'm blocked on task 2 because I need access`, and `hand off task 2 to @alex`.
+- Applies group assignments immediately. Members may claim unassigned work; assignees can complete or snooze it; the task creator or a verified current Telegram group administrator can assign or reassign it. Accept, decline, block, and handoff inputs are retained only as graceful legacy explanations and do not mutate task state.
 - Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people.
 - Lets a group agree on a meeting time with `/findtime`, `/schedule`, or natural requests such as `find a time for rehearsal next week for 90 minutes`. Members mark availability in a touch-friendly Mini App, one Telegram card updates with response progress and best overlaps, and a verified owner/admin finalizes the time.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.

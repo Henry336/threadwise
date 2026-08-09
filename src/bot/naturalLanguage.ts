@@ -13,6 +13,7 @@ import { consumePendingImageCapture, discardPendingImageCapture, findPendingImag
 import { parseDueDate } from "../utils/dates";
 import { bold, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
+import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
@@ -111,13 +112,16 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           await replyStoredImage(ctx, editResult.ownerUserId, editResult.publicId);
           return;
         }
+        const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
         const card = await buildItemCard(
           editResult.ownerUserId,
           editResult.kind,
           editResult.publicId,
           user.settings?.timezone ?? "UTC",
           "✅ Updated",
-          false
+          false,
+          1,
+          workspace?.id,
         );
         appendListOrigin(card.keyboard, user.id, editResult.kind);
         await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });

@@ -711,7 +711,14 @@ export function parseTaskAssignees(sourceText: string, mentions: TaskEntityMenti
 }
 
 function assigneeCreateData(assignee: ParsedAssignee) {
-  return { normalizedKey: assigneeKey(assignee), telegramId: assignee.telegramId, username: assignee.username, displayName: assignee.displayName };
+  return {
+    normalizedKey: assigneeKey(assignee),
+    telegramId: assignee.telegramId,
+    username: assignee.username,
+    displayName: assignee.displayName,
+    status: TaskAssigneeStatus.ACCEPTED,
+    respondedAt: new Date(),
+  };
 }
 
 function assigneeKey(assignee: ParsedAssignee): string {
