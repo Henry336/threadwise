@@ -265,7 +265,7 @@ export function canvasPriority(dueAt: Date | undefined, now = new Date()): Study
   return StudyPriority.NORMAL;
 }
 
-async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, now: Date): Promise<StudyModule> {
+export async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, now: Date): Promise<StudyModule> {
   const canvasCourseId = String(course.id);
   const code = canvasModuleCode(course);
   const canvasCourseName = (course.name ?? course.course_code ?? code).trim().slice(0, 240);
@@ -282,7 +282,6 @@ async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, 
         canvasCourseId,
         canvasCourseName,
         canvasLastSeenAt: now,
-        active: true,
       },
     });
   }
@@ -295,13 +294,15 @@ async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, 
       canvasCourseId,
       canvasCourseName,
       canvasLastSeenAt: now,
-      active: true,
+      // Canvas discovery is source state, not a user visibility decision.
+      // The owner explicitly activates courses that belong to this semester.
+      active: false,
       displayOrder,
     },
   });
 }
 
-async function persistCanvasAssignment(
+export async function persistCanvasAssignment(
   workspace: StudyWorkspace,
   module: StudyModule,
   course: CanvasCourse,
@@ -350,6 +351,9 @@ async function persistCanvasAssignment(
   // only when Threadwise was already tracking the assignment and needs to
   // close it; importing completed history would bury the active workload.
   if (submitted) return "ignored";
+  // Assignments discovered under an inactive/unreviewed module remain source
+  // metadata only. Activating the module and syncing again imports them.
+  if (!module.active) return "ignored";
 
   const publicId = await nextStudyPublicId(workspace.id, "STUDY");
   const item = await prisma.studyItem.create({

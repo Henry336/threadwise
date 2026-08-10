@@ -201,7 +201,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
     });
   }
   const mistakes = await prisma.studyMistake.findMany({
-    where: { workspaceId: workspace.id, status: { in: [StudyMistakeStatus.OPEN, StudyMistakeStatus.REATTEMPT_DUE] }, revisitAt: { lte: now } },
+    where: { workspaceId: workspace.id, module: { active: true }, status: { in: [StudyMistakeStatus.OPEN, StudyMistakeStatus.REATTEMPT_DUE] }, revisitAt: { lte: now } },
     include: { module: true },
     take: 10,
   });
@@ -228,6 +228,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
   const items = await prisma.studyItem.findMany({
     where: {
       workspaceId: workspace.id,
+      module: { active: true },
       status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] },
       priority: { in: [StudyPriority.HIGH, StudyPriority.CRITICAL] },
       dueAt: { not: null, lte: new Date(now.getTime() + 24 * 60 * 60_000) },
@@ -250,7 +251,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
     });
   }
   const blocks = await prisma.studyScheduleBlock.findMany({
-    where: { workspaceId: workspace.id, active: true, dayOfWeek: local.weekday },
+    where: { workspaceId: workspace.id, active: true, dayOfWeek: local.weekday, OR: [{ moduleId: null }, { module: { active: true } }] },
     include: { module: true },
   });
   for (const block of blocks) {

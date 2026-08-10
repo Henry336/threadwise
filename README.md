@@ -20,6 +20,11 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 
 Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)
 
+Study Mode treats the selected module as navigation context, never as implicit permission to file
+new content. Text or media without one unambiguous, explicit module is held as a pending capture
+until the owner chooses a current module. Canvas synchronization likewise refreshes source metadata
+without undoing local archives; newly discovered courses wait for explicit activation.
+
 ## Read The Repository
 
 If you are learning Threadwise from its own code, use this order:

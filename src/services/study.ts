@@ -349,7 +349,10 @@ export async function updateStudyModule(
     data: {
       ...(input.code ? { code: normalizeModuleCode(input.code) } : {}),
       ...(input.name ? { name: input.name.trim().slice(0, 160) } : {}),
-      ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.active !== undefined ? {
+        active: input.active,
+        userArchivedAt: input.active ? null : new Date(),
+      } : {}),
     },
   });
   await auditStudy(workspace.ownerUserId, "study.module.updated", { workspaceId: workspace.id, moduleId, code: module.code, active: module.active });
@@ -608,11 +611,11 @@ export async function recordStudyMistake(
 
 export async function listStudyMistakes(workspaceId: string, now = new Date()) {
   await prisma.studyMistake.updateMany({
-    where: { workspaceId, status: StudyMistakeStatus.OPEN, revisitAt: { lte: now } },
+    where: { workspaceId, module: { active: true }, status: StudyMistakeStatus.OPEN, revisitAt: { lte: now } },
     data: { status: StudyMistakeStatus.REATTEMPT_DUE },
   });
   return prisma.studyMistake.findMany({
-    where: { workspaceId, status: { in: [StudyMistakeStatus.OPEN, StudyMistakeStatus.REATTEMPT_DUE] } },
+    where: { workspaceId, module: { active: true }, status: { in: [StudyMistakeStatus.OPEN, StudyMistakeStatus.REATTEMPT_DUE] } },
     include: { module: true, item: true },
     orderBy: [{ revisitAt: "asc" }, { createdAt: "desc" }],
   });
@@ -725,6 +728,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
     prisma.studyItem.findMany({
       where: {
         workspaceId: workspace.id,
+        module: { active: true },
         OR: [
           { status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
           ...(week ? [{ weekId: week.id }] : []),
@@ -732,12 +736,12 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
       },
       include: { week: true },
     }),
-    weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
+    weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
     listStudyMistakes(workspace.id, now),
-    prisma.studyScheduleBlock.findMany({ where: { workspaceId: workspace.id, active: true }, include: { module: true } }),
+    prisma.studyScheduleBlock.findMany({ where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] }, include: { module: true } }),
     prisma.weeklyReview.findMany({ where: { workspaceId: workspace.id }, orderBy: { completedAt: "desc" }, take: 2 }),
     prisma.studySession.findFirst({
-      where: { workspaceId: workspace.id, endedAt: null },
+      where: { workspaceId: workspace.id, module: { active: true }, endedAt: null },
       include: { module: true, item: { select: { id: true, publicId: true, title: true } } },
     }),
   ]);
@@ -796,7 +800,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
 
 export async function upcomingStudyItems(workspaceId: string, now = new Date()) {
   return prisma.studyItem.findMany({
-    where: { workspaceId, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
+    where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
     include: { module: true },
     orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { priority: "desc" }, { createdAt: "desc" }],
     take: 50,
@@ -805,7 +809,7 @@ export async function upcomingStudyItems(workspaceId: string, now = new Date()) 
 
 export async function listStudyScheduleBlocks(workspaceId: string) {
   return prisma.studyScheduleBlock.findMany({
-    where: { workspaceId, active: true },
+    where: { workspaceId, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
     include: { module: true },
     orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
   });
@@ -955,11 +959,11 @@ export async function archiveStudyScheduleBlock(workspace: StudyWorkspace, block
 export async function createStudyExports(workspace: StudyWorkspace, now = new Date()): Promise<Array<{ fileName: string; content: string }>> {
   const dashboard = await buildStudyDashboard(workspace, now);
   const [items, sessions, mistakes, reviews, modules] = await Promise.all([
-    prisma.studyItem.findMany({ where: { workspaceId: workspace.id }, include: { module: true, week: true }, orderBy: { createdAt: "asc" } }),
-    prisma.studySession.findMany({ where: { workspaceId: workspace.id }, include: { module: true, item: true }, orderBy: { startedAt: "asc" } }),
-    prisma.studyMistake.findMany({ where: { workspaceId: workspace.id }, include: { module: true, item: true }, orderBy: { createdAt: "asc" } }),
+    prisma.studyItem.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, week: true }, orderBy: { createdAt: "asc" } }),
+    prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, item: true }, orderBy: { startedAt: "asc" } }),
+    prisma.studyMistake.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, item: true }, orderBy: { createdAt: "asc" } }),
     prisma.weeklyReview.findMany({ where: { workspaceId: workspace.id }, include: { week: true }, orderBy: { completedAt: "asc" } }),
-    listStudyModules(workspace.id, true),
+    listStudyModules(workspace.id),
   ]);
   return [
     {

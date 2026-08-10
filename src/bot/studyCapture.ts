@@ -95,6 +95,7 @@ const EXTENDED_CALLBACKS = [
   "study:res:",
   "study:cap:",
   "study:capm:",
+  "study:capmods:",
   "study:origins",
   "study:origin:",
   "study:travel",
@@ -391,7 +392,7 @@ export async function handleExtendedStudyCallback(
       await prisma.$transaction([
         prisma.studyCanvasAssignment.update({
           where: { id: assignment.id },
-          data: { status: StudyCanvasAssignmentStatus.MISSING, needsReview: false },
+          data: { status: StudyCanvasAssignmentStatus.MISSING, needsReview: false, userArchivedAt: new Date() },
         }),
         prisma.studyItem.update({
           where: { id: assignment.itemId },
@@ -485,6 +486,10 @@ export async function handleExtendedStudyCallback(
     const module = await findStudyModule(workspace.id, parts[4]);
     await setStudyPendingCaptureModule(workspace.id, token, module.id);
     await resolveCapture(ctx, workspace, token, action, module.id);
+    return true;
+  }
+  if (parts[1] === "capmods" && parts[2] && parts[3] && parts[4]) {
+    await chooseCaptureModule(ctx, workspace, parts[2], parts[3], true, Number(parts[4]));
     return true;
   }
   if (data === "study:origins") {
@@ -665,7 +670,7 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
       return showModuleHub(ctx, workspace, module);
     }
     case "create_task": {
-      const module = await resolveIntentModule(workspace, intent.moduleReference);
+      const module = await resolveExplicitCaptureModule(ctx, workspace, intent.moduleReference);
       if (!module) return deferCaptureForModule(ctx, workspace, intent.sourceText, "task");
       const item = await createStudyItem(workspace, {
         moduleId: module.id,
@@ -718,7 +723,7 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
     case "note_session_cancel":
       return cancelStudyNoteSession(ctx, workspace);
     case "create_resource": {
-      const module = await resolveIntentModule(workspace, intent.moduleReference);
+      const module = await resolveExplicitCaptureModule(ctx, workspace, intent.moduleReference);
       if (!module) return deferCaptureForModule(ctx, workspace, intent.body, captureAction(intent.resourceKind));
       const result = await createStudyResource(workspace, {
         moduleId: module.id,
@@ -818,7 +823,7 @@ export async function showStudyOriginMatches(
 async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: StudyMedia): Promise<void> {
   const parsed = media.caption ? parseStudyNaturalLanguage(media.caption, workspace.timezone) : undefined;
   const moduleRef = parsed && "moduleReference" in parsed ? parsed.moduleReference : undefined;
-  const module = await resolveIntentModule(workspace, moduleRef);
+  const module = await resolveExplicitCaptureModule(ctx, workspace, moduleRef);
   const resourceKind = media.mimeType?.startsWith("image/") || media.mediaKind === "photo" ? StudyResourceKind.IMAGE : StudyResourceKind.FILE;
   if (!module) {
     const pending = await createStudyPendingCapture(workspace, {
@@ -874,7 +879,7 @@ async function indexStudyImage(ctx: Context, workspace: StudyWorkspace, resource
 }
 
 async function showStudyCaptureChoice(ctx: Context, workspace: StudyWorkspace, sourceText: string, moduleReference?: string): Promise<void> {
-  const module = moduleReference ? await findStudyModule(workspace.id, moduleReference).catch(() => undefined) : await activeStudyModule(workspace);
+  const module = await resolveExplicitCaptureModule(ctx, workspace, moduleReference).catch(() => undefined);
   const pending = await createStudyPendingCapture(workspace, {
     moduleId: module?.id,
     sourceText,
@@ -891,22 +896,37 @@ async function deferCaptureForModule(ctx: Context, workspace: StudyWorkspace, so
   await chooseCaptureModule(ctx, workspace, pending.token, action, false);
 }
 
-async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, token: string, action: string, edit = true): Promise<void> {
+async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, token: string, action: string, edit = true, requestedPage = 0): Promise<void> {
   const modules = await listStudyModules(workspace.id);
+  const pageSize = 6;
+  const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
+  const page = Math.max(0, Math.min(pageCount - 1, Math.trunc(requestedPage)));
+  const visible = modules.slice(page * pageSize, page * pageSize + pageSize);
   const keyboard = new InlineKeyboard();
-  modules.forEach((module, index) => {
+  visible.forEach((module, index) => {
+    // Keep callback_data below Telegram's 64-byte limit; module codes are
+    // workspace-unique and are revalidated as active before any write.
     keyboard.text(module.code, `study:capm:${token}:${action}:${module.code}`);
     if (index % 2 === 1) keyboard.row();
   });
-  keyboard.row().text("Cancel", `study:cap:ignore:${token}`);
-  const text = `${bold("Choose a module")}\nThis capture stays inside that module.`;
+  if (visible.length % 2 === 1) keyboard.row();
+  if (pageCount > 1) {
+    if (page > 0) keyboard.text("Prev", `study:capmods:${token}:${action}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `study:capmods:${token}:${action}:${page}`);
+    if (page + 1 < pageCount) keyboard.text("Next", `study:capmods:${token}:${action}:${page + 1}`);
+    keyboard.row();
+  }
+  keyboard.text("Cancel", `study:cap:ignore:${token}`);
+  const text = `${bold("Where should I save this?")}\nChoose one of your current modules.`;
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
 async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: string, action: string, moduleId: string): Promise<void> {
-  const pending = await findStudyPendingCapture(workspace.id, token);
   const module = await findStudyModule(workspace.id, moduleId);
+  if (!module.active) throw new StudyModeError("That module is inactive. Choose a current module instead.", "invalid");
+  // Claim before writing so duplicate or stale callback taps cannot create two records.
+  const pending = await consumeStudyPendingCapture(workspace.id, token);
   if (action === "task") {
     const text = pending.sourceText?.trim() || pending.fileName || "Study task";
     const item = await createStudyItem(workspace, {
@@ -916,7 +936,6 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
       notes: text,
       priority: StudyPriority.NORMAL,
     });
-    await consumeStudyPendingCapture(workspace.id, token);
     await editOrReplyQuietAcknowledgementHtml(ctx, `${bold("Saved")} · ${code(item.publicId)} · ${bold(module.code)}`);
     return;
   }
@@ -940,7 +959,6 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
     caption: pending.sourceText ?? undefined,
     sourceMessageId: pending.sourceMessageId ?? undefined,
   });
-  await consumeStudyPendingCapture(workspace.id, token);
   await editOrReplyQuietAcknowledgementHtml(ctx, `${bold("Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}`);
   if (kind === StudyResourceKind.IMAGE && pending.telegramFileId) {
     void indexStudyImage(ctx, workspace, result.resource.id, {
@@ -1021,7 +1039,7 @@ async function showModuleHub(ctx: Context, workspace: StudyWorkspace, module: St
   const text = [
     `${bold(module.code)} · ${h(module.name)}`,
     `${open} open · ${count(StudyResourceKind.NOTE)} notes · ${count(StudyResourceKind.IMAGE)} images · ${count(StudyResourceKind.QUESTION)} questions`,
-    "Anything you capture now belongs here unless you name another module.",
+    "Opening a module changes this view only. Captures need an explicit module.",
   ].join("\n");
   const keyboard = new InlineKeyboard()
     .text("Add work", "study:add:start").text("Note session", `study:note:start:${module.id}`).row()
@@ -1174,7 +1192,22 @@ async function cancelStudyNoteSession(ctx: Context, workspace: StudyWorkspace, e
 }
 
 async function resolveIntentModule(workspace: StudyWorkspace, reference?: string): Promise<StudyModule | undefined> {
-  return reference ? findStudyModule(workspace.id, reference) : activeStudyModule(workspace);
+  return reference ? findStudyModule(workspace.id, reference) : undefined;
+}
+
+async function resolveExplicitCaptureModule(ctx: Context, workspace: StudyWorkspace, reference?: string): Promise<StudyModule | undefined> {
+  if (reference) return findStudyModule(workspace.id, reference);
+  const replied = ctx.message?.reply_to_message;
+  if (!replied?.from || replied.from.id !== ctx.me.id) return undefined;
+  const replyText = "text" in replied ? replied.text : "caption" in replied ? replied.caption : undefined;
+  if (!replyText) return undefined;
+  const modules = await listStudyModules(workspace.id);
+  const matches = modules.filter((module) => new RegExp(`(^|[^A-Z0-9])${escapeRegExp(module.code)}([^A-Z0-9]|$)`, "i").test(replyText));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function moduleOpenKeyboard(workspace: StudyWorkspace): Promise<InlineKeyboard> {
@@ -1226,7 +1259,7 @@ async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = fal
 
 async function showTravelBlocks(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const blocks = await prisma.studyScheduleBlock.findMany({
-    where: { workspaceId: workspace.id, active: true },
+    where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
     include: { module: true, defaultOrigin: true },
     orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
     take: 12,

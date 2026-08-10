@@ -11,6 +11,30 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 10 August 2026 - Study context must never become an implicit write destination
+
+**Friction discovered:** Opening a module changed the active Study context, and later text or media without an explicit module was silently saved there. A screenshot about one module could therefore disappear into whichever module happened to be opened last, with no destination decision visible to the owner.
+
+**Decision:** Treat the active module as navigation state only. A capture may bypass clarification only when the message names one active module, replies to a module-specific Threadwise prompt, or comes from an explicit module capture action. Everything else becomes a durable pending capture with an active-module-only picker.
+
+**Implementation:** Added a paginated Telegram destination picker, retained the original text/file/caption/OCR/source identifiers, and made pending-capture consumption race-safe so duplicate or expired buttons fail gracefully instead of duplicating data. No AI is used to infer a destination.
+
+**Outcome/evidence:** Focused persistence and type checks pass, including a duplicate-consumption regression. Module hub copy now states that opening a module changes the view, not the destination.
+
+**Follow-up:** Verify one captionless image, one ambiguous text capture, one explicit module reference, one reply capture, Cancel, and a repeated stale callback in the live private Study group.
+
+## 10 August 2026 - Canvas source truth must not override an owner's archive decision
+
+**Friction discovered:** Canvas synchronization treated a seen course or assignment as permission to show it. Courses outside the current semester and repeatedly archived assignments could therefore return after every automatic sync, making cleanup feel ineffective.
+
+**Decision:** Separate external source state from local visibility. Canvas may refresh metadata, but only the owner may activate or restore a module or item. New or uncertain Canvas courses wait inactive for review.
+
+**Implementation:** Added durable archive timestamps for Study modules and Canvas assignments, stopped course refreshes from setting modules active, preserved locally closed assignment states, and filtered inactive modules from work, resources, mistakes, sessions, schedules, search, reminders, attention, reviews, timetable, travel lookahead, and exports. The dashboard exposes compact Restore or Activate actions.
+
+**Outcome/evidence:** Migration backfill preserves existing inactive Canvas modules and skipped assignments. Focused Canvas persistence tests prove that archived courses stay inactive and newly discovered courses do not enter the semester automatically.
+
+**Follow-up:** After deployment, archive one Canvas assignment and one module, run two manual syncs plus one scheduled sync, and confirm neither returns until explicitly restored.
+
 ## 10 August 2026 - Reminder testing needs production fidelity without production credentials
 
 **Friction discovered:** Class-departure and study-block reminders depend on the live reminder worker, the active private Study workspace, academic-week bounds, saved origins, and Improved NextBus. Local configuration intentionally contains placeholder database credentials, while Render SSH is not authorized on the development machine. Manually inserting rows or copying the production database URL locally would weaken credential handling and could create recurring test reminders.

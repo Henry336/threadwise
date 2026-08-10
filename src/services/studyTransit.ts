@@ -399,7 +399,12 @@ export async function listUpcomingStudyTravelBlocks(
   days = 14,
 ): Promise<Array<{ block: StudyTravelBlock; startsAt: Date }>> {
   const blocks = await prisma.studyScheduleBlock.findMany({
-    where: { workspaceId: workspace.id, active: true, destinationStopId: { not: null } },
+    where: {
+      workspaceId: workspace.id,
+      active: true,
+      destinationStopId: { not: null },
+      OR: [{ moduleId: null }, { module: { active: true } }],
+    },
     include: { module: { select: { id: true, code: true, name: true } }, defaultOrigin: true },
     orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
   });

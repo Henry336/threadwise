@@ -130,6 +130,10 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-10 (Codex):** Hardened Study reliability across Telegram, Canvas, reminders, and the
+  dashboard API. Active module selection is navigation-only; ambiguous captures now wait durably
+  for an explicit module. Canvas discovery no longer reactivates archived data, inactive modules
+  are excluded across every operational surface, and explicit restore/activate paths remain.
 - **2026-08-10 (Codex):** Reconciled backend and dashboard documentation with backend v0.32.0
   and the latest interaction hierarchy. Current docs now describe immediate group assignment,
   unassigned claiming, exact dashboard continuation, Study Timetable/travel, and Beacon's

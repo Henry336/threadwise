@@ -4,6 +4,14 @@ Updated: 2026-08-10
 
 Current backend release: v0.32.0
 
+### Recent Study reliability decision
+
+Study Mode now treats a selected module as navigation context, not as an implicit write
+destination. Ambiguous text and media remain durable pending captures until the owner chooses a
+current module. Canvas source refreshes are also separate from local visibility, so archived
+courses and assignments stay hidden until the owner explicitly restores them. These boundaries
+prevent both silent misfiling and the repeated resurrection of unwanted semester data.
+
 ## Summary
 
 **Threadwise turns Telegram messages into things people can find, remember, and finish.**

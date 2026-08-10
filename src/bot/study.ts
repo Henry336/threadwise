@@ -333,6 +333,11 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       await editOrReplyHtml(ctx, `${bold(module.code)} archived.`, { reply_markup: new InlineKeyboard().text("Modules", "study:modules") });
       return;
     }
+    if (action === "module" && parts[2] === "restore" && parts[3]) {
+      const module = await updateStudyModule(workspace, parts[3], { active: true });
+      await editOrReplyHtml(ctx, `${bold(module.code)} restored.`, { reply_markup: new InlineKeyboard().text("Modules", "study:modules") });
+      return;
+    }
     if (action === "add") return handleAddCallback(ctx, workspace, parts);
     if (action === "items") return showStudyWeek(ctx, workspace, Number(parts[2] ?? 0), true);
     if (action === "upcoming") return showUpcoming(ctx, workspace, Number(parts[2] ?? 0), true);
@@ -823,13 +828,20 @@ async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit 
 }
 
 async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
-  const modules = await listStudyModules(workspace.id);
-  const text = [bold("Modules"), ...modules.map((module) => `${traffic(module.currentMastery)} ${bold(module.code)} · ${h(module.name)}`)].join("\n");
+  const allModules = await listStudyModules(workspace.id, true);
+  const modules = allModules.filter((module) => module.active);
+  const inactive = allModules.filter((module) => !module.active);
+  const text = [
+    bold("Modules"),
+    ...modules.map((module) => `${traffic(module.currentMastery)} ${bold(module.code)} · ${h(module.name)}`),
+    ...(inactive.length ? ["", bold("Inactive"), ...inactive.map((module) => `${bold(module.code)} · ${h(module.name)}`)] : []),
+  ].join("\n");
   const keyboard = new InlineKeyboard();
   for (const module of modules) {
     keyboard.text(`Open ${module.code}`, `study:module:open:${module.id}`).row()
       .text("Edit", `study:module:edit:${module.id}`).text("Archive", `study:module:archive:${module.id}`).row();
   }
+  for (const module of inactive) keyboard.text(`Restore ${module.code}`, `study:module:restore:${module.id}`).row();
   keyboard.text("Add module", "study:module:add").text("Home", "study:dashboard");
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
   else await replyHtml(ctx, text, { reply_markup: keyboard });
@@ -838,7 +850,7 @@ async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = 
 async function showStudyWeek(ctx: Context, workspace: StudyWorkspace, requestedPage: number, edit = false): Promise<void> {
   const weekNumber = academicWeekNumber(workspace);
   const week = await ensureStudyWeek(workspace, weekNumber);
-  const all = await prisma.studyItem.findMany({ where: { workspaceId: workspace.id, weekId: week.id }, include: { module: true }, orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }] });
+  const all = await prisma.studyItem.findMany({ where: { workspaceId: workspace.id, weekId: week.id, module: { active: true } }, include: { module: true }, orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }] });
   const pageCount = Math.max(1, Math.ceil(all.length / LIST_PAGE_SIZE));
   const page = clampPage(requestedPage, pageCount);
   const rows = all.slice(page * LIST_PAGE_SIZE, page * LIST_PAGE_SIZE + LIST_PAGE_SIZE);
@@ -889,6 +901,7 @@ async function showStudyMistakes(ctx: Context, workspace: StudyWorkspace, reques
 
 async function showSessionItems(ctx: Context, workspace: StudyWorkspace, moduleId: string): Promise<void> {
   const module = await findStudyModule(workspace.id, moduleId);
+  if (!module.active) throw new StudyModeError("That module is inactive. Restore it before starting a session.", "invalid");
   const items = await prisma.studyItem.findMany({
     where: {
       workspaceId: workspace.id,

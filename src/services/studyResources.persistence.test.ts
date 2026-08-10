@@ -5,12 +5,15 @@ const db = vi.hoisted(() => {
   const client = {
     studyModule: { findFirst: vi.fn(), count: vi.fn() },
     studyResource: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+    studyPendingCapture: { findFirst: vi.fn(), deleteMany: vi.fn() },
     studyNoteCaptureSession: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     studyNoteCaptureSegment: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   };
-  client.$transaction.mockImplementation((operations: unknown[]) => Promise.all(operations));
+  client.$transaction.mockImplementation((input: unknown) => typeof input === "function"
+    ? (input as (tx: typeof client) => unknown)(client)
+    : Promise.all(input as unknown[]));
   return client;
 });
 
@@ -18,6 +21,7 @@ vi.mock("../db/prisma", () => ({ prisma: db }));
 
 import {
   appendStudyNoteSegment,
+  consumeStudyPendingCapture,
   finalizeStudyNoteCaptureSession,
   startStudyNoteCaptureSession,
 } from "./studyResources";
@@ -31,7 +35,9 @@ const module = { id: "module-1", workspaceId: workspace.id, code: "CS2100", acti
 
 beforeEach(() => {
   vi.clearAllMocks();
-  db.$transaction.mockImplementation((operations: unknown[]) => Promise.all(operations));
+  db.$transaction.mockImplementation((input: unknown) => typeof input === "function"
+    ? (input as (tx: typeof db) => unknown)(db)
+    : Promise.all(input as unknown[]));
   db.auditLog.create.mockResolvedValue({});
 });
 
@@ -97,5 +103,16 @@ describe("durable Study note sessions", () => {
       }),
     }));
     expect(db.studyNoteCaptureSession.delete).toHaveBeenCalledWith({ where: { id: session.id } });
+  });
+});
+
+describe("durable pending Study captures", () => {
+  it("claims a capture once so duplicate callbacks cannot save it twice", async () => {
+    const pending = { id: "pending-1", workspaceId: workspace.id, token: "token-1", expiresAt: new Date(Date.now() + 60_000) };
+    db.studyPendingCapture.findFirst.mockResolvedValue(pending);
+    db.studyPendingCapture.deleteMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+
+    await expect(consumeStudyPendingCapture(workspace.id, pending.token)).resolves.toEqual(pending);
+    await expect(consumeStudyPendingCapture(workspace.id, pending.token)).rejects.toMatchObject({ code: "conflict" });
   });
 });

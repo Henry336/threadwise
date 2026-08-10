@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Study capture, Canvas archive, and timetable reliability
+- Stopped Study captures from silently inheriting the last-opened module. Explicit module text and replies to module-specific bot prompts still save directly; otherwise Threadwise stores a durable pending capture and asks the owner to choose from current modules.
+- Added a paginated, active-module-only destination picker with cancel support and race-safe capture claiming, so stale or duplicate Telegram callbacks cannot create duplicate work or resources.
+- Separated Canvas discovery from owner visibility. Newly discovered courses wait inactive for review, Canvas metadata refreshes no longer reactivate archived modules, and archived Canvas assignments remain locally closed until explicitly restored.
+- Propagated module visibility through work, resources, mistakes, sessions, search, attention, reminders, reviews, timetable, travel lookahead, and Study exports.
+- Added owner-visible restore/activate controls for inactive modules and persistence tests for Canvas course discovery, archived-module preservation, and duplicate pending-capture handling.
+
 ### Date-bounded Study reminder smoke seed
 - Added an owner-operated `STUDY_SMOKE_TEST_DATE` deployment flag for validating the live Study reminder pipeline without copying production database credentials to a development machine.
 - The seed creates one short study block and one routed COM3 class block using the current saved origin, real Improved NextBus estimates, the active academic week, and the exact local weekday. It is idempotent and cannot recur in later academic weeks.

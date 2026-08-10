@@ -299,13 +299,17 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     buildStudyAttentionSnapshot(workspace, now, 12),
     studyCanvasStatus(workspace.id),
   ]);
-  const [modules, items, resources, mistakes] = await Promise.all([
+  const [modules, inactiveModules, items, resources, mistakes] = await Promise.all([
     prisma.studyModule.findMany({
       where: { workspaceId: workspace.id, active: true },
       orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
     }),
+    prisma.studyModule.findMany({
+      where: { workspaceId: workspace.id, active: false },
+      orderBy: [{ userArchivedAt: { sort: "desc", nulls: "last" } }, { displayOrder: "asc" }, { code: "asc" }],
+    }),
     prisma.studyItem.findMany({
-      where: { workspaceId: workspace.id, status: { not: StudyItemStatus.SKIPPED } },
+      where: { workspaceId: workspace.id, module: { active: true }, status: { not: StudyItemStatus.SKIPPED } },
       include: {
         module: { select: { id: true, code: true, name: true, color: true } },
         week: { select: { number: true } },
@@ -325,7 +329,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
       take: 500,
     }),
     prisma.studyResource.findMany({
-      where: { workspaceId: workspace.id, archivedAt: null },
+      where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null },
       include: { module: { select: { id: true, code: true, name: true, color: true } } },
       orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: 400,
@@ -334,7 +338,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
   ]);
   const [sessions, reviews, scheduleBlocks, canvasAssignments, origins] = await Promise.all([
     prisma.studySession.findMany({
-      where: { workspaceId: workspace.id },
+      where: { workspaceId: workspace.id, module: { active: true } },
       include: { module: { select: { code: true, name: true } }, item: { select: { publicId: true, title: true } } },
       orderBy: { startedAt: "desc" },
       take: 80,
@@ -346,12 +350,12 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
       take: 16,
     }),
     prisma.studyScheduleBlock.findMany({
-      where: { workspaceId: workspace.id, active: true },
+      where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
       include: { module: { select: { id: true, code: true, name: true } }, defaultOrigin: { select: { id: true, name: true } } },
       orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
     }),
     prisma.studyCanvasAssignment.findMany({
-      where: { workspaceId: workspace.id, needsReview: true },
+      where: { workspaceId: workspace.id, module: { active: true }, needsReview: true },
       include: { module: { select: { code: true, name: true } }, item: { select: { publicId: true, title: true, status: true } } },
       orderBy: { missingSince: "asc" },
       take: 100,
@@ -374,6 +378,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
       attention,
     },
     modules: modules.map((module) => ({ ...module, summary: summaryByModule.get(module.id) })),
+    inactiveModules,
     items,
     resources: resources.map(studyResourcePreview),
     mistakes,
@@ -405,7 +410,10 @@ export async function updateDashboardStudyModule(workspace: StudyWorkspace, modu
       data: {
         ...(code ? { code } : {}),
         ...(input.name ? { name: input.name.trim() } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
+        ...(input.active !== undefined ? {
+          active: input.active,
+          userArchivedAt: input.active ? null : new Date(),
+        } : {}),
         ...(input.color !== undefined ? { color: input.color } : {}),
         ...(input.workloadGroup !== undefined ? { workloadGroup: input.workloadGroup || null } : {}),
         ...(input.mastery !== undefined ? {
@@ -463,6 +471,12 @@ export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId
     if (input.moduleId && current.canvasAssignment) {
       await tx.studyCanvasAssignment.update({ where: { itemId: current.id }, data: { moduleId: input.moduleId } });
     }
+    if (input.status && current.canvasAssignment) {
+      await tx.studyCanvasAssignment.update({
+        where: { itemId: current.id },
+        data: { userArchivedAt: input.status === StudyItemStatus.SKIPPED ? now : null },
+      });
+    }
     await tx.auditLog.create({
       data: { userId: workspace.ownerUserId, action: "study.item.dashboard_updated", metadata: { workspaceId: workspace.id, itemId: current.id, publicId: current.publicId } },
     });
@@ -472,7 +486,13 @@ export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId
 
 export async function archiveDashboardStudyItem(workspace: StudyWorkspace, itemId: string) {
   const item = await findStudyItem(workspace.id, itemId);
-  const archived = await prisma.studyItem.update({ where: { id: item.id }, data: { status: StudyItemStatus.SKIPPED } });
+  const archived = await prisma.$transaction(async (tx) => {
+    const saved = await tx.studyItem.update({ where: { id: item.id }, data: { status: StudyItemStatus.SKIPPED } });
+    if (item.canvasAssignment) {
+      await tx.studyCanvasAssignment.update({ where: { itemId: item.id }, data: { userArchivedAt: new Date() } });
+    }
+    return saved;
+  });
   await audit(workspace, "study.item.dashboard_archived", { itemId: item.id, publicId: item.publicId });
   return archived;
 }
@@ -486,6 +506,7 @@ export async function listDashboardStudyResources(workspace: StudyWorkspace, inp
   const where: Prisma.StudyResourceWhereInput = {
     workspaceId: workspace.id,
     archivedAt: null,
+    module: { active: true },
     ...(input.moduleId ? { moduleId: input.moduleId } : {}),
     ...(input.kind ? { kind: input.kind } : {}),
     ...(query ? { OR: resourceSearchWhere(query) } : {}),
@@ -599,6 +620,7 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
     kinds.has("work") ? prisma.studyItem.findMany({
       where: {
         workspaceId: workspace.id,
+        module: { active: true },
         status: { not: StudyItemStatus.SKIPPED },
         ...(input.moduleId ? { moduleId: input.moduleId } : {}),
         OR: [{ title: { contains: query, mode: "insensitive" } }, { notes: { contains: query, mode: "insensitive" } }],
@@ -609,6 +631,7 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
     [...kinds].some((kind) => kind !== "work" && kind !== "mistakes") ? prisma.studyResource.findMany({
       where: {
         workspaceId: workspace.id,
+        module: { active: true },
         archivedAt: null,
         ...(input.moduleId ? { moduleId: input.moduleId } : {}),
         kind: { in: resourceKindsForSearch(kinds) },
@@ -620,6 +643,7 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
     kinds.has("mistakes") ? prisma.studyMistake.findMany({
       where: {
         workspaceId: workspace.id,
+        module: { active: true },
         ...(input.moduleId ? { moduleId: input.moduleId } : {}),
         OR: [
           { source: { contains: query, mode: "insensitive" } },
@@ -712,7 +736,7 @@ export async function resolveDashboardStudyCanvasAssignment(workspace: StudyWork
   return prisma.$transaction(async (tx) => {
     const updated = await tx.studyCanvasAssignment.update({
       where: { id: assignment.id },
-      data: { needsReview: false },
+      data: { needsReview: false, ...(action === "archive" ? { userArchivedAt: new Date() } : {}) },
     });
     if (action === "archive") {
       await tx.studyItem.update({ where: { id: assignment.itemId }, data: { status: StudyItemStatus.SKIPPED } });

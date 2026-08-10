@@ -140,6 +140,7 @@ export async function listStudyResources(
   const where: Prisma.StudyResourceWhereInput = {
     workspaceId,
     archivedAt: null,
+    module: { active: true },
     ...(input.moduleId ? { moduleId: input.moduleId } : {}),
     ...(input.kind ? { kind: input.kind } : {}),
     ...(query ? {
@@ -172,6 +173,7 @@ export async function findStudyResource(workspaceId: string, reference: string) 
   const resource = await prisma.studyResource.findFirst({
     where: {
       workspaceId,
+      module: { active: true },
       OR: [
         { publicId: normalized },
         ...(isUuid(reference) ? [{ id: reference }] : []),
@@ -252,12 +254,15 @@ export async function createStudyPendingCapture(workspace: StudyWorkspace, input
 }
 
 export async function consumeStudyPendingCapture(workspaceId: string, token: string) {
-  const pending = await prisma.studyPendingCapture.findFirst({
-    where: { workspaceId, token, expiresAt: { gt: new Date() } },
+  return prisma.$transaction(async (tx) => {
+    const pending = await tx.studyPendingCapture.findFirst({
+      where: { workspaceId, token, expiresAt: { gt: new Date() } },
+    });
+    if (!pending) throw new StudyModeError("That capture was already handled or expired. Send it again if needed.", "not_found");
+    const claimed = await tx.studyPendingCapture.deleteMany({ where: { id: pending.id, workspaceId, token } });
+    if (claimed.count !== 1) throw new StudyModeError("That capture was already handled or expired. Send it again if needed.", "conflict");
+    return pending;
   });
-  if (!pending) throw new StudyModeError("That capture choice expired. Send it again.", "not_found");
-  await prisma.studyPendingCapture.delete({ where: { id: pending.id } });
-  return pending;
 }
 
 export async function findStudyPendingCapture(workspaceId: string, token: string) {

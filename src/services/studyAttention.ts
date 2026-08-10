@@ -216,7 +216,7 @@ function compareAttention(a: StudyAttentionItem, b: StudyAttentionItem): number 
 
 function attentionRows(workspaceId: string): Promise<AttentionInput[]> {
   return prisma.studyItem.findMany({
-    where: { workspaceId, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
+    where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
     include: {
       module: { select: { id: true, code: true, name: true, currentMastery: true } },
       week: { select: { number: true } },

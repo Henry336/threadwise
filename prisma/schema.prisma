@@ -385,6 +385,7 @@ model StudyModule {
   canvasCourseId   String?
   canvasCourseName String?
   canvasLastSeenAt DateTime?
+  userArchivedAt   DateTime?
   currentMastery   StudyTrafficLight @default(UNASSESSED)
   masteryReason    String?
   redSince         DateTime?
@@ -703,6 +704,7 @@ model StudyCanvasAssignment {
   lastSeenAt         DateTime
   missingSince       DateTime?
   needsReview        Boolean                     @default(false)
+  userArchivedAt     DateTime?
   createdAt          DateTime                    @default(now())
   updatedAt          DateTime                    @updatedAt
 

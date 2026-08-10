@@ -307,7 +307,7 @@ describe("Study Mode reviews and mistakes", () => {
 
     expect(rows).toHaveLength(1);
     expect(db.studyMistake.updateMany).toHaveBeenCalledWith({
-      where: { workspaceId: workspace.id, status: StudyMistakeStatus.OPEN, revisitAt: { lte: now } },
+      where: { workspaceId: workspace.id, module: { active: true }, status: StudyMistakeStatus.OPEN, revisitAt: { lte: now } },
       data: { status: StudyMistakeStatus.REATTEMPT_DUE },
     });
   });
