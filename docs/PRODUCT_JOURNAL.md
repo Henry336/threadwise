@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 10 August 2026 - Reminder testing needs production fidelity without production credentials
+
+**Friction discovered:** Class-departure and study-block reminders depend on the live reminder worker, the active private Study workspace, academic-week bounds, saved origins, and Improved NextBus. Local configuration intentionally contains placeholder database credentials, while Render SSH is not authorized on the development machine. Manually inserting rows or copying the production database URL locally would weaken credential handling and could create recurring test reminders.
+
+**Decision:** Add an explicit date-bounded production smoke seed rather than a permanent sample-data path. Require an exact local `YYYY-MM-DD` deployment flag, reuse the live workspace and route provider, label every row as test data, constrain both blocks to the current academic week and weekday, and make the operation idempotent and non-fatal.
+
+**Implementation:** Added `STUDY_SMOKE_TEST_DATE`. On the matching date, startup creates one near-term study block and one COM3 timetable block whose start time is derived from the current live route so its departure alert becomes eligible soon after deployment. The seed uses the current routable origin or creates a labelled PGP fallback, enables study-block reminders, logs exact credential-free timings, and archives expired smoke blocks on a later restart.
+
+**Outcome/evidence:** TypeScript checking and focused Study scheduling/transit tests pass. The seed cannot recur in later academic weeks, cannot run on a non-matching date, and cannot prevent the main bot from starting if transit or database work fails.
+
+**Follow-up:** Confirm the Telegram group receives both reminders, use Refresh on the class alert to verify live route recalculation, inspect the Timetable/Travel views, then remove the Render flag after the test date.
+
 ## 10 August 2026 - Fast iteration needs one current story across both repositories
 
 **Friction discovered:** The latest Threadwise and Beacon behavior was recorded in the changelog and product journal, but the case study and architecture guide still identified v0.30.0, presented acceptance/blocking/handoff as active group workflows, and used the earlier test baseline. The backend README listed legacy commands beside active commands, while both dashboard references omitted the shipped Study Timetable and still described assignment-response state that had been removed. A contributor could therefore read individually accurate historical documents and assemble an inaccurate current product.

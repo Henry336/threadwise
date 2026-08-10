@@ -14,6 +14,7 @@ import { startFileCourierDeliveryLoop } from "./bot/files";
 import { startVoiceCaptureRecoveryLoop } from "./bot/voiceCapture";
 import { startStudyCanvasSyncLoop } from "./services/studyCanvas";
 import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
+import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
 
 async function main() {
@@ -26,6 +27,7 @@ async function main() {
   const beaconWebhookSecret = beaconBot && env.BEACON_BOT_TOKEN
     ? createHash("sha256").update(`threadwise-beacon:${env.BEACON_BOT_TOKEN}`).digest("hex")
     : undefined;
+  await seedStudySmokeTestIfRequested();
   const beaconCleanupLoop = beaconBot ? startBeaconCleanupLoop() : undefined;
   const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
   const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);

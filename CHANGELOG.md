@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Date-bounded Study reminder smoke seed
+- Added an owner-operated `STUDY_SMOKE_TEST_DATE` deployment flag for validating the live Study reminder pipeline without copying production database credentials to a development machine.
+- The seed creates one short study block and one routed COM3 class block using the current saved origin, real Improved NextBus estimates, the active academic week, and the exact local weekday. It is idempotent and cannot recur in later academic weeks.
+- Study-block reminders are enabled when the smoke seed runs. Missing origins fall back to a clearly labelled PGP test origin, while failures remain isolated from normal bot startup and retain credential-free Render diagnostics.
+- Expired smoke blocks are archived on a later service restart, and the flag is ignored unless it exactly matches the workspace's current local date.
+
 ### v0.32.0 documentation reconciliation
 - Reconciled both Threadwise repositories' current-behavior documentation with immediate group assignment, unassigned claiming, creator/admin reassignment, progressive Telegram action budgets, exact dashboard deep links, Study Timetable/travel, and Beacon's Telegram-only role-adaptive control plane.
 - Updated the case study, architecture guide, voice rules, contributor handoffs, dashboard product/design references, current release dates, and the complete 97-file/786-test backend verification baseline.
