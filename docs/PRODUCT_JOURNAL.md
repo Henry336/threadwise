@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 
@@ -10,6 +10,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Entries from 22 July 2026 onward are contemporaneous unless explicitly labelled otherwise.
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
+
+## 11 August 2026 - Ari's loader needs registered motion, not pose swapping
+
+**Friction discovered:** The loading sequence jumped between four illustrations whose subject scale and visual center differed. The knot-to-finished action therefore looked like Ari was moving around the card, and the finished pose snapped directly back to the opening knot instead of forming a convincing loop.
+
+**Decision:** Keep one fixed 3:4 stage and register every frame to the same head center, body scale, and baseline. Add four meaningful in-between poses, then play the eight-frame action forward and backward so the loop returns through its own motion path.
+
+**Implementation:** The dashboard now uses an eight-frame 543×724 Ari sprite with a 15-state forward/reverse sequence. Only the untangling action changes between frames; the loading-card size remains stable, and reduced-motion users see the completed frame without animation.
+
+**Outcome/evidence:** Asset tests verify the exact eight-frame geometry and all playback positions. The generated motion asset was visually checked as one complete strip before integration.
+
+**Follow-up:** Check the production loader at desktop and mobile sizes and tune only playback timing if real network waits make the loop feel too fast or too slow.
 
 ## 10 August 2026 - Timetable inspection needs context before controls
 
@@ -583,6 +595,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 **Outcome/evidence:** The dual-agent critique moved from 24/40 to 38/40. The final Impeccable static detector reports no findings in either the Study component or stylesheet. Dashboard TypeScript, lint, all 29 contract tests, and an isolated production build pass. Backend TypeScript and all 39 Study-focused tests pass. A parallel full-backend run reached 699/700 because the unrelated Windows temporary-directory publisher test timed out under contention; that complete seven-test file passes in isolation, so no Study regression was found.
 
 **Follow-up:** Perform one authenticated production visual pass in the exact private Study group on desktop/mobile and light/dark themes, including a screen-reader spot check. Keep contextual first-use help for Canvas and Review as a small later polish item; do not add bulk controls or another navigation destination until actual semester usage proves the need.
+
+### 11 August 2026 — Make the dashboard installable without caching private work
+
+**Friction discovered:** Threadwise still behaved like an ordinary browser tab, making a frequently used Telegram companion slower to reach from a desktop taskbar or phone home screen. At the same time, a conventional offline-first service worker would be inappropriate for private tasks, notes, images, and group records. The dashboard also repeated obvious page meanings with subtitles such as “Things to do, reminders when they matter,” making simple collection views feel generated rather than direct.
+
+**Decision:** Treat installation and offline data as separate concerns. Add a standards-based standalone app shell with approved Ari launcher assets and a generic offline recovery page, but cache only versioned framework and brand assets. Keep authenticated navigation and API responses network-only. Across personal, group, Study, and demo views, use one direct operational title and no subtitle that merely restates it. Preserve one short, deterministic daily line on personal Overview, where personality helps orientation without adding persistent filler.
+
+**Implemented:** Added the dashboard manifest, 192px and 512px icons, a maskable safe-zone icon, Apple touch metadata, production service-worker registration, and a static-only service worker that explicitly excludes `/api/*` and dashboard navigation responses. Reconciled page headings through the shared dashboard renderer so the live product and demo use the same copy rules. Search now names tasks, notes, ideas, and images in one heading and reports actual result state without a decorative `LIVE` badge.
+
+**Outcome/evidence:** Focused manifest, copy-rotation, service-worker policy, and Ari loader tests pass with TypeScript checking. The production build and changed-file lint validate the installable shell without widening the browser trust boundary. The service worker contains no private-data cache path, and the Overview line is stable for a complete Singapore calendar day.
+
+**Follow-up:** Verify the install prompt and standalone launch on production Chrome, Edge, Android, and iOS Safari. Do not add offline workspace data unless Threadwise first adopts an explicit encrypted-device storage and revocation design.
 
 ## Journal entry template
 
