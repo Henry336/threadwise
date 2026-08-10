@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 10 August 2026 - Timetable inspection needs context before controls
+
+**Friction discovered:** Horizontal scrolling removed the day and deadline context just when the time axis needed the most space. Selecting a block opened an editing form immediately, so simple inspection felt unsafe. Short-duration blocks inherited full-card content and rendered misleading fragments such as detached meridiem labels.
+
+**Decision:** Freeze the informational Day and Deadlines pane beneath a pinned time ruler; distinguish today from the current time with separate teal and orange semantics; open existing blocks in read-only details before editing; and adapt visible card content to duration-accurate width.
+
+**Implementation:** The dashboard now keeps Day and Deadlines visible at every horizontal scroll position, marks the current day with an accessible teal row treatment, and uses a reducer-backed detail/edit sheet flow. Horizontal cards use deterministic narrow, compact, and full density tiers, preserve exact widths, assign overlap lanes, and retain complete accessible labels. No Study data contract or backend behavior changed.
+
+**Outcome/evidence:** Focused tests cover density thresholds, 30-minute widths, overlap lanes, midnight bounds, and detail-to-edit transitions. Browser verification covered horizontal start/middle/end positions, 1024/1280/1440 desktop widths, light and dark themes, and the 390px mobile agenda and bottom sheet.
+
+**Follow-up:** Confirm the production deployment at the same breakpoints with real recurring blocks and continue treating timetable inspection and mutation as separate interaction states.
+
 ## 10 August 2026 - Study capture context must be visible and expire
 
 **Friction discovered:** Opening a module changed the active Study context, and later text or media without an explicit module was silently saved there. A screenshot about one module could therefore disappear into whichever module happened to be opened last, with no destination decision visible to the owner.
