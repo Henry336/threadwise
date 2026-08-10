@@ -1,6 +1,6 @@
 import { StudyResourceKind } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { parseReplyCaptureInstruction } from "../bot/studyCapture";
+import { matchExplicitStudyModuleReply, parseReplyCaptureInstruction } from "../bot/studyCapture";
 import { parseStudyNaturalLanguage } from "./studyNaturalLanguage";
 
 const timezone = "Asia/Singapore";
@@ -72,5 +72,23 @@ describe("Study Mode reply capture language", () => {
 
   it("does not intercept unrelated save requests", () => {
     expect(parseReplyCaptureInstruction("save a note about CS2100")).toBeUndefined();
+  });
+
+  it("treats browsing as navigation only and accepts a module-specific bot prompt", () => {
+    const modules = [
+      { id: "module-2100", code: "CS2100", active: true },
+      { id: "module-2102", code: "CS2102", active: true },
+    ];
+
+    expect(matchExplicitStudyModuleReply(undefined, modules)).toBeUndefined();
+    expect(matchExplicitStudyModuleReply("CS2100 · Computer Organisation", modules)).toBeUndefined();
+    expect(matchExplicitStudyModuleReply(
+      "Opening a module changes this view only. Reply to this message to capture for CS2100, or name a module.",
+      modules,
+    )).toMatchObject({ id: "module-2100", code: "CS2100" });
+  });
+
+  it("accepts the explicit reply instruction requested by the owner", () => {
+    expect(parseReplyCaptureInstruction("Save this for CS2100")).toEqual({ moduleReference: "CS2100" });
   });
 });

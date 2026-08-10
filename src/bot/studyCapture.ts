@@ -936,7 +936,9 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
       notes: text,
       priority: StudyPriority.NORMAL,
     });
-    await editOrReplyQuietAcknowledgementHtml(ctx, `${bold("Saved")} · ${code(item.publicId)} · ${bold(module.code)}`);
+    await editOrReplyHtml(ctx, `${bold("Saved task")} · ${bold(module.code)}\n${code(item.publicId)}`, {
+      reply_markup: new InlineKeyboard().text("Open work", "study:upcoming:0").text("Home", "study:dashboard"),
+    });
     return;
   }
   const kind = action === "note" ? StudyResourceKind.NOTE
@@ -959,7 +961,9 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
     caption: pending.sourceText ?? undefined,
     sourceMessageId: pending.sourceMessageId ?? undefined,
   });
-  await editOrReplyQuietAcknowledgementHtml(ctx, `${bold("Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}`);
+  await editOrReplyHtml(ctx, `${bold(`Saved ${humanKind(kind).toLowerCase()}`)} · ${bold(module.code)}\n${code(result.resource.publicId)}`, {
+    reply_markup: new InlineKeyboard().text("Open", `study:res:${result.resource.id}:view:0`).text("Home", "study:dashboard"),
+  });
   if (kind === StudyResourceKind.IMAGE && pending.telegramFileId) {
     void indexStudyImage(ctx, workspace, result.resource.id, {
       telegramFileId: pending.telegramFileId,
@@ -1039,7 +1043,7 @@ async function showModuleHub(ctx: Context, workspace: StudyWorkspace, module: St
   const text = [
     `${bold(module.code)} · ${h(module.name)}`,
     `${open} open · ${count(StudyResourceKind.NOTE)} notes · ${count(StudyResourceKind.IMAGE)} images · ${count(StudyResourceKind.QUESTION)} questions`,
-    "Opening a module changes this view only. Captures need an explicit module.",
+    `Opening a module changes this view only. Reply to this message to capture for ${h(module.code)}, or name a module.`,
   ].join("\n");
   const keyboard = new InlineKeyboard()
     .text("Add work", "study:add:start").text("Note session", `study:note:start:${module.id}`).row()
@@ -1200,8 +1204,15 @@ async function resolveExplicitCaptureModule(ctx: Context, workspace: StudyWorksp
   const replied = ctx.message?.reply_to_message;
   if (!replied?.from || replied.from.id !== ctx.me.id) return undefined;
   const replyText = "text" in replied ? replied.text : "caption" in replied ? replied.caption : undefined;
-  if (!replyText) return undefined;
   const modules = await listStudyModules(workspace.id);
+  return matchExplicitStudyModuleReply(replyText, modules);
+}
+
+export function matchExplicitStudyModuleReply<T extends Pick<StudyModule, "id" | "code" | "active">>(
+  replyText: string | undefined,
+  modules: T[],
+): T | undefined {
+  if (!replyText || !/\breply to this message to capture for\b/i.test(replyText)) return undefined;
   const matches = modules.filter((module) => new RegExp(`(^|[^A-Z0-9])${escapeRegExp(module.code)}([^A-Z0-9]|$)`, "i").test(replyText));
   return matches.length === 1 ? matches[0] : undefined;
 }
