@@ -41,6 +41,7 @@ import {
   completeStudyItem,
   createStudyItem,
   findStudyItem,
+  listStudyModules,
   listStudyMistakes,
   saveWeeklyReview,
   unbindStudyWorkspace,
@@ -63,6 +64,7 @@ const workspace: StudyWorkspace = {
   weeklyPreviewTime: "19:00",
   canvasSyncEnabled: false,
   activeModuleId: null,
+  activeModuleUntil: null,
   activeOriginId: null,
   activeOriginUntil: null,
   travelMutedUntil: null,
@@ -101,6 +103,19 @@ beforeEach(() => {
   ));
   db.auditLog.create.mockResolvedValue({});
   db.studyConversation.deleteMany.mockResolvedValue({ count: 0 });
+});
+
+describe("Study module selection", () => {
+  it("excludes archived modules from capture pickers by default", async () => {
+    db.studyModule.findMany.mockResolvedValue([]);
+
+    await listStudyModules("workspace-1");
+
+    expect(db.studyModule.findMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", active: true },
+      orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+    });
+  });
 });
 
 describe("Study Mode persistence boundaries", () => {

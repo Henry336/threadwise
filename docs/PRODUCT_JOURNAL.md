@@ -11,17 +11,41 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
-## 10 August 2026 - Study context must never become an implicit write destination
+## 10 August 2026 - Study capture context must be visible and expire
 
 **Friction discovered:** Opening a module changed the active Study context, and later text or media without an explicit module was silently saved there. A screenshot about one module could therefore disappear into whichever module happened to be opened last, with no destination decision visible to the owner.
 
-**Decision:** Treat the active module as navigation state only. A capture may bypass clarification only when the message names one active module, replies to a module-specific Threadwise prompt, or comes from an explicit module capture action. Everything else becomes a durable pending capture with an active-module-only picker.
+**Decision:** Preserve the speed of module-first capture without allowing stale context to become an invisible destination. Selecting a module creates a durable ten-minute capture context that is shown in Telegram and the dashboard. Switching modules restarts the window; ordinary captures do not extend it. Explicit module text and module-specific replies remain authoritative after the window expires.
 
-**Implementation:** Added a paginated Telegram destination picker, retained the original text/file/caption/OCR/source identifiers, and made pending-capture consumption race-safe so duplicate or expired buttons fail gracefully instead of duplicating data. No AI is used to infer a destination.
+**Implementation:** Added `activeModuleUntil`, expiry-aware context resolution, a five-per-page active-module picker, source sender/time preservation, and race-safe pending-capture consumption. Expired or pre-migration selections are cleared before routing. No AI is used to infer a destination.
 
-**Outcome/evidence:** Focused persistence and type checks pass, including a duplicate-consumption regression. Module hub copy now states that opening a module changes the view, not the destination.
+**Outcome/evidence:** Persistence tests cover expiry, switching, restart restoration, non-extension on capture, and legacy null expiry. Module cards and dashboard entry links expose the remaining context instead of relying on memory.
 
-**Follow-up:** Verify one captionless image, one ambiguous text capture, one explicit module reference, one reply capture, Cancel, and a repeated stale callback in the live private Study group.
+**Follow-up:** Verify one capture inside the ten-minute window, one after expiry, one explicit module reference, one module switch, Cancel, and a repeated stale callback in the live private Study group.
+
+## 10 August 2026 - Images should be intentional captures, not automatic OCR jobs
+
+**Friction discovered:** A Study photo was immediately OCR-processed and saved without asking what the owner wanted. Opening the resulting dashboard card navigated to a raw JSON error when Telegram could no longer serve the stored file path. The workflow mixed image storage, captioning, OCR, destination choice, and failure handling into one irreversible guess.
+
+**Decision:** Stage image intake as one durable, resumable decision. Keep the original image, Telegram caption, sender, and timestamp; make OCR optional; let the owner edit a caption and choose a module before saving; and render saved images inside the dashboard instead of navigating to a transport endpoint.
+
+**Implementation:** Added a single-message image workflow with Save image, Add/Edit caption, Extract text, Choose module, and Cancel. OCR results remain a preview until Save with text. Protected delivery now refreshes Telegram file metadata, retries one stale download, validates the upstream image MIME, and classifies expired, unauthorized, and temporary failures without exposing tokens.
+
+**Outcome/evidence:** Focused bot, persistence, delivery, and dashboard-loader tests cover default no-OCR behavior, caption state, exact-once saving, authentication failure, permanent expiry, and retryable provider failure. Dashboard image cards open a keyboard-dismissable same-origin lightbox with context and retry/close actions.
+
+**Follow-up:** Live-test a captioned photo, captionless photo, OCR preview, canceled capture, expired Telegram file, and dashboard session expiry.
+
+## 10 August 2026 - A weekly timetable must represent the entire day honestly
+
+**Friction discovered:** The Study timetable clipped planning outside its 8 AM–11 PM viewport, cut off the final hour, and placed the live-time label over nearby block text. Midnight-edge positions could also push the indicator outside its usable track.
+
+**Decision:** Use one 00:00–24:00 schedule model in both orientations, keep it scrollable rather than compressing 24 hours, auto-position the initial viewport near the relevant work, and reserve a dedicated rail for the current-time label.
+
+**Implementation:** Added full-day block bounds, cross-midnight clipping at the day boundary, preferred initial scroll, and clamped current-indicator offsets. Mobile keeps the existing day agenda; desktop Vertical and Horizontal remain alternate projections of the same records.
+
+**Outcome/evidence:** Timetable unit tests cover exact midnight, end-of-day, cross-midnight, preferred scrolling, and indicator edge padding. The dashboard Impeccable detector reports no issues in the changed Study targets.
+
+**Follow-up:** Verify midnight, early-morning, midday, and late-night blocks in both themes and orientations on desktop plus the mobile day agenda.
 
 ## 10 August 2026 - Canvas source truth must not override an owner's archive decision
 

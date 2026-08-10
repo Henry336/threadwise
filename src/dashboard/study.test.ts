@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   DashboardStudyAccessError,
+  loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
   studyModuleCreateSchema,
   studyScheduleCreateSchema,
@@ -109,5 +110,58 @@ describe("Study dashboard input contracts", () => {
       startWeek: 2,
       endWeek: 13,
     })).toMatchObject({ dayOfWeek: 5, startTime: "09:00", endWeek: 13 });
+  });
+});
+
+describe("Study Telegram resource delivery", () => {
+  const resource = {
+    id: "resource-1",
+    publicId: "SIMG-1",
+    telegramFileId: "telegram-file-1",
+    mimeType: "image/jpeg",
+    fileName: "lecture.jpg",
+  };
+
+  it("streams a freshly resolved Telegram file with its safe upstream MIME", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/fresh.jpg" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/png" } }));
+    const result = await loadDashboardStudyResourceContent(
+      workspace as never,
+      resource.id,
+      "token",
+      fetcher as typeof fetch,
+      vi.fn(async () => resource) as never,
+    );
+    expect(result.contentType).toBe("image/png");
+    expect(result.inline).toBe(true);
+    expect([...result.bytes]).toEqual([1, 2, 3]);
+  });
+
+  it("resolves a new Telegram path once when the first download URL is stale", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/stale.jpg" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/fresh.jpg" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([4]), { status: 200, headers: { "content-type": "image/jpeg" } }));
+    await expect(loadDashboardStudyResourceContent(
+      workspace as never,
+      resource.id,
+      "token",
+      fetcher as typeof fetch,
+      vi.fn(async () => resource) as never,
+    )).resolves.toMatchObject({ contentType: "image/jpeg" });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("separates a removed original from a temporary Telegram failure", async () => {
+    const loader = vi.fn(async () => resource) as never;
+    const missing = vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
+    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", missing, loader))
+      .rejects.toMatchObject({ code: "not_found", message: "The original Telegram file is no longer available." });
+
+    const temporary = vi.fn(async () => new Response(null, { status: 503 })) as unknown as typeof fetch;
+    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", temporary, loader))
+      .rejects.toMatchObject({ code: "invalid", message: "Telegram is temporarily unavailable. Retry in a moment." });
   });
 });

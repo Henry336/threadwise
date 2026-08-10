@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => {
   const client = {
     studyModule: { findFirst: vi.fn(), count: vi.fn() },
+    studyWorkspace: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     studyResource: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
-    studyPendingCapture: { findFirst: vi.fn(), deleteMany: vi.fn() },
+    studyPendingCapture: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     studyNoteCaptureSession: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     studyNoteCaptureSegment: { create: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -22,7 +23,10 @@ vi.mock("../db/prisma", () => ({ prisma: db }));
 import {
   appendStudyNoteSegment,
   consumeStudyPendingCapture,
+  createStudyPendingCapture,
   finalizeStudyNoteCaptureSession,
+  setActiveStudyModule,
+  studyCaptureContext,
   startStudyNoteCaptureSession,
 } from "./studyResources";
 
@@ -34,6 +38,7 @@ const workspace = {
 const module = { id: "module-1", workspaceId: workspace.id, code: "CS2100", active: true };
 
 beforeEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   db.$transaction.mockImplementation((input: unknown) => typeof input === "function"
     ? (input as (tx: typeof db) => unknown)(db)
@@ -114,5 +119,102 @@ describe("durable pending Study captures", () => {
 
     await expect(consumeStudyPendingCapture(workspace.id, pending.token)).resolves.toEqual(pending);
     await expect(consumeStudyPendingCapture(workspace.id, pending.token)).rejects.toMatchObject({ code: "conflict" });
+  });
+});
+
+describe("temporary Study capture context", () => {
+  it("starts a visible ten-minute module context", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T10:00:00Z"));
+    db.studyModule.findFirst.mockResolvedValue(module);
+    db.studyWorkspace.update.mockResolvedValue({});
+
+    await setActiveStudyModule(workspace, module.code);
+
+    expect(db.studyWorkspace.update).toHaveBeenCalledWith({
+      where: { id: workspace.id },
+      data: { activeModuleId: module.id, activeModuleUntil: new Date("2026-08-10T10:10:00Z") },
+    });
+  });
+
+  it("switching modules replaces the target and resets the ten-minute window", async () => {
+    const secondModule = { ...module, id: "module-2", code: "CS2102" };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T10:00:00Z"));
+    db.studyModule.findFirst.mockResolvedValueOnce(module).mockResolvedValueOnce(secondModule);
+    db.studyWorkspace.update.mockResolvedValue({});
+
+    await setActiveStudyModule(workspace, module.code);
+    vi.setSystemTime(new Date("2026-08-10T10:04:00Z"));
+    await setActiveStudyModule(workspace, secondModule.code);
+
+    expect(db.studyWorkspace.update).toHaveBeenLastCalledWith({
+      where: { id: workspace.id },
+      data: { activeModuleId: secondModule.id, activeModuleUntil: new Date("2026-08-10T10:14:00Z") },
+    });
+  });
+
+  it("ordinary pending captures preserve source metadata without extending module context", async () => {
+    const sourceSentAt = new Date("2026-08-10T10:01:00Z");
+    db.studyModule.count.mockResolvedValue(1);
+    db.studyPendingCapture.deleteMany.mockResolvedValue({ count: 0 });
+    db.studyPendingCapture.create.mockResolvedValue({ id: "pending-2" });
+
+    await createStudyPendingCapture(workspace, {
+      moduleId: module.id,
+      telegramFileId: "file-1",
+      sourceText: "Architecture diagram",
+      sourceMessageId: 42,
+      sourceSenderTelegramId: "5969845149",
+      sourceSentAt,
+    });
+
+    expect(db.studyWorkspace.update).not.toHaveBeenCalled();
+    expect(db.studyPendingCapture.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        moduleId: module.id,
+        sourceText: "Architecture diagram",
+        sourceMessageId: 42,
+        sourceSenderTelegramId: "5969845149",
+        sourceSentAt,
+      }),
+    });
+  });
+
+  it("restores an unexpired context from durable workspace state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T10:05:00Z"));
+    db.studyWorkspace.findUnique.mockResolvedValue({
+      activeModuleId: module.id,
+      activeModuleUntil: new Date("2026-08-10T10:10:00Z"),
+    });
+    db.studyModule.findFirst.mockResolvedValue(module);
+
+    await expect(studyCaptureContext(workspace)).resolves.toMatchObject({
+      module,
+      remainingMinutes: 5,
+    });
+  });
+
+  it("treats legacy and expired selections as inactive and clears them", async () => {
+    db.studyWorkspace.findUnique.mockResolvedValue({ activeModuleId: module.id, activeModuleUntil: null });
+    db.studyWorkspace.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(studyCaptureContext(workspace)).resolves.toBeUndefined();
+    expect(db.studyWorkspace.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { activeModuleId: null, activeModuleUntil: null },
+    }));
+
+    vi.clearAllMocks();
+    const expired = { activeModuleId: module.id, activeModuleUntil: new Date("2026-08-10T09:59:00Z") };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T10:00:00Z"));
+    db.studyWorkspace.findUnique.mockResolvedValue(expired);
+    db.studyWorkspace.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(studyCaptureContext(workspace)).resolves.toBeUndefined();
+    expect(db.studyWorkspace.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { activeModuleId: null, activeModuleUntil: null },
+    }));
   });
 });

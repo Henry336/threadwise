@@ -523,7 +523,9 @@ add origin Home at Kent Ridge MRT
 when should I leave to COM3 from Home?
 ```
 
-Reply to an existing Telegram text, link, photo, or document with `save this to CS2100`; add `as a task`, `as a note`, or `as a question` when the type is not obvious. If an ordinary message is ambiguous, Threadwise immediately offers Task, Note, Question, and Resource buttons rather than waiting for AI. When a module is active, captures belong to it unless another module is named.
+Reply to an existing Telegram text, link, photo, or document with `save this to CS2100`; add `as a task`, `as a note`, or `as a question` when the type is not obvious. If an ordinary message is ambiguous, Threadwise immediately offers Task, Note, Question, and Resource buttons rather than waiting for AI. Selecting a module creates a visible ten-minute capture context. Switching modules restarts the window, while saving content does not extend it; after expiry, Threadwise asks for a module unless the message or reply already identifies one.
+
+Photos enter a durable pending card instead of being OCR-processed automatically. Save the original image, add or edit its caption, optionally extract searchable text, choose another module, or cancel. Repeated or stale callbacks cannot create duplicate resources.
 
 A Study note session stores every message immediately as one durable paragraph and otherwise remains silent. Save note joins the exact paragraphs with blank lines. After roughly 30 minutes of inactivity, a non-empty session auto-saves and an empty session closes. Long notes are paginated at safe paragraph, sentence, or Unicode boundaries for Telegram; the stored body is not truncated.
 
@@ -907,10 +909,10 @@ npm audit
 git diff --check
 ```
 
-Latest complete backend gate, verified for v0.32.0 on 2026-08-10:
+Latest complete backend gate, verified on 2026-08-10:
 
-- 97 test files passed
-- 786 tests passed; 6 intentional skips
+- 99 test files passed
+- 803 tests passed; 6 intentional skips
 - Prisma schema validation and client generation passed
 - TypeScript typecheck passed
 - Isolated production TypeScript emit passed

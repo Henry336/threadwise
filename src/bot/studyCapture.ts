@@ -52,8 +52,10 @@ import {
   requireActiveStudyModule,
   setActiveStudyModule,
   setStudyPendingCaptureModule,
+  studyCaptureContext,
   startStudyNoteCaptureSession,
-  updateStudyResourceOcr,
+  updateStudyPendingCaptureCaption,
+  updateStudyPendingCaptureOcr,
 } from "../services/studyResources";
 import {
   activateStudyOrigin,
@@ -110,6 +112,8 @@ type StudyMedia = {
   fileSize?: number;
   caption?: string;
   sourceMessageId?: number;
+  sourceSenderTelegramId?: string;
+  sourceSentAt?: Date;
 };
 
 export function isExtendedStudyCallback(data: string): boolean {
@@ -228,6 +232,8 @@ async function handleStudyReplyCapture(
       fileSize: photo?.file_size ?? document?.file_size,
       caption: sourceText === "Study capture" ? undefined : sourceText,
       sourceMessageId: replied.message_id,
+      sourceSenderTelegramId: replied.from?.id ? String(replied.from.id) : undefined,
+      sourceSentAt: replied.date ? new Date(replied.date * 1_000) : undefined,
     }, requestedKind);
     return true;
   }
@@ -243,6 +249,8 @@ async function handleStudyReplyCapture(
     body: sourceText,
     url,
     sourceMessageId: replied.message_id,
+    sourceSenderTelegramId: replied.from?.id ? String(replied.from.id) : undefined,
+    sourceSentAt: replied.date ? new Date(replied.date * 1_000) : undefined,
   });
   await replyQuietAcknowledgementHtml(ctx, `${bold("Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}`, 3_500, {
     reply_markup: studyModeKeyboard(),
@@ -275,6 +283,8 @@ export async function handleStudyPhoto(ctx: Context, workspace: StudyWorkspace):
     fileSize: photo.file_size,
     caption: ctx.message?.caption,
     sourceMessageId: ctx.message?.message_id,
+    sourceSenderTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
+    sourceSentAt: ctx.message?.date ? new Date(ctx.message.date * 1_000) : undefined,
   });
 }
 
@@ -290,6 +300,8 @@ export async function handleStudyDocument(ctx: Context, workspace: StudyWorkspac
     fileSize: document.file_size,
     caption: ctx.message?.caption,
     sourceMessageId: ctx.message?.message_id,
+    sourceSenderTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
+    sourceSentAt: ctx.message?.date ? new Date(ctx.message.date * 1_000) : undefined,
   });
 }
 
@@ -306,12 +318,13 @@ export async function handleStudyLocation(ctx: Context, workspace: StudyWorkspac
 }
 
 export async function showStudyOnboarding(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
-  const [canvas, activeModuleValue, origins] = await Promise.all([
+  const [canvas, captureContext, origins] = await Promise.all([
     studyCanvasStatus(workspace.id),
-    activeStudyModule(workspace),
+    studyCaptureContext(workspace),
     listStudyOrigins(workspace.id),
   ]);
   const configured = studyCanvasConfigured();
+  const activeModuleValue = captureContext?.module;
   const text = [
     bold("Study Mode setup"),
     `${workspace.semesterStartDate ? "✓" : "○"} Semester · ${h(workspace.semesterName)}`,
@@ -320,7 +333,9 @@ export async function showStudyOnboarding(ctx: Context, workspace: StudyWorkspac
     `${origins.length ? "✓" : "○"} Travel origins · ${origins.length}`,
     "",
     "Canvas imports are read-only. Local completion never submits coursework.",
-  ].join("\n");
+  ].filter((line) => !line.includes("Active module"))
+    .concat(captureContext ? `Capture target · ${bold(captureContext.module.code)} · ${captureContext.remainingMinutes} min` : "Capture target · none")
+    .join("\n");
   const keyboard = new InlineKeyboard()
     .text("Semester", "study:setup:start")
     .text(configured ? "Sync Canvas" : "Canvas setup", configured ? "study:canvas:sync" : "study:canvas:status").row()
@@ -473,6 +488,36 @@ export async function handleExtendedStudyCallback(
       return true;
     }
     const pending = await findStudyPendingCapture(workspace.id, token);
+    if (action === "choose") {
+      const imageLike = pending.mediaKind === "photo" || Boolean(pending.mimeType?.startsWith("image/"));
+      await chooseCaptureModule(ctx, workspace, token, imageLike ? "imagemenu" : "note");
+      return true;
+    }
+    if (action === "caption") {
+      await beginStudyConversation(workspace.id, "study_capture_caption", "caption", { token });
+      await editOrReplyHtml(ctx, `${bold("Image caption")}\nReply to this message with the caption.`, {
+        reply_markup: new InlineKeyboard().text("Back", `study:cap:imagemenu:${token}`).text("Cancel", `study:cap:ignore:${token}`),
+      });
+      return true;
+    }
+    if (action === "ocr") {
+      await editOrReplyHtml(ctx, `${bold("Extracting text")}\nThis can take a moment.`);
+      try {
+        const extracted = await extractPendingImageText(ctx, workspace, pending);
+        await updateStudyPendingCaptureOcr(workspace.id, token, extracted.text, extracted.confidence);
+        await showImageCaptureActions(ctx, workspace, token, true, true);
+      } catch (error) {
+        logger.warn("Study image OCR extraction failed.", { token, error: String(error) });
+        await editOrReplyHtml(ctx, `${bold("Text could not be extracted")}\nYou can save the image without OCR or try again.`, {
+          reply_markup: imageCaptureKeyboard(token, false, Boolean(pending.sourceText)),
+        });
+      }
+      return true;
+    }
+    if (action === "imagemenu") {
+      await showImageCaptureActions(ctx, workspace, token, true);
+      return true;
+    }
     if (!pending.moduleId) {
       await chooseCaptureModule(ctx, workspace, token, action);
       return true;
@@ -485,6 +530,10 @@ export async function handleExtendedStudyCallback(
     const action = parts[3];
     const module = await findStudyModule(workspace.id, parts[4]);
     await setStudyPendingCaptureModule(workspace.id, token, module.id);
+    if (action === "imagemenu") {
+      await showImageCaptureActions(ctx, workspace, token, true);
+      return true;
+    }
     await resolveCapture(ctx, workspace, token, action, module.id);
     return true;
   }
@@ -653,9 +702,7 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
     case "record_mistake": {
       const modules = await listStudyModules(workspace.id);
       await beginStudyConversation(workspace.id, "mistake", "module", {});
-      const keyboard = new InlineKeyboard();
-      for (const module of modules) keyboard.text(module.code, `study:mistake:module:${module.id}`).row();
-      keyboard.text("Cancel", "study:cancel");
+      const keyboard = modulePickerKeyboard(modules, "mistake", 0);
       await replyHtml(ctx, `${bold("Record mistake")}\nChoose the module.`, { reply_markup: keyboard });
       return;
     }
@@ -823,23 +870,31 @@ export async function showStudyOriginMatches(
 async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: StudyMedia): Promise<void> {
   const parsed = media.caption ? parseStudyNaturalLanguage(media.caption, workspace.timezone) : undefined;
   const moduleRef = parsed && "moduleReference" in parsed ? parsed.moduleReference : undefined;
-  const module = await resolveExplicitCaptureModule(ctx, workspace, moduleRef);
+  const explicitModule = await resolveExplicitCaptureModule(ctx, workspace, moduleRef);
+  const module = explicitModule ?? (await studyCaptureContext(workspace))?.module;
   const resourceKind = media.mimeType?.startsWith("image/") || media.mediaKind === "photo" ? StudyResourceKind.IMAGE : StudyResourceKind.FILE;
+  const pending = await createStudyPendingCapture(workspace, {
+    moduleId: module?.id,
+    telegramFileId: media.telegramFileId,
+    telegramUniqueId: media.telegramUniqueId,
+    mediaKind: media.mediaKind,
+    mimeType: media.mimeType,
+    fileName: media.fileName,
+    fileSize: media.fileSize,
+    sourceText: media.caption,
+    sourceMessageId: media.sourceMessageId,
+    sourceSenderTelegramId: media.sourceSenderTelegramId,
+    sourceSentAt: media.sourceSentAt,
+  });
   if (!module) {
-    const pending = await createStudyPendingCapture(workspace, {
-      telegramFileId: media.telegramFileId,
-      telegramUniqueId: media.telegramUniqueId,
-      mediaKind: media.mediaKind,
-      mimeType: media.mimeType,
-      fileName: media.fileName,
-      fileSize: media.fileSize,
-      sourceText: media.caption,
-      sourceMessageId: media.sourceMessageId,
-    });
-    await chooseCaptureModule(ctx, workspace, pending.token, resourceKind === StudyResourceKind.IMAGE ? "image" : "file", false);
+    await chooseCaptureModule(ctx, workspace, pending.token, resourceKind === StudyResourceKind.IMAGE ? "imagemenu" : "file", false);
     return;
   }
-  await saveStudyMedia(ctx, workspace, module, media, resourceKind);
+  if (resourceKind === StudyResourceKind.IMAGE) {
+    await showImageCaptureActions(ctx, workspace, pending.token, false);
+    return;
+  }
+  await resolveCapture(ctx, workspace, pending.token, "file", module.id);
 }
 
 async function saveStudyMedia(ctx: Context, workspace: StudyWorkspace, module: StudyModule, media: StudyMedia, kind: StudyResourceKind): Promise<void> {
@@ -855,31 +910,79 @@ async function saveStudyMedia(ctx: Context, workspace: StudyWorkspace, module: S
     fileName: media.fileName,
     fileSize: media.fileSize,
     sourceMessageId: media.sourceMessageId,
+    sourceSenderTelegramId: media.sourceSenderTelegramId,
+    sourceSentAt: media.sourceSentAt,
   });
-  const imageLike = media.mediaKind === "photo" || media.mimeType?.startsWith("image/");
-  await replyQuietAcknowledgementHtml(ctx, `${bold(result.duplicate ? "Already saved" : "Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}${imageLike ? "\nIndexing visible text…" : ""}`, 3_500, { reply_markup: studyModeKeyboard() });
-  if (imageLike && !result.duplicate && (!media.fileSize || media.fileSize <= MAX_IMAGE_BYTES)) {
-    void indexStudyImage(ctx, workspace, result.resource.id, media).catch((error) => {
-      logger.warn("Study image OCR indexing failed.", { resourceId: result.resource.id, error: String(error) });
-    });
-  }
+  await replyQuietAcknowledgementHtml(ctx, `${bold(result.duplicate ? "Already saved" : "Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}`, 3_500, { reply_markup: studyModeKeyboard() });
 }
 
-async function indexStudyImage(ctx: Context, workspace: StudyWorkspace, resourceId: string, media: StudyMedia): Promise<void> {
-  const file = await ctx.api.getFile(media.telegramFileId);
-  if (!file.file_path) return;
+async function extractPendingImageText(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  pending: Awaited<ReturnType<typeof findStudyPendingCapture>>,
+) {
+  if (!pending.telegramFileId) throw new StudyModeError("That image is no longer available.", "not_found");
+  if (pending.fileSize && pending.fileSize > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
+  const file = await ctx.api.getFile(pending.telegramFileId);
+  if (!file.file_path) throw new StudyModeError("Telegram could not load that image. Try again.", "invalid");
   const response = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
   if (!response.ok) throw new Error(`Telegram download failed (${response.status}).`);
   const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_IMAGE_BYTES) return;
+  if (buffer.length > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
   const settings = await prisma.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
-  const languages = ocrLanguagesForCaption(media.caption ?? "", settings?.ocrLanguages ?? "eng");
-  const extracted = await extractTextFromImage(buffer, languages);
-  await updateStudyResourceOcr(workspace.id, resourceId, extracted.text, extracted.confidence);
+  const languages = ocrLanguagesForCaption(pending.sourceText ?? "", settings?.ocrLanguages ?? "eng");
+  return extractTextFromImage(buffer, languages);
+}
+
+export async function handleStudyCaptureCaptionMessage(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  payload: Record<string, unknown>,
+  caption: string,
+): Promise<void> {
+  const token = typeof payload.token === "string" ? payload.token : undefined;
+  if (!token) throw new StudyModeError("That image capture expired. Send the image again.", "not_found");
+  await updateStudyPendingCaptureCaption(workspace.id, token, caption);
+  await clearStudyConversation(workspace.id);
+  await showImageCaptureActions(ctx, workspace, token, false);
+}
+
+async function showImageCaptureActions(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  token: string,
+  edit: boolean,
+  ocrJustCompleted = false,
+): Promise<void> {
+  const pending = await findStudyPendingCapture(workspace.id, token);
+  const module = pending.moduleId ? await findStudyModule(workspace.id, pending.moduleId) : undefined;
+  const text = [
+    bold("Image capture"),
+    module ? `Module · ${bold(module.code)}` : "Module · choose one",
+    pending.sourceText ? `Caption · ${h(truncate(pending.sourceText, 240))}` : "Caption · none",
+    pending.ocrText
+      ? `${ocrJustCompleted ? bold("Text extracted") : "Extracted text"}\n${h(truncate(pending.ocrText, 700))}`
+      : undefined,
+  ].filter(Boolean).join("\n\n");
+  const options = { reply_markup: imageCaptureKeyboard(token, Boolean(pending.ocrText), Boolean(pending.sourceText)) };
+  if (edit) await editOrReplyHtml(ctx, text, options);
+  else await replyHtml(ctx, text, options);
+}
+
+export function imageCaptureKeyboard(token: string, hasOcr: boolean, hasCaption = false): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("Save image", `study:cap:image:${token}`)
+    .text(hasCaption ? "Edit caption" : "Add caption", `study:cap:caption:${token}`).row();
+  if (hasOcr) keyboard.text("Save with text", `study:cap:ocrsave:${token}`).text("Extract again", `study:cap:ocr:${token}`).row();
+  else keyboard.text("Extract text", `study:cap:ocr:${token}`).row();
+  return keyboard
+    .text("Choose module", `study:cap:choose:${token}`)
+    .text("Cancel", `study:cap:ignore:${token}`);
 }
 
 async function showStudyCaptureChoice(ctx: Context, workspace: StudyWorkspace, sourceText: string, moduleReference?: string): Promise<void> {
-  const module = await resolveExplicitCaptureModule(ctx, workspace, moduleReference).catch(() => undefined);
+  const explicitModule = await resolveExplicitCaptureModule(ctx, workspace, moduleReference).catch(() => undefined);
+  const module = explicitModule ?? (await studyCaptureContext(workspace))?.module;
   const pending = await createStudyPendingCapture(workspace, {
     moduleId: module?.id,
     sourceText,
@@ -898,7 +1001,19 @@ async function deferCaptureForModule(ctx: Context, workspace: StudyWorkspace, so
 
 async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, token: string, action: string, edit = true, requestedPage = 0): Promise<void> {
   const modules = await listStudyModules(workspace.id);
-  const pageSize = 6;
+  const keyboard = studyCaptureModulePickerKeyboard(modules, token, action, requestedPage);
+  const text = bold("Choose a module");
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+  else await replyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+export function studyCaptureModulePickerKeyboard(
+  modules: Array<{ code: string }>,
+  token: string,
+  action: string,
+  requestedPage = 0,
+): InlineKeyboard {
+  const pageSize = 5;
   const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
   const page = Math.max(0, Math.min(pageCount - 1, Math.trunc(requestedPage)));
   const visible = modules.slice(page * pageSize, page * pageSize + pageSize);
@@ -917,9 +1032,7 @@ async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, toke
     keyboard.row();
   }
   keyboard.text("Cancel", `study:cap:ignore:${token}`);
-  const text = `${bold("Where should I save this?")}\nChoose one of your current modules.`;
-  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
-  else await replyHtml(ctx, text, { reply_markup: keyboard });
+  return keyboard;
 }
 
 async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: string, action: string, moduleId: string): Promise<void> {
@@ -943,9 +1056,10 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
   }
   const kind = action === "note" ? StudyResourceKind.NOTE
     : action === "question" ? StudyResourceKind.QUESTION
-      : action === "image" ? StudyResourceKind.IMAGE
+      : action === "image" || action === "ocrsave" ? StudyResourceKind.IMAGE
         : action === "file" ? StudyResourceKind.FILE
           : StudyResourceKind.LINK;
+  const attachOcr = kind === StudyResourceKind.IMAGE && action === "ocrsave";
   const result = await createStudyResource(workspace, {
     moduleId: module.id,
     kind,
@@ -959,23 +1073,17 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
     fileName: pending.fileName ?? undefined,
     fileSize: pending.fileSize ?? undefined,
     caption: pending.sourceText ?? undefined,
+    ocrText: attachOcr ? pending.ocrText ?? undefined : undefined,
+    ocrConfidence: attachOcr ? pending.ocrConfidence ?? undefined : undefined,
     sourceMessageId: pending.sourceMessageId ?? undefined,
+    sourceSenderTelegramId: pending.sourceSenderTelegramId ?? undefined,
+    sourceSentAt: pending.sourceSentAt ?? undefined,
   });
   await editOrReplyHtml(ctx, `${bold(`Saved ${humanKind(kind).toLowerCase()}`)} · ${bold(module.code)}\n${code(result.resource.publicId)}`, {
-    reply_markup: new InlineKeyboard().text("Open", `study:res:${result.resource.id}:view:0`).text("Home", "study:dashboard"),
+    reply_markup: new InlineKeyboard()
+      .text("Open", `study:res:${result.resource.id}:view:0`)
+      .text("Undo", `study:res:${result.resource.id}:archive`),
   });
-  if (kind === StudyResourceKind.IMAGE && pending.telegramFileId) {
-    void indexStudyImage(ctx, workspace, result.resource.id, {
-      telegramFileId: pending.telegramFileId,
-      telegramUniqueId: pending.telegramUniqueId ?? undefined,
-      mediaKind: pending.mediaKind === "document" ? "document" : "photo",
-      mimeType: pending.mimeType ?? undefined,
-      fileName: pending.fileName ?? undefined,
-      fileSize: pending.fileSize ?? undefined,
-      caption: pending.sourceText ?? undefined,
-      sourceMessageId: pending.sourceMessageId ?? undefined,
-    }).catch(() => undefined);
-  }
 }
 
 async function showAttention(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
@@ -1043,7 +1151,7 @@ async function showModuleHub(ctx: Context, workspace: StudyWorkspace, module: St
   const text = [
     `${bold(module.code)} · ${h(module.name)}`,
     `${open} open · ${count(StudyResourceKind.NOTE)} notes · ${count(StudyResourceKind.IMAGE)} images · ${count(StudyResourceKind.QUESTION)} questions`,
-    `Opening a module changes this view only. Reply to this message to capture for ${h(module.code)}, or name a module.`,
+    `Capture target · ${bold(module.code)} · 10 min`,
   ].join("\n");
   const keyboard = new InlineKeyboard()
     .text("Add work", "study:add:start").text("Note session", `study:note:start:${module.id}`).row()
@@ -1223,22 +1331,35 @@ function escapeRegExp(value: string): string {
 
 async function moduleOpenKeyboard(workspace: StudyWorkspace): Promise<InlineKeyboard> {
   const modules = await listStudyModules(workspace.id);
+  return modulePickerKeyboard(modules, "open", 0);
+}
+
+function modulePickerKeyboard(
+  modules: Array<{ id: string; code: string }>,
+  purpose: "open" | "mistake",
+  requestedPage: number,
+): InlineKeyboard {
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
+  const page = Math.max(0, Math.min(pageCount - 1, requestedPage));
   const keyboard = new InlineKeyboard();
-  modules.forEach((module, index) => {
-    keyboard.text(module.code, `study:module:open:${module.id}`);
-    if (index % 2 === 1) keyboard.row();
-  });
-  return keyboard.row().text("Home", "study:dashboard");
+  for (const module of modules.slice(page * pageSize, page * pageSize + pageSize)) {
+    keyboard.text(module.code, purpose === "open" ? `study:module:open:${module.id}` : `study:mistake:module:${module.id}`).row();
+  }
+  if (pageCount > 1) {
+    if (page > 0) keyboard.text("Prev", `study:pick:${purpose}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `study:pick:${purpose}:${page}`);
+    if (page + 1 < pageCount) keyboard.text("Next", `study:pick:${purpose}:${page + 1}`);
+    keyboard.row();
+  }
+  return keyboard.text("Cancel", "study:cancel");
 }
 
 function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
-    .text("Modules", "study:modules").text("Canvas", "study:canvas:status").row()
-    .text("Plan week", "study:plan").text("Weekly review", "study:review:start").row()
-    .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
-    .text("Setup", "study:onboarding").row()
-    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+    .text("Modules", "study:modules:0").url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).row()
+    .url("Dashboard", groupDashboardUrl(workspaceId, "study-overview")).text("More", "study:more");
 }
 
 async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {

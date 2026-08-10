@@ -343,6 +343,7 @@ model StudyWorkspace {
   studyBlockRemindersEnabled Boolean   @default(false)
   canvasSyncEnabled          Boolean   @default(true)
   activeModuleId             String?
+  activeModuleUntil          DateTime?
   activeOriginId             String?
   activeOriginUntil          DateTime?
   travelMutedUntil           DateTime?
@@ -369,7 +370,7 @@ model StudyWorkspace {
   activeOrigin       StudyLocationOrigin?     @relation("StudyWorkspaceActiveOrigin", fields: [activeOriginId], references: [id], onDelete: SetNull)
 
   @@index([active, boundChatId])
-  @@index([activeModuleId])
+  @@index([activeModuleId, activeModuleUntil])
   @@index([activeOriginId, activeOriginUntil])
 }
 
@@ -596,6 +597,8 @@ model StudyResource {
   ocrText          String?
   ocrConfidence    Float?
   sourceMessageId  Int?
+  sourceSenderTelegramId String?
+  sourceSentAt     DateTime?
   pinnedAt         DateTime?
   archivedAt       DateTime?
   createdAt        DateTime          @default(now())
@@ -624,7 +627,11 @@ model StudyPendingCapture {
   fileName         String?
   fileSize         Int?
   sourceMessageId  Int?
+  sourceSenderTelegramId String?
+  sourceSentAt     DateTime?
   selectedKind     StudyResourceKind?
+  ocrText          String?
+  ocrConfidence    Float?
   expiresAt        DateTime
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt

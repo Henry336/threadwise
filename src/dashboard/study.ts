@@ -570,37 +570,53 @@ export async function loadDashboardStudyResourceContent(
   resourceId: string,
   botToken: string | undefined,
   fetcher: typeof fetch = fetch,
+  resourceLoader: typeof findStudyResource = findStudyResource,
 ) {
   if (!botToken) throw new StudyModeError("This file is temporarily unavailable.", "invalid");
-  const resource = await findStudyResource(workspace.id, resourceId);
+  const resource = await resourceLoader(workspace.id, resourceId);
   if (!resource.telegramFileId) throw new StudyModeError("This resource has no stored Telegram file.", "not_found");
-  let metadata: Response;
-  try {
-    metadata = await fetcher(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(resource.telegramFileId)}`, {
-      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-    });
-  } catch {
-    throw new StudyModeError("Telegram could not load this file. Try again.", "invalid");
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let metadata: Response;
+    try {
+      metadata = await fetcher(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(resource.telegramFileId)}`, {
+        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
+      });
+    } catch {
+      if (attempt === 0) continue;
+      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
+    }
+    if (metadata.status === 400 || metadata.status === 404) {
+      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
+    }
+    if (!metadata.ok) {
+      if (attempt === 0) continue;
+      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
+    }
+    const payload = await metadata.json() as { ok?: boolean; result?: { file_path?: string } };
+    const filePath = payload.ok ? payload.result?.file_path : undefined;
+    if (!filePath || filePath.includes("..") || filePath.startsWith("/")) {
+      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
+    }
+    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+    try {
+      response = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
+        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
+      });
+    } catch {
+      response = undefined;
+    }
+    if (response?.ok) break;
+    // Telegram download paths are short-lived. Resolve a fresh path once before failing.
+    if (attempt === 0 && (!response || response.status === 404 || response.status === 410 || response.status >= 500)) continue;
+    throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
   }
-  if (!metadata.ok) throw new StudyModeError("Telegram could not load this file. Try again.", "invalid");
-  const payload = await metadata.json() as { ok?: boolean; result?: { file_path?: string } };
-  const filePath = payload.ok ? payload.result?.file_path : undefined;
-  if (!filePath || filePath.includes("..") || filePath.startsWith("/")) throw new StudyModeError("Telegram returned an invalid file path.", "invalid");
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-  let response: Response;
-  try {
-    response = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
-      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-    });
-  } catch {
-    throw new StudyModeError("Telegram could not load this file. Try again.", "invalid");
-  }
-  if (!response.ok) throw new StudyModeError("Telegram could not load this file. Try again.", "invalid");
+  if (!response?.ok) throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (declaredLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
-  const contentType = safeMime(resource.mimeType) || safeMime(response.headers.get("content-type")) || "application/octet-stream";
+  const contentType = safeMime(response.headers.get("content-type")) || safeMime(resource.mimeType) || "application/octet-stream";
   return {
     bytes,
     contentType,

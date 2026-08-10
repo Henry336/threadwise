@@ -12,6 +12,7 @@ import { StudyModeError, findStudyModule } from "./study";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
+export const STUDY_CAPTURE_CONTEXT_MS = 10 * 60_000;
 const RESOURCE_PAGE_SIZE = 6;
 
 export type StudyResourceInput = {
@@ -31,27 +32,81 @@ export type StudyResourceInput = {
   ocrText?: string;
   ocrConfidence?: number;
   sourceMessageId?: number;
+  sourceSenderTelegramId?: string;
+  sourceSentAt?: Date;
 };
 
 export async function setActiveStudyModule(workspace: StudyWorkspace, reference: string): Promise<StudyModule> {
   const module = await findStudyModule(workspace.id, reference);
   if (!module.active) throw new StudyModeError("That module is archived.", "invalid");
-  await prisma.studyWorkspace.update({ where: { id: workspace.id }, data: { activeModuleId: module.id } });
+  const activeModuleUntil = new Date(Date.now() + STUDY_CAPTURE_CONTEXT_MS);
+  await prisma.studyWorkspace.update({
+    where: { id: workspace.id },
+    data: { activeModuleId: module.id, activeModuleUntil },
+  });
   await prisma.auditLog.create({
     data: {
       userId: workspace.ownerUserId,
       action: "study.module.activated",
-      metadata: { workspaceId: workspace.id, moduleId: module.id, code: module.code },
+      metadata: { workspaceId: workspace.id, moduleId: module.id, code: module.code, activeModuleUntil },
     },
   });
   return module;
 }
 
 export async function activeStudyModule(workspace: StudyWorkspace): Promise<StudyModule | undefined> {
-  if (!workspace.activeModuleId) return undefined;
-  return (await prisma.studyModule.findFirst({
-    where: { id: workspace.activeModuleId, workspaceId: workspace.id, active: true },
-  })) ?? undefined;
+  const now = new Date();
+  const selected = await prisma.studyWorkspace.findUnique({
+    where: { id: workspace.id },
+    select: { activeModuleId: true, activeModuleUntil: true },
+  });
+  if (!selected?.activeModuleId || !selected.activeModuleUntil || selected.activeModuleUntil <= now) {
+    if (selected?.activeModuleId || selected?.activeModuleUntil) {
+      await prisma.studyWorkspace.updateMany({
+        where: { id: workspace.id, OR: [{ activeModuleId: { not: null } }, { activeModuleUntil: { not: null } }] },
+        data: { activeModuleId: null, activeModuleUntil: null },
+      });
+    }
+    return undefined;
+  }
+  const module = await prisma.studyModule.findFirst({
+    where: { id: selected.activeModuleId, workspaceId: workspace.id, active: true },
+  }) ?? undefined;
+  if (!module) {
+    await prisma.studyWorkspace.updateMany({
+      where: { id: workspace.id },
+      data: { activeModuleId: null, activeModuleUntil: null },
+    });
+  }
+  return module;
+}
+
+export async function studyCaptureContext(workspace: StudyWorkspace): Promise<{
+  module: StudyModule;
+  expiresAt: Date;
+  remainingMinutes: number;
+} | undefined> {
+  const now = new Date();
+  const selected = await prisma.studyWorkspace.findUnique({
+    where: { id: workspace.id },
+    select: { activeModuleId: true, activeModuleUntil: true },
+  });
+  if (!selected?.activeModuleId || !selected.activeModuleUntil || selected.activeModuleUntil <= now) {
+    await activeStudyModule(workspace);
+    return undefined;
+  }
+  const module = await prisma.studyModule.findFirst({
+    where: { id: selected.activeModuleId, workspaceId: workspace.id, active: true },
+  });
+  if (!module) {
+    await activeStudyModule(workspace);
+    return undefined;
+  }
+  return {
+    module,
+    expiresAt: selected.activeModuleUntil,
+    remainingMinutes: Math.max(1, Math.ceil((selected.activeModuleUntil.getTime() - now.getTime()) / 60_000)),
+  };
 }
 
 export async function requireActiveStudyModule(workspace: StudyWorkspace): Promise<StudyModule> {
@@ -101,6 +156,8 @@ export async function createStudyResource(workspace: StudyWorkspace, input: Stud
       ocrText: input.ocrText?.slice(0, 100_000),
       ocrConfidence: input.ocrConfidence,
       sourceMessageId: input.sourceMessageId,
+      sourceSenderTelegramId: input.sourceSenderTelegramId,
+      sourceSentAt: input.sourceSentAt,
     },
     include: { module: true },
   });
@@ -229,6 +286,8 @@ export async function createStudyPendingCapture(workspace: StudyWorkspace, input
   fileName?: string;
   fileSize?: number;
   sourceMessageId?: number;
+  sourceSenderTelegramId?: string;
+  sourceSentAt?: Date;
 }) {
   if (input.moduleId) {
     const belongs = await prisma.studyModule.count({ where: { id: input.moduleId, workspaceId: workspace.id, active: true } });
@@ -248,6 +307,8 @@ export async function createStudyPendingCapture(workspace: StudyWorkspace, input
       fileName: input.fileName,
       fileSize: input.fileSize,
       sourceMessageId: input.sourceMessageId,
+      sourceSenderTelegramId: input.sourceSenderTelegramId,
+      sourceSentAt: input.sourceSentAt,
       expiresAt: new Date(Date.now() + 30 * 60_000),
     },
   });
@@ -279,6 +340,27 @@ export async function setStudyPendingCaptureModule(workspaceId: string, token: s
   if (!module) throw new StudyModeError("That module does not belong to this Study workspace.", "forbidden");
   await prisma.studyPendingCapture.update({ where: { id: pending.id }, data: { moduleId: module.id } });
   return { pending: { ...pending, moduleId: module.id }, module };
+}
+
+export async function updateStudyPendingCaptureCaption(workspaceId: string, token: string, caption: string) {
+  const pending = await findStudyPendingCapture(workspaceId, token);
+  return prisma.studyPendingCapture.update({
+    where: { id: pending.id },
+    data: { sourceText: caption.trim().slice(0, 4_000) || null },
+  });
+}
+
+export async function updateStudyPendingCaptureOcr(
+  workspaceId: string,
+  token: string,
+  text: string,
+  confidence: number,
+) {
+  const pending = await findStudyPendingCapture(workspaceId, token);
+  return prisma.studyPendingCapture.update({
+    where: { id: pending.id },
+    data: { ocrText: text.slice(0, 100_000), ocrConfidence: confidence },
+  });
 }
 
 export async function startStudyNoteCaptureSession(workspace: StudyWorkspace, moduleId: string) {

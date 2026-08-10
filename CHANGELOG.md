@@ -2,8 +2,15 @@
 
 ## Unreleased
 
+### Study capture context, intentional images, and protected media
+- Replaced indefinite module selection with a durable, visible ten-minute capture context. Switching modules restarts the window; saving ordinary content does not silently extend it; expired and legacy selections are cleared before routing a capture.
+- Changed Study image intake from automatic OCR and immediate saving to one durable pending card with Save image, Add/Edit caption, Extract text, Choose module, and Cancel. OCR is now an explicit preview action, and atomic consumption prevents duplicate saves from repeated callbacks.
+- Preserved source sender and sent-time metadata through pending captures and saved resources so later audit and display work does not have to infer provenance from Telegram message ids.
+- Reduced the Study home to six primary actions and moved secondary controls under More. Module and capture-destination lists now show five active modules per page.
+- Hardened protected Telegram media delivery with a fresh file lookup, one retry for stale file metadata, upstream MIME validation, and distinct permanent-versus-temporary failure states without exposing bot credentials.
+
 ### Study capture, Canvas archive, and timetable reliability
-- Stopped Study captures from silently inheriting the last-opened module. Explicit module text and replies to module-specific bot prompts still save directly; otherwise Threadwise stores a durable pending capture and asks the owner to choose from current modules.
+- Stopped Study captures from silently inheriting a stale last-opened module. Explicit module text and replies to module-specific bot prompts still save directly; a recently selected module remains a visible ten-minute shortcut, and everything else asks the owner to choose from current modules.
 - Added a paginated, active-module-only destination picker with cancel support and race-safe capture claiming, so stale or duplicate Telegram callbacks cannot create duplicate work or resources.
 - Separated Canvas discovery from owner visibility. Newly discovered courses wait inactive for review, Canvas metadata refreshes no longer reactivate archived modules, and archived Canvas assignments remain locally closed until explicitly restored.
 - Propagated module visibility through work, resources, mistakes, sessions, search, attention, reminders, reviews, timetable, travel lookahead, and Study exports.

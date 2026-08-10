@@ -130,6 +130,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-10 (Codex):** Added durable ten-minute Study capture context, intentional pending image capture with optional OCR, five-per-page module selection, source provenance, exact-once saving, and fresh/retry-bounded Telegram media delivery. The Study home now exposes six primary actions with secondary controls under More; documentation records the capture, image, and full-day timetable decisions.
+
 - **2026-08-10 (Codex):** Hardened Study reliability across Telegram, Canvas, reminders, and the
   dashboard API. Active module selection is navigation-only; ambiguous captures now wait durably
   for an explicit module. Canvas discovery no longer reactivates archived data, inactive modules

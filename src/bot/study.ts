@@ -58,9 +58,10 @@ import {
   configureStudyScheduleTravel,
   renameStudyOrigin,
 } from "../services/studyTransit";
-import { activeStudyModule } from "../services/studyResources";
+import { activeStudyModule, studyCaptureContext } from "../services/studyResources";
 import {
   handleExtendedStudyCallback,
+  handleStudyCaptureCaptionMessage,
   handleStudyAmbientText,
   handleStudyDocument,
   handleStudyLocation,
@@ -216,7 +217,7 @@ async function handleStudyCommand(ctx: Context): Promise<void> {
         await replyHtml(ctx, [bold("Study setup"), "What should this semester be called?", "Example: AY2026/27 Semester 1"].join("\n"), { reply_markup: cancelKeyboard() });
         break;
       case "modules":
-        await showStudyModules(ctx, workspace);
+        await showStudyModulesPage(ctx, workspace);
         break;
       case "week":
         await showStudyWeek(ctx, workspace, 0);
@@ -301,7 +302,18 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       await editOrReplyHtml(ctx, [bold("Study Mode unbound"), "Records were retained. Run /study bind here to reconnect later."].join("\n"));
       return;
     }
-    if (action === "modules") return showStudyModules(ctx, workspace, true);
+    if (action === "modules") return showStudyModulesPage(ctx, workspace, true, Number(parts[2] ?? 0), false);
+    if (action === "modules-inactive") return showStudyModulesPage(ctx, workspace, true, Number(parts[2] ?? 0), true);
+    if (action === "more") return showStudyMore(ctx, workspace);
+    if (action === "pick" && parts[2]) {
+      const purpose = parts[2] as "add" | "session" | "mistake" | "open";
+      if (!["add", "session", "mistake", "open"].includes(purpose)) throw new StudyModeError("That module picker expired.", "invalid");
+      const modules = await listStudyModules(workspace.id);
+      await editOrReplyHtml(ctx, `${bold(modulePickerTitle(purpose))}\nChoose a module.`, {
+        reply_markup: moduleSelectionKeyboard(modules, purpose, Number(parts[3] ?? 0)),
+      });
+      return;
+    }
     if (action === "origin" && parts[2] === "add") {
       await beginStudyConversation(workspace.id, "study_origin_add", "details", {});
       await editOrReplyHtml(ctx, [
@@ -331,6 +343,16 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
     if (action === "module" && parts[2] === "archive" && parts[3]) {
       const module = await updateStudyModule(workspace, parts[3], { active: false });
       await editOrReplyHtml(ctx, `${bold(module.code)} archived.`, { reply_markup: new InlineKeyboard().text("Modules", "study:modules") });
+      return;
+    }
+    if (action === "module" && parts[2] === "manage" && parts[3]) {
+      const module = await findStudyModule(workspace.id, parts[3]);
+      await editOrReplyHtml(ctx, `${bold(module.code)}\n${h(module.name)}`, {
+        reply_markup: new InlineKeyboard()
+          .text("Edit", `study:module:edit:${module.id}`)
+          .text(module.active ? "Archive" : "Restore", `study:module:${module.active ? "archive" : "restore"}:${module.id}`).row()
+          .text("Back", "study:modules:0"),
+      });
       return;
     }
     if (action === "module" && parts[2] === "restore" && parts[3]) {
@@ -365,7 +387,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
     if (action === "session" && parts[2] === "pick") {
       const modules = await listStudyModules(workspace.id);
       await editOrReplyHtml(ctx, [bold("Start session"), "Choose a module."].join("\n"), {
-        reply_markup: moduleSelectionKeyboard(modules, "session"),
+        reply_markup: moduleSelectionKeyboard(modules, "session", 0),
       });
       return;
     }
@@ -403,7 +425,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       const modules = await listStudyModules(workspace.id);
       await beginStudyConversation(workspace.id, "mistake", "module", {});
       await editOrReplyHtml(ctx, [bold("Record mistake"), "Choose the module."].join("\n"), {
-        reply_markup: moduleSelectionKeyboard(modules, "mistake"),
+        reply_markup: moduleSelectionKeyboard(modules, "mistake", 0),
       });
       return;
     }
@@ -453,6 +475,7 @@ async function handleStudyConversationMessage(
   if (kind === "mistake") return handleMistakeMessage(ctx, workspace, step, payload, text);
   if (kind === "review") return handleReviewMessage(ctx, workspace, step, payload, text);
   if (kind === "reschedule_item") return handleRescheduleItemMessage(ctx, workspace, payload, text);
+  if (kind === "study_capture_caption") return handleStudyCaptureCaptionMessage(ctx, workspace, payload, text);
   if (kind === "study_origin_add") return handleStudyOriginAddMessage(ctx, workspace, text);
   if (kind === "study_origin_rename") return handleStudyOriginRenameMessage(ctx, workspace, payload, text);
   if (kind === "study_travel_block") return handleStudyTravelBlockMessage(ctx, workspace, payload, text);
@@ -558,7 +581,7 @@ async function beginAddStudyItem(ctx: Context, workspace: StudyWorkspace): Promi
   }
   const modules = await listStudyModules(workspace.id);
   await beginStudyConversation(workspace.id, "add", "module", {});
-  await replyHtml(ctx, [bold("Add study item"), "Choose a module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "add") });
+  await replyHtml(ctx, [bold("Add study item"), "Choose a module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "add", 0) });
 }
 
 async function handleAddCallback(ctx: Context, workspace: StudyWorkspace, parts: string[]): Promise<void> {
@@ -632,7 +655,7 @@ async function handlePlanMessage(ctx: Context, workspace: StudyWorkspace, step: 
 async function handleStartCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
   if (!args) {
     const modules = await listStudyModules(workspace.id);
-    await replyHtml(ctx, [bold("Start session"), "Choose a module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "session") });
+    await replyHtml(ctx, [bold("Start session"), "Choose a module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "session", 0) });
     return;
   }
   const [moduleRef, methodValue] = args.split("|").map((value) => value.trim());
@@ -663,7 +686,7 @@ async function finishStoppedSession(ctx: Context, workspace: StudyWorkspace, tex
 async function beginMistakeFlow(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const modules = await listStudyModules(workspace.id);
   await beginStudyConversation(workspace.id, "mistake", "module", {});
-  await replyHtml(ctx, [bold("Record mistake"), "Choose the module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "mistake") });
+  await replyHtml(ctx, [bold("Record mistake"), "Choose the module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "mistake", 0) });
 }
 
 async function handleMistakeMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
@@ -821,8 +844,16 @@ async function handleRescheduleItemMessage(
 }
 
 async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
-  const dashboard = await buildStudyDashboard(workspace);
-  const text = formatStudyDashboard(dashboard);
+  const [dashboard, captureContext] = await Promise.all([
+    buildStudyDashboard(workspace),
+    studyCaptureContext(workspace),
+  ]);
+  const text = [
+    formatStudyDashboard(dashboard),
+    captureContext
+      ? `\nCapture target \u00b7 ${bold(captureContext.module.code)} \u00b7 ${captureContext.remainingMinutes} min`
+      : undefined,
+  ].filter(Boolean).join("\n");
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
   else await replyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
 }
@@ -843,6 +874,46 @@ async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = 
   }
   for (const module of inactive) keyboard.text(`Restore ${module.code}`, `study:module:restore:${module.id}`).row();
   keyboard.text("Add module", "study:module:add").text("Home", "study:dashboard");
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+  else await replyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+async function showStudyModulesPage(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  edit = false,
+  requestedPage = 0,
+  inactiveView = false,
+): Promise<void> {
+  const allModules = await listStudyModules(workspace.id, true);
+  const modules = allModules.filter((module) => inactiveView ? !module.active : module.active);
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
+  const page = Math.max(0, Math.min(pageCount - 1, Math.trunc(requestedPage)));
+  const visible = modules.slice(page * pageSize, page * pageSize + pageSize);
+  const text = [
+    bold(`${inactiveView ? "Inactive modules" : "Modules"}${pageCount > 1 ? ` · ${page + 1}/${pageCount}` : ""}`),
+    ...(visible.length
+      ? visible.map((module) => inactiveView
+        ? `${bold(module.code)} · ${h(module.name)}`
+        : `${traffic(module.currentMastery)} ${bold(module.code)} · ${h(module.name)}`)
+      : [inactiveView ? "No inactive modules." : "No active modules."]),
+  ].join("\n");
+  const keyboard = new InlineKeyboard();
+  for (const module of visible) {
+    if (inactiveView) keyboard.text(`Restore ${module.code}`, `study:module:restore:${module.id}`).row();
+    else keyboard.text(module.code, `study:module:open:${module.id}`).text("Manage", `study:module:manage:${module.id}`).row();
+  }
+  if (pageCount > 1) {
+    const prefix = inactiveView ? "study:modules-inactive" : "study:modules";
+    if (page > 0) keyboard.text("Prev", `${prefix}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `${prefix}:${page}`);
+    if (page + 1 < pageCount) keyboard.text("Next", `${prefix}:${page + 1}`);
+    keyboard.row();
+  }
+  if (inactiveView) keyboard.text("Active modules", "study:modules:0");
+  else keyboard.text("Add module", "study:module:add").text("Inactive", "study:modules-inactive:0");
+  keyboard.row().text("Home", "study:dashboard");
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
@@ -1002,35 +1073,61 @@ function formatStudyHelp(): string {
   ].join("\n");
 }
 
+async function showStudyMore(ctx: Context, workspace: StudyWorkspace): Promise<void> {
+  const running = Boolean((await buildStudyDashboard(workspace)).openSession);
+  const keyboard = new InlineKeyboard()
+    .text("This week", "study:items:0").text(running ? "Stop session" : "Start session", running ? "study:session:stop" : "study:session:pick").row()
+    .text("Add work", "study:add:start").text("Library", "study:resources:a:1").row()
+    .text("Canvas", "study:canvas:status").text("Plan week", "study:plan").row()
+    .text("Weekly preview", "study:preview").text("Review", "study:review:start").row()
+    .text("Travel", "study:travel").text("Setup", "study:onboarding").row()
+    .text("Help", "study:help").text("Home", "study:dashboard");
+  await editOrReplyHtml(ctx, bold("More"), { reply_markup: keyboard });
+}
+
 function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
-  return new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
-    .text("Modules", "study:modules").text("Upcoming", "study:upcoming:0").row()
-    .text("Start session", "study:session:pick").text("Canvas", "study:canvas:status").row()
-    .text("Travel", "study:travel").text("Plan week", "study:plan").row()
-    .text("Weekly review", "study:review:start").row()
-    .text("Setup", "study:onboarding").text("Help", "study:help").row()
-    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
+  return new InlineKeyboard()
+    .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
+    .text("Modules", "study:modules:0").url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).row()
+    .url("Dashboard", groupDashboardUrl(workspaceId, "study-overview")).text("More", "study:more");
 }
 
 function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKeyboard {
-  const keyboard = new InlineKeyboard().text("Attention", "study:attention").text("This week", "study:items:0").row()
-    .text("Modules", "study:modules").text("Resources", "study:resources:a:1").row()
-    .text("Add work", "study:add:start").text(running ? "Stop session" : "Start session", running ? "study:session:stop" : "study:session:pick").row()
-    .text("Travel", "study:travel").text("Weekly preview", "study:preview").row()
-    .text("Review", "study:review:start").row()
-    .text("Canvas", "study:canvas:status").text("Setup", "study:onboarding").row()
-    .url("Timetable", groupDashboardUrl(workspaceId, "study-timetable")).url("Study dashboard", groupDashboardUrl(workspaceId, "study-overview"));
-  return keyboard;
+  void running;
+  return studyHomeKeyboard(workspaceId);
 }
 
-function moduleSelectionKeyboard(modules: Array<{ id: string; code: string }>, purpose: "add" | "session" | "mistake"): InlineKeyboard {
+function moduleSelectionKeyboard(
+  modules: Array<{ id: string; code: string }>,
+  purpose: "add" | "session" | "mistake" | "open",
+  requestedPage: number,
+): InlineKeyboard {
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
+  const page = Math.max(0, Math.min(pageCount - 1, Math.trunc(requestedPage)));
   const keyboard = new InlineKeyboard();
-  for (const module of modules) {
-    const data = purpose === "add" ? `study:add:module:${module.id}` : purpose === "session" ? `study:session:module:${module.id}` : `study:mistake:module:${module.id}`;
+  for (const module of modules.slice(page * pageSize, page * pageSize + pageSize)) {
+    const data = purpose === "add" ? `study:add:module:${module.id}`
+      : purpose === "session" ? `study:session:module:${module.id}`
+        : purpose === "mistake" ? `study:mistake:module:${module.id}`
+          : `study:module:open:${module.id}`;
     keyboard.text(module.code, data).row();
+  }
+  if (pageCount > 1) {
+    if (page > 0) keyboard.text("Prev", `study:pick:${purpose}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `study:pick:${purpose}:${page}`);
+    if (page + 1 < pageCount) keyboard.text("Next", `study:pick:${purpose}:${page + 1}`);
+    keyboard.row();
   }
   keyboard.text("Cancel", "study:cancel");
   return keyboard;
+}
+
+function modulePickerTitle(purpose: "add" | "session" | "mistake" | "open"): string {
+  if (purpose === "add") return "Add study item";
+  if (purpose === "session") return "Start session";
+  if (purpose === "mistake") return "Record mistake";
+  return "Modules";
 }
 
 function studyItemTypeKeyboard(): InlineKeyboard {
