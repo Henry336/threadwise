@@ -10,6 +10,15 @@ const optional = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(
   schema.optional(),
 );
 
+const encryptionKey = z.string().refine((value) => {
+  try {
+    const decoded = Buffer.from(value, "base64");
+    return decoded.length === 32 && decoded.toString("base64").replace(/=+$/u, "") === value.replace(/=+$/u, "");
+  } catch {
+    return false;
+  }
+}, "Use a base64-encoded 32-byte key.");
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
@@ -17,6 +26,8 @@ const envSchema = z.object({
   DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(10).default(3),
   DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
   SUPABASE_RUNTIME_POOL_MODE: z.enum(["auto", "session", "transaction"]).default("auto"),
+  CONTENT_ENCRYPTION_MODE: z.enum(["off", "write"]).default("off"),
+  CONTENT_ENCRYPTION_KEY: optional(encryptionKey),
   OPENAI_API_KEY: optional(z.string()),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_MODEL_FALLBACKS: z.string().default("gpt-5.5,gpt-5.4,gpt-5.4-nano"),
@@ -61,6 +72,14 @@ const envSchema = z.object({
   // Owner-operated, date-bounded production smoke seed. It is ignored on every
   // other local date and never contains credentials or user content.
   STUDY_SMOKE_TEST_DATE: optional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+}).superRefine((value, context) => {
+  if (value.CONTENT_ENCRYPTION_MODE === "write" && !value.CONTENT_ENCRYPTION_KEY) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CONTENT_ENCRYPTION_KEY"],
+      message: "CONTENT_ENCRYPTION_KEY is required when CONTENT_ENCRYPTION_MODE=write.",
+    });
+  }
 });
 
 export const env = envSchema.parse(process.env);

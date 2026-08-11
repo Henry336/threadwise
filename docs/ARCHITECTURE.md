@@ -19,6 +19,16 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
+## Application content protection
+
+Threadwise can optionally protect high-value textual content at the Prisma boundary with versioned AES-256-GCM. The extension encrypts writes and decrypts reads for tasks, notes, ideas, saved-image filename/caption/OCR, and Study-resource title/body/link/filename/caption/OCR fields. A random 96-bit nonce and model/field additional authenticated data make copied or modified ciphertext fail closed.
+
+Search remains server-side and deterministic through a separately derived HMAC key. Each protected model stores field-separated blind prefix, word, and trigram tokens in a PostgreSQL GIN-indexed array. Mixed-rollout queries check both legacy plaintext and blind tokens, then verify the decrypted content exactly before returning it. This preserves partial and scoped image OCR/caption search without decrypting every row in application memory.
+
+`CONTENT_ENCRYPTION_MODE=off` is deliberately inert. Existing plaintext remains readable and a configured key may decrypt already migrated rows, but no write changes until the mode is explicitly `write`. The batch migration rewrites through the same Prisma extension and is dry-run-only unless `--apply` is supplied. The master key lives only in server secrets and never crosses into Telegram, Vercel, or the browser.
+
+This is application-level encryption, not end-to-end encryption: the running backend can decrypt content because search, reminders, synchronization, and dashboard rendering require it. Ownership, due dates, statuses, recurrence, provider identifiers, and other operational metadata remain queryable. The complete activation and recovery boundary is documented in `docs/CONTENT_ENCRYPTION.md`.
+
 ## Canonical campus places and journeys
 
 Study routing uses one deterministic place boundary in `src/services/studyTransit.ts`. A resolved place carries a stable id, display name, aliases, venue-or-stop type, coordinates, and ranked nearby stops. Telegram origin setup, natural-language directions, timetable destinations, proactive class reminders, and the protected dashboard search endpoint all call this boundary; none maintains a separate list of place aliases. Exact aliases resolve immediately, fuzzy ambiguity returns bounded candidates, and unresolved timetable labels remain visible but cannot silently enable a travel reminder.

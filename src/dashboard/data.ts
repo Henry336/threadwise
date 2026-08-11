@@ -17,6 +17,7 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
 import { nextDueReminderAt } from "../services/reminders";
+import { contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
 import {
   recordArchiveUndo,
   recordCreateUndo,
@@ -401,13 +402,14 @@ export async function listDashboardTasks(
     userId: user.id,
     archivedAt: null,
     ...(options.status ? { status: options.status } : {}),
-    ...(options.q ? { OR: [{ title: { contains: options.q, mode: "insensitive" } }, { description: { contains: options.q, mode: "insensitive" } }] } : {})
+    ...(options.q ? { OR: withEncryptedSearch("Task", options.q, [{ title: { contains: options.q, mode: "insensitive" } }, { description: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, items] = await Promise.all([
     database.task.count({ where }),
     database.task.findMany({ where, include: { assignees: { orderBy: { createdAt: "asc" } } }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
-  return pageResult(items.map(taskView), options.page, options.limit, total);
+  const visible = options.q ? items.filter((item) => contentMatchesQuery("Task", item, options.q!)) : items;
+  return pageResult(visible.map(taskView), options.page, options.limit, total);
 }
 
 export async function createDashboardTask(telegramId: string, input: TaskCreateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
@@ -656,13 +658,14 @@ export async function listDashboardNotes(
     userId: user.id,
     archivedAt: null,
     mergedIntoNoteId: null,
-    ...(options.q ? { OR: [{ title: { contains: options.q, mode: "insensitive" } }, { body: { contains: options.q, mode: "insensitive" } }, { summary: { contains: options.q, mode: "insensitive" } }] } : {})
+    ...(options.q ? { OR: withEncryptedSearch("Note", options.q, [{ title: { contains: options.q, mode: "insensitive" } }, { body: { contains: options.q, mode: "insensitive" } }, { summary: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, items] = await Promise.all([
     database.note.count({ where }),
     database.note.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
-  return pageResult(items.map(noteView), options.page, options.limit, total);
+  const visible = options.q ? items.filter((item) => contentMatchesQuery("Note", item, options.q!)) : items;
+  return pageResult(visible.map(noteView), options.page, options.limit, total);
 }
 
 async function scopedNote(database: PrismaClient, userId: string, id: string) {
@@ -773,13 +776,14 @@ export async function listDashboardIdeas(
     userId: user.id,
     archivedAt: null,
     ...(options.status ? { status: options.status } : {}),
-    ...(options.q ? { OR: [{ title: { contains: options.q, mode: "insensitive" } }, { concept: { contains: options.q, mode: "insensitive" } }] } : {})
+    ...(options.q ? { OR: withEncryptedSearch("Idea", options.q, [{ title: { contains: options.q, mode: "insensitive" } }, { concept: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, items] = await Promise.all([
     database.idea.count({ where }),
     database.idea.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
-  return pageResult(items.map(ideaView), options.page, options.limit, total);
+  const visible = options.q ? items.filter((item) => contentMatchesQuery("Idea", item, options.q!)) : items;
+  return pageResult(visible.map(ideaView), options.page, options.limit, total);
 }
 
 async function scopedIdea(database: PrismaClient, userId: string, id: string) {
@@ -994,13 +998,14 @@ export async function listDashboardImages(
   const user = await userContext(telegramId, database);
   const where: Prisma.StoredImageWhereInput = {
     userId: user.id,
-    ...(options.q ? { OR: [{ caption: { contains: options.q, mode: "insensitive" } }, { fileName: { contains: options.q, mode: "insensitive" } }, { ocrText: { contains: options.q, mode: "insensitive" } }] } : {})
+    ...(options.q ? { OR: withEncryptedSearch("StoredImage", options.q, [{ caption: { contains: options.q, mode: "insensitive" } }, { fileName: { contains: options.q, mode: "insensitive" } }, { ocrText: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, images] = await Promise.all([
     database.storedImage.count({ where }),
     database.storedImage.findMany({ where, select: imageSelect, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
-  return pageResult(images.map(imageView), options.page, options.limit, total);
+  const visible = options.q ? images.filter((image) => contentMatchesQuery("StoredImage", image, options.q!)) : images;
+  return pageResult(visible.map(imageView), options.page, options.limit, total);
 }
 
 export async function updateDashboardImage(
@@ -1174,19 +1179,19 @@ export async function searchDashboard(
   const wanted = (kind: DashboardSearchKind) => kinds.length === 0 || kinds.includes(kind);
   const [tasks, notes, ideas, images, expenses] = await Promise.all([
     wanted("task") ? database.task.findMany({
-      where: { userId: user.id, archivedAt: null, OR: [{ title: { contains: query, mode: "insensitive" } }, { description: { contains: query, mode: "insensitive" } }] },
+      where: { userId: user.id, archivedAt: null, OR: withEncryptedSearch("Task", query, [{ title: { contains: query, mode: "insensitive" } }, { description: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("note") ? database.note.findMany({
-      where: { userId: user.id, archivedAt: null, mergedIntoNoteId: null, OR: [{ title: { contains: query, mode: "insensitive" } }, { body: { contains: query, mode: "insensitive" } }, { summary: { contains: query, mode: "insensitive" } }] },
+      where: { userId: user.id, archivedAt: null, mergedIntoNoteId: null, OR: withEncryptedSearch("Note", query, [{ title: { contains: query, mode: "insensitive" } }, { body: { contains: query, mode: "insensitive" } }, { summary: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("idea") ? database.idea.findMany({
-      where: { userId: user.id, archivedAt: null, OR: [{ title: { contains: query, mode: "insensitive" } }, { concept: { contains: query, mode: "insensitive" } }] },
+      where: { userId: user.id, archivedAt: null, OR: withEncryptedSearch("Idea", query, [{ title: { contains: query, mode: "insensitive" } }, { concept: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("image") ? database.storedImage.findMany({
-      where: { userId: user.id, OR: [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }] },
+      where: { userId: user.id, OR: withEncryptedSearch("StoredImage", query, [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("expense") ? database.expense.findMany({
@@ -1195,12 +1200,17 @@ export async function searchDashboard(
     }) : []
   ]);
   return [
-    ...tasks.map((item) => ({ kind: "task" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.description ?? item.title, timestamp: item.updatedAt.toISOString() })),
-    ...notes.map((item) => ({ kind: "note" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.summary, timestamp: item.updatedAt.toISOString() })),
-    ...ideas.map((item) => ({ kind: "idea" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.concept, timestamp: item.updatedAt.toISOString() })),
-    ...images.map((item) => ({ kind: "image" as const, id: item.id, publicId: item.publicId, title: item.caption ?? item.fileName ?? "Saved image", summary: item.ocrText ?? item.caption ?? "", timestamp: item.updatedAt.toISOString(), contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(item.id)}/content` })),
+    ...tasks.filter((item) => contentMatchesQuery("Task", item, query)).map((item) => ({ kind: "task" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.description ?? item.title, timestamp: item.updatedAt.toISOString() })),
+    ...notes.filter((item) => contentMatchesQuery("Note", item, query)).map((item) => ({ kind: "note" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.summary, timestamp: item.updatedAt.toISOString() })),
+    ...ideas.filter((item) => contentMatchesQuery("Idea", item, query)).map((item) => ({ kind: "idea" as const, id: item.id, publicId: item.publicId, title: item.title, summary: item.concept, timestamp: item.updatedAt.toISOString() })),
+    ...images.filter((item) => contentMatchesQuery("StoredImage", item, query)).map((item) => ({ kind: "image" as const, id: item.id, publicId: item.publicId, title: item.caption ?? item.fileName ?? "Saved image", summary: item.ocrText ?? item.caption ?? "", timestamp: item.updatedAt.toISOString(), contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(item.id)}/content` })),
     ...expenses.map((item) => ({ kind: "expense" as const, id: item.id, publicId: item.publicId, title: item.merchant ?? item.description ?? "Expense", summary: `${item.currency} ${item.total.toString()}${item.category ? ` · ${item.category}` : ""}`, timestamp: item.updatedAt.toISOString() }))
   ].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limit);
+}
+
+function withEncryptedSearch<T extends object>(model: ContentModel, query: string, conditions: T[]): T[] {
+  const encrypted = encryptedSearchClause(model, query);
+  return encrypted ? [...conditions, encrypted as T] : conditions;
 }
 
 export async function disconnectDashboardIntegration(

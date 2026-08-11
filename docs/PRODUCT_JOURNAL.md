@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 11 August 2026 - Protect stored content without sacrificing recall
+
+**Friction discovered:** PostgreSQL encryption at rest protects disks and backups, but an operator with database-console access could still read users' task, note, idea, image-caption/OCR, and Study-resource text. Encrypting those columns naively would break Threadwise's defining search behavior, while browser-held keys would disrupt reminders, Telegram synchronization, group use, and unattended background work.
+
+**Decision:** Add server-side application encryption as an explicit, reversible rollout boundary rather than pretending Threadwise can provide end-to-end encryption while the server still performs search and reminders. Encrypt high-value content with authenticated random-nonce encryption, derive a separate keyed search index, leave authorization and scheduling metadata queryable, and retain plaintext-compatible reads during migration. The feature must remain inert until a backup, key, schema migration, and operator-controlled write mode are all ready.
+
+**Implementation:** The Prisma boundary now supports versioned AES-256-GCM fields for tasks, notes, ideas, saved-image metadata, and Study resources. Search uses field-separated HMAC blind tokens with PostgreSQL GIN indexes and exact post-decryption verification. A dry-run-first batch migration rewrites existing rows through the same boundary. Configuration rejects malformed keys, write mode without a key, tampered ciphertext, and accidental encrypted-looking user text. Normal and Prisma `set` updates are covered.
+
+**Outcome/evidence:** Focused tests cover Unicode round trips, random nonces, tamper and wrong-key rejection, inert off mode, malformed-prefix safety, field-scoped substring search, write/decrypt traversal, and Prisma set operations. Backend typechecking and schema validation pass before the broader regression gate. The mobile dashboard fixes shipped alongside this work do not depend on encryption or expose keys to the browser.
+
+**Follow-up:** Do not enable production writes until a restorable database backup exists and `docs/CONTENT_ENCRYPTION.md` has been followed in order. Losing the master key makes encrypted content unrecoverable. Threadwise operators with access to the running server key can still decrypt content; client-held end-to-end encryption remains incompatible with the current server-side recall/reminder model.
+
 ## 11 August 2026 - Campus routing must describe the whole journey
 
 **Friction discovered:** Timetable destination fields gave no indication which NUS places were valid. Telegram origin setup, natural-language directions, reminders, and dashboard editing could disagree because each interpreted place text separately. Bus-stop-only results also omitted the walk to the stop, transfers, and the final walk, while a current-location shortcut could be mistaken for continuous tracking. Command discovery still depended on remembering syntax or opening dense button menus.

@@ -595,6 +595,7 @@ model StudyResource {
   fileSize         Int?
   caption          String?
   ocrText          String?
+  searchTokens     String[]          @default([])
   ocrConfidence    Float?
   sourceMessageId  Int?
   sourceSenderTelegramId String?
@@ -612,6 +613,7 @@ model StudyResource {
   @@index([workspaceId, kind, createdAt])
   @@index([moduleId, kind, pinnedAt, createdAt])
   @@index([workspaceId, archivedAt])
+  @@index([searchTokens], type: Gin)
 }
 
 model StudyPendingCapture {
@@ -999,6 +1001,7 @@ model Idea {
   embedding      Json?
   scores         Json?
   marketNotes    String?
+  searchTokens   String[]   @default([])
   dos            String[]
   donts          String[]
   pinnedAt       DateTime?
@@ -1014,6 +1017,7 @@ model Idea {
   @@index([userId, createdAt])
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
+  @@index([searchTokens], type: Gin)
 }
 
 model Task {
@@ -1024,6 +1028,7 @@ model Task {
   description             String?
   status                  TaskStatus      @default(OPEN)
   sourceText              String
+  searchTokens             String[]        @default([])
   importSourceItemId      String?         @unique
   dueAt                   DateTime?
   timezone                String?
@@ -1064,6 +1069,7 @@ model Task {
   @@index([recurrenceRule, nextReminderAt])
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
+  @@index([searchTokens], type: Gin)
 }
 
 model TaskAssignee {
@@ -1095,6 +1101,7 @@ model Note {
   body             String
   summary          String
   sourceText       String
+  searchTokens     String[]   @default([])
   tags             String[]
   embedding        Json?
   pinnedAt         DateTime?
@@ -1114,6 +1121,7 @@ model Note {
   @@index([userId, pinnedAt])
   @@index([userId, archivedAt])
   @@index([userId, mergedIntoNoteId])
+  @@index([searchTokens], type: Gin)
 }
 
 model NoteCaptureSession {
@@ -1379,6 +1387,7 @@ model StoredImage {
   fileName         String?
   caption          String?
   ocrText          String?
+  searchTokens     String[]  @default([])
   ocrConfidence    Float?
   pinnedAt         DateTime?
   createdAt        DateTime  @default(now())
@@ -1390,6 +1399,7 @@ model StoredImage {
   @@index([userId, pinnedAt])
   @@index([userId, createdAt])
   @@index([userId, telegramUniqueId])
+  @@index([searchTokens], type: Gin)
 }
 
 model PendingExpense {

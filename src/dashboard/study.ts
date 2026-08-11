@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
+import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import {
   addStudyModule,
   addStudyScheduleBlock,
@@ -526,7 +527,8 @@ export async function listDashboardStudyResources(workspace: StudyWorkspace, inp
       take: input.limit,
     }),
   ]);
-  return { items: rows.map(studyResourcePreview), page: input.page, limit: input.limit, total, hasMore: input.page * input.limit < total };
+  const visible = query ? rows.filter((row) => contentMatchesQuery("StudyResource", row, query)) : rows;
+  return { items: visible.map(studyResourcePreview), page: input.page, limit: input.limit, total, hasMore: input.page * input.limit < total };
 }
 
 export async function getDashboardStudyResource(workspace: StudyWorkspace, resourceId: string) {
@@ -685,7 +687,7 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
   ]);
   return [
     ...items.map((item) => ({ id: item.id, publicId: item.publicId, kind: "work" as const, title: item.title, excerpt: excerpt(item.notes), module: item.module, updatedAt: item.updatedAt })),
-    ...resources.map((resource) => ({ id: resource.id, publicId: resource.publicId, kind: resource.kind.toLowerCase(), title: resource.title, excerpt: excerpt(resource.body || resource.caption || resource.ocrText || resource.url), module: resource.module, updatedAt: resource.updatedAt })),
+    ...resources.filter((resource) => contentMatchesQuery("StudyResource", resource, query)).map((resource) => ({ id: resource.id, publicId: resource.publicId, kind: resource.kind.toLowerCase(), title: resource.title, excerpt: excerpt(resource.body || resource.caption || resource.ocrText || resource.url), module: resource.module, updatedAt: resource.updatedAt })),
     ...mistakes.map((mistake) => ({ id: mistake.id, publicId: mistake.publicId, kind: "mistake" as const, title: mistake.source, excerpt: excerpt(`${mistake.cause} ${mistake.prevention}`), module: mistake.module, updatedAt: mistake.updatedAt })),
   ].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, input.limit);
 }
@@ -880,6 +882,7 @@ function studyResourcePreview<T extends { body: string | null; ocrText: string |
 }
 
 function resourceSearchWhere(query: string): Prisma.StudyResourceWhereInput[] {
+  const encrypted = encryptedSearchClause("StudyResource", query);
   return [
     { title: { contains: query, mode: "insensitive" } },
     { body: { contains: query, mode: "insensitive" } },
@@ -888,6 +891,7 @@ function resourceSearchWhere(query: string): Prisma.StudyResourceWhereInput[] {
     { fileName: { contains: query, mode: "insensitive" } },
     { url: { contains: query, mode: "insensitive" } },
     { tags: { has: query.toLowerCase().replace(/^#/, "") } },
+    ...(encrypted ? [encrypted] : []),
   ];
 }
 

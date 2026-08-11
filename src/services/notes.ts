@@ -8,6 +8,7 @@ import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
+import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -45,6 +46,7 @@ export async function listRecentNotes(userId: string, take?: number) {
 }
 
 export async function searchNotes(userId: string, query: string) {
+  const encrypted = encryptedSearchClause("Note", query);
   const notes = await prisma.note.findMany({
     where: {
       userId,
@@ -54,14 +56,17 @@ export async function searchNotes(userId: string, query: string) {
         { title: { contains: query, mode: "insensitive" } },
         { summary: { contains: query, mode: "insensitive" } },
         { body: { contains: query, mode: "insensitive" } },
-        { sourceText: { contains: query, mode: "insensitive" } }
+        { sourceText: { contains: query, mode: "insensitive" } },
+        ...(encrypted ? [encrypted] : [])
       ]
     },
     orderBy: { createdAt: "desc" },
     take: 15
   });
 
-  return sortPinnedFirst(notes);
+  return sortPinnedFirst(notes.filter((note) =>
+    note.publicId.toUpperCase() === query.toUpperCase() || contentMatchesQuery("Note", note, query)
+  ));
 }
 
 export async function findNote(userId: string, publicOrUuid: string) {

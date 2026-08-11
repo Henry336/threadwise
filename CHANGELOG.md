@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Opt-in application content encryption
+- Added versioned AES-256-GCM encryption for task, note, idea, saved-image metadata, and Study resource content at the Prisma boundary. Reads remain compatible with existing plaintext rows, and encryption is disabled by default until an explicit production rollout.
+- Preserved partial, Unicode, and field-scoped search with keyed blind tokens backed by PostgreSQL GIN indexes. Exact post-decryption filtering prevents stale tokens from returning an edited record incorrectly.
+- Added a dry-run-first, idempotent migration command, strict key validation, authenticated-tamper failure, Prisma `set`-update coverage, and an operator runbook requiring a verified backup before activation.
+- Kept reminder scheduling, recurrence, ownership, authorization, Telegram synchronization, and binary image delivery on their existing metadata/provider paths so enabling content encryption does not change their behavior.
+
 ### Canonical campus routing and scoped Telegram commands
 - Added one deterministic NUS place resolver for Study origins, timetable destinations, natural-language routes, class reminders, and dashboard autocomplete. It returns stable place ids, aliases, coordinates, place type, nearby stops, and bounded ambiguity candidates instead of silently guessing.
 - Expanded Study journeys into complete plans: walk to the boarding stop, live arrival options, bus legs and transfers, alighting stop, final walk, total duration, arrival/leave time, freshness, fallback status, and alternatives.

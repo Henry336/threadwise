@@ -3,6 +3,7 @@ import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
 import { nextPublicId } from "./publicIds";
 import { recordImageCaptionUndo } from "./undo";
+import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
 const IMAGE_PAGE_SIZE = 10;
 
@@ -106,15 +107,22 @@ export async function searchStoredImages(userId: string, query: string, requeste
           { fileName: { contains: normalized, mode: "insensitive" as const } },
           { ocrText: { contains: normalized, mode: "insensitive" as const } }
         ];
+  const searchFields = scope === "caption" ? ["caption"] : scope === "text" ? ["ocrText"] : ["caption", "fileName", "ocrText"];
+  const encrypted = encryptedSearchClause(
+    "StoredImage",
+    normalized,
+    searchFields,
+  );
   const where = {
     userId,
-    OR: fields
+    OR: encrypted ? [...fields, encrypted] : fields
   };
   const totalItems = await prisma.storedImage.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalItems / IMAGE_PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.trunc(requestedPage) || 1), totalPages);
   const offset = (page - 1) * IMAGE_PAGE_SIZE;
-  const images = await prisma.storedImage.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: offset, take: IMAGE_PAGE_SIZE });
+  const images = (await prisma.storedImage.findMany({ where, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: offset, take: IMAGE_PAGE_SIZE }))
+    .filter((image) => contentMatchesQuery("StoredImage", image, normalized, searchFields));
   return { images, page, totalPages, totalItems, offset, query: normalized, scope };
 }
 

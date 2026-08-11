@@ -9,6 +9,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { StudyModeError, findStudyModule } from "./study";
+import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
@@ -194,6 +195,7 @@ export async function listStudyResources(
   input: { moduleId?: string; kind?: StudyResourceKind; query?: string; page?: number } = {},
 ) {
   const query = input.query?.trim();
+  const encrypted = query ? encryptedSearchClause("StudyResource", query) : undefined;
   const where: Prisma.StudyResourceWhereInput = {
     workspaceId,
     archivedAt: null,
@@ -209,19 +211,20 @@ export async function listStudyResources(
         { fileName: { contains: query, mode: "insensitive" } },
         { url: { contains: query, mode: "insensitive" } },
         { tags: { has: query.toLowerCase().replace(/^#/, "") } },
+        ...(encrypted ? [encrypted] : []),
       ],
     } : {}),
   };
   const totalItems = await prisma.studyResource.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalItems / RESOURCE_PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.trunc(input.page ?? 1)), totalPages);
-  const resources = await prisma.studyResource.findMany({
+  const resources = (await prisma.studyResource.findMany({
     where,
     include: { module: true },
     orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     skip: (page - 1) * RESOURCE_PAGE_SIZE,
     take: RESOURCE_PAGE_SIZE,
-  });
+  })).filter((resource) => !query || contentMatchesQuery("StudyResource", resource, query));
   return { resources, page, totalPages, totalItems, query };
 }
 
