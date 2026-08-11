@@ -6,7 +6,7 @@ import {
   StudyTrafficLight,
   type StudyWorkspace,
 } from "@prisma/client";
-import { Bot, Context, InlineKeyboard, InputFile } from "grammy";
+import { Bot, Context, InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { DateTime } from "luxon";
 import {
   STUDY_METHODS,
@@ -29,6 +29,7 @@ import {
   findStudyItem,
   findStudyModule,
   getStudyConversation,
+  isStudyContext,
   listStudyMistakes,
   listStudyModules,
   listStudyScheduleBlocks,
@@ -53,6 +54,7 @@ import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
 import { userFacingError } from "./errorResponses";
 import { groupDashboardUrl } from "./links";
+import { privateStudyConfig } from "../config/env";
 import {
   clearStudyScheduleTravel,
   configureStudyScheduleTravel,
@@ -76,7 +78,29 @@ const SEALED_GROUP_CHECK_TTL_MS = 60_000;
 const sealedGroupChecks = new Map<string, number>();
 
 export function registerStudyMode(bot: Bot): void {
+  bot.command("start", async (ctx, next) => {
+    const config = privateStudyConfig();
+    const body = (ctx.message?.text ?? "").replace(/^\/start(?:@\w+)?\s*/i, "").trim();
+    if (!config || body !== "study_location" || ctx.chat.type !== "private" || String(ctx.from?.id ?? "") !== config.ownerTelegramId) {
+      await next();
+      return;
+    }
+    const workspace = await activeStudyWorkspace();
+    if (!workspace) throw new StudyModeError("Study Mode is not set up yet.", "not_bound");
+    await ctx.reply("Share your current location once. Threadwise uses it for campus routes for up to four hours, does not track you continuously, and deletes the temporary origin when you tap I’m here or it expires.", {
+      reply_markup: new Keyboard().requestLocation("Share current location").oneTime().resized(),
+    });
+  });
   bot.command("study", async (ctx) => handleStudyCommand(ctx));
+  for (const shortcut of ["attention", "upcoming", "modules", "travel", "timetable", "dashboard", "help"] as const) {
+    bot.command(shortcut, async (ctx, next) => {
+      if (!isStudyContext(ctx)) {
+        await next();
+        return;
+      }
+      await handleStudyCommand(ctx, shortcut);
+    });
+  }
   bot.callbackQuery(/^study:.+$/i, async (ctx) => handleStudyCallback(ctx, ctx.callbackQuery.data));
   bot.on("message:photo", async (ctx, next) => {
     try {
@@ -100,6 +124,13 @@ export function registerStudyMode(bot: Bot): void {
   });
   bot.on("message:location", async (ctx, next) => {
     try {
+      const config = privateStudyConfig();
+      if (config && ctx.chat.type === "private" && String(ctx.from?.id ?? "") === config.ownerTelegramId) {
+        const workspace = await activeStudyWorkspace();
+        if (!workspace) throw new StudyModeError("Study Mode is not set up yet.", "not_bound");
+        await handleStudyLocation(ctx, workspace, { privateDelivery: true });
+        return;
+      }
       const workspace = await requireStudyWorkspace(ctx);
       await assertSealedStudyGroup(ctx, workspace);
       await handleStudyLocation(ctx, workspace);
@@ -150,8 +181,8 @@ export function registerStudyMode(bot: Bot): void {
   });
 }
 
-async function handleStudyCommand(ctx: Context): Promise<void> {
-  const body = (ctx.message && "text" in ctx.message ? (ctx.message.text ?? "") : "").replace(/^\/study(?:@\w+)?\s*/i, "").trim();
+async function handleStudyCommand(ctx: Context, forcedSubcommand?: string): Promise<void> {
+  const body = forcedSubcommand ?? (ctx.message && "text" in ctx.message ? (ctx.message.text ?? "") : "").replace(/^\/study(?:@\w+)?\s*/i, "").trim();
   const [rawSubcommand, ...rest] = body.split(/\s+/);
   const subcommand = rawSubcommand?.toLowerCase() || "dashboard";
   const args = rest.join(" ").trim();
@@ -206,6 +237,9 @@ async function handleStudyCommand(ctx: Context): Promise<void> {
         break;
       case "origins":
         await handleStudyAmbientText(ctx, workspace, "Show travel origins");
+        break;
+      case "travel":
+        await handleStudyAmbientText(ctx, workspace, "Show travel routes");
         break;
       case "unbind":
         await replyHtml(ctx, [bold("Unbind Study Mode?"), "Your records stay in PostgreSQL, but this group will stop exposing Study Mode."].join("\n"), {

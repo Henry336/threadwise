@@ -733,6 +733,7 @@ model StudyLocationOrigin {
   providerStopId  String?
   latitude        Float?
   longitude       Float?
+  temporary       Boolean  @default(false)
   isDefault       Boolean  @default(false)
   active          Boolean  @default(true)
   displayOrder    Int      @default(0)

@@ -119,7 +119,13 @@ export function parseStudyNaturalLanguage(text: string, timezone: string): Study
   if (renameOrigin?.[1] && renameOrigin[2]) return { kind: "origin_rename", reference: renameOrigin[1].trim(), name: renameOrigin[2].trim() };
   const deleteOrigin = trimmed.match(/^(?:delete|remove)\s+(?:travel\s+)?origin\s+(.+)$/i);
   if (deleteOrigin?.[1]) return { kind: "origin_delete", reference: deleteOrigin[1].trim() };
-  const route = trimmed.match(/^(?:how do i get|route|directions|when should i leave)\s+(?:to|for)\s+(.+?)(?:\s+from\s+(.+))?\??$/i);
+  const routeFrom = trimmed.match(/^(?:how do i get|route|directions|navigate)\s+from\s+(.+?)\s+to\s+(.+?)\??$/i);
+  if (routeFrom?.[1] && routeFrom[2]) return {
+    kind: "route",
+    destination: routeFrom[2].trim().replace(/[?]+$/, ""),
+    origin: routeFrom[1].trim().replace(/[?]+$/, ""),
+  };
+  const route = trimmed.match(/^(?:how do i get|route|directions|when should i leave|take me|navigate|guide me)\s+(?:to|for)\s+(.+?)(?:\s+from\s+(.+))?\??$/i);
   if (route?.[1]) return {
     kind: "route",
     destination: route[1].trim().replace(/[?]+$/, ""),

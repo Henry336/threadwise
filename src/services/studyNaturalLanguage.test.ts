@@ -58,6 +58,9 @@ describe("Study Mode natural-language routing", () => {
       origin: "Home",
     });
     expect(parseStudyNaturalLanguage("How do I add a travel origin?", timezone)).toEqual({ kind: "origin_help" });
+    expect(parseStudyNaturalLanguage("Take me to COM3", timezone)).toEqual({ kind: "route", destination: "COM3", origin: undefined });
+    expect(parseStudyNaturalLanguage("Navigate to VCR Room", timezone)).toEqual({ kind: "route", destination: "VCR Room", origin: undefined });
+    expect(parseStudyNaturalLanguage("How do I get from PGP to COM3?", timezone)).toEqual({ kind: "route", destination: "COM3", origin: "PGP" });
   });
 });
 

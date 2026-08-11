@@ -134,6 +134,7 @@ import {
   resolveDashboardStudyMistake,
   saveDashboardStudyWeeklyPlan,
   saveDashboardStudyWeeklyReview,
+  searchDashboardStudyPlaces,
   searchDashboardStudy,
   startDashboardStudySession,
   stopDashboardStudySession,
@@ -146,6 +147,7 @@ import {
   studyModuleUpdateSchema,
   studyOriginCreateSchema,
   studyOriginUpdateSchema,
+  studyPlaceSearchSchema,
   studyResourceCreateSchema,
   studyResourceQuerySchema,
   studyResourceUpdateSchema,
@@ -531,6 +533,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const workspace = await requireDashboardStudyWorkspace(scope);
     return { origin: await createDashboardStudyOrigin(workspace, studyOriginCreateSchema.parse(request.body)) };
   }, "study_create_origin"));
+
+  server.get("/api/v1/dashboard/study/places", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { q } = studyPlaceSearchSchema.parse(request.query);
+    return { places: await searchDashboardStudyPlaces(workspace, q) };
+  }, "study_search_places"));
 
   server.patch("/api/v1/dashboard/study/origins/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);

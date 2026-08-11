@@ -126,7 +126,11 @@ export function isStudyContext(ctx: Context): boolean {
  * text, media, locations, reply-keyboard controls, and callback queries.
  */
 export async function shouldHandleStudyUpdate(ctx: Context): Promise<boolean> {
-  return isStudyContext(ctx);
+  if (isStudyContext(ctx)) return true;
+  const config = privateStudyConfig();
+  if (!config || ctx.chat?.type !== "private" || String(ctx.from?.id ?? "") !== config.ownerTelegramId) return false;
+  const text = ctx.message && "text" in ctx.message ? ctx.message.text ?? "" : "";
+  return Boolean(ctx.message && "location" in ctx.message) || /^\/start(?:@\w+)?\s+study_location\b/i.test(text);
 }
 
 export async function bindStudyWorkspace(ctx: Context): Promise<StudyWorkspace> {

@@ -90,9 +90,10 @@ describe("Study dashboard input contracts", () => {
       endTime: "16:00",
       label: "CS2100 lecture",
       destination: "COM3",
+      destinationPlaceId: "venue:COM3",
       defaultOriginId: "dfe7ff93-a82a-44d6-af67-fc64d29012bf",
       travelBufferMinutes: 15,
-    })).toMatchObject({ destination: "COM3", travelBufferMinutes: 15 });
+    })).toMatchObject({ destination: "COM3", destinationPlaceId: "venue:COM3", travelBufferMinutes: 15 });
   });
 
   it("allows travel reminders to be disabled without deleting the block", () => {

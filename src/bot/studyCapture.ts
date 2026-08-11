@@ -63,6 +63,7 @@ import {
   addStudyOriginFromLocation,
   addStudyOriginFromVenue,
   buildStudyDeparturePlan,
+  clearTemporaryStudyOrigin,
   clearStudyScheduleTravel,
   currentStudyOrigin,
   deleteStudyOrigin,
@@ -74,7 +75,9 @@ import {
   renameStudyOrigin,
   resumeStudyTravelReminders,
   searchStudyOriginPlaces,
+  StudyPlaceAmbiguityError,
   setDefaultStudyOrigin,
+  type StudyPlace,
   type StudyOriginPlaceCandidate,
 } from "../services/studyTransit";
 import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
@@ -100,6 +103,7 @@ const EXTENDED_CALLBACKS = [
   "study:capmods:",
   "study:origins",
   "study:origin:",
+  "study:routepick:",
   "study:travel",
 ] as const;
 
@@ -305,16 +309,20 @@ export async function handleStudyDocument(ctx: Context, workspace: StudyWorkspac
   });
 }
 
-export async function handleStudyLocation(ctx: Context, workspace: StudyWorkspace): Promise<void> {
+export async function handleStudyLocation(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  options: { privateDelivery?: boolean } = {},
+): Promise<void> {
   const location = ctx.message?.location;
   if (!location) return;
   const origin = await addStudyOriginFromLocation(workspace, "Current location", {
     latitude: location.latitude,
     longitude: location.longitude,
   }, { activateHours: 4 });
-  await replyQuietAcknowledgementHtml(ctx, `${bold("Current origin set")} · ${h(origin.name)} · 4 hours`, 3_500, {
-    reply_markup: studyModeKeyboard(),
-  });
+  await replyQuietAcknowledgementHtml(ctx, `${bold("Current origin set")} · ${h(origin.name)} · expires in 4 hours · no continuous tracking`, 3_500, options.privateDelivery
+    ? { reply_markup: { remove_keyboard: true } }
+    : { reply_markup: studyModeKeyboard() });
 }
 
 export async function showStudyOnboarding(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
@@ -567,11 +575,16 @@ export async function handleExtendedStudyCallback(
     await showTravelRoute(ctx, workspace, parts[3], true, true);
     return true;
   }
+  if (parts[1] === "travel" && parts[2] === "details" && parts[3]) {
+    await showTravelRoute(ctx, workspace, parts[3], true, true, true);
+    return true;
+  }
   if (parts[1] === "travel" && parts[2] === "change" && parts[3]) {
     await beginStudyConversation(workspace.id, "study_travel_origin", "choose", { blockId: parts[3] });
     const origins = await listStudyOrigins(workspace.id);
     const keyboard = new InlineKeyboard();
     for (const origin of origins.slice(0, 8)) keyboard.text(origin.name, `study:travel:use:${origin.id}`).row();
+    if (ctx.me.username) keyboard.url("Use current location", `https://t.me/${ctx.me.username}?start=study_location`).row();
     keyboard.text("Add origin", "study:origin:add").text("Back", `study:travel:route:${parts[3]}`);
     await editOrReplyHtml(ctx, `${bold("Change origin")}\nChoose where this journey starts.`, { reply_markup: keyboard });
     return true;
@@ -588,6 +601,7 @@ export async function handleExtendedStudyCallback(
     return true;
   }
   if (parts[1] === "travel" && parts[2] === "arrived" && parts[3]) {
+    await clearTemporaryStudyOrigin(workspace);
     await prisma.auditLog.create({ data: { userId: workspace.ownerUserId, action: "study.travel.arrived", metadata: { workspaceId: workspace.id, blockId: parts[3] } } });
     await editOrReplyHtml(ctx, `${bold("You’re here")}\nTravel reminder closed.`, { reply_markup: new InlineKeyboard().text("Travel", "study:travel") });
     return true;
@@ -645,6 +659,22 @@ export async function handleExtendedStudyCallback(
     else if (action === "delete") await deleteStudyOrigin(workspace, id);
     else return false;
     await showOrigins(ctx, workspace, true);
+    return true;
+  }
+  if (parts[1] === "routepick" && parts[2]) {
+    const conversation = await getStudyConversation(workspace.id);
+    const payload = conversation ? studyConversationPayload(conversation.payload) : {};
+    const candidates = Array.isArray(payload.candidates) ? payload.candidates as StudyPlace[] : [];
+    const candidate = candidates[Number(parts[2])];
+    const origin = typeof payload.origin === "string" ? payload.origin : undefined;
+    if (conversation?.kind !== "study_route_place" || !candidate) {
+      throw new StudyModeError("That place picker expired. Ask for the route again.", "invalid");
+    }
+    const journey = await estimateStudyJourney(workspace, candidate.id, origin);
+    await clearStudyConversation(workspace.id);
+    await editOrReplyHtml(ctx, formatJourney(journey), {
+      reply_markup: new InlineKeyboard().text("Travel origins", "study:origins"),
+    });
     return true;
   }
   return false;
@@ -822,8 +852,22 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
       await replyQuietAcknowledgementHtml(ctx, "Origin removed.");
       return;
     case "route": {
-      const journey = await estimateStudyJourney(workspace, intent.destination, intent.origin);
-      await replyHtml(ctx, formatJourney(journey), { reply_markup: new InlineKeyboard().text("Travel origins", "study:origins") });
+      try {
+        const journey = await estimateStudyJourney(workspace, intent.destination, intent.origin);
+        await replyHtml(ctx, formatJourney(journey), { reply_markup: new InlineKeyboard().text("Travel origins", "study:origins") });
+      } catch (error) {
+        if (!(error instanceof StudyPlaceAmbiguityError)) throw error;
+        await beginStudyConversation(workspace.id, "study_route_place", "destination", {
+          candidates: error.candidates,
+          origin: intent.origin,
+        });
+        const keyboard = new InlineKeyboard();
+        error.candidates.forEach((candidate, index) => {
+          keyboard.text(`${candidate.displayName}${candidate.kind === "stop" ? " · stop" : ""}`.slice(0, 58), `study:routepick:${index}`).row();
+        });
+        keyboard.text("Cancel", "study:cancel");
+        await replyHtml(ctx, `${bold("Which place?")}\nChoose the destination you meant.`, { reply_markup: keyboard });
+      }
       return;
     }
     case "ambiguous":
@@ -1371,8 +1415,14 @@ async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = fal
   const muted = isStudyTravelMuted(fresh);
   const text = [
     bold("Travel"),
-    origin ? `From · ${h(origin.name)}` : "No origin saved.",
+    origin ? `From · ${h(origin.name)}${origin.temporary ? " · current location" : ""}` : "No origin set.",
     muted ? "Departure reminders are muted for today." : "Live routes refresh before configured classes.",
+    !origin
+      ? ctx.chat?.type === "private"
+        ? "Share your current location once, or save a usual origin."
+        : "Save a usual origin here, or share your current location in Threadwise's private chat."
+      : undefined,
+    !origin ? "Location shares expire after 4 hours. Threadwise does not track you continuously." : undefined,
     "",
     bold("Upcoming destinations"),
     ...(upcoming.length
@@ -1381,6 +1431,7 @@ async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = fal
   ].join("\n");
   const keyboard = new InlineKeyboard();
   for (const { block } of upcoming.slice(0, 3)) keyboard.text(`Refresh ${truncate(block.venueName ?? block.label, 22)}`, `study:travel:route:${block.id}`).row();
+  if (!origin && ctx.me.username) keyboard.url("Share current location", `https://t.me/${ctx.me.username}?start=study_location`).row();
   keyboard.text("Saved origins", "study:origins").text("Class destinations", "study:travel:blocks").row();
   if (muted) keyboard.text("Resume reminders", "study:travel:resume").row();
   else keyboard.text("Mute today", "study:travel:mute").row();
@@ -1411,20 +1462,44 @@ async function showTravelBlocks(ctx: Context, workspace: StudyWorkspace): Promis
   await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
 }
 
-async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId: string, edit = false, force = false): Promise<void> {
+async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId: string, edit = false, force = false, detailed = false): Promise<void> {
   const plan = await buildStudyDeparturePlan(workspace, blockId, { force });
   const starts = DateTime.fromJSDate(plan.startsAt).setZone(workspace.timezone);
   const leaves = DateTime.fromJSDate(plan.leaveAt).setZone(workspace.timezone);
+  const arrivals = (plan.journey.legs ?? [])
+    .map((leg) => leg.nextArrival ? `${leg.service} ${leg.nextArrival.display}` : "")
+    .filter(Boolean)
+    .join(" · ");
+  const arrives = leaves.plus({ minutes: Math.max(1, plan.journey.totalMinutes ?? 30) });
+  const routeSteps = formatJourneySteps(plan.journey, detailed);
+  const compactBefore = `Walk to ${h(plan.journey.boardingStop.title)} · ~${plan.journey.firstWalkMinutes ?? 0} min`;
+  const compactAfter = [
+    plan.journey.alightStop ? `Alight at ${h(plan.journey.alightStop.title)}` : undefined,
+    plan.journey.destinationPlace
+      ? `Walk to ${h(plan.journey.destinationPlace.displayName)} · ~${plan.journey.finalWalkMinutes ?? 0} min`
+      : undefined,
+  ];
+  const details = detailed ? [
+    `From · ${h(plan.journey.origin.name)}`,
+    ...routeSteps,
+    (plan.journey.alternatives ?? []).length
+      ? `Alternatives · ${h((plan.journey.alternatives ?? []).map((route) => `${route.services.join(" → ")} ~${route.totalMinutes} min`).join("; "))}`
+      : undefined,
+    `${plan.live ? "Live arrivals" : "Estimated route"} · refreshed ${DateTime.fromJSDate(plan.journey.updatedAt).setZone(workspace.timezone).toFormat("h:mm a")}`,
+  ] : [];
   const text = [
     bold(`Leave by ${leaves.toFormat("h:mm a")}`),
-    `${h(plan.journey.services.length ? plan.journey.services.join(" → ") : "Usual route")} from ${h(plan.journey.boardingStop.title)}`,
-    plan.live && plan.journey.waitMinutes !== undefined ? `Live arrival · ${plan.journey.waitMinutes} min` : "Live buses unavailable · normal estimate",
-    plan.journey.walkMinutes !== undefined ? `Walk · ~${plan.journey.walkMinutes} min` : undefined,
-    `Journey · ~${Math.max(1, plan.journey.totalMinutes ?? 30)} min + ${plan.block.travelBufferMinutes} min buffer`,
-    `${h(plan.block.venueName ?? plan.journey.destinationStop.title)} · ${starts.toFormat("ccc h:mm a")}`,
+    !detailed ? compactBefore : undefined,
+    `${bold(`Take ${plan.journey.services.length ? plan.journey.services.join(" → ") : "the usual route"}`)}${arrivals ? ` · ${h(arrivals)}` : ""}`,
+    ...(!detailed ? compactAfter : []),
+    ...details,
+    `Arrive ~${arrives.toFormat("h:mm a")} · ${plan.live ? "live" : "estimate"} · ${plan.block.travelBufferMinutes} min early`,
+    `${h(plan.block.venueName ?? plan.journey.destinationStop.title)} · class ${starts.toFormat("ccc h:mm a")}`,
+    plan.fallbackReason ? "Live buses unavailable · normal estimate used" : undefined,
   ].filter(Boolean).join("\n");
   const keyboard = new InlineKeyboard()
-    .text("Refresh", `study:travel:route:${plan.block.id}`).text("Change origin", `study:travel:change:${plan.block.id}`).row()
+    .text("Refresh", `study:travel:route:${plan.block.id}`).text("Route details", `study:travel:details:${plan.block.id}`).row()
+    .text("Change origin", `study:travel:change:${plan.block.id}`).row()
     .text("I’m here", `study:travel:arrived:${plan.block.id}`).text("Mute today", "study:travel:mute").row()
     .text("Travel", "study:travel");
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
@@ -1559,14 +1634,29 @@ function telegramMessageTarget(value: unknown): { chatId: number | string; messa
 
 function formatJourney(journey: Awaited<ReturnType<typeof estimateStudyJourney>>): string {
   return [
-    bold(`${journey.origin.name} → ${journey.destinationStop.title}`),
-    journey.services.length ? `Bus · ${journey.services.join(" → ")}` : undefined,
-    journey.walkMinutes !== undefined ? `Walk · ~${journey.walkMinutes} min` : undefined,
-    journey.waitMinutes !== undefined ? `Live wait · ~${journey.waitMinutes} min` : undefined,
-    journey.rideMinutes !== undefined ? `Ride · ~${journey.rideMinutes} min` : undefined,
-    journey.totalMinutes !== undefined ? `${bold("Allow")} · ~${journey.totalMinutes + journey.leaveBufferMinutes} min including buffer` : undefined,
-    h(journey.message),
+    bold(`${journey.origin.name} → ${journey.destinationPlace?.displayName ?? journey.destinationStop.title}`),
+    ...formatJourneySteps(journey, true),
+    journey.totalMinutes !== undefined ? `${bold("Journey")} · ~${journey.totalMinutes} min` : undefined,
+    `${journey.live ? "Live arrivals" : "Estimated route"} · refreshed ${DateTime.fromJSDate(journey.updatedAt).toFormat("h:mm a")}`,
+    journey.message ? h(journey.message) : undefined,
   ].filter(Boolean).join("\n");
+}
+
+function formatJourneySteps(journey: Awaited<ReturnType<typeof estimateStudyJourney>>, detailed: boolean): Array<string | undefined> {
+  const legs = journey.legs ?? [];
+  const steps: Array<string | undefined> = [
+    `Walk to ${h(journey.boardingStop.title)} · ~${journey.firstWalkMinutes ?? 0} min`,
+  ];
+  if (detailed && legs.length) {
+    for (const [index, leg] of legs.entries()) {
+      if (index > 0) steps.push(`Transfer at ${h(leg.fromStop.title)}`);
+      steps.push(`Take ${bold(h(leg.service))} · ${h(leg.fromStop.title)} → ${h(leg.toStop.title)}${leg.nextArrival ? ` · ${h(leg.nextArrival.display)}` : ""}`);
+    }
+  }
+  if (journey.alightStop) steps.push(`Alight at ${h(journey.alightStop.title)}`);
+  const destination = journey.destinationPlace?.displayName;
+  if (destination) steps.push(`Walk to ${h(destination)} · ~${journey.finalWalkMinutes ?? 0} min`);
+  return steps;
 }
 
 function formatNaturalHelp(): string {

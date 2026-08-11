@@ -394,11 +394,6 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     });
   });
 
-  await bot.api.setMyCommands([
-    { command: "beacon", description: "Open Beacon controls" },
-    { command: "rules", description: "Show community rules" },
-    { command: "report", description: "Report the replied-to message" }
-  ]).catch((error) => logger.warn("Could not set Beacon commands.", { error: String(error) }));
   return bot;
 }
 

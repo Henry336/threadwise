@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Canonical campus routing and scoped Telegram commands
+- Added one deterministic NUS place resolver for Study origins, timetable destinations, natural-language routes, class reminders, and dashboard autocomplete. It returns stable place ids, aliases, coordinates, place type, nearby stops, and bounded ambiguity candidates instead of silently guessing.
+- Expanded Study journeys into complete plans: walk to the boarding stop, live arrival options, bus legs and transfers, alighting stop, final walk, total duration, arrival/leave time, freshness, fallback status, and alternatives.
+- Added temporary current-location origins with a four-hour expiry and explicit no-continuous-tracking copy. Reminder cards now expose Refresh, Route details, Change origin, I'm here, and Mute today.
+- Registered Telegram's native slash-command menu with context-specific Personal, Group, Study, Beacon owner/moderator, English, and Burmese scopes. Natural language and progressive button flows remain primary.
+- Added focused resolver, route-plan, fallback, command-scope, natural-language, and dashboard-proxy coverage.
+
 ### Study protected-image MIME recovery
 - Hardened the authenticated Study media proxy for older Telegram uploads whose provider or stored metadata reports a generic binary MIME type.
 - The proxy now identifies supported PNG, JPEG, GIF, WebP, and BMP payloads from bounded response bytes before returning them to the dashboard, while preserving owner/group authorization, fresh Telegram file resolution, defensive headers, and `no-store` delivery.

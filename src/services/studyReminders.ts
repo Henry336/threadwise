@@ -274,15 +274,21 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
           scheduledFor: plan.leaveAt,
           text: [
             bold(`Leave by ${leaveAt.toFormat("h:mm a")}`),
-            `${h(service)} from ${h(plan.journey.boardingStop.title)}`,
+            `Walk ~${plan.journey.firstWalkMinutes ?? 0} min to ${h(plan.journey.boardingStop.title)}`,
+            `${h(service)}${plan.live && plan.journey.waitMinutes !== undefined ? ` · ${plan.journey.waitMinutes} min` : ""}`,
+            plan.journey.alightStop ? `Alight at ${h(plan.journey.alightStop.title)}` : undefined,
+            plan.journey.destinationPlace
+              ? `Walk ~${plan.journey.finalWalkMinutes ?? 0} min to ${h(plan.journey.destinationPlace.displayName)}`
+              : undefined,
             plan.live && plan.journey.waitMinutes !== undefined
-              ? `Live arrival: ${plan.journey.waitMinutes} min · ${h(block.venueName)}`
-              : `Allow about ${Math.max(1, plan.journey.totalMinutes ?? 30) + block.travelBufferMinutes} min · ${h(block.venueName)}`,
+              ? `Live route · ~${Math.max(1, plan.journey.totalMinutes ?? 30)} min`
+              : `Estimated route · allow ${Math.max(1, plan.journey.totalMinutes ?? 30) + block.travelBufferMinutes} min`,
             `${block.module ? `${h(block.module.code)} · ` : ""}${starts.toFormat("h:mm a")}`,
             plan.live ? undefined : "Live buses unavailable · normal estimate used",
           ].filter(Boolean).join("\n"),
           keyboard: new InlineKeyboard()
-            .text("Refresh", `study:travel:route:${block.id}`).text("Change origin", `study:travel:change:${block.id}`).row()
+            .text("Refresh", `study:travel:route:${block.id}`).text("Route details", `study:travel:details:${block.id}`).row()
+            .text("Change origin", `study:travel:change:${block.id}`).row()
             .text("I’m here", `study:travel:arrived:${block.id}`).text("Mute today", "study:travel:mute"),
         });
         continue;

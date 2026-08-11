@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 11 August 2026 - Campus routing must describe the whole journey
+
+**Friction discovered:** Timetable destination fields gave no indication which NUS places were valid. Telegram origin setup, natural-language directions, reminders, and dashboard editing could disagree because each interpreted place text separately. Bus-stop-only results also omitted the walk to the stop, transfers, and the final walk, while a current-location shortcut could be mistaken for continuous tracking. Command discovery still depended on remembering syntax or opening dense button menus.
+
+**Decision:** Establish one deterministic NUS place catalogue and route-planning boundary. Resolve aliases to stable canonical ids, offer candidates instead of guessing ambiguity, and treat a useful route as door-to-door campus guidance. Use current location only as an explicit, short-lived private origin. Add Telegram's native slash catalogue as contextual discovery while keeping natural language and compact buttons primary.
+
+**Implementation:** Study origins, timetable destinations, natural-language routes, class reminders, and the protected dashboard place search now share one resolver with names, aliases, type, coordinates, and nearby stops. Route plans contain the initial walk, live arrivals, bus/transfer legs, alighting stop, final walk, total duration, leave/arrival time, freshness, alternatives, and a labelled fallback. Private current origins expire after four hours or **I'm here**, with explicit no-continuous-tracking copy. Telegram startup now registers scoped Personal, Group, Study, Beacon owner/moderator, English, and Burmese command menus; owner-only purge stays hidden and forbidden elsewhere.
+
+**Outcome/evidence:** Focused backend tests cover canonical aliases, ambiguity, a multi-leg live journey, provider fallback, flexible route phrasing, and role/chat command scopes. The dashboard's protected proxy and autocomplete tests cover canonical ids and unresolved text. TypeScript and production builds pass in both repositories; the changed UI passes the Impeccable detector.
+
+**Follow-up:** Validate production suggestions against real NUS aliases and one live class reminder from a temporary current origin. Provider routing remains campus guidance, not turn-by-turn navigation, and should stay explicit about data age and fallback status.
+
 ## 11 August 2026 - Installed-app reliability needs native clarity without native defaults
 
 **Friction discovered:** At narrow desktop/PWA widths, the workspace trigger, breadcrumb, global search, and account controls competed for the same row. The native workspace select truncated names, inherited unreadable dark-mode colours, and produced a blank dimmed layer without a usable menu. Find a time duplicated its only action. Study filters overflowed their cards, timetable orientation was forgotten, inactive Canvas modules had no obvious restore surface, and image cards exposed noisy OCR while some historical Telegram images failed because generic MIME metadata hid otherwise valid raster bytes. Ari's loader also changed crop, alignment, and pace between frames, making motion look like pose swapping rather than one continuous action.

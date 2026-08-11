@@ -19,6 +19,16 @@ Threadwise is intentionally split into small modules so future contributors can 
 - Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
+## Canonical campus places and journeys
+
+Study routing uses one deterministic place boundary in `src/services/studyTransit.ts`. A resolved place carries a stable id, display name, aliases, venue-or-stop type, coordinates, and ranked nearby stops. Telegram origin setup, natural-language directions, timetable destinations, proactive class reminders, and the protected dashboard search endpoint all call this boundary; none maintains a separate list of place aliases. Exact aliases resolve immediately, fuzzy ambiguity returns bounded candidates, and unresolved timetable labels remain visible but cannot silently enable a travel reminder.
+
+A `StudyJourneyEstimate` is a complete route plan rather than a bus-only answer. It records the initial walking leg, boarding stop, live arrival choices, bus and transfer legs, alighting stop, final walking leg, total travel time, predicted arrival and leave time, data freshness, live/fallback status, and alternative plans. The public Improved NextBus provider remains advisory: unavailable live data produces a labelled conservative fallback and never an invented arrival.
+
+Origin selection is deterministic: an unexpired temporary current location wins, then the timetable block's explicit origin, then the saved default. Current locations are accepted only through Telegram's native private-chat location control, expire after four hours, and are cleared by **I'm here**; Threadwise stores a short-lived point for route calculation and does not continuously track movement. Group prompts deep-link the owner to the private control instead of requesting public location data.
+
+Telegram's native command catalogue is also scoped, not global. Startup registers Personal, Group, Study, Beacon owner/moderator, English, and Burmese command sets with `setMyCommands`. This improves discovery without changing the natural-language-first router or exposing owner-only controls such as Beacon purge to other actors.
+
 ## Request Flow
 
 1. Telegram sends an update.

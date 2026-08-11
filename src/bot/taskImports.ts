@@ -26,42 +26,23 @@ import { taskCreationOptionsFromContext } from "./taskMentions";
 export const TASK_IMPORT_PAGE_SIZE = 6;
 
 export function registerTaskImports(bot: Bot, ai: AiProvider): void {
+  bot.command("todo", async (ctx) => {
+    if (!isGroupChat(ctx) || !ctx.from) return;
+    const body = typeof ctx.match === "string" ? ctx.match.trim() : "";
+    if (!body) {
+      await ctx.reply("Send /todo followed by one task per line.");
+      return;
+    }
+    await prepareTaskImport(ctx, `TODO:\n${body}`);
+  });
+
   bot.on("message:text", async (ctx, next) => {
     const sourceText = ctx.message.text;
     if (!isGroupChat(ctx) || !isExplicitGroupTaskImport(sourceText) || !ctx.from) {
       await next();
       return;
     }
-    const user = await ensureUser(ctx);
-    const workspace = await groupWorkspaceForContext(ctx);
-    if (!workspace) {
-      await ctx.reply("I couldn't open this group's task review just now. Try sending the TODO list again.");
-      return;
-    }
-    try {
-      const taskImport = await createPendingTaskImport({
-        ownerUserId: user.id,
-        workspaceId: workspace.id,
-        requestedByTelegramId: String(ctx.from.id),
-        requestedByName: displayName(ctx),
-        sourceText,
-        timezone: user.settings?.timezone ?? "UTC",
-        mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
-        telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
-      });
-      const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
-        reply_markup: taskImportPreviewKeyboard(taskImport, 0),
-      }) as { message_id?: number };
-      if (message.message_id) {
-        try {
-          await prisma.pendingTaskImport.update({ where: { id: taskImport.id }, data: { telegramMessageId: message.message_id } });
-        } catch (error) {
-          logger.warn("Task import preview was sent but its Telegram message id could not be recorded.", { importId: taskImport.id, error: String(error) });
-        }
-      }
-    } catch (error) {
-      await ctx.reply(error instanceof TaskImportError ? error.message : userFacingError(error, "I couldn't prepare that TODO list. Check the formatting and try again."));
-    }
+    await prepareTaskImport(ctx, sourceText);
   });
 
   bot.callbackQuery(/^ti:(import|cancel|refresh):([0-9a-f-]+)$/i, async (ctx) => {
@@ -82,6 +63,40 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
     const page = Number(ctx.match[2]);
     await ctx.answerCallbackQuery({ text: Number.isSafeInteger(page) ? `Page ${page + 1}` : "Task review" });
   });
+}
+
+async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void> {
+  if (!ctx.from || !ctx.message) return;
+  const user = await ensureUser(ctx);
+  const workspace = await groupWorkspaceForContext(ctx);
+  if (!workspace) {
+    await ctx.reply("I couldn't open this group's task review just now. Try sending the TODO list again.");
+    return;
+  }
+  try {
+    const taskImport = await createPendingTaskImport({
+      ownerUserId: user.id,
+      workspaceId: workspace.id,
+      requestedByTelegramId: String(ctx.from.id),
+      requestedByName: displayName(ctx),
+      sourceText,
+      timezone: user.settings?.timezone ?? "UTC",
+      mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
+      telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
+    });
+    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
+      reply_markup: taskImportPreviewKeyboard(taskImport, 0),
+    }) as { message_id?: number };
+    if (message.message_id) {
+      try {
+        await prisma.pendingTaskImport.update({ where: { id: taskImport.id }, data: { telegramMessageId: message.message_id } });
+      } catch (error) {
+        logger.warn("Task import preview was sent but its Telegram message id could not be recorded.", { importId: taskImport.id, error: String(error) });
+      }
+    }
+  } catch (error) {
+    await ctx.reply(error instanceof TaskImportError ? error.message : userFacingError(error, "I couldn't prepare that TODO list. Check the formatting and try again."));
+  }
 }
 
 async function handleTaskImportPageCallback(ctx: Context, importId: string, requestedPage: number): Promise<void> {

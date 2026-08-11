@@ -49,6 +49,8 @@ import {
   deleteStudyOrigin,
   listStudyOrigins,
   renameStudyOrigin,
+  searchStudyPlaces,
+  setStudyScheduleDestinationLabel,
   setDefaultStudyOrigin,
 } from "../services/studyTransit";
 import type { DashboardWorkspaceScope } from "./workspaces";
@@ -232,6 +234,7 @@ export const studyOriginUpdateSchema = z.object({
   makeDefault: z.boolean().optional(),
   activateHours: z.number().int().min(1).max(24).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one origin change.");
+export const studyPlaceSearchSchema = z.object({ q: z.string().trim().min(2).max(100) }).strict();
 export const studyScheduleCreateSchema = z.object({
   moduleId: z.union([id, z.null()]).optional(),
   dayOfWeek: z.number().int().min(1).max(7),
@@ -242,6 +245,7 @@ export const studyScheduleCreateSchema = z.object({
   startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: optionalText(200),
+  destinationPlaceId: optionalText(240),
   defaultOriginId: z.union([id, z.null()]).optional(),
   travelBufferMinutes: z.number().int().min(0).max(90).optional(),
   reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
@@ -256,6 +260,7 @@ export const studyScheduleUpdateSchema = z.object({
   startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: z.union([text(200), z.null()]).optional(),
+  destinationPlaceId: z.union([text(240), z.null()]).optional(),
   defaultOriginId: z.union([id, z.null()]).optional(),
   travelBufferMinutes: z.number().int().min(0).max(90).optional(),
   reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
@@ -786,11 +791,18 @@ export async function deleteDashboardStudyOrigin(workspace: StudyWorkspace, orig
   await deleteStudyOrigin(workspace, originId);
 }
 
+export async function searchDashboardStudyPlaces(workspace: StudyWorkspace, query: string) {
+  void workspace;
+  return searchStudyPlaces(query, 10);
+}
+
 export async function createDashboardStudyScheduleBlock(workspace: StudyWorkspace, input: z.infer<typeof studyScheduleCreateSchema>) {
   const block = await addStudyScheduleBlock(workspace, input);
   if (!input.destination) return block;
+  if (!input.destinationPlaceId) return setStudyScheduleDestinationLabel(workspace, block.id, input.destination);
   return configureStudyScheduleTravel(workspace, block.id, {
     destination: input.destination,
+    destinationPlaceId: input.destinationPlaceId,
     originReference: input.defaultOriginId,
     travelBufferMinutes: input.travelBufferMinutes,
   });
@@ -819,8 +831,10 @@ export async function updateDashboardStudyScheduleBlock(
   }
   if (input.destination === null) return clearStudyScheduleTravel(workspace, blockId);
   if (input.destination) {
+    if (!input.destinationPlaceId) return setStudyScheduleDestinationLabel(workspace, blockId, input.destination);
     return configureStudyScheduleTravel(workspace, blockId, {
       destination: input.destination,
+      destinationPlaceId: input.destinationPlaceId,
       originReference: input.defaultOriginId,
       travelBufferMinutes: input.travelBufferMinutes,
     });

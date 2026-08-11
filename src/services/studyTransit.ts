@@ -28,6 +28,33 @@ export type StudyOriginPlaceCandidate = {
   title: string;
   subtitle?: string;
 };
+export type StudyPlace = {
+  id: string;
+  providerId: string;
+  kind: "venue" | "stop";
+  displayName: string;
+  subtitle?: string;
+  aliases: string[];
+  coordinates: TransitCoordinates;
+  nearbyStops: Array<TransitStop & { distanceMetres: number; walkMinutes: number }>;
+};
+export type StudyJourneyLeg = {
+  service: string;
+  fromStop: TransitStop;
+  toStop: TransitStop;
+  stops: TransitStop[];
+  nextArrival?: { minutes: number; display: string } | null;
+};
+export type StudyJourneyAlternative = {
+  services: string[];
+  boardingStop: TransitStop;
+  alightStop: TransitStop;
+  waitMinutes?: number;
+  rideMinutes: number;
+  firstWalkMinutes: number;
+  finalWalkMinutes: number;
+  totalMinutes: number;
+};
 type JourneyLeg = {
   service: string;
   fromStop: TransitStop;
@@ -51,12 +78,22 @@ export type StudyJourneyEstimate = {
   destinationStop: TransitStop;
   boardingStop: TransitStop;
   services: string[];
+  destinationPlace?: StudyPlace;
+  alightStop?: TransitStop;
+  legs?: StudyJourneyLeg[];
+  transfers?: number;
+  firstWalkMinutes?: number;
+  finalWalkMinutes?: number;
   waitMinutes?: number;
   rideMinutes?: number;
   walkMinutes?: number;
   totalMinutes?: number;
   leaveBufferMinutes: number;
   message: string;
+  freshness?: string;
+  updatedAt: Date;
+  live?: boolean;
+  alternatives?: StudyJourneyAlternative[];
 };
 
 export type StudyTravelBlock = StudyScheduleBlock & {
@@ -85,6 +122,13 @@ const STUDY_PLACE_ALIASES: Record<string, string> = {
   krmrt: "Kent Ridge MRT",
 };
 
+export class StudyPlaceAmbiguityError extends StudyModeError {
+  constructor(public readonly candidates: StudyPlace[]) {
+    super("Choose the NUS place you meant.", "invalid");
+    this.name = "StudyPlaceAmbiguityError";
+  }
+}
+
 export async function searchStudyVenues(query: string, limit = 8): Promise<TransitVenue[]> {
   const value = query.trim();
   if (!value) throw new StudyModeError("Give me a campus venue to search for.", "invalid");
@@ -107,6 +151,15 @@ export function normalizeStudyPlaceQuery(query: string): string {
 }
 
 export async function searchStudyOriginPlaces(query: string, limit = 8): Promise<StudyOriginPlaceCandidate[]> {
+  return (await searchStudyPlaces(query, limit)).map((place) => ({
+    kind: place.kind,
+    id: place.id,
+    title: place.displayName,
+    subtitle: place.subtitle,
+  }));
+}
+
+export async function searchStudyPlaces(query: string, limit = 8): Promise<StudyPlace[]> {
   const original = query.replace(/\s+/g, " ").trim();
   if (!original) throw new StudyModeError("Give me a campus venue or NUS bus stop to search for.", "invalid");
   const resolved = normalizeStudyPlaceQuery(original);
@@ -120,57 +173,98 @@ export async function searchStudyOriginPlaces(query: string, limit = 8): Promise
     const reason = venueResult.status === "rejected" ? venueResult.reason : stopResult.status === "rejected" ? stopResult.reason : undefined;
     if (reason instanceof Error) throw reason;
   }
-  const candidates: Array<StudyOriginPlaceCandidate & { score: number }> = [
+  const ranked: Array<StudyOriginPlaceCandidate & { providerId: string; score: number }> = [
     ...venues.map((venue, index) => ({
       kind: "venue" as const,
-      id: venue.id,
+      id: `venue:${venue.id}`,
+      providerId: venue.id,
       title: venue.name,
       subtitle: "Campus venue",
       score: placeMatchScore(resolved, [venue.id, venue.name]) + index / 100,
     })),
     ...stops.map((stop) => ({
       kind: "stop" as const,
-      id: stop.id,
+      id: `stop:${stop.id}`,
+      providerId: stop.id,
       title: stop.title,
       subtitle: [stop.shortLabel, stop.busStopCode, stop.subtitle].filter(Boolean).join(" · ") || "NUS bus stop",
       score: placeMatchScore(resolved, [stop.id, stop.title, stop.shortLabel, stop.busStopCode, stop.subtitle]),
     })).filter((candidate) => candidate.score < 100),
   ];
   const seen = new Set<string>();
-  return candidates
+  const candidates = ranked
     .filter((candidate) => candidate.score < 100)
     .sort((a, b) => a.score - b.score || a.title.localeCompare(b.title))
     .filter((candidate) => {
-      const key = `${candidate.kind}:${candidate.id}`;
+      const key = candidate.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
     .slice(0, Math.min(10, Math.max(1, limit)))
-    .map(({ score: _score, ...candidate }) => candidate);
-}
-
-async function resolveStudyVenueLegacy(query: string): Promise<TransitVenueDetail> {
-  const venues = await searchStudyVenues(query, 8);
-  if (venues.length === 0) throw new StudyModeError(`I couldn't find a campus venue matching “${query.trim()}”.`, "not_found");
-  const normalized = query.trim().toLowerCase();
-  const exact = venues.find((venue) => venue.id.toLowerCase() === normalized || venue.name.toLowerCase() === normalized);
-  return getStudyVenue((exact ?? venues[0]!).id);
+    .map(async ({ score: _score, providerId, ...candidate }) => {
+      if (candidate.kind === "venue") {
+        const detail = await getStudyVenue(providerId);
+        return {
+          id: candidate.id,
+          providerId,
+          kind: candidate.kind,
+          displayName: candidate.title,
+          subtitle: candidate.subtitle,
+          aliases: placeAliases(candidate.title, providerId),
+          coordinates: detail.coordinates,
+          nearbyStops: detail.nearbyStops.map((stop) => ({ ...stop, walkMinutes: walkingMinutes(stop.distanceMetres) })),
+        } satisfies StudyPlace;
+      }
+      const stop = stops.find((value) => value.id === providerId)!;
+      return {
+        id: candidate.id,
+        providerId,
+        kind: candidate.kind,
+        displayName: candidate.title,
+        subtitle: candidate.subtitle,
+        aliases: placeAliases(candidate.title, providerId, stop.shortLabel, stop.busStopCode),
+        coordinates: stop.coordinates,
+        nearbyStops: [{ ...stop, distanceMetres: 0, walkMinutes: 0 }],
+      } satisfies StudyPlace;
+    });
+  return Promise.all(candidates);
 }
 
 export async function resolveStudyVenue(query: string): Promise<TransitVenueDetail> {
-  const candidates = await searchStudyOriginPlaces(query, 8);
-  const candidate = candidates[0];
-  if (!candidate) return resolveStudyVenueLegacy(query);
-  if (candidate.kind === "venue") return getStudyVenue(candidate.id);
-  const stop = (await listStudyTransitStops()).find((item) => item.id === candidate.id);
+  const place = await resolveStudyPlace(query);
+  if (place.kind === "venue") return getStudyVenue(place.providerId);
+  const stop = place.nearbyStops[0];
   if (!stop) throw new StudyModeError("That NUS bus stop is no longer available.", "not_found");
   return {
-    id: stop.id,
-    name: stop.title,
-    coordinates: stop.coordinates,
+    id: place.providerId,
+    name: place.displayName,
+    coordinates: place.coordinates,
     nearbyStops: [{ ...stop, distanceMetres: 0 }],
   };
+}
+
+export async function resolveStudyPlace(reference: string): Promise<StudyPlace> {
+  const value = reference.trim();
+  const canonical = /^(venue|stop):(.+)$/.exec(value);
+  if (canonical?.[1] === "venue") {
+    const detail = await getStudyVenue(canonical[2]!);
+    return venueToPlace(detail);
+  }
+  if (canonical?.[1] === "stop") {
+    const stop = (await listStudyTransitStops()).find((item) => item.id === canonical[2]);
+    if (!stop) throw new StudyModeError("That NUS bus stop is no longer available.", "not_found");
+    return stopToPlace(stop);
+  }
+  const candidates = await searchStudyPlaces(value, 8);
+  if (!candidates.length) throw new StudyModeError(`I couldn't find an NUS place matching “${value}”.`, "not_found");
+  const needle = normalizePlaceText(normalizeStudyPlaceQuery(value));
+  const exact = candidates.filter((candidate) => [candidate.displayName, candidate.providerId, ...candidate.aliases]
+    .some((name) => normalizePlaceText(name) === needle));
+  if (exact.length === 1) return exact[0]!;
+  if (exact.length > 1) throw new StudyPlaceAmbiguityError(exact);
+  if (candidates.length > 1) throw new StudyPlaceAmbiguityError(candidates.slice(0, 6));
+  return candidates[0]!;
 }
 
 export async function addStudyOriginFromCandidate(
@@ -180,7 +274,7 @@ export async function addStudyOriginFromCandidate(
   options: { makeDefault?: boolean; activateHours?: number } = {},
 ): Promise<StudyLocationOrigin> {
   if (candidate.kind === "venue") {
-    const venue = await getStudyVenue(candidate.id);
+    const venue = await getStudyVenue(candidate.id.replace(/^venue:/, ""));
     const stop = venue.nearbyStops[0];
     if (!stop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop in Improved NextBus.`, "not_found");
     return saveStudyOrigin(workspace, {
@@ -193,7 +287,7 @@ export async function addStudyOriginFromCandidate(
       activateHours: options.activateHours,
     });
   }
-  const stop = (await listStudyTransitStops()).find((item) => item.id === candidate.id);
+  const stop = (await listStudyTransitStops()).find((item) => item.id === candidate.id.replace(/^stop:/, ""));
   if (!stop) throw new StudyModeError("That NUS bus stop is no longer available.", "not_found");
   return saveStudyOrigin(workspace, {
     name,
@@ -211,9 +305,13 @@ export async function addStudyOriginFromVenue(
   venueQuery: string,
   options: { makeDefault?: boolean; activateHours?: number } = {},
 ): Promise<StudyLocationOrigin> {
-  const candidate = (await searchStudyOriginPlaces(venueQuery, 1))[0];
-  if (!candidate) throw new StudyModeError(`I couldn't find a campus venue or NUS bus stop matching "${venueQuery.trim()}".`, "not_found");
-  return addStudyOriginFromCandidate(workspace, name, candidate, options);
+  const place = await resolveStudyPlace(venueQuery);
+  return addStudyOriginFromCandidate(workspace, name, {
+    kind: place.kind,
+    id: place.id,
+    title: place.displayName,
+    subtitle: place.subtitle,
+  }, options);
 }
 
 export async function addStudyOriginFromLocation(
@@ -237,6 +335,7 @@ export async function addStudyOriginFromLocation(
     longitude: coordinates.longitude,
     makeDefault: options.makeDefault,
     activateHours: options.activateHours,
+    temporary: true,
   });
 }
 
@@ -291,18 +390,40 @@ export async function setDefaultStudyOrigin(workspace: StudyWorkspace, reference
 }
 
 export async function currentStudyOrigin(workspace: StudyWorkspace, now = new Date()): Promise<StudyLocationOrigin | undefined> {
-  if (workspace.activeOriginId && workspace.activeOriginUntil && workspace.activeOriginUntil > now) {
+  const current = await prisma.studyWorkspace.findUnique({
+    where: { id: workspace.id },
+    select: { activeOriginId: true, activeOriginUntil: true },
+  });
+  if (current?.activeOriginId && current.activeOriginUntil && current.activeOriginUntil > now) {
     const active = await prisma.studyLocationOrigin.findFirst({
-      where: { id: workspace.activeOriginId, workspaceId: workspace.id, active: true },
+      where: { id: current.activeOriginId, workspaceId: workspace.id, active: true },
     });
     if (active) return active;
   }
+  if (current?.activeOriginId) {
+    const expired = await prisma.studyLocationOrigin.findFirst({ where: { id: current.activeOriginId, workspaceId: workspace.id } });
+    await prisma.studyWorkspace.updateMany({ where: { id: workspace.id, activeOriginId: current.activeOriginId }, data: { activeOriginId: null, activeOriginUntil: null } });
+    if (expired?.temporary) await prisma.studyLocationOrigin.delete({ where: { id: expired.id } });
+  }
   return (await prisma.studyLocationOrigin.findFirst({
     where: { workspaceId: workspace.id, active: true, isDefault: true },
-  })) ?? (await prisma.studyLocationOrigin.findFirst({
-    where: { workspaceId: workspace.id, active: true },
-    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
   })) ?? undefined;
+}
+
+export async function clearTemporaryStudyOrigin(workspace: StudyWorkspace): Promise<void> {
+  const current = await prisma.studyWorkspace.findUnique({
+    where: { id: workspace.id },
+    select: { activeOriginId: true },
+  });
+  if (!current?.activeOriginId) return;
+  const origin = await prisma.studyLocationOrigin.findFirst({
+    where: { id: current.activeOriginId, workspaceId: workspace.id, temporary: true },
+  });
+  await prisma.studyWorkspace.updateMany({
+    where: { id: workspace.id, activeOriginId: current.activeOriginId },
+    data: { activeOriginId: null, activeOriginUntil: null },
+  });
+  if (origin) await prisma.studyLocationOrigin.delete({ where: { id: origin.id } });
 }
 
 export async function estimateStudyJourney(
@@ -314,23 +435,15 @@ export async function estimateStudyJourney(
     ? await findStudyOrigin(workspace.id, originReference)
     : await currentStudyOrigin(workspace);
   if (!origin?.providerStopId) throw new StudyModeError("Add a travel origin first, then try the route again.", "invalid");
-  const venue = await resolveStudyVenue(destination);
-  const destinationStop = venue.nearbyStops[0];
-  if (!destinationStop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop.`, "not_found");
-  const response = await transitGet<JourneySearchResponse>("directions", {
-    fromStopId: origin.providerStopId,
-    toStopId: destinationStop.id,
-    ...(origin.latitude !== null && origin.longitude !== null
-      ? { latitude: String(origin.latitude), longitude: String(origin.longitude) }
-      : {}),
-  });
-  return journeyEstimate(origin, destinationStop, response);
+  const place = await resolveStudyPlace(destination);
+  return estimateJourneyToPlace(origin, place);
 }
 
 export async function estimateStudyJourneyByStops(
   workspace: StudyWorkspace,
   destinationStopId: string,
   originReference?: string,
+  destinationPlaceReference?: string,
 ): Promise<StudyJourneyEstimate> {
   const origin = originReference
     ? await findStudyOrigin(workspace.id, originReference)
@@ -346,18 +459,19 @@ export async function estimateStudyJourneyByStops(
   const stops = await listStudyTransitStops();
   const destination = stops.find((stop) => stop.id === destinationStopId);
   if (!destination) throw new StudyModeError("That destination stop is no longer available.", "not_found");
-  return journeyEstimate(origin, destination, response);
+  const place = destinationPlaceReference ? await resolveStudyPlace(destinationPlaceReference) : undefined;
+  return journeyEstimate(origin, destination, response, place);
 }
 
 export async function configureStudyScheduleTravel(
   workspace: StudyWorkspace,
   blockId: string,
-  input: { destination: string; originReference?: string | null; travelBufferMinutes?: number },
+  input: { destination: string; destinationPlaceId?: string; originReference?: string | null; travelBufferMinutes?: number },
 ): Promise<StudyTravelBlock> {
   const block = await requireTravelBlock(workspace.id, blockId);
-  const venue = await resolveStudyVenue(input.destination);
-  const stop = venue.nearbyStops[0];
-  if (!stop) throw new StudyModeError(`${venue.name} has no nearby NUS bus stop.`, "not_found");
+  const place = await resolveStudyPlace(input.destinationPlaceId ?? input.destination);
+  const stop = place.nearbyStops[0];
+  if (!stop) throw new StudyModeError(`${place.displayName} has no nearby NUS bus stop.`, "not_found");
   const origin = input.originReference === null
     ? undefined
     : input.originReference
@@ -367,8 +481,8 @@ export async function configureStudyScheduleTravel(
   await prisma.studyScheduleBlock.update({
     where: { id: block.id },
     data: {
-      venueId: venue.id,
-      venueName: venue.name,
+      venueId: place.id,
+      venueName: place.displayName,
       destinationStopId: stop.id,
       defaultOriginId: input.originReference === null ? null : origin?.id ?? null,
       travelBufferMinutes,
@@ -376,10 +490,17 @@ export async function configureStudyScheduleTravel(
     },
   });
   await auditOrigin(workspace, "study.schedule.travel_configured", block.id, {
-    destination: venue.name,
+    destination: place.displayName,
     destinationStopId: stop.id,
     travelBufferMinutes,
   });
+  return requireTravelBlock(workspace.id, block.id);
+}
+
+export async function setStudyScheduleDestinationLabel(workspace: StudyWorkspace, blockId: string, label: string): Promise<StudyTravelBlock> {
+  const block = await requireTravelBlock(workspace.id, blockId);
+  const venueName = label.replace(/\s+/g, " ").trim().slice(0, 200);
+  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data: { venueId: null, venueName: venueName || null, destinationStopId: null } });
   return requireTravelBlock(workspace.id, block.id);
 }
 
@@ -436,7 +557,10 @@ export async function buildStudyDeparturePlan(
     throw new StudyModeError("Add a destination to this timetable block first.", "invalid");
   }
   const startsAt = options.startsAt ?? nextBlockOccurrence(workspace, block);
-  const originReference = block.defaultOriginId ?? undefined;
+  const currentOrigin = await currentStudyOrigin(workspace);
+  const originReference = currentOrigin?.temporary
+    ? currentOrigin.id
+    : block.defaultOriginId ?? currentOrigin?.id;
   const cacheKey = `${workspace.id}:${block.id}:${originReference ?? "current"}:${block.destinationStopId}`;
   let journey: StudyJourneyEstimate | undefined;
   let fallbackReason: string | undefined;
@@ -446,7 +570,9 @@ export async function buildStudyDeparturePlan(
   }
   if (!journey) {
     try {
-      journey = await estimateStudyJourneyByStops(workspace, block.destinationStopId, originReference);
+      journey = block.venueId
+        ? await estimateStudyJourney(workspace, block.venueId, originReference)
+        : await estimateStudyJourneyByStops(workspace, block.destinationStopId, originReference);
       routeCache.set(cacheKey, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, value: journey });
     } catch (error) {
       const origin = originReference
@@ -467,6 +593,9 @@ export async function buildStudyDeparturePlan(
         totalMinutes: FALLBACK_JOURNEY_MINUTES,
         leaveBufferMinutes: block.travelBufferMinutes,
         message: "Live buses are unavailable. Using the normal travel estimate.",
+        freshness: "fallback",
+        updatedAt: new Date(),
+        live: false,
       };
     }
   }
@@ -476,7 +605,7 @@ export async function buildStudyDeparturePlan(
     startsAt,
     leaveAt,
     journey: { ...journey, leaveBufferMinutes: block.travelBufferMinutes },
-    live: !fallbackReason,
+    live: Boolean(journey.live) && !fallbackReason,
     fallbackReason,
   };
 }
@@ -513,6 +642,7 @@ async function saveStudyOrigin(workspace: StudyWorkspace, input: {
   longitude: number;
   makeDefault?: boolean;
   activateHours?: number;
+  temporary?: boolean;
 }): Promise<StudyLocationOrigin> {
   const name = originName(input.name);
   const displayOrder = await prisma.studyLocationOrigin.count({ where: { workspaceId: workspace.id } });
@@ -527,6 +657,7 @@ async function saveStudyOrigin(workspace: StudyWorkspace, input: {
         providerStopId: input.providerStopId,
         latitude: input.latitude,
         longitude: input.longitude,
+        temporary: input.temporary ?? false,
         active: true,
       },
     })
@@ -538,6 +669,7 @@ async function saveStudyOrigin(workspace: StudyWorkspace, input: {
         providerStopId: input.providerStopId,
         latitude: input.latitude,
         longitude: input.longitude,
+        temporary: input.temporary ?? false,
         displayOrder,
       },
     });
@@ -605,19 +737,39 @@ function parseClock(value: string): { hour: number; minute: number } | undefined
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? { hour, minute } : undefined;
 }
 
-function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitStop, result: JourneySearchResponse): StudyJourneyEstimate {
+function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitStop, result: JourneySearchResponse, place?: StudyPlace): StudyJourneyEstimate {
+  const originCoordinates = origin.latitude !== null && origin.longitude !== null
+    ? { latitude: origin.latitude, longitude: origin.longitude }
+    : undefined;
+  const finishWalk = place ? walkingMinutes(distanceMetres(destinationStop.coordinates, place.coordinates)) : 0;
+  const common = (journey: Journey, firstWalk: number, wait: number | undefined, ride: number) => ({
+    destinationPlace: place,
+    alightStop: journey.toStop,
+    legs: journey.legs.map((leg) => ({ ...leg, stops: leg.stops ?? [] })),
+    transfers: journey.transfers,
+    firstWalkMinutes: firstWalk,
+    finalWalkMinutes: finishWalk,
+    walkMinutes: firstWalk + finishWalk,
+    totalMinutes: firstWalk + (wait ?? 0) + ride + finishWalk,
+    freshness: journey.status,
+    updatedAt: new Date(),
+    live: wait !== undefined,
+  });
   const direct = result.alternatives[0];
   if (direct) {
+    const wait = direct.liveWaitMinutes ?? undefined;
+    const firstWalk = originCoordinates ? walkingMinutes(distanceMetres(originCoordinates, direct.journey.fromStop.coordinates)) : 0;
     return {
       origin,
       destinationStop,
       boardingStop: direct.journey.fromStop,
       services: direct.journey.legs.map((leg) => leg.service),
-      waitMinutes: direct.liveWaitMinutes ?? undefined,
+      waitMinutes: wait,
       rideMinutes: direct.estimatedRideMinutes,
-      totalMinutes: direct.estimatedTotalMinutes ?? undefined,
       leaveBufferMinutes: 15,
       message: result.message,
+      ...common(direct.journey, firstWalk, wait, direct.estimatedRideMinutes),
+      alternatives: result.alternatives.slice(1, 4).map((alternative) => alternativeEstimate(origin, place, alternative)),
     };
   }
   const recommendation = result.recommendations[0];
@@ -630,11 +782,10 @@ function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitSt
       boardingStop: recommendation.boardingStop,
       services: recommendation.journey.legs.map((leg) => leg.service),
       waitMinutes: wait,
-      walkMinutes: recommendation.estimatedWalkMinutes,
       rideMinutes: ride,
-      totalMinutes: recommendation.estimatedWalkMinutes + (wait ?? 0) + ride,
       leaveBufferMinutes: 15,
       message: result.message,
+      ...common(recommendation.journey, recommendation.estimatedWalkMinutes, wait, ride),
     };
   }
   if (result.journey) {
@@ -647,9 +798,9 @@ function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitSt
       services: result.journey.legs.map((leg) => leg.service),
       waitMinutes: wait,
       rideMinutes: ride,
-      totalMinutes: (wait ?? 0) + ride,
       leaveBufferMinutes: 15,
       message: result.message,
+      ...common(result.journey, originCoordinates ? walkingMinutes(distanceMetres(originCoordinates, result.journey.fromStop.coordinates)) : 0, wait, ride),
     };
   }
   throw new StudyModeError(result.message || "Improved NextBus could not find a usable route.", "not_found");
@@ -702,6 +853,90 @@ function distanceMetres(a: TransitCoordinates, b: TransitCoordinates): number {
   const deltaLon = radians(b.longitude - a.longitude);
   const h = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+async function estimateJourneyToPlace(origin: StudyLocationOrigin, place: StudyPlace): Promise<StudyJourneyEstimate> {
+  if (!origin.providerStopId) throw new StudyModeError("Add a travel origin first, then try the route again.", "invalid");
+  const candidates = place.nearbyStops
+    .slice()
+    .sort((a, b) => a.distanceMetres - b.distanceMetres)
+    .slice(0, place.kind === "stop" ? 1 : 3);
+  if (!candidates.length) throw new StudyModeError(`${place.displayName} has no nearby NUS bus stop.`, "not_found");
+  const searches = await Promise.allSettled(candidates.map(async (destinationStop) => {
+    const response = await transitGet<JourneySearchResponse>("directions", {
+      fromStopId: origin.providerStopId!,
+      toStopId: destinationStop.id,
+      ...(origin.latitude !== null && origin.longitude !== null
+        ? { latitude: String(origin.latitude), longitude: String(origin.longitude) }
+        : {}),
+    });
+    return journeyEstimate(origin, destinationStop, response, place);
+  }));
+  const viable = searches
+    .filter((result): result is PromiseFulfilledResult<StudyJourneyEstimate> => result.status === "fulfilled")
+    .map((result) => result.value)
+    .sort((a, b) => (a.totalMinutes ?? Number.MAX_SAFE_INTEGER) - (b.totalMinutes ?? Number.MAX_SAFE_INTEGER));
+  if (viable.length) return viable[0]!;
+  const failure = searches.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failure?.reason instanceof Error) throw failure.reason;
+  throw new StudyModeError("Improved NextBus could not find a usable route to that place.", "not_found");
+}
+
+function alternativeEstimate(origin: StudyLocationOrigin, place: StudyPlace | undefined, value: JourneyAlternative): StudyJourneyAlternative {
+  const wait = value.liveWaitMinutes ?? undefined;
+  const originCoordinates = origin.latitude !== null && origin.longitude !== null
+    ? { latitude: origin.latitude, longitude: origin.longitude }
+    : value.journey.fromStop.coordinates;
+  const firstWalkMinutes = walkingMinutes(distanceMetres(originCoordinates, value.journey.fromStop.coordinates));
+  const finalWalkMinutes = place ? walkingMinutes(distanceMetres(value.journey.toStop.coordinates, place.coordinates)) : 0;
+  return {
+    services: value.journey.legs.map((leg) => leg.service),
+    boardingStop: value.journey.fromStop,
+    alightStop: value.journey.toStop,
+    waitMinutes: wait,
+    rideMinutes: value.estimatedRideMinutes,
+    firstWalkMinutes,
+    finalWalkMinutes,
+    totalMinutes: firstWalkMinutes + (wait ?? 0) + value.estimatedRideMinutes + finalWalkMinutes,
+  };
+}
+
+function walkingMinutes(metres: number): number {
+  return Math.max(0, Math.ceil(metres / 75));
+}
+
+function placeAliases(...values: Array<string | null | undefined>): string[] {
+  const aliases = new Set(values.filter((value): value is string => Boolean(value)).map(normalizePlaceText));
+  for (const [alias, target] of Object.entries(STUDY_PLACE_ALIASES)) {
+    if ([...aliases].includes(normalizePlaceText(target))) aliases.add(alias);
+  }
+  return [...aliases];
+}
+
+function venueToPlace(detail: TransitVenueDetail): StudyPlace {
+  return {
+    id: `venue:${detail.id}`,
+    providerId: detail.id,
+    kind: "venue",
+    displayName: detail.name,
+    subtitle: "Campus venue",
+    aliases: placeAliases(detail.name, detail.id),
+    coordinates: detail.coordinates,
+    nearbyStops: detail.nearbyStops.map((stop) => ({ ...stop, walkMinutes: walkingMinutes(stop.distanceMetres) })),
+  };
+}
+
+function stopToPlace(stop: TransitStop): StudyPlace {
+  return {
+    id: `stop:${stop.id}`,
+    providerId: stop.id,
+    kind: "stop",
+    displayName: stop.title,
+    subtitle: [stop.shortLabel, stop.busStopCode, stop.subtitle].filter(Boolean).join(" · ") || "NUS bus stop",
+    aliases: placeAliases(stop.title, stop.id, stop.shortLabel, stop.busStopCode),
+    coordinates: stop.coordinates,
+    nearbyStops: [{ ...stop, distanceMetres: 0, walkMinutes: 0 }],
+  };
 }
 
 function normalizePlaceText(value: string): string {

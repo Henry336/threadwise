@@ -16,6 +16,7 @@ import { startStudyCanvasSyncLoop } from "./services/studyCanvas";
 import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
 import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
+import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bot/commandMenus";
 
 async function main() {
   const ai = createAiProvider();
@@ -63,6 +64,8 @@ async function main() {
   if (env.WEBHOOK_URL) {
     await bot.init();
     await beaconBot?.init();
+    await registerThreadwiseCommandMenus(bot);
+    if (beaconBot && beacon) await registerBeaconCommandMenus(beaconBot, beacon);
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
     await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"] });
     const beaconWebhookUrl = beaconBot && beacon
@@ -104,6 +107,10 @@ async function main() {
       });
     }
   } else {
+    await bot.init();
+    await beaconBot?.init();
+    await registerThreadwiseCommandMenus(bot);
+    if (beaconBot && beacon) await registerBeaconCommandMenus(beaconBot, beacon);
     await bot.api.deleteWebhook();
     await beaconBot?.api.deleteWebhook();
     void bot.start({
