@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Study protected-image MIME recovery
+- Hardened the authenticated Study media proxy for older Telegram uploads whose provider or stored metadata reports a generic binary MIME type.
+- The proxy now identifies supported PNG, JPEG, GIF, WebP, and BMP payloads from bounded response bytes before returning them to the dashboard, while preserving owner/group authorization, fresh Telegram file resolution, defensive headers, and `no-store` delivery.
+- Added a regression test proving that a historical PNG delivered as `application/octet-stream` is returned as an image without exposing its Telegram file identifier or bot credentials.
+
 ### Study capture context, intentional images, and protected media
 - Replaced indefinite module selection with a durable, visible ten-minute capture context. Switching modules restarts the window; saving ordinary content does not silently extend it; expired and legacy selections are cleared before routing a capture.
 - Changed Study image intake from automatic OCR and immediate saving to one durable pending card with Save image, Add/Edit caption, Extract text, Choose module, and Cancel. OCR is now an explicit preview action, and atomic consumption prevents duplicate saves from repeated callbacks.

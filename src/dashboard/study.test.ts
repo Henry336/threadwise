@@ -154,6 +154,20 @@ describe("Study Telegram resource delivery", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it("sniffs historical image bytes when Telegram returns a generic MIME", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/historical.bin" } }))
+      .mockResolvedValueOnce(new Response(png, { status: 200, headers: { "content-type": "application/octet-stream" } }));
+    await expect(loadDashboardStudyResourceContent(
+      workspace as never,
+      resource.id,
+      "token",
+      fetcher as typeof fetch,
+      vi.fn(async () => ({ ...resource, mimeType: null })) as never,
+    )).resolves.toMatchObject({ contentType: "image/png", inline: true });
+  });
+
   it("separates a removed original from a temporary Telegram failure", async () => {
     const loader = vi.fn(async () => resource) as never;
     const missing = vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch;

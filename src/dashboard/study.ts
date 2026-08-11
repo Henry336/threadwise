@@ -616,7 +616,14 @@ export async function loadDashboardStudyResourceContent(
   if (declaredLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
-  const contentType = safeMime(response.headers.get("content-type")) || safeMime(resource.mimeType) || "application/octet-stream";
+  const detectedType = detectImageMime(bytes);
+  const upstreamType = safeMime(response.headers.get("content-type"));
+  const storedType = safeMime(resource.mimeType);
+  const contentType = detectedType
+    || (upstreamType && upstreamType !== "application/octet-stream" ? upstreamType : undefined)
+    || storedType
+    || upstreamType
+    || "application/octet-stream";
   return {
     bytes,
     contentType,
@@ -900,6 +907,15 @@ function safeMime(value: string | null | undefined): string | undefined {
   const mime = value?.toLowerCase().split(";")[0]?.trim();
   if (!mime || !/^(?:image\/(?:jpeg|png|webp|gif)|application\/pdf|text\/plain|application\/(?:zip|octet-stream)|application\/vnd\.[a-z0-9.+-]+)$/i.test(mime)) return undefined;
   return mime;
+}
+
+function detectImageMime(bytes: Uint8Array): string | undefined {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && (String.fromCharCode(...bytes.slice(0, 6)) === "GIF87a" || String.fromCharCode(...bytes.slice(0, 6)) === "GIF89a")) return "image/gif";
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") return "image/webp";
+  if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) return "image/bmp";
+  return undefined;
 }
 
 function safeFileName(value: string): string {

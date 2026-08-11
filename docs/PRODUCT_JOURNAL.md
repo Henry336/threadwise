@@ -11,6 +11,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 - Every meaningful product change should add a short entry with: **friction**, **decision**, **implementation**, **outcome/evidence**, and **follow-up**.
 - Never put tokens, passwords, connection strings, private user content, or personally identifying test data in this journal.
 
+## 11 August 2026 - Installed-app reliability needs native clarity without native defaults
+
+**Friction discovered:** At narrow desktop/PWA widths, the workspace trigger, breadcrumb, global search, and account controls competed for the same row. The native workspace select truncated names, inherited unreadable dark-mode colours, and produced a blank dimmed layer without a usable menu. Find a time duplicated its only action. Study filters overflowed their cards, timetable orientation was forgotten, inactive Canvas modules had no obvious restore surface, and image cards exposed noisy OCR while some historical Telegram images failed because generic MIME metadata hid otherwise valid raster bytes. Ari's loader also changed crop, alignment, and pace between frames, making motion look like pose swapping rather than one continuous action.
+
+**Decision:** Treat the installed dashboard as a first-class application shell. Use a bounded custom workspace popover, make global controls yield predictably at narrow widths, keep one primary action per empty state, scope display preferences to a workspace, expose archive/restore as explicit owner decisions, and separate image recall metadata from the gallery's visual scan. Normalize the loader to a fixed registered stage and prefer evidence-based recovery of historical brand assets over inventing replacements.
+
+**Implementation:** The dashboard now provides keyboard, typeahead, touch, outside-click, and focus-restoring workspace navigation; collision-safe responsive chrome; one-action Find a time empties; versioned PWA icon URLs; a registered eight-frame Ari sequence shown for about two seconds per pose; repaired Study Work/Library filters; per-workspace Timetable orientation; owner-only inactive-module restore controls; image-first cards with optional captions and collapsed OCR; and a full image viewer with edit/archive/retry. The backend Study proxy now detects supported raster signatures when Telegram reports a generic MIME while preserving authentication, fresh file resolution, bounded bytes, and `no-store` headers. A search across tracked history, unreachable Git objects, known temporary folders, and preserved attachments did not recover the earlier 3D icon set, so the approved current icon remains.
+
+**Outcome/evidence:** Dashboard TypeScript, 54 tests, production build, changed-file lint, responsive Chromium QA at 390/920/1024/1280/1440 widths in light and dark themes, and one final Impeccable detector pass succeed with no detector findings or browser errors. Backend TypeScript and the full 804-test suite pass with 6 intentional skips; focused Study media/Canvas tests cover generic-MIME recovery and archive persistence.
+
+**Follow-up:** Verify authenticated multi-workspace switching, a restored Canvas module, one old Telegram image, and launcher icon refresh on the production PWA. If the original 3D icon source resurfaces, evaluate it as a separate brand change rather than silently replacing the approved set.
+
 ## 11 August 2026 - Ari's loader needs registered motion, not pose swapping
 
 **Friction discovered:** The loading sequence jumped between four illustrations whose subject scale and visual center differed. The knot-to-finished action therefore looked like Ari was moving around the card, and the finished pose snapped directly back to the opening knot instead of forming a convincing loop.

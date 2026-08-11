@@ -130,6 +130,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-11 (Codex):** Hardened the Study protected-media proxy for historical Telegram
+  images with generic MIME metadata. Supported image formats are now identified from bounded bytes
+  before delivery, while owner/group authorization, fresh file lookup, `no-store`, and credential
+  isolation remain unchanged. The paired dashboard now uses image-first cards, optional captions,
+  hidden-but-searchable OCR, and a metadata/action viewer.
+
 - **2026-08-10 (Codex):** Recorded the Study Timetable inspection refinement delivered by the
   dashboard: frozen Day/Deadlines context, distinct today/current-time semantics, read-only block
   details before editing, and width-aware short-block rendering. Backend behavior and data contracts
