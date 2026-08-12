@@ -130,6 +130,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-12 (Codex):** Fixed the initial NUSMods timetable importer so it reconciles
+  equivalent existing class blocks instead of layering duplicates. Class-like manual/default
+  blocks are adopted, intentional study/protected blocks remain, and a migration cleans the
+  exact duplicates already produced in production.
+
 - **2026-08-11 (Codex):** Hardened the Study protected-media proxy for historical Telegram
   images with generic MIME metadata. Supported image formats are now identified from bounded bytes
   before delivery, while owner/group authorization, fresh file lookup, `no-store`, and credential

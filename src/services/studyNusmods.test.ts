@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StudyWorkspace } from "@prisma/client";
-import { expandNusmodsWeeks, parseNusmodsShareUrl } from "./studyNusmods";
+import { expandNusmodsWeeks, isReplaceableNusmodsCandidate, parseNusmodsShareUrl } from "./studyNusmods";
 
 describe("parseNusmodsShareUrl", () => {
   it("parses selected classes and preserves modules without class selections", () => {
@@ -31,5 +31,19 @@ describe("expandNusmodsWeeks", () => {
   it("accepts both numeric weeks and the official date-range representation", () => {
     expect(expandNusmodsWeeks([3, 1, 3, 2], workspace)).toEqual([1, 2, 3]);
     expect(expandNusmodsWeeks({ start: "2026-08-10", end: "2026-08-30" }, workspace)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("isReplaceableNusmodsCandidate", () => {
+  it("adopts old seeded and class-like manual blocks instead of layering duplicates", () => {
+    expect(isReplaceableNusmodsCandidate({ source: "SYSTEM_SEED", blockType: "timetable" })).toBe(true);
+    expect(isReplaceableNusmodsCandidate({ source: "MANUAL", blockType: "Class" })).toBe(true);
+    expect(isReplaceableNusmodsCandidate({ source: "MANUAL", blockType: "tutorial" })).toBe(true);
+  });
+
+  it("does not replace deliberate study or protected blocks", () => {
+    expect(isReplaceableNusmodsCandidate({ source: "MANUAL", blockType: "study" })).toBe(false);
+    expect(isReplaceableNusmodsCandidate({ source: "SYSTEM_SEED", blockType: "protected" })).toBe(false);
+    expect(isReplaceableNusmodsCandidate({ source: "NUSMODS", blockType: "Lecture" })).toBe(false);
   });
 });

@@ -1,6 +1,14 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-11
+Updated: 2026-08-12
+
+## 2026-08-12 — A timetable import must reconcile, not append
+
+**Friction discovered:** Importing a NUSMods share link into an already configured Study timetable displayed the fetched classes alongside equivalent existing class blocks. The importer was repeat-safe only for records it had created itself.
+
+**Decision:** Treat matching module/day/start/end class blocks as the same schedule event. Adopt class-like manual/default records into NUSMods ownership on first import, preserve deliberate study/protected blocks, and deactivate exact historical duplicates during deployment.
+
+**Why:** “Import” implies reconciliation with the current timetable. Adding a second visual copy destroys trust even when the fetched data is technically correct.
 
 This is the durable record of Threadwise's product decisions: the friction that was observed, why a change was chosen, what was implemented, and what should be checked next. It complements `CHANGELOG.md`, which remains the release-level inventory.
 

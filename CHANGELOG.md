@@ -3,7 +3,8 @@
 ## Unreleased
 
 ### NUSMods timetable import and Study mobile reliability
-- Added idempotent NUSMods share-link imports for the private Study workspace through both Telegram and the dashboard. Selected lesson types, class groups, active weeks, times, and published venues become recurring Study schedule blocks without changing manually created blocks.
+- Fixed the first importer release layering NUSMods classes over equivalent existing timetable blocks. Class-like manual/default blocks are now adopted into NUSMods ownership, and an exact cleanup migration hides duplicates already produced without touching study/protected blocks.
+- Added idempotent NUSMods share-link imports for the private Study workspace through both Telegram and the dashboard. Selected lesson types, class groups, active weeks, times, and published venues become recurring Study schedule blocks without changing unrelated manual planning blocks.
 - Added source metadata and a scoped uniqueness constraint for imported schedule blocks. Re-importing the current share link updates matching classes and deactivates NUSMods blocks that are no longer selected instead of creating duplicates.
 - Resolved imported venues through Threadwise's canonical campus place service so supported classes can immediately participate in live route planning and proactive departure reminders. Unresolved venue labels remain visible and are reported for correction rather than guessed.
 - Added `/nusmods`, direct Study-chat share-link detection, progress/failure feedback, and the protected dashboard import endpoint.

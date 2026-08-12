@@ -1117,6 +1117,7 @@ async function seedDefaultStudySchedule(workspaceId: string): Promise<void> {
       blockType,
       startWeek,
       endWeek,
+      source: "SYSTEM_SEED",
     })),
   });
 }

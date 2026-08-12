@@ -1,4 +1,4 @@
-import type { StudyWorkspace } from "@prisma/client";
+import type { StudyScheduleBlock, StudyWorkspace } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
@@ -7,6 +7,12 @@ import { StudyModeError } from "./study";
 
 const NUSMODS_API = "https://api.nusmods.com/v2";
 const NUSMODS_SOURCE = "NUSMODS";
+const NUSMODS_ADOPTABLE_SOURCES = ["MANUAL", "SYSTEM_SEED"];
+const CLASS_LIKE_BLOCK_TYPES = new Set([
+  "class", "design lecture", "ensemble teaching", "lab", "laboratory", "lecture",
+  "lesson", "packaged lecture", "packaged tutorial", "recitation", "sectional teaching",
+  "seminar", "timetable", "tutorial", "tutorial type 2", "tutorial type 3", "workshop",
+]);
 const DAY_NUMBER: Record<string, number> = {
   Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6, Sunday: 7,
 };
@@ -108,27 +114,60 @@ export async function importStudyNusmodsTimetable(workspace: StudyWorkspace, raw
         const weeks = expandNusmodsWeeks(lesson.weeks, workspace);
         const place = lesson.venue && lesson.venue !== "E-Learn_C" ? await resolveVenue(lesson.venue) : undefined;
         if (lesson.venue && lesson.venue !== "E-Learn_C" && !place) unresolved.add(lesson.venue);
-        await prisma.studyScheduleBlock.upsert({
+        const startTime = toClock(lesson.startTime);
+        const endTime = toClock(lesson.endTime);
+        const blockType = LESSON_SHORT_NAMES[lessonCode] ?? lesson.lessonType;
+        const importedData = {
+          moduleId: module.id,
+          label: `${entry.selection.code} ${blockType}`,
+          blockType,
+          dayOfWeek,
+          startTime,
+          endTime,
+          startWeek: weeks[0] ?? null,
+          endWeek: weeks.at(-1) ?? null,
+          venueId: place?.providerId ?? null,
+          venueName: (place?.displayName ?? lesson.venue) || null,
+          destinationStopId: place?.nearbyStops[0]?.id ?? null,
+          active: true,
+        };
+        const existingImported = await prisma.studyScheduleBlock.findUnique({
           where: { workspaceId_source_sourceRef: { workspaceId: workspace.id, source: NUSMODS_SOURCE, sourceRef } },
-          update: {
-            moduleId: module.id,
-            label: `${entry.selection.code} ${LESSON_SHORT_NAMES[lessonCode] ?? lesson.lessonType}`,
-            blockType: LESSON_SHORT_NAMES[lessonCode] ?? lesson.lessonType,
-            dayOfWeek, startTime: toClock(lesson.startTime), endTime: toClock(lesson.endTime),
-            startWeek: weeks[0] ?? null, endWeek: weeks.at(-1) ?? null,
-            venueId: place?.providerId ?? null, venueName: (place?.displayName ?? lesson.venue) || null,
-            destinationStopId: place?.nearbyStops[0]?.id ?? null, active: true,
-          },
-          create: {
-            workspaceId: workspace.id, moduleId: module.id, source: NUSMODS_SOURCE, sourceRef,
-            label: `${entry.selection.code} ${LESSON_SHORT_NAMES[lessonCode] ?? lesson.lessonType}`,
-            blockType: LESSON_SHORT_NAMES[lessonCode] ?? lesson.lessonType,
-            dayOfWeek, startTime: toClock(lesson.startTime), endTime: toClock(lesson.endTime),
-            startWeek: weeks[0] ?? null, endWeek: weeks.at(-1) ?? null,
-            venueId: place?.providerId, venueName: (place?.displayName ?? lesson.venue) || undefined,
-            destinationStopId: place?.nearbyStops[0]?.id,
-          },
         });
+        const equivalentLocal = (await prisma.studyScheduleBlock.findMany({
+          where: {
+            workspaceId: workspace.id,
+            moduleId: module.id,
+            dayOfWeek,
+            startTime,
+            endTime,
+            active: true,
+            source: { in: NUSMODS_ADOPTABLE_SOURCES },
+          },
+          orderBy: { createdAt: "asc" },
+        })).filter(isReplaceableNusmodsCandidate);
+
+        let canonicalId: string;
+        if (existingImported) {
+          await prisma.studyScheduleBlock.update({ where: { id: existingImported.id }, data: importedData });
+          canonicalId = existingImported.id;
+        } else if (equivalentLocal[0]) {
+          const adopted = await prisma.studyScheduleBlock.update({
+            where: { id: equivalentLocal[0].id },
+            data: { ...importedData, source: NUSMODS_SOURCE, sourceRef },
+          });
+          canonicalId = adopted.id;
+        } else {
+          const created = await prisma.studyScheduleBlock.create({
+            data: { workspaceId: workspace.id, source: NUSMODS_SOURCE, sourceRef, ...importedData },
+          });
+          canonicalId = created.id;
+        }
+
+        const redundantIds = equivalentLocal.map((candidate) => candidate.id).filter((id) => id !== canonicalId);
+        if (redundantIds.length) {
+          await prisma.studyScheduleBlock.updateMany({ where: { id: { in: redundantIds } }, data: { active: false } });
+        }
         blockCount += 1;
       }
     }
@@ -149,6 +188,10 @@ async function fetchNusmodsModule(academicYear: string, code: string): Promise<N
 }
 
 function normalizeClassNo(value: string): string { return value.trim().toUpperCase().replace(/^0+(?=\d)/, ""); }
+export function isReplaceableNusmodsCandidate(block: Pick<StudyScheduleBlock, "source" | "blockType">): boolean {
+  return NUSMODS_ADOPTABLE_SOURCES.includes(block.source)
+    && CLASS_LIKE_BLOCK_TYPES.has(block.blockType.trim().toLowerCase());
+}
 function lessonMatches(lesson: NusmodsLesson, selected: ShareSelection): boolean {
   const lessonCode = LESSON_TYPE_CODES.get(lesson.lessonType.trim().toLowerCase()) ?? lesson.lessonType.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   return lessonCode === selected.lessonCode && normalizeClassNo(lesson.classNo) === selected.classNo;
