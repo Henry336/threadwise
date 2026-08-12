@@ -92,10 +92,61 @@ export type StudyDashboard = {
     id: string;
     moduleCode: string;
     method: string;
+    topic?: string;
+    focusStructure?: string;
+    techniques: string[];
     startedAt: Date;
     item?: { id: string; publicId: string; title: string };
   };
 };
+
+export type StudySessionDetails = {
+  topic?: string;
+  focusStructure?: string;
+  techniques?: string[];
+  resourceIds?: string[];
+};
+
+export type StudySessionUpdate = StudySessionDetails & {
+  method?: string;
+  result?: string | null;
+  topicsMixed?: string[];
+  attemptedScore?: number | null;
+  maximumScore?: number | null;
+  usedNotes?: boolean | null;
+  startedAt?: Date;
+  endedAt?: Date;
+};
+
+const studySessionInclude = {
+  module: true,
+  item: true,
+  resources: {
+    include: {
+      resource: {
+        include: { module: { select: { id: true, code: true, name: true, color: true } } },
+      },
+    },
+  },
+} satisfies Prisma.StudySessionInclude;
+
+function cleanSessionList(values: string[] | undefined, limit = 20) {
+  if (!values) return undefined;
+  return [...new Set(values.map((value) => value.trim().slice(0, 160)).filter(Boolean))].slice(0, limit);
+}
+
+async function requireSessionResources(workspaceId: string, moduleId: string, resourceIds: string[] | undefined) {
+  const ids = [...new Set(resourceIds ?? [])].slice(0, 30);
+  if (ids.length === 0) return ids;
+  const resources = await prisma.studyResource.findMany({
+    where: { id: { in: ids }, workspaceId, moduleId, archivedAt: null },
+    select: { id: true },
+  });
+  if (resources.length !== ids.length) {
+    throw new StudyModeError("One or more linked resources are unavailable for this module.", "forbidden");
+  }
+  return ids;
+}
 
 export function studyScopeFromContext(ctx: Context): StudyScope {
   const config = privateStudyConfig();
@@ -486,14 +537,21 @@ export async function updateStudyMastery(
   return { kind: "item" as const, value: updated };
 }
 
-export async function startStudySession(workspace: StudyWorkspace, moduleId: string, method: string, itemId?: string) {
+export async function startStudySession(
+  workspace: StudyWorkspace,
+  moduleId: string,
+  method: string,
+  itemId?: string,
+  details: StudySessionDetails = {},
+) {
   await requireModule(workspace.id, moduleId);
-  const open = await prisma.studySession.findFirst({ where: { workspaceId: workspace.id, endedAt: null } });
+  const open = await prisma.studySession.findFirst({ where: { workspaceId: workspace.id, endedAt: null, archivedAt: null } });
   if (open) throw new StudyModeError("A study session is already running. Use /study stop first.", "conflict");
   if (itemId) {
     const item = await prisma.studyItem.findFirst({ where: { id: itemId, workspaceId: workspace.id, moduleId } });
     if (!item) throw new StudyModeError("That study item does not belong to this module.", "forbidden");
   }
+  const resourceIds = await requireSessionResources(workspace.id, moduleId, details.resourceIds);
   const session = await prisma.studySession.create({
     data: {
       workspaceId: workspace.id,
@@ -501,10 +559,14 @@ export async function startStudySession(workspace: StudyWorkspace, moduleId: str
       itemId,
       startedAt: new Date(),
       method: method.trim().slice(0, 160) || "Focused study",
+      topic: details.topic?.trim().slice(0, 240) || null,
+      focusStructure: details.focusStructure?.trim().slice(0, 80) || null,
+      techniques: cleanSessionList(details.techniques, 10) ?? [],
       topicsMixed: [],
       timed: /timed/i.test(method),
+      resources: { create: resourceIds.map((resourceId) => ({ resourceId })) },
     },
-    include: { module: true, item: true },
+    include: studySessionInclude,
   });
   await auditStudy(workspace.ownerUserId, "study.session.started", { workspaceId: workspace.id, sessionId: session.id, module: session.module.code, method: session.method });
   return session;
@@ -515,9 +577,9 @@ export async function stopStudySession(
   input: { result?: string; topicsMixed?: string[]; attemptedScore?: number; maximumScore?: number; usedNotes?: boolean },
 ) {
   const session = await prisma.studySession.findFirst({
-    where: { workspaceId: workspace.id, endedAt: null },
+    where: { workspaceId: workspace.id, endedAt: null, archivedAt: null },
     orderBy: { startedAt: "desc" },
-    include: { module: true, item: true },
+    include: studySessionInclude,
   });
   if (!session) throw new StudyModeError("No study session is running.", "not_found");
   const endedAt = new Date();
@@ -534,7 +596,7 @@ export async function stopStudySession(
         maximumScore: input.maximumScore,
         usedNotes: input.usedNotes,
       },
-      include: { module: true, item: true },
+      include: studySessionInclude,
     });
     if (session.itemId) {
       await tx.studyItem.update({ where: { id: session.itemId }, data: { actualMinutes: { increment: durationMinutes } } });
@@ -547,24 +609,57 @@ export async function stopStudySession(
   return updated;
 }
 
-export async function updateStudySessionResult(
+export async function updateStudySession(
   workspace: StudyWorkspace,
   sessionId: string,
-  input: { result?: string; topicsMixed?: string[]; attemptedScore?: number; maximumScore?: number; usedNotes?: boolean },
+  input: StudySessionUpdate,
 ) {
-  const session = await prisma.studySession.findFirst({ where: { id: sessionId, workspaceId: workspace.id, endedAt: { not: null } } });
-  if (!session) throw new StudyModeError("That completed session could not be found.", "not_found");
+  const session = await prisma.studySession.findFirst({
+    where: { id: sessionId, workspaceId: workspace.id, archivedAt: null },
+    include: studySessionInclude,
+  });
+  if (!session) throw new StudyModeError("That study session could not be found.", "not_found");
+  const resourceIds = input.resourceIds === undefined
+    ? undefined
+    : await requireSessionResources(workspace.id, session.moduleId, input.resourceIds);
+  const startedAt = input.startedAt ?? session.startedAt;
+  const endedAt = input.endedAt ?? session.endedAt;
+  if (endedAt && endedAt.getTime() < startedAt.getTime()) {
+    throw new StudyModeError("The session must end after it starts.", "invalid");
+  }
+  const durationMinutes = endedAt
+    ? Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000))
+    : null;
   return prisma.$transaction(async (tx) => {
     const updated = await tx.studySession.update({
       where: { id: session.id },
       data: {
-        result: input.result?.trim().slice(0, 2_000),
-        topicsMixed: input.topicsMixed ?? session.topicsMixed,
+        ...(input.method !== undefined ? { method: input.method.trim().slice(0, 160) || "Focused study" } : {}),
+        ...(input.topic !== undefined ? { topic: input.topic.trim().slice(0, 240) || null } : {}),
+        ...(input.focusStructure !== undefined ? { focusStructure: input.focusStructure.trim().slice(0, 80) || null } : {}),
+        ...(input.techniques !== undefined ? { techniques: cleanSessionList(input.techniques, 10) ?? [] } : {}),
+        ...(input.result !== undefined ? { result: input.result?.trim().slice(0, 2_000) || null } : {}),
+        ...(input.topicsMixed !== undefined ? { topicsMixed: cleanSessionList(input.topicsMixed) ?? [] } : {}),
         attemptedScore: input.attemptedScore,
         maximumScore: input.maximumScore,
         usedNotes: input.usedNotes,
+        ...(input.startedAt !== undefined || input.endedAt !== undefined ? { startedAt, endedAt, durationMinutes } : {}),
+        ...(resourceIds !== undefined ? {
+          resources: {
+            deleteMany: {},
+            create: resourceIds.map((resourceId) => ({ resourceId })),
+          },
+        } : {}),
       },
+      include: studySessionInclude,
     });
+    if (session.itemId && session.endedAt && durationMinutes !== null && durationMinutes !== session.durationMinutes) {
+      const item = await tx.studyItem.findUnique({ where: { id: session.itemId }, select: { actualMinutes: true } });
+      if (item) {
+        const delta = durationMinutes - (session.durationMinutes ?? 0);
+        await tx.studyItem.update({ where: { id: session.itemId }, data: { actualMinutes: Math.max(0, (item.actualMinutes ?? 0) + delta) } });
+      }
+    }
     await tx.auditLog.create({
       data: {
         userId: workspace.ownerUserId,
@@ -573,6 +668,34 @@ export async function updateStudySessionResult(
       },
     });
     return updated;
+  });
+}
+
+export async function archiveStudySession(workspace: StudyWorkspace, sessionId: string) {
+  const session = await prisma.studySession.findFirst({
+    where: { id: sessionId, workspaceId: workspace.id, archivedAt: null },
+  });
+  if (!session) throw new StudyModeError("That study session could not be found.", "not_found");
+  if (!session.endedAt) throw new StudyModeError("End the session before removing it from history.", "conflict");
+  return prisma.$transaction(async (tx) => {
+    const archived = await tx.studySession.update({ where: { id: session.id }, data: { archivedAt: new Date() } });
+    if (session.itemId && session.durationMinutes) {
+      const item = await tx.studyItem.findUnique({ where: { id: session.itemId }, select: { actualMinutes: true } });
+      if (item) {
+        await tx.studyItem.update({
+          where: { id: session.itemId },
+          data: { actualMinutes: Math.max(0, (item.actualMinutes ?? 0) - session.durationMinutes) },
+        });
+      }
+    }
+    await tx.auditLog.create({
+      data: {
+        userId: workspace.ownerUserId,
+        action: "study.session.archived",
+        metadata: { workspaceId: workspace.id, sessionId: session.id },
+      },
+    });
+    return archived;
   });
 }
 
@@ -740,12 +863,12 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
       },
       include: { week: true },
     }),
-    weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
+    weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
     listStudyMistakes(workspace.id, now),
     prisma.studyScheduleBlock.findMany({ where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] }, include: { module: true } }),
     prisma.weeklyReview.findMany({ where: { workspaceId: workspace.id }, orderBy: { completedAt: "desc" }, take: 2 }),
     prisma.studySession.findFirst({
-      where: { workspaceId: workspace.id, module: { active: true }, endedAt: null },
+      where: { workspaceId: workspace.id, module: { active: true }, endedAt: null, archivedAt: null },
       include: { module: true, item: { select: { id: true, publicId: true, title: true } } },
     }),
   ]);
@@ -796,6 +919,9 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
       id: openSession.id,
       moduleCode: openSession.module.code,
       method: openSession.method,
+      topic: openSession.topic ?? undefined,
+      focusStructure: openSession.focusStructure ?? undefined,
+      techniques: openSession.techniques,
       startedAt: openSession.startedAt,
       item: openSession.item ?? undefined,
     } : undefined,
@@ -964,7 +1090,7 @@ export async function createStudyExports(workspace: StudyWorkspace, now = new Da
   const dashboard = await buildStudyDashboard(workspace, now);
   const [items, sessions, mistakes, reviews, modules] = await Promise.all([
     prisma.studyItem.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, week: true }, orderBy: { createdAt: "asc" } }),
-    prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, item: true }, orderBy: { startedAt: "asc" } }),
+    prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null }, include: studySessionInclude, orderBy: { startedAt: "asc" } }),
     prisma.studyMistake.findMany({ where: { workspaceId: workspace.id, module: { active: true } }, include: { module: true, item: true }, orderBy: { createdAt: "asc" } }),
     prisma.weeklyReview.findMany({ where: { workspaceId: workspace.id }, include: { week: true }, orderBy: { completedAt: "asc" } }),
     listStudyModules(workspace.id),

@@ -480,22 +480,28 @@ model StudySession {
   endedAt         DateTime?
   durationMinutes Int?
   method          String
+  topic           String?
+  focusStructure  String?
+  techniques      String[]  @default([])
   result          String?
   topicsMixed     String[]
   attemptedScore  Float?
   maximumScore    Float?
   usedNotes       Boolean?
   timed           Boolean   @default(false)
+  archivedAt      DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   item      StudyItem?     @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  resources StudySessionResource[]
 
   @@index([workspaceId, startedAt])
   @@index([workspaceId, endedAt])
   @@index([moduleId, timed, startedAt])
+  @@index([workspaceId, archivedAt, startedAt])
 }
 
 model StudyMistake {
@@ -610,6 +616,7 @@ model StudyResource {
 
   workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  sessions  StudySessionResource[]
 
   @@unique([workspaceId, publicId])
   @@unique([workspaceId, telegramUniqueId])
@@ -617,6 +624,18 @@ model StudyResource {
   @@index([moduleId, kind, pinnedAt, createdAt])
   @@index([workspaceId, archivedAt])
   @@index([searchTokens], type: Gin)
+}
+
+model StudySessionResource {
+  sessionId  String
+  resourceId String
+  addedAt    DateTime @default(now())
+
+  session  StudySession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  resource StudyResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, resourceId])
+  @@index([resourceId])
 }
 
 model StudyPendingCapture {

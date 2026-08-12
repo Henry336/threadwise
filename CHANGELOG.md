@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Persistent Deep Work companion and structured session records
+- Reworked active Study sessions into durable, structured records with an optional topic, focus structure, multiple study techniques, linked module resources, exact start/end timestamps, editable outcomes, and soft archival.
+- Added authenticated update and archive operations for completed sessions while preserving workspace isolation, linked-item accounting, and canonical PostgreSQL ownership.
+- Kept AI analysis outside this phase. Deep Work records evidence supplied by the learner; a later opt-in analysis layer may summarize that evidence but must not invent understanding or decide correctness.
+
 ### NUSMods timetable import and Study mobile reliability
 - Fixed the first importer release layering NUSMods classes over equivalent existing timetable blocks. Class-like manual/default blocks are now adopted into NUSMods ownership, and an exact cleanup migration hides duplicates already produced without touching study/protected blocks.
 - Added idempotent NUSMods share-link imports for the private Study workspace through both Telegram and the dashboard. Selected lesson types, class groups, active weeks, times, and published venues become recurring Study schedule blocks without changing unrelated manual planning blocks.

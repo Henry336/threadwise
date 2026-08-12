@@ -1,6 +1,6 @@
 # Architecture Notes
 
-Updated: 2026-08-10
+Updated: 2026-08-12
 
 Current backend release: v0.32.0
 
@@ -92,6 +92,8 @@ the query boundary from operational projections, reminders, travel, search, revi
 Study privacy fails closed. Each command and callback verifies the exact actor, exact chat, active binding, and current two-member count. The `chat_member` handler unbinds the workspace if another human joins; reminders and auto-save acknowledgements recheck the group before proactive output. Study queries include `workspaceId`, and the feature remains absent from global search and every ordinary personal/group dashboard route.
 
 The Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. The current shell includes Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings. Timetable derives a full 00:00–24:00 weekly/day view from recurring schedule blocks and planned work while keeping deadline markers distinct from scheduled study time; class blocks may carry a destination, normal origin, and travel buffer. Protected Telegram image/file bytes are fetched server-side only after this lookup. Each request resolves a fresh Telegram file path, retries one stale-download failure, accepts only an upstream raster MIME, enforces the size bound, and returns credential-free temporary or permanent errors.
+
+Deep Work sessions remain canonical backend records even while their controls appear across several dashboard routes. `StudySession` stores exact timestamps, an optional topic and focus structure, a technique list, outcome data, and a soft-archive marker. `StudySessionResource` links notes, images, files, questions, and other module resources without copying content. The dashboard may PATCH a session while it is active or after completion and may archive completed history; every mutation repeats the Study owner/group gate and validates that linked resources belong to the same workspace and module. Archiving adjusts recorded item minutes but retains the session row for auditability. No AI service participates in timing, completion, resource linking, or retrieval.
 
 Inline item actions follow `One message, one decision`. An ordinary task, note, idea, or image card renders no more than three immediate actions across no more than two rows. Task cards prioritize completion, snooze, and an exact dashboard continuation; list rows reveal numbered item controls only after an explicit Choose action. Secondary editing, starring, archiving/cancellation, Calendar, and assignment management remain available through exact dashboard links or focused Telegram subflows rather than one permanent button wall. Save/edit/action replies retain inline undo or cancel controls where supported, and `PendingItemEdit` keeps text-edit continuations restart-safe.
 

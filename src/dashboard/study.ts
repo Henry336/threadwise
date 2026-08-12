@@ -30,7 +30,8 @@ import {
   saveWeeklyReview,
   startStudySession,
   stopStudySession,
-  updateStudySessionResult,
+  updateStudySession,
+  archiveStudySession,
   updateStudyScheduleBlock,
   updateWeeklyPlan,
   StudyModeError,
@@ -166,6 +167,10 @@ export const studySessionStartSchema = z.object({
   moduleId: id,
   method: text(160),
   itemId: id.optional(),
+  topic: optionalText(240),
+  focusStructure: optionalText(80),
+  techniques: z.array(text(160)).max(10).optional(),
+  resourceIds: z.array(id).max(30).optional(),
 }).strict();
 export const studySessionStopSchema = z.object({
   result: optionalText(2_000),
@@ -175,6 +180,20 @@ export const studySessionStopSchema = z.object({
   usedNotes: z.boolean().optional(),
 }).strict();
 export const studySessionResultSchema = studySessionStopSchema.refine((value) => Object.keys(value).length > 0, "Add at least one session result.");
+export const studySessionUpdateSchema = z.object({
+  method: text(160).optional(),
+  topic: optionalText(240),
+  focusStructure: optionalText(80),
+  techniques: z.array(text(160)).max(10).optional(),
+  resourceIds: z.array(id).max(30).optional(),
+  result: nullableText(2_000),
+  topicsMixed: z.array(text(160)).max(20).optional(),
+  attemptedScore: z.number().min(0).max(100_000).nullable().optional(),
+  maximumScore: z.number().positive().max(100_000).nullable().optional(),
+  usedNotes: z.boolean().nullable().optional(),
+  startedAt: isoDate.optional(),
+  endedAt: isoDate.optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one session change.");
 
 export const studyMistakeCreateSchema = z.object({
   moduleId: id,
@@ -348,8 +367,12 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
   ]);
   const [sessions, reviews, scheduleBlocks, canvasAssignments, origins] = await Promise.all([
     prisma.studySession.findMany({
-      where: { workspaceId: workspace.id, module: { active: true } },
-      include: { module: { select: { code: true, name: true } }, item: { select: { publicId: true, title: true } } },
+      where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null },
+      include: {
+        module: { select: { code: true, name: true } },
+        item: { select: { publicId: true, title: true } },
+        resources: { include: { resource: { include: { module: { select: { id: true, code: true, name: true, color: true } } } } } },
+      },
       orderBy: { startedAt: "desc" },
       take: 80,
     }),
@@ -697,15 +720,24 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
 }
 
 export async function startDashboardStudySession(workspace: StudyWorkspace, input: z.infer<typeof studySessionStartSchema>) {
-  return startStudySession(workspace, input.moduleId, input.method, input.itemId);
+  return startStudySession(workspace, input.moduleId, input.method, input.itemId, input);
 }
 
 export async function stopDashboardStudySession(workspace: StudyWorkspace, input: z.infer<typeof studySessionStopSchema>) {
   return stopStudySession(workspace, input);
 }
 
-export async function updateDashboardStudySession(workspace: StudyWorkspace, sessionId: string, input: z.infer<typeof studySessionResultSchema>) {
-  return updateStudySessionResult(workspace, sessionId, input);
+export async function updateDashboardStudySession(workspace: StudyWorkspace, sessionId: string, input: z.infer<typeof studySessionUpdateSchema>) {
+  const { startedAt, endedAt, ...values } = input;
+  return updateStudySession(workspace, sessionId, {
+    ...values,
+    ...(startedAt ? { startedAt: new Date(startedAt) } : {}),
+    ...(endedAt ? { endedAt: new Date(endedAt) } : {}),
+  });
+}
+
+export async function archiveDashboardStudySession(workspace: StudyWorkspace, sessionId: string) {
+  return archiveStudySession(workspace, sessionId);
 }
 
 export async function createDashboardStudyMistake(workspace: StudyWorkspace, input: z.infer<typeof studyMistakeCreateSchema>) {

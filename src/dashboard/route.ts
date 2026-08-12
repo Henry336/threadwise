@@ -138,6 +138,7 @@ import {
   searchDashboardStudyPlaces,
   searchDashboardStudy,
   startDashboardStudySession,
+  archiveDashboardStudySession,
   stopDashboardStudySession,
   studyCanvasAssignmentActionSchema,
   studyIdParamsSchema,
@@ -156,7 +157,7 @@ import {
   studyScheduleCreateSchema,
   studyScheduleUpdateSchema,
   studySearchQuerySchema,
-  studySessionResultSchema,
+  studySessionUpdateSchema,
   studySessionStartSchema,
   studySessionStopSchema,
   studySettingsUpdateSchema,
@@ -490,8 +491,14 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.patch("/api/v1/dashboard/study/sessions/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    return { session: await updateDashboardStudySession(workspace, id, studySessionResultSchema.parse(request.body)) };
+    return { session: await updateDashboardStudySession(workspace, id, studySessionUpdateSchema.parse(request.body)) };
   }, "study_update_session"));
+
+  server.delete("/api/v1/dashboard/study/sessions/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { session: await archiveDashboardStudySession(workspace, id) };
+  }, "study_archive_session"));
 
   server.post("/api/v1/dashboard/study/mistakes", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);

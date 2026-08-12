@@ -1,6 +1,6 @@
 # Threadwise Case Study
 
-Updated: 2026-08-10
+Updated: 2026-08-12
 
 Current backend release: v0.32.0
 
@@ -116,6 +116,7 @@ This scope correction came from observing that a long feature list weakened Thre
 - Module-scoped recall with local screenshot OCR, reply capture, searchable resources, complete long-note pagination, and silent durable note sessions that auto-save after inactivity.
 - Restart-safe Saturday reviews, Sunday previews, restrained deadline/mistake/mastery reminders, saved or temporary travel origins, and public Improved NextBus journey estimates.
 - A sealed, responsive Study dashboard with its own Overview, Timetable, Work, Deep Work, Module Shelf, Library, live Search, Review, and Settings architecture. Timetable combines recurring module blocks, planned study work, deadlines, and optional class-travel configuration. It manages the same PostgreSQL records as Telegram, including OCR-backed resources and read-only Canvas state, while direct routes and API calls fail closed outside the exact owner and group.
+- A persistent Deep Work companion that leaves Timetable, Work, and Library available during a session. Structured-but-flexible records capture exact timestamps, focus structure, multiple techniques, a custom topic, linked resources, and outcomes; completed records remain editable and softly archivable. AI interpretation is deliberately deferred so the first release improves evidence capture without pretending to assess understanding.
 
 ### Beacon community moderation
 

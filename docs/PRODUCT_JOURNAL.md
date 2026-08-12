@@ -2,6 +2,18 @@
 
 Updated: 2026-08-12
 
+## 2026-08-12 - Deep Work should accompany study, not hide it
+
+**Friction discovered:** Starting a Deep Work session replaced the useful Study workspace with a mostly empty full-page timer. The owner could no longer consult the timetable, notes, images, or work list without abandoning the session view. After completion, a large empty Ari panel offered little value, past records lacked exact time context and could not be corrected or archived, and one free-text method field provided no guidance when the learner did not know which technique to choose.
+
+**Decision:** Treat an active session as a persistent companion across the Study shell and make Deep Work itself the control center for starting, reviewing, editing, and archiving sessions. Use structured-but-flexible evidence: a focus structure, multiple techniques, a custom topic, exact timestamps, optional linked resources, and an owner-written outcome.
+
+**Implementation:** Expanded the Study session schema and protected dashboard API, added a workspace-scoped resource join, and introduced update and soft-archive operations. The paired dashboard keeps a live timer and finish controls available while navigating, offers established study techniques without blocking custom input, links relevant module resources, and renders compact dated history records with edit and archive controls.
+
+**Outcome/evidence:** The dashboard passes TypeScript, changed-file lint, 63 tests, the production build, and a clean Impeccable detector. The backend passes Prisma generation/validation, type checking, and 52 focused Study regressions. The full backend suite passed 818 tests with two unrelated timeout files; both timeout files passed when rerun in isolation.
+
+**Follow-up:** Apply the database migration before the dashboard begins sending the new fields, then verify one live desktop and mobile session. Optional Gemini analysis belongs to a later phase and must summarize traceable session/resource evidence, disclose uncertainty, and never claim to judge understanding or correctness.
+
 ## 2026-08-12 — A timetable import must reconcile, not append
 
 **Friction discovered:** Importing a NUSMods share link into an already configured Study timetable displayed the fetched classes alongside equivalent existing class blocks. The importer was repeat-safe only for records it had created itself.

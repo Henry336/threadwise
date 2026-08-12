@@ -130,6 +130,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-12 (Codex):** Expanded Study Deep Work into structured, editable session records
+  with focus structures, techniques, custom topics, exact timestamps, linked resources, and soft
+  archival. The paired dashboard now keeps an active timer available across Study navigation instead
+  of trapping the owner on a mostly empty completion screen. AI analysis remains deferred.
+
 - **2026-08-12 (Codex):** Fixed the initial NUSMods timetable importer so it reconciles
   equivalent existing class blocks instead of layering duplicates. Class-like manual/default
   blocks are adopted, intentional study/protected blocks remain, and a migration cleans the

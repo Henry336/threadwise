@@ -484,6 +484,8 @@ The authenticated web dashboard exposes Study Mode only while this exact group w
 
 Telegram and the Study dashboard share the same records rather than synchronizing two copies. Captures and Canvas changes appear through server-sent event reconciliation; dashboard edits are immediately visible when the bot next queries the item. Module selection, mastery, work status, notes, pinned images, mistake records, weekly plans, sessions, Canvas review decisions, origins, and schedule blocks all use the same domain services.
 
+Deep Work is a persistent Study companion rather than a route that hides the rest of the workspace. An active session keeps its timer and controls available while the owner opens Timetable, Work, Modules, Library, or Search. Sessions may record a focus structure, one or more techniques, a custom topic, linked notes/images/files, exact start and end times, and a written outcome. Completed records can be corrected or archived without deleting the underlying evidence. AI-generated study analysis is intentionally outside this phase and is not required for capture, timing, or recall.
+
 It is disabled unless both exact numeric identifiers are configured on Render:
 
 ```text
