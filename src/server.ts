@@ -46,6 +46,13 @@ import {
   terminalGeminiIdeaJobForWorker
 } from "./services/geminiIdeas";
 import {
+  claimGeminiStudyAnalysisJob,
+  completeGeminiStudyAnalysisJob,
+  failGeminiStudyAnalysisJob,
+  renewGeminiStudyAnalysisJobLease,
+  terminalGeminiStudyAnalysisJobForWorker
+} from "./services/geminiStudyAnalysis";
+import {
   claimFileCourierJob,
   completeFileCourierDelivery,
   completeFileCourierLookup,
@@ -526,6 +533,73 @@ export async function startServer(
       body.workerId,
       config!.jobLeaseSeconds
     );
+    if (!renewed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/study-analysis-jobs/claim", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!validWorkerId(body?.workerId)) return reply.code(400).send({ error: "invalid_worker_id" });
+    const job = await claimGeminiStudyAnalysisJob(body.workerId, config!.jobLeaseSeconds);
+    if (!job) return reply.code(204).send();
+    return job;
+  });
+
+  server.post("/codex/worker/study-analysis-jobs/:id/complete", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; finalResponse?: unknown; model?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || typeof body?.finalResponse !== "string"
+      || body.finalResponse.length > 40_000 || !optionalBoundedString(body.model, 200)) {
+      return reply.code(400).send({ error: "invalid_completion" });
+    }
+    const completed = await completeGeminiStudyAnalysisJob({
+      id: params.id,
+      workerId: body.workerId,
+      finalResponse: body.finalResponse,
+      model: body.model
+    }) || await terminalGeminiStudyAnalysisJobForWorker(params.id, body.workerId);
+    if (!completed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/study-analysis-jobs/:id/fail", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown; error?: unknown; model?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId) || typeof body?.error !== "string"
+      || body.error.length > 8_000 || !optionalBoundedString(body.model, 200)) {
+      return reply.code(400).send({ error: "invalid_failure" });
+    }
+    const failed = await failGeminiStudyAnalysisJob({
+      id: params.id,
+      workerId: body.workerId,
+      error: body.error,
+      model: body.model
+    }) || await terminalGeminiStudyAnalysisJobForWorker(params.id, body.workerId);
+    if (!failed) return reply.code(409).send({ error: "job_not_claimed" });
+    return { ok: true };
+  });
+
+  server.post("/codex/worker/study-analysis-jobs/:id/heartbeat", async (request, reply) => {
+    const config = privateCodexConfig();
+    if (!isAdminAuthorized(request.headers.authorization, request.headers["x-threadwise-codex-token"], config?.workerToken)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    const params = request.params as { id?: string };
+    const body = request.body as { workerId?: unknown } | undefined;
+    if (!params.id || !validWorkerId(body?.workerId)) return reply.code(400).send({ error: "invalid_heartbeat" });
+    const renewed = await renewGeminiStudyAnalysisJobLease(params.id, body.workerId, config!.jobLeaseSeconds);
     if (!renewed) return reply.code(409).send({ error: "job_not_claimed" });
     return { ok: true };
   });

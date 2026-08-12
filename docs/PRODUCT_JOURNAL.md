@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## 2026-08-12 - Deep Work should accompany study, not hide it
 
@@ -675,6 +675,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 **Outcome/evidence:** Backend typechecking and 19 focused importer, command-menu, and dashboard-contract tests pass. An isolated clean TypeScript emit also passes; the ordinary local build could not delete a pre-existing Windows-locked `dist` directory. The dashboard passes its 16 proxy tests, changed-file lint, TypeScript production build, and the Impeccable detector with no findings.
 
 **Follow-up:** Verify one real NUSMods import after the production migration, including an uncommon lesson type and an unresolved venue. Observe the first live class-departure recommendation before expanding the importer beyond canonical NUSMods semester share links.
+
+### 13 August 2026 — Make reflection optional and evidence-bound
+
+**Friction discovered:** Deep Work now preserves techniques, exact timing, outcomes, and linked resources, but recognizing patterns across many records remained tedious. Putting AI on the automatic Study path would make a deterministic tool slower and less trustworthy, while unconstrained summaries could imply understanding or correctness that the evidence did not establish.
+
+**Decision:** Add one explicit per-module review action through the existing private Gemini CLI worker. A completed, non-archived module session establishes eligibility; linked notes and images may add context but cannot establish eligibility by themselves. Cache results by evidence hash, require every finding to cite a known record, state limitations plainly, and keep completed results readable during worker outages. Analysis must never decide mastery, completion, reminders, scheduling, or grades.
+
+**Implemented:** Added the protected GET/POST module-analysis contract, evidence snapshots and hashes, owner-scoped worker readiness, restart-safe analysis jobs, provider-output validation, citation filtering, stale-result detection, explicit request deduplication, and graceful unavailable/failed states. The dashboard can read cached results without triggering work and only polls jobs that are queued or running.
+
+**Outcome/evidence:** Prisma generation, backend typechecking, focused analysis tests, and the production build pass. The full suite completed 823 passing assertions and five unrelated timeout-only cases; every timed-out case passed on a sequential rerun, with the slowest existing file given a 15-second allowance. No deterministic Study path imports or calls the analysis service.
+
+**Follow-up:** Observe the private worker and one real evidence refresh in production. Do not add automatic analysis, correctness claims, or grading without a separate product decision and evaluation set.
 
 ## Journal entry template
 

@@ -363,6 +363,7 @@ model StudyWorkspace {
   reminderDeliveries StudyReminderDelivery[]
   resources          StudyResource[]
   pendingCaptures    StudyPendingCapture[]
+  analysisJobs       GeminiStudyAnalysisJob[]
   noteCaptureSession StudyNoteCaptureSession?
   canvasSync         StudyCanvasSync?
   canvasAssignments  StudyCanvasAssignment[]
@@ -404,6 +405,7 @@ model StudyModule {
   pendingCaptures     StudyPendingCapture[]
   noteCaptureSessions StudyNoteCaptureSession[]
   canvasAssignments   StudyCanvasAssignment[]
+  analysisJobs         GeminiStudyAnalysisJob[]
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, canvasCourseId])
@@ -1639,6 +1641,35 @@ model GeminiIdeaJob {
   @@index([status, leaseExpiresAt, createdAt])
   @@index([userId, ideaId, createdAt])
   @@index([requesterTelegramId, telegramChatId, createdAt])
+}
+
+model GeminiStudyAnalysisJob {
+  id                  String         @id @default(uuid())
+  workspaceId         String
+  moduleId            String
+  requesterTelegramId String
+  status              CodexJobStatus @default(PENDING)
+  evidenceHash        String
+  evidenceJson        Json
+  prompt              String
+  model               String?
+  workerId            String?
+  claimedAt           DateTime?
+  leaseExpiresAt      DateTime?
+  result              Json?
+  error               String?
+  requestedAt         DateTime       @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([workspaceId, moduleId, createdAt])
+  @@index([moduleId, evidenceHash, status])
 }
 
 model CodexThread {

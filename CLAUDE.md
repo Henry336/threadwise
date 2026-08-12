@@ -130,6 +130,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-13 (Codex):** Added an opt-in, evidence-backed Study module review through the
+  existing private Gemini CLI worker. Completed non-archived module sessions gate eligibility;
+  results are cached by evidence hash, cite known sessions/resources, remain readable offline,
+  and cannot mutate deterministic Study state. Prisma generation, typecheck, focused tests, build,
+  and sequential reruns of the full-suite timeout cases pass.
+
 - **2026-08-12 (Codex):** Expanded Study Deep Work into structured, editable session records
   with focus structures, techniques, custom topics, exact timestamps, linked resources, and soft
   archival. The paired dashboard now keeps an active timer available across Study navigation instead

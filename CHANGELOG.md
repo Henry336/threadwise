@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Opt-in, evidence-backed module review
+- Added an explicit Study module-analysis workflow powered by the existing private Gemini CLI worker. Analysis is never automatic and is unavailable until the module has at least one completed, non-archived Deep Work session.
+- Cached results are keyed to the current session/resource evidence, remain readable when the worker is offline, and become visibly stale when the underlying evidence changes.
+- Required every pattern, strength, gap, and next step to cite a concrete session or module resource. Unknown citations and uncited findings are discarded, while uncertainty is shown as a limitation instead of being turned into an invented weakness.
+- Kept analysis outside scheduling, reminders, completion, mastery, storage, and every other deterministic Study workflow. Provider outages degrade only the optional review action.
+
 ### Persistent Deep Work companion and structured session records
 - Reworked active Study sessions into durable, structured records with an optional topic, focus structure, multiple study techniques, linked module resources, exact start/end timestamps, editable outcomes, and soft archival.
 - Added authenticated update and archive operations for completed sessions while preserving workspace isolation, linked-item accounting, and canonical PostgreSQL ownership.

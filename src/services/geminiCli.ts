@@ -41,7 +41,7 @@ export async function detectGeminiCli(model: string): Promise<GeminiCliCapabilit
   }
 }
 
-export async function runGeminiIdeaPrompt(input: {
+export async function runGeminiPrompt(input: {
   prompt: string;
   model: string;
   timeoutMs: number;
@@ -68,6 +68,10 @@ export async function runGeminiIdeaPrompt(input: {
   }
   return extractGeminiResponse(result.stdout);
 }
+
+// Keep the existing idea-worker API stable while sharing the hardened,
+// tool-disabled Gemini invocation with other private worker jobs.
+export const runGeminiIdeaPrompt = runGeminiPrompt;
 
 export function extractGeminiResponse(stdout: string): string {
   const clean = stripAnsi(stdout).trim();

@@ -112,6 +112,32 @@ export async function localWorkerReadiness(scope: CodexScope): Promise<{
   };
 }
 
+/**
+ * Study Mode is bound to its own Telegram group, while the private Gemini CLI
+ * worker reports through the owner's Codex scope. Resolve capability by owner
+ * so a Study group ID is never mistaken for a worker scope.
+ */
+export async function localGeminiWorkerReadinessForOwner(ownerTelegramId: string): Promise<{
+  online: boolean;
+  geminiAvailable: boolean;
+  geminiModel?: string;
+}> {
+  const state = await prisma.codexChatState.findFirst({
+    where: { ownerTelegramId },
+    orderBy: { workerLastSeenAt: "desc" },
+    select: { workerLastSeenAt: true, geminiAvailable: true, geminiModel: true }
+  });
+  const online = Boolean(
+    state?.workerLastSeenAt
+    && state.workerLastSeenAt.getTime() >= Date.now() - 10 * 60_000
+  );
+  return {
+    online,
+    geminiAvailable: online && Boolean(state?.geminiAvailable),
+    geminiModel: state?.geminiModel ?? undefined
+  };
+}
+
 function parseStoredWorkerCapabilities(value: Prisma.JsonValue | null | undefined): LocalWorkerCapabilities | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as LocalWorkerCapabilities;
