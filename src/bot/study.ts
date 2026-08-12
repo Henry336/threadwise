@@ -61,6 +61,7 @@ import {
   renameStudyOrigin,
 } from "../services/studyTransit";
 import { activeStudyModule, studyCaptureContext } from "../services/studyResources";
+import { importStudyNusmodsTimetable } from "../services/studyNusmods";
 import {
   handleExtendedStudyCallback,
   handleStudyCaptureCaptionMessage,
@@ -92,6 +93,7 @@ export function registerStudyMode(bot: Bot): void {
     });
   });
   bot.command("study", async (ctx) => handleStudyCommand(ctx));
+  bot.command("nusmods", async (ctx) => handleStudyCommand(ctx, `nusmods ${(ctx.message?.text ?? "").replace(/^\/nusmods(?:@\w+)?\s*/i, "").trim()}`));
   for (const shortcut of ["attention", "upcoming", "modules", "travel", "timetable", "dashboard", "help"] as const) {
     bot.command(shortcut, async (ctx, next) => {
       if (!isStudyContext(ctx)) {
@@ -149,6 +151,11 @@ export function registerStudyMode(bot: Bot): void {
     try {
       const workspace = await requireStudyWorkspace(ctx);
       await assertSealedStudyGroup(ctx, workspace);
+      const nusmodsLink = ctx.message.text.match(/https?:\/\/(?:www\.)?nusmods\.com\/timetable\/sem-[12]\/share\?\S+/i)?.[0];
+      if (nusmodsLink) {
+        await handleNusmodsImport(ctx, workspace, nusmodsLink);
+        return;
+      }
       const conversation = await getStudyConversation(workspace.id);
       if (!conversation) {
         await handleStudyAmbientText(ctx, workspace);
@@ -296,6 +303,10 @@ async function handleStudyCommand(ctx: Context, forcedSubcommand?: string): Prom
         await replyHtml(ctx, `${bold("Study timetable")}\nClasses, study blocks, and due work in one live view.`, {
           reply_markup: new InlineKeyboard().url("Open timetable", groupDashboardUrl(workspace.id, "study-timetable")),
         });
+        break;
+      case "nusmods":
+      case "import":
+        await handleNusmodsImport(ctx, workspace, args);
         break;
       case "export":
         await sendStudyExports(ctx, workspace);
@@ -1232,6 +1243,25 @@ async function advanceGlobalReview(ctx: Context, workspace: StudyWorkspace, payl
 
 function reviewQuestion(module: { code: string }, position: number): string {
   return [bold(`${position}. ${module.code}`), "Is the current material processed? Reply yes, no, or partly."].join("\n");
+}
+
+async function handleNusmodsImport(ctx: Context, workspace: StudyWorkspace, rawUrl: string): Promise<void> {
+  const url = rawUrl.match(/https?:\/\/(?:www\.)?nusmods\.com\/timetable\/sem-[12]\/share\?\S+/i)?.[0];
+  if (!url) {
+    await ctx.reply("Paste a NUSMods timetable share link after /nusmods, or send the link by itself in this Study group.");
+    return;
+  }
+  const pending = await ctx.reply("Importing NUSMods timetable…");
+  try {
+    const result = await importStudyNusmodsTimetable(workspace, url);
+    const venueNote = result.unresolvedVenues.length
+      ? `\nCheck ${result.unresolvedVenues.length} venue${result.unresolvedVenues.length === 1 ? "" : "s"} in the dashboard.`
+      : "";
+    await ctx.api.editMessageText(ctx.chat!.id, pending.message_id, `NUSMods imported · ${result.modules} modules · ${result.blocks} class blocks${venueNote}`);
+  } catch (error) {
+    const message = error instanceof StudyModeError ? error.message : userFacingError(error, "NUSMods could not be imported just now.");
+    await ctx.api.editMessageText(ctx.chat!.id, pending.message_id, message);
+  }
 }
 
 async function requireConversation(workspaceId: string, kind: string) {

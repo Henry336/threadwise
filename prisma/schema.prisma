@@ -565,6 +565,8 @@ model StudyScheduleBlock {
   defaultOriginId     String?
   travelBufferMinutes Int      @default(15)
   reminderLeadMinutes Int      @default(10)
+  source              String   @default("MANUAL")
+  sourceRef           String?
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -575,6 +577,7 @@ model StudyScheduleBlock {
 
   @@index([workspaceId, active, dayOfWeek])
   @@index([defaultOriginId])
+  @@unique([workspaceId, source, sourceRef])
 }
 
 model StudyResource {

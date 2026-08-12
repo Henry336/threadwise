@@ -644,6 +644,18 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 **Follow-up:** Verify the install prompt and standalone launch on production Chrome, Edge, Android, and iOS Safari. Do not add offline workspace data unless Threadwise first adopts an explicit encrypted-device storage and revocation design.
 
+### 12 August 2026 — Import the semester once and repair Study mobile context
+
+**Friction discovered:** A complete NUS timetable still had to be transcribed into Threadwise block by block even though NUSMods already encoded the selected lesson types, class groups, times, weeks, and venues in a share link. On mobile, the Deep Work illustration appeared accidentally left-aligned, one drawer state did not fill the screen reliably, old dark-square Ari artwork reappeared in Study context and empty states, Work repeated its own title, Canvas URLs dominated task cards, and a destination suggestion labelled a two-minute final walk as though it measured the whole trip from the user's origin.
+
+**Decision:** Treat a NUSMods share link as an authoritative import source for recurring classes, not as a replacement for Threadwise's planner. Keep imported and manual blocks in separate source namespaces, resolve imported venue labels through the existing canonical place boundary, and report uncertainty instead of guessing. On mobile, keep the same Study information architecture while repairing containment, alignment, concise copy, and action hierarchy rather than adding another navigation layer.
+
+**Implemented:** Added Telegram and dashboard NUSMods imports, source-stable schedule reconciliation, exact lesson selection, active-week parsing, venue resolution, unresolved-venue feedback, and command discovery. Reworked the narrow Study drawer, centered Deep Work artwork, replaced outdated Ari squares with restrained Study icons, removed the duplicate Work kicker and raw Canvas URL from task cards, repaired compact Work filter/card layout, and renamed autocomplete distance copy to `Final walk` from the destination's nearest stop.
+
+**Outcome/evidence:** Backend typechecking and 19 focused importer, command-menu, and dashboard-contract tests pass. An isolated clean TypeScript emit also passes; the ordinary local build could not delete a pre-existing Windows-locked `dist` directory. The dashboard passes its 16 proxy tests, changed-file lint, TypeScript production build, and the Impeccable detector with no findings.
+
+**Follow-up:** Verify one real NUSMods import after the production migration, including an uncommon lesson type and an unresolved venue. Observe the first live class-departure recommendation before expanding the importer beyond canonical NUSMods semester share links.
+
 ## Journal entry template
 
 ```markdown

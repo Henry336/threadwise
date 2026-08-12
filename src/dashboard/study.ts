@@ -37,6 +37,7 @@ import {
 } from "../services/study";
 import { buildStudyAttentionSnapshot } from "../services/studyAttention";
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
+import { importStudyNusmodsTimetable } from "../services/studyNusmods";
 import {
   archiveStudyResource,
   createStudyResource,
@@ -75,6 +76,9 @@ const timezone = text(80).refine((value) => {
 }, "Choose a valid IANA timezone, such as Asia/Singapore.");
 
 export const studyIdParamsSchema = z.object({ id });
+export const studyNusmodsImportSchema = z.object({
+  url: z.string().trim().url().max(4_000),
+}).strict();
 export const studyModuleCreateSchema = z.object({
   code: text(20),
   name: text(160),
@@ -758,6 +762,10 @@ export async function updateDashboardStudySettings(workspace: StudyWorkspace, in
 
 export async function syncDashboardStudyCanvas(workspace: StudyWorkspace) {
   return syncStudyCanvas(workspace, { force: true });
+}
+
+export async function importDashboardStudyNusmods(workspace: StudyWorkspace, input: z.infer<typeof studyNusmodsImportSchema>) {
+  return importStudyNusmodsTimetable(workspace, input.url);
 }
 
 export async function resolveDashboardStudyCanvasAssignment(workspace: StudyWorkspace, assignmentId: string, action: "keep" | "archive") {

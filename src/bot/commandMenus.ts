@@ -32,6 +32,7 @@ const studyCommands: BotCommand[] = [
   { command: "modules", description: "Open modules" },
   { command: "travel", description: "Plan a campus route" },
   { command: "timetable", description: "Open the timetable" },
+  { command: "nusmods", description: "Import a NUSMods timetable" },
   { command: "dashboard", description: "Open the Study dashboard" },
   { command: "help", description: "Get Study help" },
 ];

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### NUSMods timetable import and Study mobile reliability
+- Added idempotent NUSMods share-link imports for the private Study workspace through both Telegram and the dashboard. Selected lesson types, class groups, active weeks, times, and published venues become recurring Study schedule blocks without changing manually created blocks.
+- Added source metadata and a scoped uniqueness constraint for imported schedule blocks. Re-importing the current share link updates matching classes and deactivates NUSMods blocks that are no longer selected instead of creating duplicates.
+- Resolved imported venues through Threadwise's canonical campus place service so supported classes can immediately participate in live route planning and proactive departure reminders. Unresolved venue labels remain visible and are reported for correction rather than guessed.
+- Added `/nusmods`, direct Study-chat share-link detection, progress/failure feedback, and the protected dashboard import endpoint.
+- Clarified campus autocomplete estimates as the final walk from the destination's nearest bus stop rather than a misleading origin-to-destination journey estimate.
+
 ### Opt-in application content encryption
 - Added versioned AES-256-GCM encryption for task, note, idea, saved-image metadata, and Study resource content at the Prisma boundary. Reads remain compatible with existing plaintext rows, and encryption is disabled by default until an explicit production rollout.
 - Preserved partial, Unicode, and field-scoped search with keyed blind tokens backed by PostgreSQL GIN indexes. Exact post-decryption filtering prevents stale tokens from returning an edited record incorrectly.

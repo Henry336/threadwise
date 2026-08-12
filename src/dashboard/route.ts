@@ -127,6 +127,7 @@ import {
   deleteDashboardStudyOrigin,
   getDashboardStudyResource,
   getDashboardStudySnapshot,
+  importDashboardStudyNusmods,
   listDashboardStudyResources,
   loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
@@ -145,6 +146,7 @@ import {
   studyMistakeCreateSchema,
   studyModuleCreateSchema,
   studyModuleUpdateSchema,
+  studyNusmodsImportSchema,
   studyOriginCreateSchema,
   studyOriginUpdateSchema,
   studyPlaceSearchSchema,
@@ -521,6 +523,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const workspace = await requireDashboardStudyWorkspace(scope);
     return { sync: await syncDashboardStudyCanvas(workspace) };
   }, "study_canvas_sync"));
+
+  server.post("/api/v1/dashboard/study/nusmods/import", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { import: await importDashboardStudyNusmods(workspace, studyNusmodsImportSchema.parse(request.body ?? {})) };
+  }, "study_nusmods_import"));
 
   server.patch("/api/v1/dashboard/study/canvas/assignments/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
