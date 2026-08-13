@@ -36,9 +36,11 @@ export type DashboardSnapshot = {
     description?: string;
     dueAt?: string;
     status: "OPEN" | "DONE" | "CANCELED";
+    audience: "UNASSIGNED" | "EVERYONE" | "ASSIGNEES";
     recurring?: boolean;
     pinned?: boolean;
     reminderIntervalMinutes?: number;
+    reminderTimes: string[];
     nextReminderAt?: string;
     reminderCount?: number;
     snoozedUntil?: string;
@@ -204,6 +206,7 @@ export async function getDashboardSnapshot(
         description: true,
         dueAt: true,
         status: true,
+        audience: true,
         recurrenceRule: true,
         pinnedAt: true,
         reminderIntervalMinutes: true,
@@ -228,6 +231,11 @@ export async function getDashboardSnapshot(
             updatedAt: true
           },
           orderBy: { createdAt: "asc" }
+        },
+        reminderSchedules: {
+          where: { status: { in: ["PENDING", "PROCESSING"] } },
+          select: { scheduledAt: true },
+          orderBy: { scheduledAt: "asc" }
         },
         createdAt: true,
         updatedAt: true
@@ -369,9 +377,11 @@ export async function getDashboardSnapshot(
       ...(task.description ? { description: task.description } : {}),
       ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
       status: task.status,
+      audience: task.audience ?? "UNASSIGNED",
       ...(task.recurrenceRule ? { recurring: true } : {}),
       ...(task.pinnedAt ? { pinned: true } : {}),
       ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
+      reminderTimes: (task.reminderSchedules ?? []).map((schedule) => schedule.scheduledAt.toISOString()),
       ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
       ...(task.reminderCount > 0 ? { reminderCount: task.reminderCount } : {}),
       ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),

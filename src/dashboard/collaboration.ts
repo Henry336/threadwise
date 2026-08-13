@@ -3,6 +3,7 @@ import {
   GroupMemberStatus,
   Prisma,
   TaskAssigneeStatus,
+  TaskAudience,
   TaskStatus,
   type PrismaClient,
 } from "@prisma/client";
@@ -65,7 +66,8 @@ export type DashboardGroupCollaboration = {
 };
 
 export type DashboardCollaborationAction = {
-  action: "assign" | "unassign" | "claim" | "accept" | "decline" | "block" | "unblock" | "handoff";
+  action: "set-audience" | "assign" | "unassign" | "claim" | "accept" | "decline" | "block" | "unblock" | "handoff";
+  audience?: "UNASSIGNED" | "EVERYONE";
   assigneeId?: string;
   targetTelegramId?: string;
   reason?: string;
@@ -104,6 +106,7 @@ export async function getDashboardGroupCollaboration(
     select: {
       dueAt: true,
       status: true,
+      audience: true,
       createdAt: true,
       completedAt: true,
       assignees: {
@@ -145,7 +148,7 @@ export async function getDashboardGroupCollaboration(
     })),
     summary: {
       overdue: open.filter((task) => task.dueAt && task.dueAt.getTime() < now.getTime()).length,
-      unassigned: open.filter((task) => task.assignees.length === 0).length,
+      unassigned: open.filter((task) => task.audience === TaskAudience.UNASSIGNED).length,
       awaitingAcknowledgement: 0,
       blocked: 0,
       createdThisWeek: tasks.filter((task) => task.createdAt >= weekStart).length,
@@ -209,6 +212,25 @@ export async function updateDashboardTaskCollaboration(
   const now = new Date();
   let bridgeMessage = "";
   await database.$transaction(async (tx) => {
+    if (input.action === "set-audience") {
+      if (!input.audience) throw new DashboardGroupAccessError("Choose who this task is for.");
+      await tx.taskAssignee.deleteMany({ where: { taskId: task.id } });
+      await tx.task.update({
+        where: { id: task.id },
+        data: {
+          audience: input.audience === "EVERYONE" ? TaskAudience.EVERYONE : TaskAudience.UNASSIGNED,
+          assignedTelegramId: null,
+          assignedUsername: null,
+          assignedDisplayName: null,
+          undatedNudgeCount: 0,
+        },
+      });
+      bridgeMessage = input.audience === "EVERYONE"
+        ? `${collaborationActor.displayName} marked ${task.publicId} as an everyone task.`
+        : `${collaborationActor.displayName} left ${task.publicId} open for someone to claim.`;
+      await createActivity(tx, workspace.id, actor, GroupActivityType.TASK_UPDATED, task, bridgeMessage);
+      return;
+    }
     if (input.action === "assign") {
       const target = targetMember(workspace.members, input.targetTelegramId);
       await tx.taskAssignee.upsert({
@@ -246,6 +268,7 @@ export async function updateDashboardTaskCollaboration(
     await tx.task.update({
       where: { id: task.id },
       data: {
+        audience: primary ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
         assignedTelegramId: primary?.telegramId ?? null,
         assignedUsername: primary?.username ?? null,
         assignedDisplayName: primary?.displayName ?? null,

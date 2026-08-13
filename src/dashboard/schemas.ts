@@ -7,6 +7,7 @@ const dateTime = z.string().datetime({ offset: true });
 const nullableDateTime = dateTime.nullable();
 const tags = z.array(trimmed(40)).max(20).transform((items) => [...new Set(items)]);
 const reminderIntervalMinutes = z.number().int().min(15).max(43_200);
+const reminderTimes = z.array(dateTime).max(20).transform((items) => [...new Set(items)]);
 
 export const dashboardIdParamsSchema = z.object({ id: trimmed(128) }).strict();
 
@@ -29,7 +30,8 @@ export const taskCreateSchema = z.object({
   title: trimmed(500),
   description: optionalNullableText(5_000),
   dueAt: nullableDateTime.optional(),
-  reminderIntervalMinutes: reminderIntervalMinutes.optional()
+  reminderIntervalMinutes: reminderIntervalMinutes.optional(),
+  reminderTimes: reminderTimes.optional()
 }).strict();
 
 export const taskUpdateSchema = z.object({
@@ -37,6 +39,7 @@ export const taskUpdateSchema = z.object({
   description: optionalNullableText(5_000),
   dueAt: nullableDateTime.optional(),
   reminderIntervalMinutes: reminderIntervalMinutes.nullable().optional(),
+  reminderTimes: reminderTimes.optional(),
   snoozedUntil: nullableDateTime.optional(),
   status: z.nativeEnum(TaskStatus).optional(),
   pinned: z.boolean().optional(),
@@ -47,6 +50,7 @@ const collaborationReason = z.string().trim().min(1).max(500).optional();
 const collaborationAssigneeId = z.string().uuid().optional();
 const collaborationTelegramId = z.string().regex(/^[1-9]\d{0,19}$/);
 export const taskCollaborationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("set-audience"), audience: z.enum(["UNASSIGNED", "EVERYONE"]) }).strict(),
   z.object({ action: z.literal("assign"), targetTelegramId: collaborationTelegramId }).strict(),
   z.object({ action: z.literal("unassign"), assigneeId: z.string().uuid() }).strict(),
   z.object({ action: z.literal("claim") }).strict(),

@@ -2,6 +2,7 @@ import {
   GroupActivityType,
   Prisma,
   TaskAssigneeStatus,
+  TaskAudience,
   type PrismaClient,
 } from "@prisma/client";
 import type { Context } from "grammy";
@@ -118,6 +119,7 @@ export async function handoffTaskAssignment(
     await tx.task.update({
       where: { id: task.id },
       data: {
+        audience: TaskAudience.ASSIGNEES,
         assignedTelegramId: primary?.telegramId ?? null,
         assignedUsername: primary?.username ?? null,
         assignedDisplayName: primary?.displayName ?? null,

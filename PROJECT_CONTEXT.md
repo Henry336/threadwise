@@ -93,6 +93,45 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   callback/message ownership, then add the Phase 3 schema and tests for explicit audiences,
   multiple reminder instants, deterministic due-date escalation, delivery dedupe, and one
   canonical task-control surface per chat. Keep every new record workspace-scoped.
+- Phase 3 implementation checkpoint (locally complete; publication pending):
+  - migration `20260813190500_durable_task_reminders` adds explicit `TaskAudience`, leased
+    `TaskReminderSchedule` rows, unique reminder delivery keys, and one persisted
+    `TaskControlSurface` per task owner/chat;
+  - the backfill is conservative: tasks with assignees become `ASSIGNEES`; tasks without
+    assignees remain `UNASSIGNED`; no historical task is silently changed to `EVERYONE`;
+  - explicit reminder times are future-only, sorted/deduplicated, capped at 20, claimed with
+    a five-minute lease, retried after a 15-minute failure backoff, and marked sent using a
+    stable delivery key; they are canceled when a task completes, closes, or is archived;
+  - automatic dated reminders now use a deterministic distance-to-deadline ladder while
+    retaining the configured final-nudge cadence; a custom delivery also advances the
+    automatic schedule so the next polling pass cannot immediately duplicate it;
+  - group access now distinguishes `EVERYONE`, `ASSIGNEES`, and `UNASSIGNED`; everyone tasks
+    are actionable by every member but are never claimable; assignment/claim operations
+    transition the audience explicitly;
+  - repeated Telegram completion callbacks now converge their resulting task lists onto one
+    persisted control surface, deleting the previous list or retiring its controls when
+    Telegram no longer permits deletion;
+  - dashboard task editing now exposes a deadline, automatic rhythm, and up to 20 exact
+    reminders; the group collaboration sheet exposes explicit Everyone and Unassigned modes;
+  - lifecycle cancellation is recorded separately from an owner's intentional schedule removal,
+    so reopening a task restores only future reminders canceled by the task lifecycle and never
+    resurrects reminder times the owner removed;
+  - local validation after the final Prisma generation is green: schema validate, backend
+    typecheck/build, 48 focused tests, and the complete backend suite (842 passed, 6 skipped);
+    dashboard tests (74/74), TypeScript, full lint, production build, and a clean changed-UI
+    detector all pass;
+  - bounded Playwright QA verified one unified editor with two exact reminder rows and the group
+    Everyone/Unassigned assignment sheet at 1440 x 900 and 390 x 844. Both mobile sheets stayed
+    within the viewport with document width exactly 390px and no horizontal overflow;
+  - the disposable local preview and browser session were stopped after QA. No local worker or
+    persistent laptop process is required by this phase.
+  - final diff review closed the Telegram fallback edge case: when an old reminder cannot be
+    edited and Telegram returns a newly sent task list, the new message id—not the stale callback
+    id—is persisted as the canonical surface. A regression test covers this path.
+- Phase 3 next action: inspect the final diff, commit backend and dashboard independently, push
+  both `main` branches, let the Prisma migration deploy on Render, verify exact production commits
+  and HTTP health, then record the deployment checkpoint before starting Phase 4's bounded
+  server-side Gemini API runner.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.

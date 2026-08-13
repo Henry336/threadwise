@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RecurrenceRule, ReminderMode } from "@prisma/client";
-import { dueNudgeStartAt, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderMessage, getReminderDiagnostics, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
+import { dueNudgeStartAt, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -112,6 +112,23 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
   });
 
+  it("ramps the automatic cadence as a deadline approaches", () => {
+    const now = new Date("2026-08-13T00:00:00.000Z");
+    expect(escalatingReminderIntervalMinutes(new Date("2026-08-23T00:00:00.000Z"), now, 2_880, 5)).toBe(1_440);
+    expect(escalatingReminderIntervalMinutes(new Date("2026-08-15T00:00:00.000Z"), now, 2_880, 5)).toBe(360);
+    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T03:00:00.000Z"), now, 2_880, 5)).toBe(30);
+    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T00:05:00.000Z"), now, 2_880, 5)).toBe(5);
+  });
+
+  it("schedules the first reminder before the final nudge window", () => {
+    expect(initialTaskReminderAt({
+      now: new Date("2026-08-13T00:00:00.000Z"),
+      dueAt: new Date("2026-08-15T00:00:00.000Z"),
+      dueNudgeMinutes: 5,
+      intervalMinutes: 720,
+    }).toISOString()).toBe("2026-08-13T06:00:00.000Z");
+  });
+
   it("keeps undated group follow-ups on their configured cadence before three unanswered nudges", () => {
     expect(nextUndatedGroupReminderInterval(360, 1)).toBe(360);
     expect(nextUndatedGroupReminderInterval(360, 2)).toBe(360);
@@ -163,6 +180,17 @@ describe("reminder policy", () => {
       ]
     }, { timezone: "Asia/Singapore", reminderMode: ReminderMode.INDIVIDUAL });
     expect(message).toContain("Dad, @Soul_Positive_Light");
+  });
+
+  it("labels an everyone task without inventing an assignee", () => {
+    const message = formatReminderMessage({
+      publicId: "TASK-4",
+      title: "Attend the workshop",
+      audience: TaskAudience.EVERYONE,
+      assignees: [],
+    }, { timezone: "Asia/Singapore", reminderMode: ReminderMode.INDIVIDUAL });
+    expect(message).toContain("<b>For:</b> Everyone");
+    expect(message).not.toContain("Assigned To");
   });
 
   it("formats an actionable private assignee nudge without group-only buttons", () => {

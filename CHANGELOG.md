@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Durable task reminders and explicit group audiences
+- Added restart-safe relational reminder schedules with leased claims, retry backoff, stable delivery keys, and lifecycle-aware cancellation/restoration. Owners and group admins can keep up to 20 exact future reminder times alongside Threadwise's automatic cadence.
+- Replaced the single near-due interval with a deterministic escalation ladder that becomes more frequent as a deadline approaches without weakening an already more-frequent user setting. Exact reminders remain intentional delivery times and advance the automatic schedule to avoid an immediate duplicate.
+- Made group task audience explicit: unassigned work remains claimable, everyone obligations are actionable by every member without pretending to be unassigned, and named assignments remain assignee-scoped. Historical tasks are conservatively backfilled as assignee-scoped or unassigned; none become everyone tasks implicitly.
+- Converged repeated Telegram completion results onto one persisted control surface per owner/chat. Superseded task lists are deleted where Telegram allows it or retired without active controls when deletion is unavailable.
+- Added dashboard API support for audiences and multiple reminder instants, with bounded validation and plain-language errors instead of leaking schema diagnostics.
+
 ### Observable, workspace-safe Canvas coverage
 - Replaced the process-global Canvas sync promise with a workspace-keyed, globally serialized queue. Repeated requests for one workspace coalesce, different workspaces cannot receive one another's result, and stale `RUNNING` rows become restart-safe work instead of waiting indefinitely.
 - Removed the redundant `state=available` course restriction while retaining active-enrollment and deleted-course filtering, so valid active enrollments are not silently excluded by a second course-state gate.

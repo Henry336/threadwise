@@ -13,7 +13,7 @@ export type ActiveListNavigation = {
   workspaceId?: string;
 };
 
-export type GroupTaskAudience = "unassigned" | "assignee" | "manager" | "other";
+export type GroupTaskAudience = "unassigned" | "everyone" | "assignee" | "manager" | "other";
 
 export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -367,7 +367,7 @@ export function groupTaskActionsKeyboard(
     keyboard.text("Claim", `task:claim:${taskId}`).text("View", `task:view-full:${taskId}`);
     return keyboard;
   }
-  if (audience === "assignee" || audience === "manager") {
+  if (audience === "everyone" || audience === "assignee" || audience === "manager") {
     keyboard.text("Done", `task:done:${taskId}`).text("Snooze", `task:snooze:${taskId}`).row();
   }
   if (!expanded) {

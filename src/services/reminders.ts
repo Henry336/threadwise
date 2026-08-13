@@ -1,5 +1,5 @@
 import { InlineKeyboard, type Bot } from "grammy";
-import { Prisma, RecurrenceRule, ReminderMode, TaskStatus } from "@prisma/client";
+import { Prisma, RecurrenceRule, ReminderMode, TaskAudience, TaskReminderScheduleStatus, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { formatDateTimeForUser, formatRecurrenceRule, isWithinQuietHours, nextQuietEnd, startOfUserDay } from "../utils/dates";
@@ -9,6 +9,7 @@ import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
 import { runStudyReminderPass } from "./studyReminders";
 import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
+import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule } from "./taskReminderSchedules";
 
 type ReminderTask = Prisma.TaskGetPayload<{
   include: { user: { include: { settings: true } }; assignees: true };
@@ -27,6 +28,8 @@ export type ReminderDiagnostics = {
   lastError?: string;
   dueTasksFound: number;
   remindersSent: number;
+  customRemindersDue?: number;
+  customRemindersSent?: number;
   skippedMissingSettings: number;
   deferredForQuietHours: number;
   cappedByDailyLimit: number;
@@ -42,6 +45,8 @@ export type ReminderDiagnostics = {
 let reminderDiagnostics: ReminderDiagnostics = {
   dueTasksFound: 0,
   remindersSent: 0,
+  customRemindersDue: 0,
+  customRemindersSent: 0,
   skippedMissingSettings: 0,
   deferredForQuietHours: 0,
   cappedByDailyLimit: 0,
@@ -89,6 +94,8 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     lastStartedAt: startedAt,
     dueTasksFound: 0,
     remindersSent: 0,
+    customRemindersDue: 0,
+    customRemindersSent: 0,
     skippedMissingSettings: 0,
     deferredForQuietHours: 0,
     cappedByDailyLimit: 0,
@@ -102,6 +109,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
   };
 
   try {
+    const customReminderTaskIds = await sendDueCustomReminderSchedules(bot, now, run);
     const tasks = await prisma.task.findMany({
       where: {
         status: TaskStatus.OPEN,
@@ -138,6 +146,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
 
     for (const task of tasks) {
       if (groupedUndatedTaskIds.has(task.id)) continue;
+      if (customReminderTaskIds.has(task.id)) continue;
       const settings = task.user.settings;
       if (!settings) {
         run.skippedMissingSettings += 1;
@@ -266,6 +275,111 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     reminderDiagnostics = run;
     throw error;
   }
+}
+
+async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: ReminderDiagnostics): Promise<Set<string>> {
+  const claimed = await claimDueTaskReminderSchedules(now);
+  const deliveredTaskIds = new Set<string>();
+  run.customRemindersDue = claimed.length;
+
+  for (const schedule of claimed) {
+    const task = schedule.task;
+    const settings = task.user.settings;
+    if (!settings) {
+      run.skippedMissingSettings += 1;
+      await releaseTaskReminderSchedule(schedule.id, "Reminder settings are missing.");
+      continue;
+    }
+
+    const deliveryKey = customReminderDeliveryKey(schedule.id);
+    const existing = await prisma.reminderDelivery.findUnique({ where: { deliveryKey } });
+    if (existing) {
+      await prisma.taskReminderSchedule.update({
+        where: { id: schedule.id },
+        data: {
+          status: TaskReminderScheduleStatus.SENT,
+          deliveredAt: existing.sentAt,
+          leaseExpiresAt: null,
+          lastError: null,
+        },
+      });
+      deliveredTaskIds.add(task.id);
+      continue;
+    }
+
+    const chatId = settings.reminderChatId ?? task.user.telegramId.replace(/^chat:/, "");
+    const previousReminder = await prisma.reminderDelivery.findFirst({
+      where: { taskId: task.id, chatId, messageId: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { chatId: true, messageId: true },
+    });
+
+    try {
+      const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatReminderMessage(task, settings), {
+        ...HTML_REPLY,
+        reply_markup: reminderActionsKeyboard(task),
+      });
+      const sentAt = new Date();
+      await prisma.$transaction([
+        prisma.reminderDelivery.create({
+          data: {
+            userId: task.userId,
+            taskId: task.id,
+            chatId: delivery.chatId,
+            messageId: String(delivery.message.message_id),
+            deliveryKey,
+            sentAt,
+          },
+        }),
+        prisma.taskReminderSchedule.update({
+          where: { id: schedule.id },
+          data: {
+            status: TaskReminderScheduleStatus.SENT,
+            deliveredAt: sentAt,
+            leaseExpiresAt: null,
+            lastError: null,
+          },
+        }),
+        prisma.task.update({
+          where: { id: task.id },
+          data: {
+            lastRemindedAt: sentAt,
+            reminderCount: { increment: 1 },
+            ...nextTaskScheduleAfterDelivery({
+              now: sentAt,
+              dueAt: task.dueAt,
+              dueNudgeMinutes: settings.dueNudgeMinutes,
+              intervalMinutes: settings.reminderIntervalMinutes,
+            }),
+          },
+        }),
+      ]);
+      deliveredTaskIds.add(task.id);
+      run.remindersSent += 1;
+      run.customRemindersSent = (run.customRemindersSent ?? 0) + 1;
+      await deleteSupersededReminderMessage(
+        bot,
+        previousReminder ? { ...previousReminder, chatId: delivery.chatId } : null,
+        delivery.message.message_id,
+        task.publicId,
+      );
+      try {
+        const direct = await sendDirectAssigneeNudges(bot, task);
+        run.directNudgesSent += direct.sent;
+        run.directNudgesSkipped += direct.skipped;
+        run.directNudgeFailures += direct.failed;
+      } catch (error) {
+        run.directNudgeFailures += Math.max(1, task.assignees.length);
+        logger.warn("Could not finish private assignee nudges after a custom reminder.", { taskId: task.id, error: String(error) });
+      }
+    } catch (error) {
+      run.failedDeliveries += 1;
+      await releaseTaskReminderSchedule(schedule.id, error);
+      logger.error("Failed to send a custom task reminder.", { taskId: task.id, scheduleId: schedule.id, error: String(error) });
+    }
+  }
+
+  return deliveredTaskIds;
 }
 
 async function sendGroupUndatedReminderBatch(
@@ -518,6 +632,7 @@ export function formatReminderMessage(
     assignedDisplayName?: string | null;
     assignees?: TaskAssigneeInfo[];
     recurrenceRule?: RecurrenceRule | null;
+    audience?: TaskAudience;
   },
   settings: {
     timezone: string;
@@ -527,6 +642,7 @@ export function formatReminderMessage(
   const metadata = [
     task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, task.timezone ?? settings.timezone)) : undefined,
     reminderAssignees(task).length > 0 ? fieldHtml("Assigned To", formatReminderAssigneesHtml(task)) : undefined,
+    task.audience === TaskAudience.EVERYONE ? field("For", "Everyone") : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrenceRule(task.recurrenceRule)) : undefined,
     fieldHtml("Task ID", code(task.publicId))
   ].filter(Boolean).join("\n");
@@ -664,11 +780,50 @@ export function nextReminderAtAfterDelivery(input: {
   dueNudgeMinutes: number;
   intervalMinutes: number;
 }): Date {
-  if (input.dueAt && input.dueNudgeMinutes > 0 && input.now >= dueNudgeStartAt(input.dueAt, input.dueNudgeMinutes)) {
-    return nextIntervalReminderAt(input.now, input.dueNudgeMinutes);
+  if (input.dueAt) {
+    const interval = escalatingReminderIntervalMinutes(input.dueAt, input.now, input.intervalMinutes, input.dueNudgeMinutes);
+    return nextIntervalReminderAt(input.now, interval);
   }
 
   return nextIntervalReminderAt(input.now, input.intervalMinutes);
+}
+
+export function escalatingReminderIntervalMinutes(
+  dueAt: Date,
+  now: Date,
+  defaultIntervalMinutes: number,
+  finalNudgeMinutes = 0,
+): number {
+  const remainingMinutes = (dueAt.getTime() - now.getTime()) / 60_000;
+  if (finalNudgeMinutes > 0 && remainingMinutes <= finalNudgeMinutes) {
+    return Math.max(1, Math.min(defaultIntervalMinutes, finalNudgeMinutes));
+  }
+  let ladderMinutes: number;
+  if (remainingMinutes <= 0) ladderMinutes = 180;
+  else if (remainingMinutes <= 15) ladderMinutes = Math.max(5, finalNudgeMinutes || 10);
+  else if (remainingMinutes <= 60) ladderMinutes = 15;
+  else if (remainingMinutes <= 4 * 60) ladderMinutes = 30;
+  else if (remainingMinutes <= 12 * 60) ladderMinutes = 60;
+  else if (remainingMinutes <= 24 * 60) ladderMinutes = 180;
+  else if (remainingMinutes <= 3 * 24 * 60) ladderMinutes = 360;
+  else if (remainingMinutes <= 7 * 24 * 60) ladderMinutes = 720;
+  else ladderMinutes = 24 * 60;
+  return Math.max(5, Math.min(defaultIntervalMinutes, ladderMinutes));
+}
+
+export function initialTaskReminderAt(input: {
+  now: Date;
+  dueAt?: Date | null;
+  dueNudgeMinutes: number;
+  intervalMinutes: number;
+}): Date {
+  if (!input.dueAt) return nextIntervalReminderAt(input.now, input.intervalMinutes);
+  const cadence = nextIntervalReminderAt(
+    input.now,
+    escalatingReminderIntervalMinutes(input.dueAt, input.now, input.intervalMinutes, input.dueNudgeMinutes),
+  );
+  const finalNudge = nextDueReminderAt(input.dueAt, input.dueNudgeMinutes, input.now);
+  return cadence.getTime() < finalNudge.getTime() ? cadence : finalNudge;
 }
 
 export function nextTaskScheduleAfterDelivery(input: {

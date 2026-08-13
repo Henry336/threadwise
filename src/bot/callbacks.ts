@@ -22,7 +22,7 @@ import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
 import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
-import { isActiveListKind, replyActiveList } from "./activeLists";
+import { isActiveListKind, replyActiveList, replyActiveListWithMessage } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupMainMenuText, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
@@ -38,6 +38,7 @@ import { collaborationActorFromContext, recordGroupTaskActivity } from "../servi
 import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import { convergeTaskControlSurface } from "../services/taskControlSurfaces";
 import { preferEphemeralInteraction } from "./ephemeral";
 import { beginNoteSession } from "./noteSessions";
 import { resolveGroupTaskCallbackOwner } from "../services/groupTaskCompatibility";
@@ -662,7 +663,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
     await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
-  await replyActiveList(
+  const controlSurface = await replyActiveListWithMessage(
     ctx,
     user,
     "tasks",
@@ -670,6 +671,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
     true,
     user.id === interactionUser.id ? { label: "↩️ Undo complete", callbackData: "undo:last" } : undefined,
   );
+  await convergeTaskControlSurface(ctx, user.id, controlSurface.messageId);
 }
 
 async function handleTaskRestore(ctx: Context, taskId: string | undefined) {

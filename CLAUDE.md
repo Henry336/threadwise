@@ -130,6 +130,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-13 (Codex):** Implemented and locally validated durable task reminders and explicit
+  group audiences. Exact times use leased, deduplicated, lifecycle-aware rows; automatic reminders
+  now escalate toward deadlines; Everyone, Unassigned, and named-assignee behavior are distinct;
+  repeated Telegram completions converge on one persisted control surface. Prisma, TypeScript,
+  build, 842 backend tests (6 skipped), and desktop/mobile browser QA pass. Publication is next.
+
 - **2026-08-13 (Codex):** Implemented and locally validated the Canvas completeness phase:
   workspace-keyed serialized sync, restart-safe stale-run recovery, less restrictive active-course
   discovery, per-course skip diagnostics, and a bounded metadata-first module/page/file mirror.

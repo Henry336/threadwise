@@ -1,9 +1,9 @@
-import { GroupActivityType, TaskAssigneeStatus, type PrismaClient } from "@prisma/client";
+import { GroupActivityType, TaskAssigneeStatus, TaskAudience, type PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { normalizePublicId } from "../utils/text";
 import type { CollaborationActor, CollaborationTask } from "./groupCollaboration";
 
-export type GroupTaskAudience = "unassigned" | "assignee" | "manager" | "other";
+export type GroupTaskAudience = "unassigned" | "everyone" | "assignee" | "manager" | "other";
 export type GroupTaskAction = "complete" | "snooze" | "manage";
 
 export type GroupTaskAccess = {
@@ -52,10 +52,13 @@ export async function getGroupTaskAccess(
     select: { actorTelegramId: true },
   });
   const isCreator = (created?.actorTelegramId ?? workspace.ownerUser.telegramId) === actor.telegramId;
-  const isAssignee = task.assignees.some((assignee) => assigneeMatchesActor(assignee, actor));
-  const unassigned = task.assignees.length === 0;
+  const everyone = task.audience === TaskAudience.EVERYONE;
+  const isAssignee = everyone || task.assignees.some((assignee) => assigneeMatchesActor(assignee, actor));
+  const unassigned = task.audience === TaskAudience.UNASSIGNED || (!task.audience && task.assignees.length === 0);
   const canManage = isManager || isCreator;
-  const audience: GroupTaskAudience = unassigned
+  const audience: GroupTaskAudience = everyone
+    ? "everyone"
+    : unassigned
     ? "unassigned"
     : isAssignee
       ? "assignee"
@@ -112,10 +115,12 @@ export async function claimGroupTask(
       where: { id: access.task.id },
       include: { assignees: { orderBy: { createdAt: "asc" } } },
     });
-    if (current.assignees.length > 0) throw new GroupTaskPermissionError(`${current.publicId} was just claimed by someone else.`);
+    const currentUnassigned = current.audience === TaskAudience.UNASSIGNED || (!current.audience && current.assignees.length === 0);
+    if (!currentUnassigned || current.assignees.length > 0) throw new GroupTaskPermissionError(`${current.publicId} is no longer claimable.`);
     const claimed = await tx.task.updateMany({
-      where: { id: current.id, assignedTelegramId: null },
+      where: { id: current.id, assignedTelegramId: null, audience: TaskAudience.UNASSIGNED },
       data: {
+        audience: TaskAudience.ASSIGNEES,
         assignedTelegramId: actor.telegramId,
         assignedUsername: actor.username,
         assignedDisplayName: actor.displayName,

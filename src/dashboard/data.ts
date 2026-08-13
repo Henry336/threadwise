@@ -2,6 +2,7 @@ import {
   IdeaStatus,
   Prisma,
   ReminderMode,
+  TaskAudience,
   TaskStatus,
   type PrismaClient,
   type UserSettings
@@ -16,7 +17,8 @@ import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogl
 import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled } from "../services/excel";
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
-import { nextDueReminderAt } from "../services/reminders";
+import { initialTaskReminderAt } from "../services/reminders";
+import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "../services/taskReminderSchedules";
 import { contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
 import {
   recordArchiveUndo,
@@ -133,9 +135,11 @@ export type DashboardTask = {
   description?: string;
   dueAt?: string;
   status: TaskStatus;
+  audience: TaskAudience;
   recurring: boolean;
   pinned: boolean;
   reminderIntervalMinutes?: number;
+  reminderTimes: string[];
   nextReminderAt?: string;
   snoozedUntil?: string;
   calendarEventId?: string;
@@ -263,6 +267,7 @@ function compactSummary(body: string): string {
 function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
+  audience: TaskAudience;
   snoozedUntil: Date | null;
   calendarEventId?: string | null; calendarEventUrl?: string | null; calendarSyncedAt?: Date | null; teamOwnerLabel?: string | null;
   assignees?: Array<{
@@ -270,6 +275,7 @@ function taskView(task: {
     status: "PENDING" | "ACCEPTED" | "DECLINED" | "BLOCKED"; statusReason: string | null;
     respondedAt: Date | null; updatedAt: Date;
   }>;
+  reminderSchedules?: Array<{ scheduledAt: Date; status: string }>;
   createdAt: Date; updatedAt: Date;
 }): DashboardTask {
   return {
@@ -279,9 +285,13 @@ function taskView(task: {
     ...(task.description ? { description: task.description } : {}),
     ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
     status: task.status,
+    audience: task.audience,
     recurring: Boolean(task.recurrenceRule),
     pinned: Boolean(task.pinnedAt),
     ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
+    reminderTimes: (task.reminderSchedules ?? [])
+      .filter((schedule) => schedule.status === "PENDING" || schedule.status === "PROCESSING")
+      .map((schedule) => schedule.scheduledAt.toISOString()),
     ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
     ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
     ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
@@ -389,7 +399,15 @@ export function settingsView(settings: UserSettings): DashboardSettings {
 }
 
 function nextReminder(dueAt: Date | null, interval: number, dueNudgeMinutes: number, now = new Date()): Date {
-  return dueAt ? nextDueReminderAt(dueAt, dueNudgeMinutes, now) : new Date(now.getTime() + interval * 60_000);
+  return initialTaskReminderAt({ now, dueAt, dueNudgeMinutes, intervalMinutes: interval });
+}
+
+function dashboardReminderTimes(values: readonly string[]): Date[] {
+  try {
+    return normalizeCustomReminderTimes(values);
+  } catch (error) {
+    throw new DashboardValidationError(error instanceof Error ? error.message : "Choose valid future reminder times.");
+  }
 }
 
 export async function listDashboardTasks(
@@ -406,7 +424,7 @@ export async function listDashboardTasks(
   };
   const [total, items] = await Promise.all([
     database.task.count({ where }),
-    database.task.findMany({ where, include: { assignees: { orderBy: { createdAt: "asc" } } }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
+    database.task.findMany({ where, include: { assignees: { orderBy: { createdAt: "asc" } }, reminderSchedules: { where: { status: { in: ["PENDING", "PROCESSING"] } }, orderBy: { scheduledAt: "asc" } } }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: (options.page - 1) * options.limit, take: options.limit })
   ]);
   const visible = options.q ? items.filter((item) => contentMatchesQuery("Task", item, options.q!)) : items;
   return pageResult(visible.map(taskView), options.page, options.limit, total);
@@ -416,6 +434,7 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
   const user = await userContext(telegramId, database);
   const dueAt = input.dueAt === null || input.dueAt === undefined ? null : new Date(input.dueAt);
   const interval = input.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes;
+  const reminderTimes = dashboardReminderTimes(input.reminderTimes ?? []);
   const task = await createWithPublicIdRetry(database, user.id, "TASK", async (tx, publicId) => {
     const created = await tx.task.create({
       data: {
@@ -428,9 +447,11 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
         timezone: user.settings.timezone,
         reminderIntervalMinutes: interval,
         nextReminderAt: nextReminder(dueAt, interval, user.settings.dueNudgeMinutes),
+        audience: TaskAudience.UNASSIGNED,
+        reminderSchedules: reminderTimes.length ? { create: reminderTimes.map((scheduledAt) => ({ userId: user.id, scheduledAt })) } : undefined,
         calendarUrl: dueAt ? createGoogleCalendarUrl({ title: input.title, details: input.description ?? input.title, dueAt, timezone: user.settings.timezone }) : null
       },
-      include: { assignees: true },
+      include: { assignees: true, reminderSchedules: { orderBy: { scheduledAt: "asc" } } },
     });
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
@@ -447,7 +468,7 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
 async function scopedTask(database: PrismaClient, userId: string, id: string) {
   const task = await database.task.findFirst({
     where: { userId, archivedAt: null, OR: itemReference(id) },
-    include: { assignees: { orderBy: { createdAt: "asc" } } },
+    include: { assignees: { orderBy: { createdAt: "asc" } }, reminderSchedules: { where: { status: { in: ["PENDING", "PROCESSING"] } }, orderBy: { scheduledAt: "asc" } } },
   });
   if (!task) throw new DashboardItemNotFoundError();
   return task;
@@ -471,6 +492,8 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const pinnedChanged = input.pinned !== undefined && input.pinned !== Boolean(task.pinnedAt);
   const nextSnoozedUntil = "snoozedUntil" in input ? input.snoozedUntil ? new Date(input.snoozedUntil) : null : task.snoozedUntil;
   const snoozeChanged = "snoozedUntil" in input && nextSnoozedUntil?.getTime() !== task.snoozedUntil?.getTime();
+  const reminderTimes = input.reminderTimes === undefined ? undefined : dashboardReminderTimes(input.reminderTimes);
+  const reminderTimesChanged = reminderTimes !== undefined;
   const nextTimezone = dueChanged ? user.settings.timezone : task.timezone ?? "UTC";
 
   if (titleChanged) data.title = input.title;
@@ -550,12 +573,13 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     data.nextReminderAt = nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
   }
 
-  if (Object.keys(data).length === 0) return taskView(task);
+  if (Object.keys(data).length === 0 && !reminderTimesChanged) return taskView(task);
 
   // Any deliberate task mutation counts as activity. Restart the undated
   // group cadence so an old ignored-nudge streak cannot immediately slow a
   // newly edited task to daily reminders.
   data.undatedNudgeCount = 0;
+  if (Object.keys(data).length === 1 && reminderTimesChanged) data.updatedAt = new Date();
 
   const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
   const revisionWhere: Prisma.TaskWhereUniqueInput = {
@@ -594,9 +618,20 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
                 : "restore-task"
           );
         }
-          return tx.task.update({ where: revisionWhere, data });
+        const next = await tx.task.update({ where: revisionWhere, data });
+        if (input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED) {
+          await cancelPendingTaskReminderSchedules(tx, task.id);
+        } else {
+          if (input.status === TaskStatus.OPEN) await restoreFutureTaskReminderSchedules(tx, task.id);
+          if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
+        }
+        return next;
         })
-      : await database.task.update({ where: revisionWhere, data });
+      : await database.$transaction(async (tx) => {
+        const next = await tx.task.update({ where: revisionWhere, data });
+        if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
+        return next;
+      });
   } catch (error) {
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
@@ -608,7 +643,12 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
       return taskView(await scopedTask(database, user.id, task.id));
     }
   }
-  return taskView({ ...updated, assignees: task.assignees ?? [] });
+  const reminderSchedules = input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED
+    ? []
+    : reminderTimes
+      ? reminderTimes.map((scheduledAt) => ({ scheduledAt, status: "PENDING" }))
+      : task.reminderSchedules;
+  return taskView({ ...updated, assignees: task.assignees ?? [], reminderSchedules });
 }
 
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
@@ -625,6 +665,7 @@ export async function archiveDashboardTask(telegramId: string, id: string, datab
       archivedReason: task.archivedReason
     });
     await tx.task.update({ where: { id: task.id }, data: { archivedAt: new Date(), archivedReason: "removed" } });
+    await cancelPendingTaskReminderSchedules(tx, task.id);
   });
 }
 

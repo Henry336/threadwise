@@ -1,4 +1,4 @@
-import { Prisma, RecurrenceRule, TaskAssigneeStatus, TaskStatus } from "@prisma/client";
+import { Prisma, RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
@@ -8,7 +8,8 @@ import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageForm
 import { createGoogleCalendarUrl } from "./calendar";
 import { removeTaskFromGoogleCalendar, syncTaskCalendarBestEffort } from "./googleCalendar";
 import { nextPublicId } from "./publicIds";
-import { nextDueReminderAt } from "./reminders";
+import { initialTaskReminderAt } from "./reminders";
+import { cancelPendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "./taskReminderSchedules";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
 
 export type TaskListItem = {
@@ -18,6 +19,7 @@ export type TaskListItem = {
   description?: string | null;
   sourceText: string;
   status: TaskStatus;
+  audience?: TaskAudience;
   dueAt?: Date | null;
   timezone?: string | null;
   calendarUrl?: string | null;
@@ -98,10 +100,9 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   const initialStatus = options.initialStatus ?? TaskStatus.OPEN;
   const embedding = await ai.embed(`${title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
-  const intervalReminderAt = new Date(Date.now() + settings.reminderIntervalMinutes * 60_000);
   const now = new Date();
   const nextReminderAt = initialStatus === TaskStatus.OPEN
-    ? dueAt && dueAt.getTime() > now.getTime() ? nextDueReminderAt(dueAt, settings.dueNudgeMinutes, now) : intervalReminderAt
+    ? initialTaskReminderAt({ now, dueAt, dueNudgeMinutes: settings.dueNudgeMinutes, intervalMinutes: settings.reminderIntervalMinutes })
     : null;
   const calendarUrl = dueAt
     ? createGoogleCalendarUrl({
@@ -120,6 +121,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         title,
         description: structured.description,
         status: initialStatus,
+        audience: prepared.assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
         sourceText,
         dueAt,
         timezone: settings.timezone,
@@ -179,7 +181,13 @@ export async function createScheduledReminder(userId: string, sourceText: string
         dueAt: scheduledAt,
         timezone: settings.timezone,
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
-        nextReminderAt: nextDueReminderAt(scheduledAt, settings.dueNudgeMinutes, new Date()),
+        nextReminderAt: initialTaskReminderAt({
+          now: new Date(),
+          dueAt: scheduledAt,
+          dueNudgeMinutes: settings.dueNudgeMinutes,
+          intervalMinutes: settings.reminderIntervalMinutes,
+        }),
+        audience: prepared.assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
         embedding,
         calendarUrl,
         assignedTelegramId: primaryAssignee?.telegramId,
@@ -218,6 +226,7 @@ export async function completeTask(userId: string, reference: string) {
     const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceRule, task.timezone ?? "UTC", new Date(), task.recurrenceDayOfMonth);
     const updated = await prisma.$transaction(async (tx) => {
       await recordTaskStateUndo(tx, userId, task, "complete-task");
+      await cancelPendingTaskReminderSchedules(tx, task.id);
       return tx.task.update({
         where: { id: task.id },
         data: {
@@ -254,6 +263,7 @@ export async function completeTask(userId: string, reference: string) {
       return { task: current, alreadyCompleted: true as const };
     }
     await recordTaskStateUndo(tx, userId, task, "complete-task");
+    await cancelPendingTaskReminderSchedules(tx, task.id);
     return { task: current, alreadyCompleted: false as const };
   });
 }
@@ -266,9 +276,12 @@ export async function restoreCompletedTask(userId: string, reference: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   if (!user.settings) throw new Error("User settings are missing.");
   const now = new Date();
-  const nextReminderAt = task.dueAt && task.dueAt.getTime() > now.getTime()
-    ? nextDueReminderAt(task.dueAt, user.settings.dueNudgeMinutes, now)
-    : nextIntervalReminderAtForTask(now, task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes);
+  const nextReminderAt = initialTaskReminderAt({
+    now,
+    dueAt: task.dueAt,
+    dueNudgeMinutes: user.settings.dueNudgeMinutes,
+    intervalMinutes: task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes,
+  });
 
   return prisma.$transaction(async (tx) => {
     const changed = await tx.task.updateMany({
@@ -279,6 +292,7 @@ export async function restoreCompletedTask(userId: string, reference: string) {
     if (changed.count === 0) {
       return { task: current, restored: false as const };
     }
+    await restoreFutureTaskReminderSchedules(tx, task.id, now);
     await recordTaskStateUndo(tx, userId, task, "restore-task");
     return { task: current, restored: true as const };
   });
@@ -306,6 +320,7 @@ export async function cancelTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
   return prisma.$transaction(async (tx) => {
     await recordTaskStateUndo(tx, userId, task, "cancel-task");
+    await cancelPendingTaskReminderSchedules(tx, task.id);
     return tx.task.update({
       where: { id: task.id },
       data: {
@@ -402,6 +417,7 @@ export async function assignTask(userId: string, reference: string, assigneeText
         assignedTelegramId: primary?.telegramId,
         assignedUsername: primary?.username,
         assignedDisplayName: primary?.displayName,
+        audience: TaskAudience.ASSIGNEES,
         undatedNudgeCount: 0
       },
       include: { assignees: true }
@@ -434,6 +450,7 @@ export async function unassignTask(userId: string, reference: string, assigneeTe
         assignedTelegramId: primary?.telegramId ?? null,
         assignedUsername: primary?.username ?? null,
         assignedDisplayName: primary?.displayName ?? null,
+        audience: primary ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
         undatedNudgeCount: 0
       },
       include: { assignees: true }
@@ -456,9 +473,12 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
   }
 
   const now = new Date();
-  const nextReminderAt = dueAt
-    ? nextDueReminderAt(dueAt, settings.dueNudgeMinutes, now)
-    : nextIntervalReminderAtForTask(now, settings.reminderIntervalMinutes);
+  const nextReminderAt = initialTaskReminderAt({
+    now,
+    dueAt,
+    dueNudgeMinutes: settings.dueNudgeMinutes,
+    intervalMinutes: settings.reminderIntervalMinutes,
+  });
   const calendarUrl = dueAt
     ? createGoogleCalendarUrl({
         title: task.title,
@@ -504,10 +524,6 @@ async function refreshCalendarState(userId: string, task: TaskListItem): Promise
     where: { id: task.id },
     include: { assignees: true }
   });
-}
-
-function nextIntervalReminderAtForTask(now: Date, intervalMinutes: number): Date {
-  return new Date(now.getTime() + intervalMinutes * 60_000);
 }
 
 export async function findTaskReference(userId: string, reference: string): Promise<TaskListItem> {
@@ -556,6 +572,7 @@ export function formatTaskCreated(
     assignedDisplayName?: string | null;
     teamOwnerLabel?: string | null;
     assignees?: TaskAssigneeInfo[];
+    audience?: TaskAudience;
     recurrenceRule?: RecurrenceRule | null;
   },
   fallbackTimezone = "UTC"
@@ -566,7 +583,7 @@ export function formatTaskCreated(
     h(task.title),
     [
       task.dueAt ? field("Due Date", formatDateTimeForUser(task.dueAt, timezone)) : field("Due Date", "No due date yet"),
-      hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
+      task.audience === TaskAudience.EVERYONE ? field("For", "Everyone") : hasAssignees(task) ? fieldHtml("Assigned To", formatAssigneeHtml(task)) : undefined,
       task.teamOwnerLabel ? field("Team Owner", task.teamOwnerLabel) : undefined,
       task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined
     ].filter(Boolean).join("\n"),
@@ -586,6 +603,7 @@ export function formatTaskSavedAcknowledgement(
     assignedDisplayName?: string | null;
     teamOwnerLabel?: string | null;
     assignees?: TaskAssigneeInfo[];
+    audience?: TaskAudience;
     recurrenceRule?: RecurrenceRule | null;
   },
   fallbackTimezone = "UTC"
@@ -594,7 +612,7 @@ export function formatTaskSavedAcknowledgement(
   const interpretation = [
     task.dueAt ? field("When", formatDateTimeForUser(task.dueAt, timezone)) : undefined,
     task.recurrenceRule ? field("Repeats", formatRecurrence(task.recurrenceRule)) : undefined,
-    hasAssignees(task) ? fieldHtml("For", formatAssigneeHtml(task)) : undefined,
+    task.audience === TaskAudience.EVERYONE ? field("For", "Everyone") : hasAssignees(task) ? fieldHtml("For", formatAssigneeHtml(task)) : undefined,
     task.teamOwnerLabel ? field("Team Owner", task.teamOwnerLabel) : undefined
   ].filter(Boolean).join("\n");
 
@@ -631,6 +649,7 @@ export async function archiveTask(userId: string, reference: string) {
       archivedAt: task.archivedAt,
       archivedReason: null
     });
+    await cancelPendingTaskReminderSchedules(tx, task.id);
     return tx.task.update({
       where: { id: task.id },
       data: {
@@ -645,7 +664,8 @@ export function formatTaskAlreadyCompleted(task: { publicId: string; title: stri
   return `${bold("Already complete")} ${h(task.title)}\nNeed it back on your list? You can restore it below.`;
 }
 
-export function formatAssignee(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+export function formatAssignee(task: { audience?: TaskAudience; assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+  if (task.audience === TaskAudience.EVERYONE) return "Everyone";
   const assignees = task.assignees?.length
     ? task.assignees
     : task.assignedUsername || task.assignedDisplayName
@@ -654,7 +674,8 @@ export function formatAssignee(task: { assignees?: TaskAssigneeInfo[]; assignedU
   return assignees.length ? assignees.map(formatOneAssignee).join(", ") : "Unassigned";
 }
 
-export function formatAssigneeHtml(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+export function formatAssigneeHtml(task: { audience?: TaskAudience; assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
+  if (task.audience === TaskAudience.EVERYONE) return "Everyone";
   const assignees = task.assignees?.length
     ? task.assignees
     : task.assignedUsername || task.assignedDisplayName

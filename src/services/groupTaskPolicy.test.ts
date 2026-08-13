@@ -1,8 +1,8 @@
-import type { PrismaClient } from "@prisma/client";
+import { TaskAudience, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess, GroupTaskPermissionError } from "./groupTaskPolicy";
 
-function databaseFor(options: { creator?: string; assignees?: string[] } = {}): PrismaClient {
+function databaseFor(options: { creator?: string; assignees?: string[]; audience?: TaskAudience } = {}): PrismaClient {
   const assignees = (options.assignees ?? []).map((telegramId, index) => ({
     id: `assignee-${index}`,
     telegramId,
@@ -14,7 +14,7 @@ function databaseFor(options: { creator?: string; assignees?: string[] } = {}): 
       findUnique: vi.fn(async () => ({ id: "workspace-1", ownerUser: { telegramId: "owner" } })),
     },
     task: {
-      findFirst: vi.fn(async () => ({ id: "task-1", publicId: "TASK-1", title: "Ship", assignees })),
+      findFirst: vi.fn(async () => ({ id: "task-1", publicId: "TASK-1", title: "Ship", audience: options.audience ?? (assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED), assignees })),
     },
     groupActivity: {
       findFirst: vi.fn(async () => options.creator ? { actorTelegramId: options.creator } : null),
@@ -44,6 +44,19 @@ describe("group task authorization", () => {
     expect(open.audience).toBe("unassigned");
     expect(open.canClaim).toBe(true);
     expect(assigned.canClaim).toBe(false);
+  });
+
+  it("lets every group member act on an everyone task without making it claimable", async () => {
+    const access = await getGroupTaskAccess(
+      "group-owner",
+      "TASK-1",
+      { telegramId: "member", displayName: "Member" },
+      false,
+      databaseFor({ audience: TaskAudience.EVERYONE }),
+    );
+    expect(access.audience).toBe("everyone");
+    expect(access.canComplete).toBe(true);
+    expect(access.canClaim).toBe(false);
   });
 
   it("rejects a claim when another member wins the atomic assignment update", async () => {
