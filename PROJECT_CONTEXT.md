@@ -38,6 +38,13 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   suite reached 856 pass + 6 intentional skips; one unrelated Excel configuration test timed out
   only under full-suite concurrency and passed 2/2 immediately in isolation. Both diffs pass
   whitespace validation. Final review, commit/push, and live deployment verification remain.
+- Production checkpoint: backend code commit `d0957db` and dashboard code commit `615e38e` are
+  pushed to `origin/main`. Render `/health` returned HTTP 200 with version `0.32.0` and commit
+  `d0957db3040e`; Vercel reported the exact dashboard commit successful and the canonical
+  `/dashboard` route returned HTTP 200. Both worktrees were clean and synchronized immediately
+  after verification. The remaining external issue is the OpenAI credential/account state:
+  retrying analysis will now identify invalid deployed credentials, quota/billing exhaustion, or
+  temporary throttling distinctly instead of reporting every HTTP 429 as generic busyness.
 
 ## Current checkpoint — 2026-08-13
 

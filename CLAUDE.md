@@ -130,7 +130,7 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
-- **2026-08-14 (Codex, local validation complete):** Replaced Study module review's native
+- **2026-08-14 (Codex):** Replaced Study module review's native
   Module/Review type selects with the existing Threadwise choice popover and keyboard/focus
   behavior, and fixed the Review Top three card's accidental implicit-row stretch. OpenAI Study
   failures now distinguish invalid credentials, quota/billing exhaustion, temporary rate limits,
@@ -138,7 +138,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   local probe returned 401 while the live failure was 429, so the local and deployed credentials
   are not equivalent; no secret was printed. Focused tests/typechecks pass; the full backend suite
   reached 856 pass + 6 skip with one unrelated concurrent Excel timeout that passes independently;
-  build and Prisma generation pass. Dashboard validation is recorded in its own `CLAUDE.md`.
+  build and Prisma generation pass. Backend code commit `d0957db` is live on Render with HTTP 200.
+  Dashboard validation and deployment are recorded in its own `CLAUDE.md`.
 
 - **2026-08-14 (Codex):** Implemented the approved correction: durable Study
   analysis now uses the deployed OpenAI configuration with its evidence/validation boundaries intact,
