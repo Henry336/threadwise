@@ -540,3 +540,69 @@ and the next command/action. Never mark incomplete work complete.
 - No backend runtime, database, secret, repository data, additional asset, or poisoned recovery
   artifact was accessed or changed. The dashboard worktree is expected to be clean at `be3c88c`;
   this PROJECT_CONTEXT update is the only backend-repository change.
+
+### Ari smooth in-between animation — approved scope before implementation (2026-08-13 23:02 SGT)
+
+- User correctly reported that 4 FPS still hard-cuts between the same eight drawings. Raising
+  playback speed did not create transitional poses and therefore made the snapping more obvious.
+- Chosen durable fix: keep all eight approved normalized frames as anchors, retain the existing
+  14-step forward/reverse motion and exact 3.5-second loop, and deterministically generate two
+  premultiplied-alpha in-between frames for every anchor transition. This yields 42 playback
+  frames at 12 FPS without generative redrawing, optical-flow deformation, geometry changes, or
+  a local/runtime worker.
+- The production animation will be a transparent 480x480 animated WebP bounded below 2 MB.
+  The original 640px v4 normalized sprite remains the reproducible anchor source and the
+  reduced-motion still frame. The generator must encode interpolation method, source anchors,
+  per-frame durations, frame count, transparency, and loop duration in a new v5 manifest.
+- Naive block optical flow was prototyped and rejected before production because it visibly
+  damaged Ari's lines. Generative image editing was also rejected because it could change the
+  established mascot. Alpha-correct interpolation preserves colors/alignment and adds only
+  short transitional blends between exact approved anchors.
+- Expected dashboard files: `scripts/normalize_ari_assets.py`, new v5 WebP/JSON assets under
+  `public/brand`, `src/components/ari.tsx`, `src/app/globals.css`, `src/lib/ari-loader.ts`, and
+  focused Ari tests. Existing v4 PNG/JSON anchors must not be removed. No backend, data, secret,
+  or unrelated UI change is in scope.
+- Validation plan: regenerate from checked-in sources; verify 42 frames, 12 FPS, 3.5-second
+  duration, transparent corners, exact square ratio, v4 anchor hash stability, size budget,
+  reduced-motion fallback, focused tests, typecheck/lint/build, detector, and browser-computed
+  loader geometry. Next action: implement the v5 generator and switch only the animated loader.
+
+### Ari smooth in-between animation — implemented and validated locally (2026-08-13 23:18 SGT)
+
+- Added reproducible `ari-untangle-smooth-v5.webp` plus a structured v5 playback manifest.
+  The generator derives 42 transparent 480x480 frames from the approved v4 anchors: 14 exact
+  anchor positions plus two premultiplied-alpha transitional frames per anchor interval. It
+  plays at 12 FPS for the same exact 3.5-second loop and remains below the 2 MB budget at
+  1,661,414 bytes.
+- The generator now reopens the encoded WebP and fails if frame count, dimensions, transparent
+  corners, or anchor fidelity drift. Current decoded validation: 42 frames, all corner alpha
+  zero, maximum foreground anchor mean absolute error 3.61 against a strict 4.5 threshold.
+  Approved v4 PNG and light/dark static Ari asset SHA-256 hashes remain unchanged.
+- Runtime now renders the animated v5 WebP as a normal square image rather than moving a wide
+  sprite with hard CSS steps. `prefers-reduced-motion: reduce` hides the animation and uses the
+  crisp final v4 anchor as a static background. Shared Study/route loader markup, 220px normal
+  geometry, 118px compact geometry, copy, background, and error behavior are unchanged.
+- Focused Ari Vitest passes (2 files / 5 tests); TypeScript, ESLint, Next production build,
+  `git diff --check`, and the Impeccable detector pass. Chromium QA confirms 480x480 natural
+  media inside an exact 220x220 rendered frame, visible frame advancement over 110 ms, and the
+  expected reduced-motion static background (`800%`, position `100% 0`). The only QA console
+  request error was the temporary test page's absent favicon, unrelated to production code.
+- Rejected experiments were not retained: block optical flow visibly damaged line art, and a
+  lossless 56-frame prototype exceeded 6.9 MB. All temporary interpolation files, QA pages,
+  screenshots, browser sessions, and local servers created during this pass were removed.
+  Next action: stage only the v5 generator/asset/runtime/tests, commit, push, verify Vercel and
+  the production v5 asset response, then record the deployed commit.
+
+### Ari smooth in-between animation — deployed (2026-08-13 23:24 SGT)
+
+- Dashboard commit `3c2b4ae` (`smooth Ari loader transitions`) is pushed to `origin/main`; its
+  Vercel production deployment completed successfully.
+- Canonical production verification: `/dashboard` HTTP 200,
+  `/brand/ari-untangle-smooth-v5.webp` HTTP 200 as `image/webp` with the expected 1,661,414-byte
+  body, and the v5 manifest HTTP 200 as JSON.
+- The live loader now uses 42 frames at 12 FPS with two deterministic alpha-correct in-betweens
+  between each approved anchor, the same 3.5-second forward/reverse loop, unchanged square
+  geometry, and the unchanged crisp v4 reduced-motion fallback.
+- Dashboard worktree is expected clean at `3c2b4ae`. No backend runtime, database, secret,
+  repository data, unrelated session, local worker, or poisoned recovery artifact was accessed
+  or changed. This PROJECT_CONTEXT update is the only backend-repository change.
