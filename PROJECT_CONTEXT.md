@@ -78,6 +78,21 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Phase 2 local validation: Prisma generation/validation, backend TypeScript, full backend
   suite (830 passed, 6 skipped), backend production build, dashboard TypeScript, targeted lint,
   full dashboard suite (73/73), and dashboard production build pass.
+- Phase 2 publication checkpoint (2026-08-13):
+  - backend commit `02b8d79` is pushed to `main` and Render deployment
+    `dep-d9upqrdg1s2s73e59ka0` reached `live` after applying the Prisma migration;
+  - `https://threadwise-90du.onrender.com/health` returned HTTP 200 with release
+    `02b8d7907ae3` and service version `0.32.0`;
+  - dashboard commit `c4eb418` is pushed to `main`, and production deployment
+    `https://threadwise-dashboard-gfoiv0zce-hein-lin-htets-projects.vercel.app` is Ready;
+  - both worktrees were clean immediately after publication;
+  - the production job loop can now perform bounded Canvas assignment/material sync, but a
+    founder-workspace sync result remains an authenticated operational check; do not claim
+    private account coverage from an unauthenticated health probe.
+- Next implementation action: inspect current task assignment/reminder persistence and Telegram
+  callback/message ownership, then add the Phase 3 schema and tests for explicit audiences,
+  multiple reminder instants, deterministic due-date escalation, delivery dedupe, and one
+  canonical task-control surface per chat. Keep every new record workspace-scoped.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.
