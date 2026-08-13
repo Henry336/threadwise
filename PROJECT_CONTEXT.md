@@ -350,6 +350,15 @@ enough for a future invite-only Study bot. Do not activate or publicize that bot
 - Dashboard now has Connections / Quiz / Both controls, cited corrections, expandable quiz answers, evidence provenance and manual note-edit review controls.
 - Focused Gemini/runner tests pass (6); dashboard proxy/analysis tests pass (27); both codebases typecheck. Full test/build/UI validation remains pending.
 
+### Phase 5 production checkpoint (2026-08-13 20:45 SGT)
+
+- Backend feature commit `7ce3f4fe7043f05af3217c6236cfc25a1116a1f2` is live in Render deployment `dep-d9urmo5bedkc73bult90`; the additive Prisma migration completed and `/health` returns HTTP 200 with exact commit `7ce3f4fe7043`.
+- Dashboard feature commit `7c018e194b06c287b336e7032c1ae227728f7574` has a successful Vercel deployment status and the canonical production alias returns HTTP 200.
+- Final local gates: Prisma validate/generate, backend typecheck/build and all 849 tests (6 skipped); dashboard TypeScript, lint, production build and all 76 tests.
+- Production AI execution remains deliberately fail-closed: a Render environment-name audit confirms `GEMINI_API_KEY` is absent. The code never substituted another provider or exposed a secret. Add the key directly in Render before live analysis can execute; cached analyses remain readable meanwhile.
+- Canvas page bodies participate as authoritative course material. Canvas file/PDF records currently contribute ordering/title/type/size/update metadata only; routine sync deliberately does not download their bodies. Do not claim the AI read PDF contents until a separately bounded, consented extraction path is implemented.
+- Both worktrees were clean at the feature commits before this production-context update. No local AI worker is required or running.
+
 ## Interruption protocol
 
 Before any implementation begins, add the approved scope and exact files/migrations expected.

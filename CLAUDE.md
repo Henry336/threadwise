@@ -135,7 +135,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   pace reporting, evidence-gated misconception correction, and durable manually reviewed note-edit
   proposals with conflict-safe apply. No image bytes enter AI prompts; Canvas file/PDF bodies remain
   metadata-only. TypeScript, build, focused tests, and the full backend suite (849 passed, 6 skipped)
-  pass. Dashboard validation and deployment are tracked in the paired repository.
+  pass. Backend commit `7ce3f4f` is live on Render with its additive migration applied and HTTP
+  200 health. Provider execution remains fail-closed because `GEMINI_API_KEY` is absent in Render.
 
 - **2026-08-13 (Codex):** Replaced Study module review's laptop-worker dependency with a bounded
   server-side Gemini API runner. Jobs remain opt-in, workspace-scoped, leased, restart-safe, and
