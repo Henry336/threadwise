@@ -39,6 +39,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   build, generator decode/alpha/registration checks and diff checks pass. Backend focused tests 11/11,
   full tests 858 plus 6 intentional skips, TypeScript, build and diff checks pass. Next action: final
   source review, commit and push both `main` branches, then verify Render/Vercel and public health/assets.
+- Release checkpoint: backend runtime commit `8e6a87d` is pushed and Render `/health` reports HTTP 200
+  with exact commit `8e6a87dd47fa`. Dashboard runtime commit `313fa9d` is pushed, Vercel reports the
+  deployment successful, `/dashboard` returns HTTP 200, and the v6 WebP returns HTTP 200 as
+  `image/webp` with the expected 1,663,568-byte response. Integration/configuration and recovery from
+  temporary provider/model failures are fixed; an authenticated user-side Study request is still the
+  required proof that the deployed OpenAI project currently has usable quota and permissions.
 
 ## Active checkpoint — Study review UI and provider diagnostics (2026-08-14 SGT)
 
