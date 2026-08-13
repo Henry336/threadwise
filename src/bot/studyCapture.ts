@@ -87,6 +87,19 @@ import { truncate } from "../utils/text";
 import { editEphemeralMessageText, ephemeralDeletionTarget } from "./ephemeral";
 import { groupDashboardUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml, replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import {
+  beginStudyCaptureBatchProcessing,
+  completeStudyCaptureBatch,
+  findStudyCaptureBatch,
+  ignoreStudyCaptureBatch,
+  registerStudyImageCapture,
+  releaseStudyCaptureBatch,
+  setStudyCaptureBatchModule,
+  setStudyCaptureBatchReviewMessage,
+  setStudyCaptureReviewMessageForItem,
+  studyCaptureBatchKeyboard,
+  updateStudyCaptureBatchCaption,
+} from "../services/studyCaptureBatches";
 
 const EXTENDED_CALLBACKS = [
   "study:onboarding",
@@ -101,6 +114,9 @@ const EXTENDED_CALLBACKS = [
   "study:cap:",
   "study:capm:",
   "study:capmods:",
+  "study:capb:",
+  "study:capbm:",
+  "study:capbmods:",
   "study:origins",
   "study:origin:",
   "study:routepick:",
@@ -118,6 +134,7 @@ type StudyMedia = {
   sourceMessageId?: number;
   sourceSenderTelegramId?: string;
   sourceSentAt?: Date;
+  telegramMediaGroupId?: string;
 };
 
 export function isExtendedStudyCallback(data: string): boolean {
@@ -289,6 +306,7 @@ export async function handleStudyPhoto(ctx: Context, workspace: StudyWorkspace):
     sourceMessageId: ctx.message?.message_id,
     sourceSenderTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
     sourceSentAt: ctx.message?.date ? new Date(ctx.message.date * 1_000) : undefined,
+    telegramMediaGroupId: ctx.message?.media_group_id,
   });
 }
 
@@ -306,6 +324,7 @@ export async function handleStudyDocument(ctx: Context, workspace: StudyWorkspac
     sourceMessageId: ctx.message?.message_id,
     sourceSenderTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
     sourceSentAt: ctx.message?.date ? new Date(ctx.message.date * 1_000) : undefined,
+    telegramMediaGroupId: ctx.message?.media_group_id,
   });
 }
 
@@ -486,6 +505,49 @@ export async function handleExtendedStudyCallback(
       await editOrReplyQuietAcknowledgementHtml(ctx, "Archived.");
       return true;
     }
+  }
+  if (parts[1] === "capb" && parts[2] && parts[3]) {
+    const action = parts[2];
+    const token = parts[3];
+    if (action === "ignore") {
+      await ignoreStudyCaptureBatch(workspace.id, token);
+      await editOrReplyQuietAcknowledgementHtml(ctx, "Image batch canceled.");
+      return true;
+    }
+    const batch = await findStudyCaptureBatch(workspace.id, token);
+    if (action === "caption") {
+      await beginStudyConversation(workspace.id, "study_capture_caption", "caption", { batchToken: token });
+      await editOrReplyHtml(ctx, `${bold("Shared image caption")}\nReply to this message with one caption for the whole batch.`, {
+        reply_markup: new InlineKeyboard().text("Back", `study:capb:menu:${token}`).text("Cancel batch", `study:capb:ignore:${token}`),
+      });
+      return true;
+    }
+    if (action === "choose") {
+      await chooseCaptureBatchModule(ctx, workspace, token);
+      return true;
+    }
+    if (action === "menu") {
+      await showStudyCaptureBatchActions(ctx, workspace, token, true);
+      return true;
+    }
+    if (action === "save") {
+      if (!batch.moduleId) {
+        await chooseCaptureBatchModule(ctx, workspace, token);
+        return true;
+      }
+      await saveStudyCaptureBatch(ctx, workspace, token);
+      return true;
+    }
+  }
+  if (parts[1] === "capbm" && parts[2] && parts[3]) {
+    const module = await findStudyModule(workspace.id, parts[3]);
+    await setStudyCaptureBatchModule(workspace.id, parts[2], module.id);
+    await showStudyCaptureBatchActions(ctx, workspace, parts[2], true);
+    return true;
+  }
+  if (parts[1] === "capbmods" && parts[2] && parts[3]) {
+    await chooseCaptureBatchModule(ctx, workspace, parts[2], true, Number(parts[3]));
+    return true;
   }
   if (parts[1] === "cap" && parts[2] && parts[3]) {
     const action = parts[2];
@@ -917,6 +979,28 @@ async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: 
   const explicitModule = await resolveExplicitCaptureModule(ctx, workspace, moduleRef);
   const module = explicitModule ?? (await studyCaptureContext(workspace))?.module;
   const resourceKind = media.mimeType?.startsWith("image/") || media.mediaKind === "photo" ? StudyResourceKind.IMAGE : StudyResourceKind.FILE;
+  if (resourceKind === StudyResourceKind.IMAGE) {
+    const chatId = ctx.chat?.id ? String(ctx.chat.id) : workspace.boundChatId;
+    if (!chatId || !media.telegramUniqueId || !media.sourceMessageId) {
+      throw new StudyModeError("Telegram did not provide enough information to queue that image safely. Send it again.", "invalid");
+    }
+    await registerStudyImageCapture(workspace, {
+      moduleId: module?.id,
+      telegramMediaGroupId: media.telegramMediaGroupId,
+      chatId,
+      telegramFileId: media.telegramFileId,
+      telegramUniqueId: media.telegramUniqueId,
+      mediaKind: media.mediaKind,
+      mimeType: media.mimeType,
+      fileName: media.fileName,
+      fileSize: media.fileSize,
+      caption: media.caption,
+      sourceMessageId: media.sourceMessageId,
+      sourceSenderTelegramId: media.sourceSenderTelegramId,
+      sourceSentAt: media.sourceSentAt,
+    });
+    return;
+  }
   const pending = await createStudyPendingCapture(workspace, {
     moduleId: module?.id,
     telegramFileId: media.telegramFileId,
@@ -931,11 +1015,7 @@ async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: 
     sourceSentAt: media.sourceSentAt,
   });
   if (!module) {
-    await chooseCaptureModule(ctx, workspace, pending.token, resourceKind === StudyResourceKind.IMAGE ? "imagemenu" : "file", false);
-    return;
-  }
-  if (resourceKind === StudyResourceKind.IMAGE) {
-    await showImageCaptureActions(ctx, workspace, pending.token, false);
+    await chooseCaptureModule(ctx, workspace, pending.token, "file", false);
     return;
   }
   await resolveCapture(ctx, workspace, pending.token, "file", module.id);
@@ -984,6 +1064,13 @@ export async function handleStudyCaptureCaptionMessage(
   payload: Record<string, unknown>,
   caption: string,
 ): Promise<void> {
+  const batchToken = typeof payload.batchToken === "string" ? payload.batchToken : undefined;
+  if (batchToken) {
+    await updateStudyCaptureBatchCaption(workspace.id, batchToken, caption);
+    await clearStudyConversation(workspace.id);
+    await showStudyCaptureBatchActions(ctx, workspace, batchToken, false);
+    return;
+  }
   const token = typeof payload.token === "string" ? payload.token : undefined;
   if (!token) throw new StudyModeError("That image capture expired. Send the image again.", "not_found");
   await updateStudyPendingCaptureCaption(workspace.id, token, caption);
@@ -1010,7 +1097,115 @@ async function showImageCaptureActions(
   ].filter(Boolean).join("\n\n");
   const options = { reply_markup: imageCaptureKeyboard(token, Boolean(pending.ocrText), Boolean(pending.sourceText)) };
   if (edit) await editOrReplyHtml(ctx, text, options);
-  else await replyHtml(ctx, text, options);
+  else {
+    const message = await replyHtml(ctx, text, options);
+    const messageId = telegramMessageId(message);
+    if (messageId) {
+      const previousMessageId = await setStudyCaptureReviewMessageForItem(workspace.id, token, messageId);
+      if (previousMessageId && previousMessageId !== messageId && ctx.chat?.id) {
+        await ctx.api.deleteMessage(ctx.chat.id, previousMessageId).catch(() => undefined);
+      }
+    }
+  }
+}
+
+async function showStudyCaptureBatchActions(ctx: Context, workspace: StudyWorkspace, token: string, edit: boolean): Promise<void> {
+  const batch = await findStudyCaptureBatch(workspace.id, token);
+  const text = [
+    bold(`${batch.captures.length} image captures`),
+    batch.module ? `Module · ${bold(batch.module.code)}` : "Module · choose one",
+    batch.sharedCaption ? `Caption · ${h(truncate(batch.sharedCaption, 500))}` : "Caption · none",
+    "One decision applies to every image. This batch expires about 5 minutes after upload.",
+  ].join("\n\n");
+  const options = { reply_markup: studyCaptureBatchKeyboard(token) };
+  if (edit) await editOrReplyHtml(ctx, text, options);
+  else {
+    const message = await replyHtml(ctx, text, options);
+    const messageId = telegramMessageId(message);
+    if (messageId) {
+      const previousMessageId = await setStudyCaptureBatchReviewMessage(workspace.id, token, messageId);
+      if (previousMessageId && previousMessageId !== messageId && ctx.chat?.id) {
+        await ctx.api.deleteMessage(ctx.chat.id, previousMessageId).catch(() => undefined);
+      }
+    }
+  }
+}
+
+async function chooseCaptureBatchModule(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  token: string,
+  edit = true,
+  requestedPage = 0,
+): Promise<void> {
+  const modules = await listStudyModules(workspace.id);
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(modules.length / pageSize));
+  const page = Math.max(0, Math.min(pageCount - 1, Math.trunc(requestedPage)));
+  const keyboard = new InlineKeyboard();
+  modules.slice(page * pageSize, page * pageSize + pageSize).forEach((module, index) => {
+    keyboard.text(module.code, `study:capbm:${token}:${module.code}`);
+    if (index % 2 === 1) keyboard.row();
+  });
+  if (pageCount > 1) {
+    if (page > 0) keyboard.text("Prev", `study:capbmods:${token}:${page - 1}`);
+    keyboard.text(`${page + 1}/${pageCount}`, `study:capbmods:${token}:${page}`);
+    if (page + 1 < pageCount) keyboard.text("Next", `study:capbmods:${token}:${page + 1}`);
+    keyboard.row();
+  }
+  keyboard.text("Cancel batch", `study:capb:ignore:${token}`);
+  const text = `${bold("Choose a module")}\nThe choice applies to every image in this batch.`;
+  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
+  else await replyHtml(ctx, text, { reply_markup: keyboard });
+}
+
+async function saveStudyCaptureBatch(ctx: Context, workspace: StudyWorkspace, token: string): Promise<void> {
+  const batch = await beginStudyCaptureBatchProcessing(workspace.id, token);
+  if (!batch.moduleId || !batch.module) {
+    await releaseStudyCaptureBatch(workspace.id, batch.id);
+    throw new StudyModeError("Choose a current module before saving this batch.", "invalid");
+  }
+  let saved = 0;
+  let duplicates = 0;
+  try {
+    for (const pending of batch.captures) {
+      const caption = batch.sharedCaption ?? pending.sourceText ?? undefined;
+      const result = await createStudyResource(workspace, {
+        moduleId: batch.moduleId,
+        kind: StudyResourceKind.IMAGE,
+        title: caption ?? pending.fileName ?? undefined,
+        body: caption,
+        telegramFileId: pending.telegramFileId ?? undefined,
+        telegramUniqueId: pending.telegramUniqueId ?? undefined,
+        mediaKind: pending.mediaKind ?? undefined,
+        mimeType: pending.mimeType ?? undefined,
+        fileName: pending.fileName ?? undefined,
+        fileSize: pending.fileSize ?? undefined,
+        caption,
+        sourceMessageId: pending.sourceMessageId ?? undefined,
+        sourceSenderTelegramId: pending.sourceSenderTelegramId ?? undefined,
+        sourceSentAt: pending.sourceSentAt ?? undefined,
+      });
+      if (result.duplicate) duplicates += 1;
+      else saved += 1;
+    }
+    await completeStudyCaptureBatch(workspace.id, batch.id);
+  } catch (error) {
+    await releaseStudyCaptureBatch(workspace.id, batch.id);
+    throw error;
+  }
+  const summary = duplicates
+    ? `${saved} new · ${duplicates} already saved`
+    : `${saved} image${saved === 1 ? "" : "s"}`;
+  await editOrReplyHtml(ctx, `${bold("Saved image batch")} · ${bold(batch.module.code)}\n${summary}`, {
+    reply_markup: new InlineKeyboard().text("Images", "study:resources:i:1").text("Home", "study:dashboard"),
+  });
+}
+
+function telegramMessageId(value: unknown): number | undefined {
+  if (!value || typeof value !== "object" || !("message_id" in value)) return undefined;
+  const messageId = (value as { message_id?: unknown }).message_id;
+  return typeof messageId === "number" ? messageId : undefined;
 }
 
 export function imageCaptureKeyboard(token: string, hasOcr: boolean, hasCaption = false): InlineKeyboard {

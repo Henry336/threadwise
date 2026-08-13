@@ -223,6 +223,16 @@ enum StudyResourceKind {
   QUESTION
 }
 
+enum StudyCaptureBatchStatus {
+  COLLECTING
+  SENDING
+  REVIEW
+  PROCESSING
+  COMPLETED
+  EXPIRING
+  EXPIRED
+}
+
 enum StudyCanvasSyncStatus {
   NEVER
   RUNNING
@@ -363,6 +373,7 @@ model StudyWorkspace {
   reminderDeliveries StudyReminderDelivery[]
   resources          StudyResource[]
   pendingCaptures    StudyPendingCapture[]
+  pendingCaptureBatches StudyPendingCaptureBatch[]
   analysisJobs       GeminiStudyAnalysisJob[]
   noteCaptureSession StudyNoteCaptureSession?
   canvasSync         StudyCanvasSync?
@@ -403,6 +414,7 @@ model StudyModule {
   scheduleBlocks      StudyScheduleBlock[]
   resources           StudyResource[]
   pendingCaptures     StudyPendingCapture[]
+  pendingCaptureBatches StudyPendingCaptureBatch[]
   noteCaptureSessions StudyNoteCaptureSession[]
   canvasAssignments   StudyCanvasAssignment[]
   analysisJobs         GeminiStudyAnalysisJob[]
@@ -658,14 +670,44 @@ model StudyPendingCapture {
   selectedKind     StudyResourceKind?
   ocrText          String?
   ocrConfidence    Float?
+  batchId          String?
+  batchPosition    Int?
   expiresAt        DateTime
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
   workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   module    StudyModule?   @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  batch     StudyPendingCaptureBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, expiresAt])
+  @@index([batchId, batchPosition])
+}
+
+model StudyPendingCaptureBatch {
+  id                   String                  @id @default(uuid())
+  token                String                  @unique
+  workspaceId          String
+  moduleId             String?
+  telegramMediaGroupId String
+  chatId               String
+  sharedCaption        String?
+  status               StudyCaptureBatchStatus @default(COLLECTING)
+  readyAt              DateTime
+  expiresAt            DateTime
+  leaseExpiresAt       DateTime?
+  reviewMessageId      Int?
+  completedAt          DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  workspace StudyWorkspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule?          @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  captures  StudyPendingCapture[]
+
+  @@unique([workspaceId, telegramMediaGroupId])
+  @@index([status, readyAt, leaseExpiresAt])
+  @@index([status, expiresAt])
 }
 
 model StudyNoteCaptureSession {

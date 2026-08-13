@@ -325,6 +325,15 @@ export async function consumeStudyPendingCapture(workspaceId: string, token: str
     if (!pending) throw new StudyModeError("That capture was already handled or expired. Send it again if needed.", "not_found");
     const claimed = await tx.studyPendingCapture.deleteMany({ where: { id: pending.id, workspaceId, token } });
     if (claimed.count !== 1) throw new StudyModeError("That capture was already handled or expired. Send it again if needed.", "conflict");
+    if (pending.batchId) {
+      const remaining = await tx.studyPendingCapture.count({ where: { workspaceId, batchId: pending.batchId } });
+      if (remaining === 0) {
+        await tx.studyPendingCaptureBatch.updateMany({
+          where: { id: pending.batchId, workspaceId },
+          data: { status: "COMPLETED", completedAt: new Date(), leaseExpiresAt: null },
+        });
+      }
+    }
     return pending;
   });
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { imageCaptureKeyboard, studyCaptureModulePickerKeyboard } from "./studyCapture";
+import { studyCaptureBatchKeyboard } from "../services/studyCaptureBatches";
 
 describe("Study image capture controls", () => {
   it("keeps OCR opt-in and labels caption editing accurately", () => {
@@ -30,5 +31,18 @@ describe("Study image capture controls", () => {
     expect(buttons).toContainEqual({ text: "2/3", callback_data: "study:capmods:abcdefghijkl:imagemenu:1" });
     expect(buttons).toContainEqual({ text: "Cancel", callback_data: "study:cap:ignore:abcdefghijkl" });
     expect(buttons.every((button) => !("callback_data" in button) || Buffer.byteLength(button.callback_data, "utf8") <= 64)).toBe(true);
+  });
+
+  it("offers one coherent action menu for a Telegram image album", () => {
+    const rows = studyCaptureBatchKeyboard("batch-token").inline_keyboard;
+    expect(rows).toEqual([
+      [{ text: "Save all images", callback_data: "study:capb:save:batch-token" }],
+      [
+        { text: "Add shared caption", callback_data: "study:capb:caption:batch-token" },
+        { text: "Choose module", callback_data: "study:capb:choose:batch-token" },
+      ],
+      [{ text: "Cancel batch", callback_data: "study:capb:ignore:batch-token" }],
+    ]);
+    expect(rows.flat().every((button) => Buffer.byteLength(button.callback_data, "utf8") <= 64)).toBe(true);
   });
 });
