@@ -116,6 +116,7 @@ import {
   getGeminiStudyAnalysis,
   requestGeminiStudyAnalysis
 } from "../services/geminiStudyAnalysis";
+import { reviewStudyNoteEditSuggestion } from "../services/studyNoteEditSuggestions";
 import {
   DashboardStudyAccessError,
   archiveDashboardStudyItem,
@@ -145,12 +146,14 @@ import {
   archiveDashboardStudySession,
   stopDashboardStudySession,
   studyCanvasAssignmentActionSchema,
+  studyAnalysisRequestSchema,
   studyIdParamsSchema,
   studyItemCreateSchema,
   studyItemUpdateSchema,
   studyMistakeCreateSchema,
   studyModuleCreateSchema,
   studyModuleUpdateSchema,
+  studyNoteSuggestionReviewSchema,
   studyNusmodsImportSchema,
   studyOriginCreateSchema,
   studyOriginUpdateSchema,
@@ -414,14 +417,23 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.get("/api/v1/dashboard/study/modules/:id/analysis", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    return getGeminiStudyAnalysis(workspace, id);
+    const { mode } = studyAnalysisRequestSchema.parse(request.query);
+    return getGeminiStudyAnalysis(workspace, id, mode);
   }, "study_get_module_analysis"));
 
   server.post("/api/v1/dashboard/study/modules/:id/analysis", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    return requestGeminiStudyAnalysis(workspace, id, scope.principalTelegramId);
+    const { mode } = studyAnalysisRequestSchema.parse(request.body ?? {});
+    return requestGeminiStudyAnalysis(workspace, id, scope.principalTelegramId, mode);
   }, "study_request_module_analysis"));
+
+  server.patch("/api/v1/dashboard/study/analysis-suggestions/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    const suggestion = await reviewStudyNoteEditSuggestion(workspace, id, studyNoteSuggestionReviewSchema.parse(request.body));
+    return { suggestion };
+  }, "study_review_analysis_suggestion"));
 
   server.post("/api/v1/dashboard/study/items", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);

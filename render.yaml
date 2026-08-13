@@ -26,6 +26,20 @@ services:
         value: gpt-5.4-mini
       - key: OPENAI_MODEL_FALLBACKS
         value: gpt-5.5,gpt-5.4,gpt-5.4-nano
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_STUDY_MODEL
+        value: gemini-3.6-flash
+      - key: GEMINI_STUDY_FALLBACK_MODELS
+        value: gemini-3.5-flash,gemini-2.5-flash
+      - key: GEMINI_STUDY_POLL_MS
+        value: "10000"
+      - key: GEMINI_STUDY_TIMEOUT_MS
+        value: "90000"
+      - key: GEMINI_STUDY_LEASE_SECONDS
+        value: "180"
+      - key: GEMINI_STUDY_MAX_OUTPUT_TOKENS
+        value: "8192"
       - key: ADMIN_STATUS_TOKEN
         sync: false
       - key: WEBHOOK_URL

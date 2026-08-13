@@ -1,5 +1,6 @@
 import {
   Prisma,
+  StudyAnalysisMode,
   StudyCanvasAssignmentStatus,
   StudyItemStatus,
   StudyItemType,
@@ -77,6 +78,17 @@ const timezone = text(80).refine((value) => {
 }, "Choose a valid IANA timezone, such as Asia/Singapore.");
 
 export const studyIdParamsSchema = z.object({ id });
+export const studyAnalysisRequestSchema = z.object({
+  mode: z.nativeEnum(StudyAnalysisMode).default(StudyAnalysisMode.CONNECTIONS),
+}).strict();
+export const studyNoteSuggestionReviewSchema = z.object({
+  action: z.enum(["APPLY", "DISMISS"]),
+  replacementText: z.string().trim().min(1).max(5_000).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.action === "DISMISS" && value.replacementText !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["replacementText"], message: "A dismissed suggestion cannot include replacement text." });
+  }
+});
 export const studyNusmodsImportSchema = z.object({
   url: z.string().trim().url().max(4_000),
 }).strict();

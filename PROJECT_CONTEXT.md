@@ -138,7 +138,7 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   contract, job schema, worker readiness checks, and deployed environment-variable wiring. Replace
   only Study analysis's laptop-worker dependency with a bounded, asynchronous server-side Gemini
   API runner; keep deterministic Study operations independent and do not read or expose the key.
-- Phase 4 implementation checkpoint (locally complete; publication pending):
+- Phase 4 implementation checkpoint (implemented, published, and operationally verified):
   - confirmed the current module-review job table is already workspace/module scoped, leased,
     restart-safe, evidence-hashed, and dashboard-polled; no Phase 4 schema migration is required;
   - confirmed the incompatible pieces are worker readiness in `geminiStudyAnalysis.ts`, Study job
@@ -168,10 +168,34 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
     process, or the Windows user/machine environments. No value was printed and no other provider
     credential will be substituted. Phase 4 therefore deploys fail-closed with analysis reported
     offline until the owner adds the Gemini key directly to Render.
-- Phase 4 next action: inspect/stage the exact diff, commit and push both repositories, verify
-  production commits/health in the intentionally disabled state, then start Phase 5's evidence
-  graph and user-selectable analysis modes. Live provider execution remains a named configuration
-  follow-up, not an implementation failure or a reason to add a laptop worker.
+- Phase 4 deployment result: production is healthy in the intentionally disabled provider state.
+  Live provider execution remains a named configuration follow-up, not an implementation failure
+  or a reason to add a laptop worker.
+  - backend commit `41fa0bb532fcfa26263ddedc7e96e23f8c3cb05c` reached Render `live` in
+    deployment `dep-d9ur72uq1p3s73c16evg`; `/health` returned HTTP 200 with commit
+    `41fa0bb532fc`;
+  - dashboard commit `d215e7f` was verified in Vercel's build log, reached `Ready`, and the
+    production dashboard returned HTTP 200.
+- Phase 4 is complete. Phase 5 begins with a versioned, workspace-scoped evidence graph covering
+  exact capture/session times, explicit and inferred session-resource links, Study work, Canvas
+  ordering/material authority, and confidence/provenance. It must support Connections, Quiz, and
+  Both without silently applying note corrections.
+- Phase 5 implementation checkpoint (in progress):
+  - migration `20260813203000_study_evidence_analysis` will add explicit Connections/Quiz/Both
+    job modes and durable note-edit suggestions with Pending/Applied/Dismissed/Superseded state;
+  - evidence snapshot v2 will include sessions, user notes/images/OCR, Study work, Canvas pages and
+    file metadata, assignments, provenance/authority, exact occurrence times, explicit session
+    links, cautious temporal links, and coverage metadata. It will never embed image bytes;
+  - correctness claims and edit suggestions must cite both the user record being questioned and
+    authoritative Canvas evidence. Metadata-only files cannot establish a correction;
+  - applying a suggestion will be an authenticated explicit action with an optional user-edited
+    replacement, an original-content hash conflict check, and an untouched original until Apply.
+    Dismiss never changes the note;
+  - planned backend files: Prisma schema/migration, `geminiStudyAnalysis.ts`, structured Gemini
+    schema, Study dashboard schemas/routes, pure evidence-graph tests, and suggestion review tests.
+    Planned dashboard files: Study analysis types/helpers/panel/styles/proxy allowlist/tests.
+- Phase 5 next action: add the schema and v2 snapshot/result types first, regenerate Prisma, then
+  implement pure edge/authority validation before wiring any mutation endpoint or UI.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.
@@ -278,12 +302,13 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Repository evidence already established
 
-- `src/services/geminiStudyAnalysis.ts` currently queues work for local worker readiness,
-  limits evidence to recent sessions/resources, ignores explicit session-resource edges,
-  and explicitly instructs the model not to grade correctness. This conflicts with the
-  newly confirmed direction and must be replaced, not cosmetically renamed.
-- `src/services/studyCanvas.ts` currently requests `/courses` and
-  `/courses/:id/assignments`; it has no module/file/page ingestion.
+- Superseded Phase 4 evidence: Study analysis previously depended on local-worker readiness.
+  It now runs only through the bounded backend Gemini API runner. The remaining Phase 5 gap is
+  its flat recent-session/resource snapshot, lack of explicit edges and Canvas authority, and
+  its old no-correctness output contract.
+- Superseded Phase 2 evidence: Canvas sync previously stopped at courses and assignments. It now
+  mirrors module ordering, bounded page text, and file/PDF metadata. Actual file/PDF bodies remain
+  unavailable to analysis unless a bounded on-demand content path is added.
 - `src/services/reminders.ts` stores one `nextReminderAt` per task and switches to one fixed
   near-due interval. `src/services/studyReminders.ts` emits one deduplicated approaching or
   overdue candidate for high/critical Study items within 24 hours. Neither implements a
@@ -313,6 +338,17 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 Cross-cutting requirement for every step: preserve the sealed founder Study instance while
 making new durable models, queues, provider adapters, and authorization checks workspace-scoped
 enough for a future invite-only Study bot. Do not activate or publicize that bot yet.
+
+### Phase 5 checkpoint — evidence-aware review implemented locally (2026-08-13 20:32 SGT)
+
+- Added migration `20260813203000_study_evidence_analysis` with explicit `CONNECTIONS` / `QUIZ` / `BOTH` job modes and durable note-edit suggestions (`PENDING`, `APPLIED`, `DISMISSED`, `SUPERSEDED`).
+- Added bounded evidence graph v2 across completed sessions, explicit/temporal session-resource links, work items, Canvas course modules/materials, assignments and source timestamps. Evidence authority is explicit: learner record, OCR transcript, published course material, course metadata, or activity log.
+- Canvas file/PDF bodies are not downloaded during analysis; only already-synced page text can qualify as authoritative course material. No image bytes or base64 are added to analysis evidence.
+- Pace is reported as `UNKNOWN` unless Canvas exposes dated module-release evidence; the model cannot assert ahead/on-track/behind from module numbering alone.
+- Misconceptions and note edits are accepted only when citations include both learner/OCR evidence and authoritative `COURSE_MATERIAL`. Metadata alone cannot support a correction.
+- Note suggestions never mutate notes automatically. Apply accepts a user-edited replacement, verifies the original body SHA-256 inside a transaction, and marks stale proposals `SUPERSEDED` rather than overwriting newer text.
+- Dashboard now has Connections / Quiz / Both controls, cited corrections, expandable quiz answers, evidence provenance and manual note-edit review controls.
+- Focused Gemini/runner tests pass (6); dashboard proxy/analysis tests pass (27); both codebases typecheck. Full test/build/UI validation remains pending.
 
 ## Interruption protocol
 
