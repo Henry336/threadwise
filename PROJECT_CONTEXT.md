@@ -446,3 +446,57 @@ and the next command/action. Never mark incomplete work complete.
 - Dashboard worktree was clean at `e07a1db` after push. No backend runtime, database,
   repository data, deployment environment, or poisoned recovery artifact was accessed or
   changed. This documentation update is the only backend-repository change.
+
+### Unified loader handoff — approved scope before implementation (2026-08-13 22:13 SGT)
+
+- The user reported a visible two-phase loading handoff after the Ari asset repair. Code
+  inspection confirms two sequential loading surfaces: Next's dashboard route loader uses
+  the shared 220px Ari presentation and “Untangling your workspace…”, while Study bootstrap
+  adds the Threadwise lockup, forces Ari to at least 260px, and says “Untangling your
+  semester...”. The animation asset and frame registration are not the cause.
+- Approved narrow fix: introduce one shared full-screen workspace-loader component and use
+  it from both the dashboard route fallback and Study bootstrap so markup, label, geometry,
+  background, and responsive behavior are identical across the handoff. Remove only the
+  obsolete Study-only loader size override; preserve the distinct Study reconnect/error
+  state and all other Study behavior.
+- Expected dashboard files: `src/components/ari.tsx`, `src/app/dashboard/loading.tsx`,
+  `src/components/study-dashboard.tsx`, `src/app/study-dashboard.css`, and the focused Ari
+  loader test. No image asset, backend, data, secret, or deployment setting is in scope.
+- Validation plan: focused Vitest, TypeScript, lint/build, the required UI detector, source
+  diff, then push and verify the production deployment/route. Next action: implement the
+  shared component before changing either caller.
+
+### Unified loader handoff — implemented and validated locally (2026-08-13 22:18 SGT)
+
+- Added `AriWorkspaceLoader` as the sole full-screen workspace-loading presentation. Both
+  Next's `/dashboard` route fallback and Study bootstrap now render that component, so the
+  sequential handoff has identical markup, “Untangling your workspace…” copy, 220px Ari
+  geometry, canvas background, and responsive behavior. The animation sprite itself was not
+  changed and remains the validated 2 fps normalized v4 asset.
+- Removed the obsolete `.study-boot .ari-untangle-loader { min-width: 260px; }` override.
+  Study's separate reconnect/error state still uses its existing brand lockup, Ari avatar,
+  retry action, and dashboard escape path.
+- Added a focused regression contract proving both loading callers use the shared component,
+  the old Study label is absent, and the size override cannot return. Focused Vitest passes
+  (2 tests); TypeScript, ESLint, and the production Next build pass; `git diff --check` is
+  clean.
+- The required Impeccable detector reports only the previously documented unrelated
+  `border-left: 3px` at `study-dashboard.css:693`; none of the changed loader code triggers a
+  finding. The optional 21st CLI is not installed, so no 21st command was run. Next action:
+  commit and push the dashboard change, wait for Vercel, verify production, then record the
+  deployed commit. No backend runtime or data change is required.
+
+### Unified loader handoff — deployed (2026-08-13 22:22 SGT)
+
+- Dashboard commit `608b14cde029eadb8b9ca792c6f4521a9a149c17` (`fix unified dashboard
+  loading state`) is pushed to `origin/main`.
+- Vercel's production deployment completed successfully for that exact commit. The immutable
+  deployment URL redirects as expected (HTTP 302), and the canonical
+  `https://threadwise-dashboard.vercel.app/dashboard` route returns HTTP 200.
+- Dashboard validation for this change: focused Ari loader Vitest (2 tests), TypeScript,
+  ESLint, Next production build, `git diff --check`, source review, and Impeccable detector.
+  The two sequential loading stages now share one component and are visually identical;
+  production interaction confirmation is left to the user's authenticated live check.
+- No Ari image asset, backend runtime, database, secret, repository data, or poisoned recovery
+  artifact was accessed or changed. The dashboard worktree is expected to be clean at
+  `608b14c`; this PROJECT_CONTEXT update is the only backend-repository change.
