@@ -15,6 +15,7 @@ import { startVoiceCaptureRecoveryLoop } from "./bot/voiceCapture";
 import { startStudyCanvasSyncLoop } from "./services/studyCanvas";
 import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
 import { startStudyCaptureBatchLoop } from "./services/studyCaptureBatches";
+import { startGeminiStudyAnalysisLoop } from "./services/geminiStudyAnalysisRunner";
 import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
 import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bot/commandMenus";
@@ -40,6 +41,7 @@ async function main() {
   const studyCanvasSyncLoop = startStudyCanvasSyncLoop();
   const studyNoteCaptureLoop = startStudyNoteCaptureExpiryLoop(bot);
   const studyCaptureBatchLoop = startStudyCaptureBatchLoop(bot);
+  const geminiStudyAnalysisLoop = startGeminiStudyAnalysisLoop();
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
@@ -53,6 +55,7 @@ async function main() {
     clearInterval(studyCanvasSyncLoop);
     clearInterval(studyNoteCaptureLoop);
     clearInterval(studyCaptureBatchLoop);
+    if (geminiStudyAnalysisLoop) clearInterval(geminiStudyAnalysisLoop);
     if (beaconCleanupLoop) clearInterval(beaconCleanupLoop);
     await server?.close();
     await bot.stop();

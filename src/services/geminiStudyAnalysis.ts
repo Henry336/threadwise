@@ -3,7 +3,7 @@ import { CodexJobStatus, Prisma, type StudyWorkspace } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
-import { localGeminiWorkerReadinessForOwner } from "./geminiIdeas";
+import { configuredGeminiStudyModel, geminiStudyApiConfigured } from "./geminiStudyApi";
 
 const MAX_SESSIONS = 30;
 const MAX_RESOURCES = 36;
@@ -87,7 +87,7 @@ export async function getGeminiStudyAnalysis(
   moduleId: string
 ): Promise<DashboardStudyAnalysisResponse> {
   const snapshot = await collectEvidence(workspace, moduleId);
-  const readiness = await localGeminiWorkerReadinessForOwner(workspace.ownerTelegramId);
+  const available = geminiStudyApiConfigured();
   const latest = await prisma.geminiStudyAnalysisJob.findFirst({
     where: { workspaceId: workspace.id, moduleId },
     orderBy: { requestedAt: "desc" }
@@ -96,13 +96,13 @@ export async function getGeminiStudyAnalysis(
   if (snapshot.sessionCount === 0) {
     return { available: false, reason: "complete_a_session_first", analysis };
   }
-  if (!readiness.geminiAvailable) {
+  if (!available) {
     const cached = latest?.status === CodexJobStatus.COMPLETED
       ? latest
       : await latestCompletedJob(workspace.id, moduleId);
     return {
       available: false,
-      reason: "worker_unavailable",
+      reason: "provider_unavailable",
       analysis: cached ? mapJob(cached, snapshot) : analysis
     };
   }
@@ -133,19 +133,19 @@ export async function requestGeminiStudyAnalysis(
     },
     orderBy: { requestedAt: "desc" }
   });
-  const readiness = await localGeminiWorkerReadinessForOwner(workspace.ownerTelegramId);
+  const available = geminiStudyApiConfigured();
   if (existing) {
     return {
-      available: readiness.geminiAvailable,
-      reason: readiness.geminiAvailable ? undefined : "worker_unavailable",
+      available,
+      reason: available ? undefined : "provider_unavailable",
       analysis: mapJob(existing, snapshot)
     };
   }
-  if (!readiness.geminiAvailable) {
+  if (!available) {
     const cached = await latestCompletedJob(workspace.id, moduleId);
     return {
       available: false,
-      reason: "worker_unavailable",
+      reason: "provider_unavailable",
       analysis: cached ? mapJob(cached, snapshot) : null
     };
   }
@@ -171,7 +171,7 @@ export async function requestGeminiStudyAnalysis(
       evidenceHash,
       evidenceJson: snapshot as unknown as Prisma.InputJsonValue,
       prompt,
-      model: readiness.geminiModel ?? null
+      model: configuredGeminiStudyModel()
     }
   });
   return { available: true, analysis: mapJob(job, snapshot) };
@@ -268,30 +268,11 @@ export async function failGeminiStudyAnalysisJob(input: {
     where: { id: input.id, workerId: input.workerId, status: CodexJobStatus.RUNNING },
     data: {
       status: CodexJobStatus.FAILED,
-      error: safeWorkerError(input.error),
+      error: safeProviderError(input.error),
       model: cleanOptional(input.model, 200),
       completedAt: new Date(),
       leaseExpiresAt: null
     }
-  });
-  return updated.count === 1;
-}
-
-export async function terminalGeminiStudyAnalysisJobForWorker(id: string, workerId: string): Promise<boolean> {
-  return Boolean(await prisma.geminiStudyAnalysisJob.findFirst({
-    where: { id, workerId, status: { in: [CodexJobStatus.COMPLETED, CodexJobStatus.FAILED] } },
-    select: { id: true }
-  }));
-}
-
-export async function renewGeminiStudyAnalysisJobLease(
-  id: string,
-  workerId: string,
-  leaseSeconds: number
-): Promise<boolean> {
-  const updated = await prisma.geminiStudyAnalysisJob.updateMany({
-    where: { id, workerId, status: CodexJobStatus.RUNNING },
-    data: { leaseExpiresAt: new Date(Date.now() + leaseSeconds * 1_000) }
   });
   return updated.count === 1;
 }
@@ -482,10 +463,12 @@ function cleanOptional(value: string | undefined, maximum: number): string | nul
   return clean ? Array.from(clean).slice(0, maximum).join("") : null;
 }
 
-function safeWorkerError(error: string): string {
-  if (/timed?\s*out/i.test(error)) return "The local analysis worker timed out. Try again.";
-  if (/gemini.*not installed|not found|enoent/i.test(error)) return "The local analysis worker is unavailable.";
-  return "The local analysis worker could not complete this review. Try again.";
+function safeProviderError(error: string): string {
+  if (/timed?\s*out/i.test(error)) return "The analysis service timed out. Try again.";
+  if (/busy|rate|429/i.test(error)) return "The analysis service is busy. Try again shortly.";
+  if (/not authorized|configured provider|api key|401|403/i.test(error)) return "Study analysis is not configured correctly right now.";
+  if (/no configured.*model|not available/i.test(error)) return "The analysis model is temporarily unavailable. Try again.";
+  return "The analysis service could not complete this review. Try again.";
 }
 
 function safePublicError(error: string | null): string {

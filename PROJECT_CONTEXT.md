@@ -138,6 +138,40 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   contract, job schema, worker readiness checks, and deployed environment-variable wiring. Replace
   only Study analysis's laptop-worker dependency with a bounded, asynchronous server-side Gemini
   API runner; keep deterministic Study operations independent and do not read or expose the key.
+- Phase 4 implementation checkpoint (locally complete; publication pending):
+  - confirmed the current module-review job table is already workspace/module scoped, leased,
+    restart-safe, evidence-hashed, and dashboard-polled; no Phase 4 schema migration is required;
+  - confirmed the incompatible pieces are worker readiness in `geminiStudyAnalysis.ts`, Study job
+    claiming/execution in `codexWorker.ts`, the absence of Gemini settings in `config/env.ts`, and
+    `.env.example` copy that says never to deploy the key;
+  - current official Gemini documentation supports API-key authentication via the
+    `x-goog-api-key` header, bounded `generateContent`, and structured JSON output. Phase 4 will
+    use a configurable model, response-size/output-token limits, an abort timeout, safe provider
+    errors, and the existing Zod/citation validation before persisting results;
+  - planned files: `src/config/env.ts`, `.env.example`, new server-side Gemini API/runner services,
+    `src/services/geminiStudyAnalysis.ts`, `src/main.ts`, focused tests, and the dashboard's
+    unavailable-state wording. The secret will never be returned, logged, or committed.
+  - implemented `geminiStudyApi.ts` with API-key header authentication, configured model
+    fallbacks, structured JSON, a 90-second default abort, bounded output tokens, a 200K response
+    ceiling, and safe HTTP/parse errors that never retain upstream bodies;
+  - implemented `geminiStudyAnalysisRunner.ts`: one in-process pass at a time, one leased job per
+    pass, immediate startup plus a bounded poll, safe failure persistence, and top-level rejection
+    containment so database/provider failure cannot crash the app-server;
+  - removed Study claiming/execution from `codexWorker.ts` and removed the four private Study-job
+    worker relay routes. The separate owner-only Ideas CLI path remains intact;
+  - changed Study availability from local-heartbeat state to backend provider configuration. A
+    missing key leaves cached completed results readable and reports `provider_unavailable`;
+  - validation: backend TypeScript/build pass, provider/runner/prompt tests pass 8/8, full backend
+    suite passes 848 with 6 skips; dashboard tests pass 74/74, TypeScript, full lint, and production
+    build pass.
+  - configuration preflight found no `GEMINI_API_KEY` in Render, the backend `.env`, the current
+    process, or the Windows user/machine environments. No value was printed and no other provider
+    credential will be substituted. Phase 4 therefore deploys fail-closed with analysis reported
+    offline until the owner adds the Gemini key directly to Render.
+- Phase 4 next action: inspect/stage the exact diff, commit and push both repositories, verify
+  production commits/health in the intentionally disabled state, then start Phase 5's evidence
+  graph and user-selectable analysis modes. Live provider execution remains a named configuration
+  follow-up, not an implementation failure or a reason to add a laptop worker.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.

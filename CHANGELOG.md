@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Server-side Gemini Study analysis
+- Replaced Study module review's laptop-worker readiness and execution path with a bounded Gemini API loop running inside the deployed backend. Requests remain asynchronous, durable jobs retain database leases across restarts, and one server pass handles at most one job at a time.
+- Kept `GEMINI_API_KEY` in the backend environment and out of URLs, logs, persisted jobs, Telegram, and browser responses. Provider calls use an abort timeout, output-token/response-size limits, structured JSON, safe error mapping, configurable model fallbacks, and the existing Zod/citation validation before results are stored.
+- Removed Study job claiming and completion from the local Codex/Gemini worker and its relay routes. The legacy worker may still support owner-only Ideas Intelligence, but Study analysis no longer depends on a laptop process.
+- Preserved cached results and graceful offline states when the provider is not configured. Capture, reminders, Canvas sync, sessions, and every deterministic Study path remain independent of Gemini availability.
+
 ### Durable task reminders and explicit group audiences
 - Added restart-safe relational reminder schedules with leased claims, retry backoff, stable delivery keys, and lifecycle-aware cancellation/restoration. Owners and group admins can keep up to 20 exact future reminder times alongside Threadwise's automatic cadence.
 - Replaced the single near-due interval with a deterministic escalation ladder that becomes more frequent as a deadline approaches without weakening an already more-frequent user setting. Exact reminders remain intentional delivery times and advance the automatic schedule to avoid an immediate duplicate.

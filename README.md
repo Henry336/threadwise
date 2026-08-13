@@ -629,20 +629,19 @@ npm install
 npm run codex:worker
 ```
 
-The same process handles Ideas Intelligence. On the laptop, install the official
-Gemini CLI:
+The same local process can handle the legacy owner-only Ideas Intelligence actions.
+For that optional feature, install the official Gemini CLI on the laptop:
 
 ```powershell
 npm install -g @google/gemini-cli@latest
 ```
 
-For a personal account, create an API key in Google AI Studio and persist it only
-on the laptop as `GEMINI_API_KEY`. Do not put the key in Render, Telegram, source
-control, or this README. Consumer **Sign in with Google** access for Gemini CLI
-ended on June 18, 2026; a Gemini Code Assist Standard or Enterprise account may
-still use its supported organization authentication instead. The `auto` model
-setting uses the best model available to the configured key or account; a concrete
-preview model can be selected explicitly only when that credential has access.
+This CLI path is separate from Study module analysis. Study analysis uses the
+Gemini API from the deployed backend: configure `GEMINI_API_KEY` only in the
+backend environment (Render in production), never in Telegram, browser-visible
+variables, source control, or this README. `GEMINI_STUDY_MODEL`, bounded fallback
+models, timeout, lease, poll, and output-token settings are documented in
+`.env.example`. No laptop process is required for Study analysis.
 
 Verify the local headless path before starting Threadwise:
 
@@ -651,8 +650,8 @@ gemini --version
 gemini --model auto --approval-mode plan -e none --output-format json -p "Reply with READY only."
 ```
 
-Threadwise invokes the official CLI in read-only plan mode and does not copy or
-upload Gemini credentials. After local authentication succeeds, the owner can
+For Ideas Intelligence only, Threadwise invokes the official CLI in read-only plan
+mode and does not copy or upload its local credentials. After local authentication succeeds, the owner can
 open any saved idea in Telegram and tap
 **Develop**, **Challenge**, **Next steps**, or **Task plan** from the phone.
 There is intentionally no general `/gemini` command, and `/codex` remains exclusively

@@ -130,6 +130,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-13 (Codex):** Replaced Study module review's laptop-worker dependency with a bounded
+  server-side Gemini API runner. Jobs remain opt-in, workspace-scoped, leased, restart-safe, and
+  validated before persistence; one pass runs at a time and provider failures stay isolated.
+  The secret never leaves the backend. TypeScript, build, 8 focused tests, and the full backend
+  suite (848 passed, 6 skipped) pass. Deployment is next.
+
 - **2026-08-13 (Codex):** Implemented and locally validated durable task reminders and explicit
   group audiences. Exact times use leased, deduplicated, lifecycle-aware rows; automatic reminders
   now escalate toward deadlines; Everyone, Unassigned, and named-assignee behavior are distinct;

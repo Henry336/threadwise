@@ -13,7 +13,7 @@ import {
   codexSubprocessEnvironment,
   parseCredentialEnvironmentAllowlist
 } from "./services/codexSubprocessEnv";
-import { detectGeminiCli, runGeminiIdeaPrompt, runGeminiPrompt } from "./services/geminiCli";
+import { detectGeminiCli, runGeminiIdeaPrompt } from "./services/geminiCli";
 import {
   publishTrustedCodexChanges,
   repairTrustedPublishedChanges,
@@ -88,8 +88,6 @@ type GeminiIdeaWorkerJob = {
   prompt: string;
   model?: string | null;
 };
-
-type GeminiStudyAnalysisWorkerJob = GeminiIdeaWorkerJob;
 
 type FileCourierWorkerJob = {
   id: string;
@@ -197,11 +195,6 @@ async function runWorker(): Promise<void> {
       const ideaJob = await claimGeminiIdeaJob();
       if (ideaJob) {
         await executeGeminiIdeaJob(ideaJob);
-        continue;
-      }
-      const studyAnalysisJob = await claimGeminiStudyAnalysisJob();
-      if (studyAnalysisJob) {
-        await executeGeminiStudyAnalysisJob(studyAnalysisJob);
         continue;
       }
       await delay(config.pollMs);
@@ -384,19 +377,6 @@ async function claimGeminiIdeaJob(): Promise<GeminiIdeaWorkerJob | undefined> {
     throw new Error(`Gemini idea claim failed (${response.status}): ${await safeResponseText(response)}`);
   }
   return await response.json() as GeminiIdeaWorkerJob;
-}
-
-async function claimGeminiStudyAnalysisJob(): Promise<GeminiStudyAnalysisWorkerJob | undefined> {
-  const response = await fetch(workerUrl("/codex/worker/study-analysis-jobs/claim"), {
-    method: "POST",
-    headers: workerHeaders(),
-    body: JSON.stringify({ workerId: config.workerId })
-  });
-  if (response.status === 204) return undefined;
-  if (!response.ok) {
-    throw new Error(`Gemini Study analysis claim failed (${response.status}): ${await safeResponseText(response)}`);
-  }
-  return await response.json() as GeminiStudyAnalysisWorkerJob;
 }
 
 async function executeJob(job: WorkerJob): Promise<void> {
@@ -619,40 +599,6 @@ async function executeGeminiIdeaJob(job: GeminiIdeaWorkerJob): Promise<void> {
       console.error(`[codex-worker] Gemini idea job ${job.id} failed: ${message}`);
       await terminalRequestUntilAccepted(
         `/codex/worker/idea-jobs/${encodeURIComponent(job.id)}/fail`,
-        { workerId: config.workerId, error: message, model },
-        job.id,
-        "failure"
-      );
-    }
-  } finally {
-    clearInterval(heartbeat);
-  }
-}
-
-async function executeGeminiStudyAnalysisJob(job: GeminiStudyAnalysisWorkerJob): Promise<void> {
-  const model = job.model?.trim() || config.geminiModel;
-  console.log(`[codex-worker] Running Gemini Study analysis job ${job.id} with ${model}.`);
-  const heartbeat = startJobHeartbeat(job.id, "study-analysis-jobs");
-  try {
-    try {
-      const finalResponse = await runGeminiPrompt({
-        prompt: job.prompt,
-        model,
-        timeoutMs: config.geminiTimeoutMs,
-        workingDirectory: config.geminiWorkingDirectory
-      });
-      await terminalRequestUntilAccepted(
-        `/codex/worker/study-analysis-jobs/${encodeURIComponent(job.id)}/complete`,
-        { workerId: config.workerId, finalResponse, model },
-        job.id,
-        "completion"
-      );
-      console.log(`[codex-worker] Completed Gemini Study analysis job ${job.id}.`);
-    } catch (error) {
-      const message = errorMessage(error);
-      console.error(`[codex-worker] Gemini Study analysis job ${job.id} failed: ${message}`);
-      await terminalRequestUntilAccepted(
-        `/codex/worker/study-analysis-jobs/${encodeURIComponent(job.id)}/fail`,
         { workerId: config.workerId, error: message, model },
         job.id,
         "failure"
