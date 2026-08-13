@@ -130,6 +130,13 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-14 (Codex, in progress):** Implemented the approved correction locally: durable Study
+  analysis now uses the deployed OpenAI configuration with its evidence/validation boundaries intact,
+  and general Telegram albums now produce one leased, deduplicated, atomically saved batch with one
+  shared caption. Prisma, focused tests, TypeScript, build, and diff checks pass. Full-suite validation,
+  final review, commit/push, migration deployment, and live verification remain; details are in
+  `PROJECT_CONTEXT.md`.
+
 - **2026-08-13 (Codex):** Implemented Phase 5 locally: bounded Study evidence graph v2 with
   session/resource/work/Canvas provenance and timing, Connections/Quiz/Both modes, conservative
   pace reporting, evidence-gated misconception correction, and durable manually reviewed note-edit

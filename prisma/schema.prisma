@@ -259,6 +259,16 @@ enum StudyCaptureBatchStatus {
   EXPIRED
 }
 
+enum ImageUploadBatchStatus {
+  COLLECTING
+  SENDING
+  REVIEW
+  PROCESSING
+  COMPLETED
+  EXPIRING
+  EXPIRED
+}
+
 enum StudyCanvasSyncStatus {
   NEVER
   RUNNING
@@ -354,6 +364,7 @@ model User {
   calendarConnection         CalendarConnection?
   pendingImageCaptures       PendingImageCapture[]
   pendingImageUploads        PendingImageUpload[]
+  pendingImageUploadBatches  PendingImageUploadBatch[]
   storedImages               StoredImage[]
   pendingExpenses            PendingExpense[]
   expenses                   Expense[]
@@ -1565,12 +1576,44 @@ model PendingImageUpload {
   fileName         String?
   caption          String?
   fileSize         Int?
+  sourceChatId     String?
+  sourceMessageId  Int?
+  batchId          String?
+  batchPosition    Int?
   expiresAt        DateTime
   createdAt        DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  batch PendingImageUploadBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, sourceChatId, sourceMessageId])
   @@index([userId, expiresAt])
+  @@index([batchId, batchPosition])
+}
+
+model PendingImageUploadBatch {
+  id                   String                 @id @default(uuid())
+  token                String                 @unique
+  userId               String
+  chatId               String
+  telegramMediaGroupId String
+  sharedCaption        String?
+  status               ImageUploadBatchStatus @default(COLLECTING)
+  readyAt              DateTime
+  expiresAt            DateTime
+  leaseExpiresAt       DateTime?
+  reviewMessageId      Int?
+  awaitingCaption      Boolean                @default(false)
+  completedAt          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploads PendingImageUpload[]
+
+  @@unique([userId, chatId, telegramMediaGroupId])
+  @@index([status, readyAt, leaseExpiresAt])
+  @@index([status, expiresAt])
 }
 
 model StoredImage {

@@ -8,34 +8,34 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../config/env", () => ({
-  env: { GEMINI_STUDY_POLL_MS: 10_000, GEMINI_STUDY_LEASE_SECONDS: 180 },
+  env: { STUDY_ANALYSIS_POLL_MS: 10_000, STUDY_ANALYSIS_LEASE_SECONDS: 180 },
 }));
-vi.mock("../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn() } }));
-vi.mock("./geminiStudyAnalysis", () => ({
-  claimGeminiStudyAnalysisJob: mocks.claim,
-  completeGeminiStudyAnalysisJob: mocks.complete,
-  failGeminiStudyAnalysisJob: mocks.fail,
+vi.mock("../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("./studyAnalysis", () => ({
+  claimStudyAnalysisJob: mocks.claim,
+  completeStudyAnalysisJob: mocks.complete,
+  failStudyAnalysisJob: mocks.fail,
 }));
-vi.mock("./geminiStudyApi", () => ({
-  geminiStudyApiConfigured: () => true,
-  generateGeminiStudyAnalysis: mocks.generate,
+vi.mock("./openAiStudyApi", () => ({
+  openAiStudyApiConfigured: () => true,
+  generateOpenAiStudyAnalysis: mocks.generate,
 }));
 
-import { runGeminiStudyAnalysisPass } from "./geminiStudyAnalysisRunner";
+import { runStudyAnalysisPass } from "./studyAnalysisRunner";
 
-describe("Gemini Study server runner", () => {
+describe("OpenAI Study server runner", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("claims and completes one leased job with the actual provider model", async () => {
     mocks.claim.mockResolvedValue({ id: "job-1", prompt: "bounded", model: "configured" });
-    mocks.generate.mockResolvedValue({ text: '{"summary":"done"}', model: "gemini-fallback" });
+    mocks.generate.mockResolvedValue({ text: '{"summary":"done"}', model: "gpt-fallback" });
     mocks.complete.mockResolvedValue(true);
-    await expect(runGeminiStudyAnalysisPass()).resolves.toBe(true);
+    await expect(runStudyAnalysisPass()).resolves.toBe(true);
     expect(mocks.claim).toHaveBeenCalledWith(expect.stringMatching(/^study-api:/), 180);
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
       id: "job-1",
       finalResponse: '{"summary":"done"}',
-      model: "gemini-fallback",
+      model: "gpt-fallback",
     }));
     expect(mocks.fail).not.toHaveBeenCalled();
   });
@@ -44,14 +44,14 @@ describe("Gemini Study server runner", () => {
     mocks.claim.mockResolvedValue({ id: "job-2", prompt: "bounded", model: "configured" });
     mocks.generate.mockRejectedValue(new Error("The analysis service is busy. Try again shortly."));
     mocks.fail.mockResolvedValue(true);
-    await expect(runGeminiStudyAnalysisPass()).resolves.toBe(true);
+    await expect(runStudyAnalysisPass()).resolves.toBe(true);
     expect(mocks.fail).toHaveBeenCalledWith(expect.objectContaining({ id: "job-2" }));
     expect(mocks.complete).not.toHaveBeenCalled();
   });
 
   it("does no provider work when the durable queue is empty", async () => {
     mocks.claim.mockResolvedValue(undefined);
-    await expect(runGeminiStudyAnalysisPass()).resolves.toBe(false);
+    await expect(runStudyAnalysisPass()).resolves.toBe(false);
     expect(mocks.generate).not.toHaveBeenCalled();
   });
 });

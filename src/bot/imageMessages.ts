@@ -15,6 +15,19 @@ import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguage
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import {
+  beginImageUploadBatchCaption,
+  cancelImageUploadBatchCaption,
+  discardImageUploadBatch,
+  findImageUploadBatch,
+  formatImageUploadBatchReview,
+  formatImageUploadBatchSaved,
+  hasOpenImageUploadBatch,
+  imageUploadBatchCaptionKeyboard,
+  imageUploadBatchKeyboard,
+  registerImageUploadBatchItem,
+  saveImageUploadBatch,
+} from "../services/imageUploadBatches";
 
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
@@ -32,12 +45,25 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
       await ctx.answerCallbackQuery({ text: "This image choice expired or is no longer available.", show_alert: true });
     }
   });
+  bot.callbackQuery(/^image-batch:(save|caption|caption-cancel|discard):(.+)$/, async (ctx) => {
+    try {
+      await handleImageBatchAction(ctx, ctx.match[1], ctx.match[2]);
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: "This image album was already handled or expired.", show_alert: true });
+    }
+  });
 }
 
 async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): Promise<void> {
   const caption = ctx.message?.caption ?? "";
+  const mediaGroupId = ctx.message?.media_group_id;
   const addressedGroupImage = isGroupChat(ctx) && messageTargetsBot(ctx, caption);
-  const preparedCaption = prepareNaturalLanguageText(ctx, caption) ?? (addressedGroupImage ? "" : undefined);
+  let preparedCaption = prepareNaturalLanguageText(ctx, caption) ?? (addressedGroupImage ? "" : undefined);
+  let resolvedUser: Awaited<ReturnType<typeof ensureUser>> | undefined;
+  if (preparedCaption === undefined && mediaGroupId && isGroupChat(ctx) && ctx.chat?.id) {
+    resolvedUser = await ensureUser(ctx);
+    if (await hasOpenImageUploadBatch(resolvedUser.id, String(ctx.chat.id), mediaGroupId)) preparedCaption = "";
+  }
   if (preparedCaption === undefined) return;
 
   const target = imageTarget(ctx);
@@ -47,8 +73,21 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
     return;
   }
 
-  const user = await ensureUser(ctx);
+  const user = resolvedUser ?? await ensureUser(ctx);
   const intent = parseImageCaptionIntent(preparedCaption);
+  if (mediaGroupId && ctx.message?.message_id && ctx.chat?.id) {
+    const storedCaption = captionForStoredImage(preparedCaption)
+      ?? (intent === "choose" && preparedCaption ? preparedCaption : undefined);
+    await registerImageUploadBatchItem({
+      userId: user.id,
+      chatId: String(ctx.chat.id),
+      telegramMediaGroupId: mediaGroupId,
+      sourceMessageId: ctx.message.message_id,
+      ...target,
+      caption: storedCaption,
+    });
+    return;
+  }
   if (intent === "choose" || intent === "store" || intent === "store-extract") {
     const storedCaption = captionForStoredImage(preparedCaption) ?? (intent === "choose" && preparedCaption ? preparedCaption : undefined);
     const pending = await createPendingImageUpload({ userId: user.id, ...target, caption: storedCaption });
@@ -72,6 +111,37 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
   }
 
   await processImageOcr(ctx, ai, token, target, preparedCaption, intent, user);
+}
+
+async function handleImageBatchAction(ctx: Context, action: string | undefined, token: string | undefined): Promise<void> {
+  if (!action || !token) return;
+  const user = await ensureUser(ctx);
+  if (action === "caption") {
+    const batch = await beginImageUploadBatchCaption(user.id, token);
+    await ctx.answerCallbackQuery({ text: "Send one caption for the whole album" });
+    await editOrReplyHtml(ctx, [
+      bold("✏️ Shared album caption"),
+      `Send the caption as your next message. It will be applied to all ${batch.uploads.length} images.`,
+      "Nothing is saved until you choose Save all images.",
+    ].join("\n"), { reply_markup: imageUploadBatchCaptionKeyboard(token) });
+    return;
+  }
+  if (action === "caption-cancel") {
+    await cancelImageUploadBatchCaption(user.id, token);
+    const batch = await findImageUploadBatch(user.id, token);
+    await ctx.answerCallbackQuery({ text: "Caption unchanged" });
+    await editOrReplyHtml(ctx, formatImageUploadBatchReview(batch), { reply_markup: imageUploadBatchKeyboard(token) });
+    return;
+  }
+  if (action === "discard") {
+    await discardImageUploadBatch(user.id, token);
+    await ctx.answerCallbackQuery({ text: "Album discarded" });
+    await editOrReplyText(ctx, "Got it—I left every image in this album unsaved.", { reply_markup: menuBackKeyboard() });
+    return;
+  }
+  const saved = await saveImageUploadBatch(user.id, token);
+  await ctx.answerCallbackQuery({ text: `${saved.images.length} images saved` });
+  await editOrReplyHtml(ctx, formatImageUploadBatchSaved(saved), { reply_markup: menuBackKeyboard() });
 }
 
 async function handleIncomingImageAction(

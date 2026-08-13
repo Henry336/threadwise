@@ -606,3 +606,50 @@ and the next command/action. Never mark incomplete work complete.
 - Dashboard worktree is expected clean at `3c2b4ae`. No backend runtime, database, secret,
   repository data, unrelated session, local worker, or poisoned recovery artifact was accessed
   or changed. This PROJECT_CONTEXT update is the only backend-repository change.
+
+### OpenAI Study analysis + general Telegram image batches — approved scope (2026-08-14 SGT)
+
+- The user confirmed the deployed backend has `OPENAI_API_KEY`, `OPENAI_MODEL`, and
+  `OPENAI_EMBEDDING_MODEL`, but no Gemini API key. Study analysis must therefore use the existing
+  server-side OpenAI credential and must not depend on a laptop worker. Never copy or expose the
+  secret; only the backend provider may read it.
+- The current Study analysis queue is durable and restart-safe but is incorrectly hard-wired to a
+  Gemini REST provider, so it remains disabled in production. Preserve its evidence bounds,
+  validation, leasing, caching, note-edit review, and database history while switching provider
+  execution and user-facing availability to OpenAI. A legacy Prisma model name may remain to avoid
+  a destructive data migration, but active runtime/config/docs must no longer require Gemini.
+- General Telegram image intake currently creates one review card per image in a media group.
+  Implement a separate durable general-image batch record keyed by owner/chat/media-group, settle
+  briefly after the last Telegram delivery, then publish exactly one review surface for the album.
+  Saving with a caption must apply one shared caption to every image. Preserve single-image behavior
+  and the existing Study-mode batch capture flow.
+- The general batch must be restart-safe and idempotent: deduplicate Telegram redelivery, claim
+  state transitions with leases, avoid duplicate stored images, expire stale reviews, and recover
+  abandoned send/processing leases. Do not keep image bytes in PostgreSQL or AI prompts; retain only
+  Telegram reusable file references and bounded metadata as today.
+- Expected changes are backend-only: Prisma schema/additive migration, general image batch service
+  and bot callbacks/keyboards, OpenAI Study provider/runner wiring, focused tests, environment/docs,
+  and this continuity ledger. Next action: implement the additive schema and focused services, then
+  run Prisma validation/generation, focused tests, typecheck, full tests, and build before release.
+
+### OpenAI Study analysis + general Telegram image batches — local implementation checkpoint (2026-08-14 SGT)
+
+- Study analysis now uses the existing backend `OPENAI_API_KEY`, `OPENAI_MODEL`, and fallback model
+  chain through a bounded JSON-only OpenAI adapter. The prior Gemini Study adapter/runner is removed;
+  provider-neutral runtime/config/docs use `STUDY_ANALYSIS_*` bounds. No laptop worker is involved.
+  The historical `GeminiStudyAnalysisJob` Prisma table and legacy persistence service name remain so
+  completed analysis history is preserved without a risky data rewrite; active routes and the runner
+  use provider-neutral exports.
+- General Telegram albums now persist in a dedicated additive `PendingImageUploadBatch` model keyed
+  by owner/chat/media-group. Each Telegram message is deduplicated, the album settles for 1.8 seconds,
+  stale send/save leases recover after restart, and one review message replaces per-image keyboards.
+  A shared caption updates every pending item. Save all is one database transaction, reuses existing
+  images by Telegram unique ID, assigns stable image IDs, then completes/removes the pending items.
+- Group albums accept uncaptioned follow-on items only when the exact addressed album batch already
+  exists. Caption entry edits the original review message back into the single batch control surface,
+  avoiding duplicate interfaces. Existing single-image OCR/save behavior and Study capture batches
+  are unchanged; albums store only Telegram file references and bounded metadata, never image bytes.
+- Local validation so far: Prisma format/validate/generate pass; focused provider/runner/evidence/
+  batch/keyboard tests pass (48 assertions plus 6 intentional skips); TypeScript, production build,
+  and `git diff --check` pass. Next action: run the complete backend suite, review the final diff and
+  migration, update both continuity logs, then commit/push and validate Render if all gates remain green.

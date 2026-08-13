@@ -65,7 +65,7 @@ small Telegram edit/reply or authenticated dashboard response
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.
+- Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. A Telegram album settles into one durable review card: save all images once or apply one shared caption to every image. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.
 - Searches saved images by caption, locally extracted OCR text, or filename with `/images <query>`, `/search images <query>`, and natural requests such as `find images captioned passport`.
 - Opens saved images with edit-caption and confirmed-delete controls. Deletion removes Threadwise's reusable file reference and search metadata, not the original Telegram message.
 - Schedules reminders for specific times with `/remind <when> | <task>`.
@@ -281,7 +281,7 @@ Enable the Google Calendar API in the same Google Cloud project and add `https:/
 
 ## Image Text Extraction
 
-Send Threadwise a photo or an image document without a caption and it first offers `Save image`, `Save with caption`, `Extract text`, `Save + extract`, and `Discard`. Saving keeps a reusable Telegram file reference rather than copying the image bytes into PostgreSQL. Browse saved images 10 per page with `/images`, say `show my saved images`, or reopen one with `/image IMG-1`.
+Send Threadwise a photo or an image document without a caption and it first offers `Save image`, `Save with caption`, `Extract text`, `Save + extract`, and `Discard`. Send two or more images as one Telegram album and Threadwise waits for the album to settle, then presents one review card with `Save all images`, `Add shared caption`, and `Discard album`. The batch is persisted, leased, restart-safe, deduplicated against Telegram redelivery, and saved atomically; one shared caption is applied to every image. Saving keeps reusable Telegram file references rather than copying image bytes into PostgreSQL. Browse saved images 10 per page with `/images`, say `show my saved images`, or reopen one with `/image IMG-1`.
 
 Choosing extraction reads printed English, Burmese, or mixed text locally and shows a preview with buttons for `Save note`, `Create task`, `Set reminder`, `Show full text`, and `Discard`. A caption can perform an action immediately:
 
@@ -423,6 +423,10 @@ SUPABASE_RUNTIME_POOL_MODE
 OPENAI_API_KEY
 OPENAI_MODEL
 OPENAI_MODEL_FALLBACKS
+STUDY_ANALYSIS_POLL_MS
+STUDY_ANALYSIS_TIMEOUT_MS
+STUDY_ANALYSIS_LEASE_SECONDS
+STUDY_ANALYSIS_MAX_OUTPUT_TOKENS
 ADMIN_STATUS_TOKEN
 WEBHOOK_URL
 WEBHOOK_SECRET_PATH
@@ -636,12 +640,11 @@ For that optional feature, install the official Gemini CLI on the laptop:
 npm install -g @google/gemini-cli@latest
 ```
 
-This CLI path is separate from Study module analysis. Study analysis uses the
-Gemini API from the deployed backend: configure `GEMINI_API_KEY` only in the
-backend environment (Render in production), never in Telegram, browser-visible
-variables, source control, or this README. `GEMINI_STUDY_MODEL`, bounded fallback
-models, timeout, lease, poll, and output-token settings are documented in
-`.env.example`. No laptop process is required for Study analysis.
+This CLI path is separate from Study module analysis. Study analysis runs on the
+deployed backend with the existing `OPENAI_API_KEY`, `OPENAI_MODEL`, and bounded
+OpenAI fallback chain; the secret never reaches Telegram or the dashboard browser.
+`STUDY_ANALYSIS_*` timeout, lease, poll, and output-token bounds are documented in
+`.env.example`. No laptop process or Gemini API key is required for Study analysis.
 
 Verify the local headless path before starting Threadwise:
 

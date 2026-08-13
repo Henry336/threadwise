@@ -113,9 +113,9 @@ import {
 } from "../bot/scheduling";
 import { StudyModeError } from "../services/study";
 import {
-  getGeminiStudyAnalysis,
-  requestGeminiStudyAnalysis
-} from "../services/geminiStudyAnalysis";
+  getStudyAnalysis,
+  requestStudyAnalysis
+} from "../services/studyAnalysis";
 import { reviewStudyNoteEditSuggestion } from "../services/studyNoteEditSuggestions";
 import {
   DashboardStudyAccessError,
@@ -418,14 +418,14 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
     const { mode } = studyAnalysisRequestSchema.parse(request.query);
-    return getGeminiStudyAnalysis(workspace, id, mode);
+    return getStudyAnalysis(workspace, id, mode);
   }, "study_get_module_analysis"));
 
   server.post("/api/v1/dashboard/study/modules/:id/analysis", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
     const { mode } = studyAnalysisRequestSchema.parse(request.body ?? {});
-    return requestGeminiStudyAnalysis(workspace, id, scope.principalTelegramId, mode);
+    return requestStudyAnalysis(workspace, id, scope.principalTelegramId, mode);
   }, "study_request_module_analysis"));
 
   server.patch("/api/v1/dashboard/study/analysis-suggestions/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {

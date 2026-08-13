@@ -29,6 +29,11 @@ import { formatRegionSettings, formatReminderSettings, updateSetting } from "../
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
+import {
+  applyPendingImageUploadBatchCaption,
+  formatImageUploadBatchReview,
+  imageUploadBatchKeyboard,
+} from "../services/imageUploadBatches";
 
 const AUTO_SAVE_CONFIDENCE = 0.88;
 
@@ -51,6 +56,29 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const user = await ensureUser(ctx);
+
+      const captionedImageBatch = await applyPendingImageUploadBatchCaption(user.id, text);
+      if (captionedImageBatch) {
+        const options = {
+          parse_mode: "HTML" as const,
+          reply_markup: imageUploadBatchKeyboard(captionedImageBatch.token),
+        };
+        if (captionedImageBatch.reviewMessageId) {
+          try {
+            await ctx.api.editMessageText(
+              captionedImageBatch.chatId,
+              captionedImageBatch.reviewMessageId,
+              formatImageUploadBatchReview(captionedImageBatch),
+              options,
+            );
+          } catch {
+            await replyHtml(ctx, formatImageUploadBatchReview(captionedImageBatch), options);
+          }
+        } else {
+          await replyHtml(ctx, formatImageUploadBatchReview(captionedImageBatch), options);
+        }
+        return;
+      }
 
       if (!isGroupChat(ctx)) {
         if (text === PRIVATE_MENU_LABELS.menu) {

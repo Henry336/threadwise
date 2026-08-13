@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
-import { configuredGeminiStudyModel, geminiStudyApiConfigured } from "./geminiStudyApi";
+import { configuredOpenAiStudyModel, openAiStudyApiConfigured } from "./openAiStudyApi";
 import {
   collectStudyEvidence,
   publicStudyEvidence,
@@ -133,7 +133,7 @@ export async function getGeminiStudyAnalysis(
   mode: StudyAnalysisMode = StudyAnalysisMode.CONNECTIONS,
 ): Promise<DashboardStudyAnalysisResponse> {
   const snapshot = await collectStudyEvidence(workspace, moduleId, mode);
-  const available = geminiStudyApiConfigured();
+  const available = openAiStudyApiConfigured();
   const latest = await latestJob(workspace.id, moduleId, mode);
   const analysis = latest ? mapJob(latest, snapshot) : null;
   if (snapshot.sessionCount === 0 && snapshot.resourceCount === 0) {
@@ -165,7 +165,7 @@ export async function requestGeminiStudyAnalysis(
     orderBy: { requestedAt: "desc" },
     include: { noteEditSuggestions: true },
   });
-  const available = geminiStudyApiConfigured();
+  const available = openAiStudyApiConfigured();
   if (existing) return { available, reason: available ? undefined : "provider_unavailable", analysis: mapJob(existing, snapshot) };
   if (!available) {
     const cached = await latestCompletedJob(workspace.id, moduleId, mode);
@@ -186,7 +186,7 @@ export async function requestGeminiStudyAnalysis(
       evidenceHash,
       evidenceJson: snapshot as unknown as Prisma.InputJsonValue,
       prompt: buildGeminiStudyAnalysisPrompt(snapshot),
-      model: configuredGeminiStudyModel(),
+      model: configuredOpenAiStudyModel(),
     },
     include: { noteEditSuggestions: true },
   });

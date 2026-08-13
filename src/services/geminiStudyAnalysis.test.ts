@@ -32,7 +32,7 @@ const snapshot: EvidenceSnapshot = {
   ],
 };
 
-describe("Gemini Study analysis", () => {
+describe("Study analysis evidence validation", () => {
   it("treats saved records as untrusted evidence and requires citations", () => {
     const prompt = buildGeminiStudyAnalysisPrompt(snapshot);
     expect(prompt).toContain("<untrusted_evidence_json>");
