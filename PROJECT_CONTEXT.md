@@ -93,7 +93,7 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   callback/message ownership, then add the Phase 3 schema and tests for explicit audiences,
   multiple reminder instants, deterministic due-date escalation, delivery dedupe, and one
   canonical task-control surface per chat. Keep every new record workspace-scoped.
-- Phase 3 implementation checkpoint (locally complete; publication pending):
+- Phase 3 implementation checkpoint (implemented, published, and operationally verified):
   - migration `20260813190500_durable_task_reminders` adds explicit `TaskAudience`, leased
     `TaskReminderSchedule` rows, unique reminder delivery keys, and one persisted
     `TaskControlSurface` per task owner/chat;
@@ -128,10 +128,16 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   - final diff review closed the Telegram fallback edge case: when an old reminder cannot be
     edited and Telegram returns a newly sent task list, the new message id—not the stale callback
     id—is persisted as the canonical surface. A regression test covers this path.
-- Phase 3 next action: inspect the final diff, commit backend and dashboard independently, push
-  both `main` branches, let the Prisma migration deploy on Render, verify exact production commits
-  and HTTP health, then record the deployment checkpoint before starting Phase 4's bounded
-  server-side Gemini API runner.
+  - backend commit `3db35bf3babd18020c9928975f87b7cbf08b85e1` was pushed to `main`.
+    Render deployment `dep-d9uqsr0ae00c738lkqag` reached `live`; `/health` returned HTTP 200,
+    version `0.32.0`, and commit `3db35bf3babd` after the migration/startup completed;
+  - dashboard commit `137750574820fb5d98d535af7184e9f3b6ef7357` was pushed to `main`.
+    Vercel deployment `dpl_4xfc6RaV6FYC6KTHKT4BbQ9Tz68K` built that exact commit, reached
+    `Ready`, owns the production aliases, and `/dashboard?demo=1` returned HTTP 200.
+- Phase 3 next action: begin Phase 4 by auditing the existing Gemini analysis service, API
+  contract, job schema, worker readiness checks, and deployed environment-variable wiring. Replace
+  only Study analysis's laptop-worker dependency with a bounded, asynchronous server-side Gemini
+  API runner; keep deterministic Study operations independent and do not read or expose the key.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.

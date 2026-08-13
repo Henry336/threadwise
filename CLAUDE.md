@@ -134,7 +134,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   group audiences. Exact times use leased, deduplicated, lifecycle-aware rows; automatic reminders
   now escalate toward deadlines; Everyone, Unassigned, and named-assignee behavior are distinct;
   repeated Telegram completions converge on one persisted control surface. Prisma, TypeScript,
-  build, 842 backend tests (6 skipped), and desktop/mobile browser QA pass. Publication is next.
+  build, 842 backend tests (6 skipped), and desktop/mobile browser QA pass. Backend commit
+  `3db35bf` is live on Render with the migration applied and HTTP 200 health.
 
 - **2026-08-13 (Codex):** Implemented and locally validated the Canvas completeness phase:
   workspace-keyed serialized sync, restart-safe stale-run recovery, less restrictive active-course
