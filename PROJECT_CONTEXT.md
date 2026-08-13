@@ -500,3 +500,43 @@ and the next command/action. Never mark incomplete work complete.
 - No Ari image asset, backend runtime, database, secret, repository data, or poisoned recovery
   artifact was accessed or changed. The dashboard worktree is expected to be clean at
   `608b14c`; this PROJECT_CONTEXT update is the only backend-repository change.
+
+### Ari 4 FPS cadence — approved scope before implementation (2026-08-13 22:30 SGT)
+
+- The user approved increasing the normalized Ari loader from 2 FPS to 4 FPS because the
+  discrete motion still feels clunky. Keep the existing eight registered transparent frames,
+  forward/reverse 14-step sequence, loader geometry, shared loading surface, and reduced-motion
+  behavior unchanged; only halve each frame hold from 500 ms to 250 ms.
+- Expected dashboard files: `src/app/globals.css`, `src/lib/ari-loader.ts`, the two focused Ari
+  loader tests, `scripts/normalize_ari_assets.py`, and the generated v4 JSON manifest metadata.
+  The PNG sprite must remain byte-identical and no additional animation/image dependency is in
+  scope.
+- Validation plan: confirm 3.5-second loop duration and 4 FPS metadata in focused tests, verify
+  the PNG hash is unchanged, run TypeScript/lint/build and the required UI detector, then push
+  and verify Vercel production. Next action: update the canonical cadence constants/generator
+  and CSS together so runtime, tests, and reproducible asset metadata cannot drift.
+
+### Ari 4 FPS cadence — implemented and validated locally (2026-08-13 22:35 SGT)
+
+- Ari now advances every 250 ms (4 FPS) through the unchanged 14-step forward/reverse sequence,
+  making one seamless loop 3.5 seconds. Runtime CSS/constants, the reproducible normalization
+  script, v4 JSON manifest, and focused tests all encode the same cadence.
+- The eight normalized 640px transparent frames, registration, loader ratio/geometry, unified
+  loading surface, and reduced-motion still frame remain unchanged. Git object hashes confirm
+  the working PNG sprite is byte-identical to dashboard `HEAD` (`592d782d66a0c2ddfb57b5fd82c918b0ababb288`),
+  so this adds no image payload and cannot reintroduce the earlier frame-alignment issue.
+- Focused Ari Vitest passes (2 files / 4 tests); TypeScript, ESLint, and the Next production build
+  pass; `git diff --check` is clean. The required Impeccable detector returns no findings for the
+  changed runtime stylesheet. Next action: commit and push, wait for Vercel, verify production,
+  and record the deployed commit.
+
+### Ari 4 FPS cadence — deployed (2026-08-13 22:38 SGT)
+
+- Dashboard commit `be3c88c` (`polish Ari loader cadence`) is pushed to `origin/main` and its
+  Vercel production deployment completed successfully.
+- The canonical `https://threadwise-dashboard.vercel.app/dashboard` route returns HTTP 200.
+  Ari's shared loader now runs at 4 FPS in production with the unchanged normalized sprite and
+  unchanged reduced-motion fallback.
+- No backend runtime, database, secret, repository data, additional asset, or poisoned recovery
+  artifact was accessed or changed. The dashboard worktree is expected to be clean at `be3c88c`;
+  this PROJECT_CONTEXT update is the only backend-repository change.
