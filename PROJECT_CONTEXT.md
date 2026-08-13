@@ -670,3 +670,17 @@ and the next command/action. Never mark incomplete work complete.
   The user explicitly authorized always pushing completed changes. Next action: commit and push this
   correction to `main`, then verify the Render migration/deployment, OpenAI analysis availability, and
   production health without exposing the configured API key.
+
+### OpenAI Study analysis + all-mode image albums — deployed (2026-08-14 SGT)
+
+- Backend commits `85f6812` and `3f0b12a` are pushed to `origin/main`. Render completed the additive
+  migration/build and production `/health` returned HTTP 200 with version `0.32.0` and commit
+  `3f0b12aec519`. The active Study analysis runtime now reads the existing server-side
+  `OPENAI_API_KEY`; no Gemini key or laptop worker is involved.
+- Private/individual albums use the durable general collector, ordinary groups retain uncaptioned
+  follow-on items only for the exact already-open addressed album, and the sealed Study workspace
+  continues to use its dedicated durable Study collector. Every mode presents one album review and
+  applies one optional shared caption to all images. Sources retain Telegram file references only.
+- Validation: 50 focused routing/batch tests, backend typecheck, production build, Prisma validation,
+  and diff checks passed. No secret value was read or printed. Operational next action is user-side
+  live verification of one multi-image album in each desired mode and one Study analysis request.
