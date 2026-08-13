@@ -246,6 +246,16 @@ enum StudyCanvasAssignmentStatus {
   MISSING
 }
 
+enum StudyCanvasMaterialKind {
+  PAGE
+  FILE
+  ASSIGNMENT
+  QUIZ
+  DISCUSSION
+  EXTERNAL_URL
+  OTHER
+}
+
 enum CommunityEnvironment {
   TEST
   PRODUCTION
@@ -378,6 +388,8 @@ model StudyWorkspace {
   noteCaptureSession StudyNoteCaptureSession?
   canvasSync         StudyCanvasSync?
   canvasAssignments  StudyCanvasAssignment[]
+  canvasCourseModules StudyCanvasCourseModule[]
+  canvasMaterials    StudyCanvasMaterial[]
   origins            StudyLocationOrigin[]    @relation("StudyWorkspaceOrigins")
   activeOrigin       StudyLocationOrigin?     @relation("StudyWorkspaceActiveOrigin", fields: [activeOriginId], references: [id], onDelete: SetNull)
 
@@ -417,6 +429,8 @@ model StudyModule {
   pendingCaptureBatches StudyPendingCaptureBatch[]
   noteCaptureSessions StudyNoteCaptureSession[]
   canvasAssignments   StudyCanvasAssignment[]
+  canvasCourseModules StudyCanvasCourseModule[]
+  canvasMaterials     StudyCanvasMaterial[]
   analysisJobs         GeminiStudyAnalysisJob[]
 
   @@unique([workspaceId, code])
@@ -749,6 +763,7 @@ model StudyCanvasSync {
   lastSuccessfulAt    DateTime?
   nextSyncAt          DateTime              @default(now())
   lastError           String?
+  lastSummary         Json?
   consecutiveFailures Int                   @default(0)
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -756,6 +771,67 @@ model StudyCanvasSync {
   workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([status, nextSyncAt])
+}
+
+model StudyCanvasCourseModule {
+  id                  String   @id @default(uuid())
+  workspaceId         String
+  moduleId            String
+  canvasCourseId      String
+  canvasModuleId      String
+  name                String
+  position            Int      @default(0)
+  unlockAt            DateTime?
+  workflowState       String?
+  published           Boolean?
+  active              Boolean  @default(true)
+  lastSeenAt          DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module    StudyModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  materials StudyCanvasMaterial[]
+
+  @@unique([workspaceId, canvasModuleId])
+  @@index([workspaceId, canvasCourseId, position])
+  @@index([moduleId, active, position])
+}
+
+model StudyCanvasMaterial {
+  id                   String                  @id @default(uuid())
+  workspaceId          String
+  moduleId             String
+  courseModuleId       String?
+  canvasCourseId       String
+  canvasModuleItemId   String
+  canvasContentId      String?
+  kind                 StudyCanvasMaterialKind
+  title                String
+  position             Int                     @default(0)
+  htmlUrl              String?
+  apiUrl               String?
+  externalUrl          String?
+  contentType          String?
+  byteSize             Int?
+  extractedText        String?
+  contentHash          String?
+  sourceUpdatedAt      DateTime?
+  unlockAt             DateTime?
+  published            Boolean?
+  active               Boolean                 @default(true)
+  lastSeenAt           DateTime
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  workspace    StudyWorkspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module       StudyModule              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  courseModule StudyCanvasCourseModule? @relation(fields: [courseModuleId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, canvasModuleItemId])
+  @@index([workspaceId, kind, active])
+  @@index([moduleId, active, position])
+  @@index([courseModuleId, position])
 }
 
 model StudyCanvasAssignment {

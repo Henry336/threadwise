@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Observable, workspace-safe Canvas coverage
+- Replaced the process-global Canvas sync promise with a workspace-keyed, globally serialized queue. Repeated requests for one workspace coalesce, different workspaces cannot receive one another's result, and stale `RUNNING` rows become restart-safe work instead of waiting indefinitely.
+- Removed the redundant `state=available` course restriction while retaining active-enrollment and deleted-course filtering, so valid active enrollments are not silently excluded by a second course-state gate.
+- Persisted bounded per-course reconciliation diagnostics: assignments returned, imported, refreshed, ignored because already submitted or awaiting module activation, unpublished/deleted skips, and missing-item review counts.
+- Added a metadata-first Canvas course-module and material mirror. Published module items are workspace-scoped; Canvas pages are stored once as bounded plain text with a SHA-256 content hash, while files/PDFs retain type, size, provenance, and API references without downloading their bodies during ordinary sync.
+- Kept assignment reconciliation available when one course's material index is inaccessible, bounded every paginated collection, rejected off-origin material API URLs, and retained read-only Canvas behavior.
+
 ### Opt-in, evidence-backed module review
 - Added an explicit Study module-analysis workflow powered by the existing private Gemini CLI worker. Analysis is never automatic and is unavailable until the module has at least one completed, non-archived Deep Work session.
 - Cached results are keyed to the current session/resource evidence, remain readable when the worker is offline, and become visibly stale when the underlying evidence changes.

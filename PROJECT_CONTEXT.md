@@ -9,8 +9,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Current checkpoint — 2026-08-13
 
-- Status: Phase 1 (timetable reliability) is implemented and locally validated; commit,
-  push, deployment, and live verification are next.
+- Status: Phase 1 is complete in production. Phase 2 (Canvas completeness and material
+  coverage) is implemented and locally validated; commit, migration deployment, and live sync
+  verification are next.
 - Canonical validated baseline before this documentation checkpoint:
   - backend `D:\CodexProjects\Threadwise`: clean `main` at `0af42ca`
   - dashboard `D:\CodexProjects\threadwise-dashboard`: clean `main` at `38d5037`
@@ -44,6 +45,39 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   - production-build browser QA at 1440x720 and 390x844 confirmed focus retention,
     body-level portal placement, no backdrop blur, bounded sheet geometry, friendly location
     copy, title-first density, and 58px shared/124px isolated collision-group sizing.
+- Phase 1 publication checkpoint:
+  - backend context commit `21b76b3` pushed to `main`;
+  - dashboard implementation commit `8f40ea0` pushed to `main`;
+  - Vercel production deployment `dpl_FrcWRVn3JmVfRJ3kAkbAy1w9K1Fj` is Ready and owns the
+    canonical `https://threadwise-dashboard.vercel.app` alias;
+  - both worktrees were clean immediately after publication.
+- Phase 2 audit scope now in progress: trace pagination, enrollment/course filters,
+  assignment inclusion/skip/archive rules, missing-assignment reconciliation, sync state,
+  and existing tests; inspect configured environment-variable names without reading secrets;
+  only then define the smallest durable, observable completeness repair and material mirror.
+- Phase 2 established causes/risks:
+  - the active-enrollment course request also required Canvas `state=available`, a redundant
+    second filter capable of excluding otherwise valid active enrollments;
+  - ignored submitted or inactive-course assignments produced no persisted explanation;
+  - one global in-flight promise could return one workspace's result to another, and the due
+    loop considered only the first active workspace;
+  - an interrupted `RUNNING` row was not retryable until its future `nextSyncAt`;
+  - only courses/assignments were queried; course modules, pages, files, and PDFs were absent.
+- Phase 2 implementation checkpoint:
+  - workspace-keyed coalescing with one global serialized queue and stale-run recovery;
+  - all due active workspaces are considered in bounded batches;
+  - active enrollment remains required, but the redundant course-state filter is removed;
+  - per-course counts and skip reasons persist in `StudyCanvasSync.lastSummary` and audit data;
+  - new workspace/module-scoped `StudyCanvasCourseModule` and `StudyCanvasMaterial` records;
+  - published module items are indexed up to 500 per course; Canvas pages cache at most 64 KB
+    of normalized text plus SHA-256; file/PDF bodies are not downloaded during routine sync;
+  - material API URLs must remain under the configured Canvas API origin; material failures
+    are diagnostic and do not prevent assignment reconciliation;
+  - Study settings shows latest course/assignment/module/material coverage and the count of
+    assignments waiting for course activation.
+- Phase 2 local validation: Prisma generation/validation, backend TypeScript, full backend
+  suite (830 passed, 6 skipped), backend production build, dashboard TypeScript, targeted lint,
+  full dashboard suite (73/73), and dashboard production build pass.
 - The retired poisoned Codex task and deleted rollout tree must never be accessed.
 - User-provided screenshots are normal files under `D:\CodexData\Temp`; do not embed
   their bytes in this context or conversational history.

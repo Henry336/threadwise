@@ -130,6 +130,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-13 (Codex):** Implemented and locally validated the Canvas completeness phase:
+  workspace-keyed serialized sync, restart-safe stale-run recovery, less restrictive active-course
+  discovery, per-course skip diagnostics, and a bounded metadata-first module/page/file mirror.
+  Canvas page text is hashed and bounded; file/PDF bodies are not downloaded during routine sync.
+  Full backend tests pass 830 with 6 skips; Prisma, TypeScript, and production build pass.
+
 - **2026-08-13 (Codex):** Implemented and locally validated Phase 1 of the approved roadmap
   in the dashboard: stable timetable dialog focus, body-level bounded sheets, uniform scrim,
   safe destination payloads and plain-language guidance, title-first compact blocks, and

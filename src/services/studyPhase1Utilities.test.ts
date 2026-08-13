@@ -2,12 +2,14 @@ import {
   StudyItemStatus,
   StudyItemType,
   StudyPriority,
+  StudyCanvasMaterialKind,
+  StudyCanvasSyncStatus,
   StudyReminderKind,
   StudyTrafficLight,
 } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { scoreStudyAttentionItem } from "./studyAttention";
-import { canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink } from "./studyCanvas";
+import { canvasMaterialKind, canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink, studyCanvasSyncIsDue } from "./studyCanvas";
 import { studyReminderPriority } from "./studyReminders";
 import { deriveStudyResourceTitle, paginateStudyText } from "./studyResources";
 
@@ -31,6 +33,21 @@ describe("Canvas mapping rules", () => {
     const header = '<https://canvas.example/api?page=1>; rel="current", <https://canvas.example/api?page=2>; rel="next"';
     expect(nextCanvasLink(header)).toBe("https://canvas.example/api?page=2");
     expect(nextCanvasLink(null)).toBeUndefined();
+  });
+
+  it("maps Canvas module items into stable material kinds", () => {
+    expect(canvasMaterialKind("Page")).toBe(StudyCanvasMaterialKind.PAGE);
+    expect(canvasMaterialKind("File")).toBe(StudyCanvasMaterialKind.FILE);
+    expect(canvasMaterialKind("ExternalUrl")).toBe(StudyCanvasMaterialKind.EXTERNAL_URL);
+    expect(canvasMaterialKind("SubHeader")).toBe(StudyCanvasMaterialKind.OTHER);
+  });
+
+  it("reclaims interrupted Canvas syncs without racing healthy future runs", () => {
+    const now = new Date("2026-08-13T10:00:00.000Z");
+    expect(studyCanvasSyncIsDue(null, now)).toBe(true);
+    expect(studyCanvasSyncIsDue({ status: StudyCanvasSyncStatus.READY, lastAttemptAt: now, nextSyncAt: new Date("2026-08-13T10:30:00.000Z") }, now)).toBe(false);
+    expect(studyCanvasSyncIsDue({ status: StudyCanvasSyncStatus.RUNNING, lastAttemptAt: new Date("2026-08-13T09:59:00.000Z"), nextSyncAt: new Date("2026-08-13T10:30:00.000Z") }, now)).toBe(false);
+    expect(studyCanvasSyncIsDue({ status: StudyCanvasSyncStatus.RUNNING, lastAttemptAt: new Date("2026-08-13T09:50:00.000Z"), nextSyncAt: new Date("2026-08-13T10:30:00.000Z") }, now)).toBe(true);
   });
 });
 

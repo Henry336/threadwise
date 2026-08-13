@@ -1,5 +1,6 @@
 import {
   StudyCanvasAssignmentStatus,
+  StudyCanvasMaterialKind,
   StudyCanvasSyncStatus,
   StudyItemSource,
   StudyItemStatus,
@@ -8,6 +9,7 @@ import {
   type StudyModule,
   type StudyWorkspace,
 } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
@@ -22,6 +24,9 @@ import {
 const CANVAS_PAGE_LIMIT = 100;
 const CANVAS_MAX_PAGES = 50;
 const CANVAS_SYNC_POLL_MS = 60_000;
+const CANVAS_MAX_MATERIALS_PER_COURSE = 500;
+const CANVAS_MAX_PAGE_TEXT = 64_000;
+const CANVAS_STALE_SYNC_MS = 5 * 60_000;
 
 type CanvasProfile = {
   id: number | string;
@@ -35,6 +40,31 @@ type CanvasCourse = {
   course_code?: string;
   workflow_state?: string;
 };
+
+type CanvasModule = {
+  id: number | string;
+  name?: string;
+  position?: number;
+  unlock_at?: string | null;
+  state?: string;
+  published?: boolean;
+};
+
+type CanvasModuleItem = {
+  id: number | string;
+  module_id?: number | string;
+  position?: number;
+  title?: string;
+  type?: string;
+  content_id?: number | string | null;
+  html_url?: string | null;
+  url?: string | null;
+  external_url?: string | null;
+  published?: boolean;
+};
+
+type CanvasPage = { title?: string; body?: string | null; updated_at?: string | null; published?: boolean };
+type CanvasFile = { display_name?: string; filename?: string; "content-type"?: string; size?: number; url?: string | null; updated_at?: string | null; unlock_at?: string | null; locked?: boolean };
 
 type CanvasSubmission = {
   workflow_state?: string;
@@ -64,10 +94,36 @@ export type StudyCanvasSyncSummary = {
   updated: number;
   completed: number;
   missing: number;
+  ignoredSubmitted: number;
+  ignoredInactive: number;
+  skippedUnpublished: number;
+  skippedDeleted: number;
+  courseModulesSeen: number;
+  materialsSeen: number;
+  pagesCached: number;
+  filesIndexed: number;
   finishedAt: Date;
+  courseDiagnostics: CanvasCourseDiagnostic[];
 };
 
-let syncInFlight: Promise<StudyCanvasSyncSummary> | undefined;
+type CanvasCourseDiagnostic = {
+  canvasCourseId: string;
+  moduleCode: string;
+  moduleActive: boolean;
+  assignmentsReturned: number;
+  imported: number;
+  updated: number;
+  ignoredSubmitted: number;
+  ignoredInactive: number;
+  skippedUnpublished: number;
+  skippedDeleted: number;
+  courseModulesSeen: number;
+  materialsSeen: number;
+  materialError?: string;
+};
+
+const syncInFlightByWorkspace = new Map<string, Promise<StudyCanvasSyncSummary>>();
+let syncQueue: Promise<unknown> = Promise.resolve();
 
 export function studyCanvasConfigured(): boolean {
   return Boolean(env.CANVAS_ACCESS_TOKEN);
@@ -81,15 +137,13 @@ export function syncStudyCanvas(
   workspace: StudyWorkspace,
   options: { now?: Date; force?: boolean } = {},
 ): Promise<StudyCanvasSyncSummary> {
-  if (syncInFlight) return syncInFlight;
-  syncInFlight = (async () => {
-    try {
-      return await performStudyCanvasSync(workspace, options);
-    } finally {
-      syncInFlight = undefined;
-    }
-  })();
-  return syncInFlight;
+  const existing = syncInFlightByWorkspace.get(workspace.id);
+  if (existing) return existing;
+  const task = syncQueue.then(() => performStudyCanvasSync(workspace, options));
+  syncQueue = task.catch(() => undefined);
+  syncInFlightByWorkspace.set(workspace.id, task);
+  void task.finally(() => syncInFlightByWorkspace.delete(workspace.id)).catch(() => undefined);
+  return task;
 }
 
 async function performStudyCanvasSync(
@@ -125,7 +179,6 @@ async function performStudyCanvasSync(
     const profile = await canvasGet<CanvasProfile>("users/self/profile");
     const courses = (await canvasGetPages<CanvasCourse>("courses", {
       enrollment_state: "active",
-      state: ["available"],
       include: ["term"],
     })).filter((course) => course.workflow_state !== "deleted");
 
@@ -133,6 +186,15 @@ async function performStudyCanvasSync(
     let imported = 0;
     let updated = 0;
     let completed = 0;
+    let ignoredSubmitted = 0;
+    let ignoredInactive = 0;
+    let skippedUnpublished = 0;
+    let skippedDeleted = 0;
+    let courseModulesSeen = 0;
+    let materialsSeen = 0;
+    let pagesCached = 0;
+    let filesIndexed = 0;
+    const courseDiagnostics: CanvasCourseDiagnostic[] = [];
 
     for (const course of courses) {
       const module = await mapCanvasCourse(workspace, course, now);
@@ -140,15 +202,49 @@ async function performStudyCanvasSync(
         `courses/${encodeURIComponent(String(course.id))}/assignments`,
         { include: ["submission"], order_by: "due_at" },
       );
+      const diagnostic: CanvasCourseDiagnostic = {
+        canvasCourseId: String(course.id),
+        moduleCode: module.code,
+        moduleActive: module.active,
+        assignmentsReturned: assignments.length,
+        imported: 0,
+        updated: 0,
+        ignoredSubmitted: 0,
+        ignoredInactive: 0,
+        skippedUnpublished: 0,
+        skippedDeleted: 0,
+        courseModulesSeen: 0,
+        materialsSeen: 0,
+      };
       for (const assignment of assignments) {
-        if (assignment.published === false || assignment.workflow_state === "deleted") continue;
+        if (assignment.published === false) { skippedUnpublished += 1; diagnostic.skippedUnpublished += 1; continue; }
+        if (assignment.workflow_state === "deleted") { skippedDeleted += 1; diagnostic.skippedDeleted += 1; continue; }
         const canvasAssignmentId = String(assignment.id);
         seenAssignmentIds.add(canvasAssignmentId);
         const result = await persistCanvasAssignment(workspace, module, course, assignment, now);
-        if (result === "imported") imported += 1;
-        else if (result === "updated") updated += 1;
+        if (result === "imported") { imported += 1; diagnostic.imported += 1; }
+        else if (result === "updated") { updated += 1; diagnostic.updated += 1; }
+        else if (result === "ignored_submitted") { ignoredSubmitted += 1; diagnostic.ignoredSubmitted += 1; }
+        else if (result === "ignored_inactive") { ignoredInactive += 1; diagnostic.ignoredInactive += 1; }
         if (result === "updated" && isSubmitted(assignment.submission)) completed += 1;
       }
+      try {
+        const materials = await syncCanvasCourseMaterials(workspace, module, course, now);
+        courseModulesSeen += materials.courseModulesSeen;
+        materialsSeen += materials.materialsSeen;
+        pagesCached += materials.pagesCached;
+        filesIndexed += materials.filesIndexed;
+        diagnostic.courseModulesSeen = materials.courseModulesSeen;
+        diagnostic.materialsSeen = materials.materialsSeen;
+      } catch (error) {
+        diagnostic.materialError = canvasErrorMessage(error).slice(0, 300);
+        logger.warn("Canvas course materials could not be indexed; assignment reconciliation continued.", {
+          workspaceId: workspace.id,
+          canvasCourseId: String(course.id),
+          error: diagnostic.materialError,
+        });
+      }
+      courseDiagnostics.push(diagnostic);
     }
 
     const previouslyTracked = await prisma.studyCanvasAssignment.findMany({
@@ -180,6 +276,23 @@ async function performStudyCanvasSync(
         lastSuccessfulAt: finishedAt,
         nextSyncAt,
         lastError: null,
+        lastSummary: {
+          courses: courses.length,
+          assignmentsSeen: seenAssignmentIds.size,
+          imported,
+          updated,
+          completed,
+          missing: disappeared.length,
+          ignoredSubmitted,
+          ignoredInactive,
+          skippedUnpublished,
+          skippedDeleted,
+          courseModulesSeen,
+          materialsSeen,
+          pagesCached,
+          filesIndexed,
+          courseDiagnostics,
+        },
         consecutiveFailures: 0,
       },
     });
@@ -195,6 +308,15 @@ async function performStudyCanvasSync(
           updated,
           completed,
           missing: disappeared.length,
+          ignoredSubmitted,
+          ignoredInactive,
+          skippedUnpublished,
+          skippedDeleted,
+          courseModulesSeen,
+          materialsSeen,
+          pagesCached,
+          filesIndexed,
+          courseDiagnostics,
         },
       },
     });
@@ -205,7 +327,16 @@ async function performStudyCanvasSync(
       updated,
       completed,
       missing: disappeared.length,
+      ignoredSubmitted,
+      ignoredInactive,
+      skippedUnpublished,
+      skippedDeleted,
+      courseModulesSeen,
+      materialsSeen,
+      pagesCached,
+      filesIndexed,
       finishedAt,
+      courseDiagnostics,
     };
   } catch (error) {
     const message = canvasErrorMessage(error);
@@ -223,15 +354,34 @@ async function performStudyCanvasSync(
   }
 }
 
-export async function runDueStudyCanvasSync(now = new Date()): Promise<StudyCanvasSyncSummary | undefined> {
-  if (!studyCanvasConfigured() || syncInFlight) return syncInFlight;
-  const workspace = await prisma.studyWorkspace.findFirst({
+export async function runDueStudyCanvasSync(now = new Date()): Promise<StudyCanvasSyncSummary[]> {
+  if (!studyCanvasConfigured()) return [];
+  const workspaces = await prisma.studyWorkspace.findMany({
     where: { active: true, canvasSyncEnabled: true, boundChatId: { not: null } },
+    orderBy: { updatedAt: "asc" },
+    take: 10,
   });
-  if (!workspace) return undefined;
-  const state = await prisma.studyCanvasSync.findUnique({ where: { workspaceId: workspace.id } });
-  if (state?.nextSyncAt && state.nextSyncAt > now && state.status !== StudyCanvasSyncStatus.NEVER) return undefined;
-  return syncStudyCanvas(workspace, { now }).catch(() => undefined);
+  const summaries: StudyCanvasSyncSummary[] = [];
+  for (const workspace of workspaces) {
+    if (syncInFlightByWorkspace.has(workspace.id)) continue;
+    const state = await prisma.studyCanvasSync.findUnique({ where: { workspaceId: workspace.id } });
+    if (!studyCanvasSyncIsDue(state, now)) continue;
+    const summary = await syncStudyCanvas(workspace, { now }).catch(() => undefined);
+    if (summary) summaries.push(summary);
+  }
+  return summaries;
+}
+
+export function studyCanvasSyncIsDue(state: {
+  status: StudyCanvasSyncStatus;
+  lastAttemptAt: Date | null;
+  nextSyncAt: Date;
+} | null | undefined, now: Date): boolean {
+  if (!state || state.status === StudyCanvasSyncStatus.NEVER) return true;
+  if (state.status === StudyCanvasSyncStatus.RUNNING) {
+    return !state.lastAttemptAt || state.lastAttemptAt.getTime() <= now.getTime() - CANVAS_STALE_SYNC_MS;
+  }
+  return state.nextSyncAt <= now;
 }
 
 export function startStudyCanvasSyncLoop(pollMs = CANVAS_SYNC_POLL_MS): NodeJS.Timeout {
@@ -308,7 +458,7 @@ export async function persistCanvasAssignment(
   course: CanvasCourse,
   assignment: CanvasAssignment,
   now: Date,
-): Promise<"imported" | "updated" | "ignored"> {
+): Promise<"imported" | "updated" | "ignored_submitted" | "ignored_inactive"> {
   const canvasAssignmentId = String(assignment.id);
   const canvasCourseId = String(course.id);
   const title = (assignment.name ?? `Canvas assignment ${canvasAssignmentId}`).trim().slice(0, 500);
@@ -350,10 +500,10 @@ export async function persistCanvasAssignment(
   // Canvas history can contain years of already-submitted work. It is useful
   // only when Threadwise was already tracking the assignment and needs to
   // close it; importing completed history would bury the active workload.
-  if (submitted) return "ignored";
+  if (submitted) return "ignored_submitted";
   // Assignments discovered under an inactive/unreviewed module remain source
   // metadata only. Activating the module and syncing again imports them.
-  if (!module.active) return "ignored";
+  if (!module.active) return "ignored_inactive";
 
   const publicId = await nextStudyPublicId(workspace.id, "STUDY");
   const item = await prisma.studyItem.create({
@@ -412,6 +562,159 @@ function canvasAssignmentData(
     missingSince: null,
     needsReview: false,
   };
+}
+
+async function syncCanvasCourseMaterials(
+  workspace: StudyWorkspace,
+  module: StudyModule,
+  course: CanvasCourse,
+  now: Date,
+): Promise<{ courseModulesSeen: number; materialsSeen: number; pagesCached: number; filesIndexed: number }> {
+  const canvasCourseId = String(course.id);
+  const canvasModules = await canvasGetPages<CanvasModule>(
+    `courses/${encodeURIComponent(canvasCourseId)}/modules`,
+    {},
+  );
+  const seenModuleIds = new Set<string>();
+  const seenMaterialIds = new Set<string>();
+  let pagesCached = 0;
+  let filesIndexed = 0;
+
+  for (const canvasModule of canvasModules) {
+    const canvasModuleId = String(canvasModule.id);
+    seenModuleIds.add(canvasModuleId);
+    const courseModule = await prisma.studyCanvasCourseModule.upsert({
+      where: { workspaceId_canvasModuleId: { workspaceId: workspace.id, canvasModuleId } },
+      update: {
+        moduleId: module.id,
+        canvasCourseId,
+        name: (canvasModule.name ?? `Canvas module ${canvasModuleId}`).trim().slice(0, 500),
+        position: canvasModule.position ?? 0,
+        unlockAt: canvasDate(canvasModule.unlock_at),
+        workflowState: canvasModule.state,
+        published: canvasModule.published,
+        active: true,
+        lastSeenAt: now,
+      },
+      create: {
+        workspaceId: workspace.id,
+        moduleId: module.id,
+        canvasCourseId,
+        canvasModuleId,
+        name: (canvasModule.name ?? `Canvas module ${canvasModuleId}`).trim().slice(0, 500),
+        position: canvasModule.position ?? 0,
+        unlockAt: canvasDate(canvasModule.unlock_at),
+        workflowState: canvasModule.state,
+        published: canvasModule.published,
+        lastSeenAt: now,
+      },
+    });
+    const items = await canvasGetPages<CanvasModuleItem>(
+      `courses/${encodeURIComponent(canvasCourseId)}/modules/${encodeURIComponent(canvasModuleId)}/items`,
+      {},
+    );
+    if (seenMaterialIds.size + items.length > CANVAS_MAX_MATERIALS_PER_COURSE) {
+      throw new Error(`Canvas course ${module.code} exposes more than ${CANVAS_MAX_MATERIALS_PER_COURSE} module items; sync stopped before marking unseen material missing.`);
+    }
+    for (const item of items) {
+      if (item.published === false) continue;
+      const canvasModuleItemId = String(item.id);
+      seenMaterialIds.add(canvasModuleItemId);
+      const kind = canvasMaterialKind(item.type);
+      let page: CanvasPage | undefined;
+      let file: CanvasFile | undefined;
+      if (kind === StudyCanvasMaterialKind.PAGE && item.url) {
+        page = await canvasGetFromApiUrl<CanvasPage>(item.url).catch(() => undefined);
+        if (page?.body) pagesCached += 1;
+      } else if (kind === StudyCanvasMaterialKind.FILE && item.url) {
+        file = await canvasGetFromApiUrl<CanvasFile>(item.url).catch(() => undefined);
+        if (file) filesIndexed += 1;
+      }
+      const extractedText = page?.body ? htmlToPlainText(page.body)?.slice(0, CANVAS_MAX_PAGE_TEXT) : undefined;
+      const title = (page?.title ?? file?.display_name ?? file?.filename ?? item.title ?? `Canvas material ${canvasModuleItemId}`).trim().slice(0, 500);
+      await prisma.studyCanvasMaterial.upsert({
+        where: { workspaceId_canvasModuleItemId: { workspaceId: workspace.id, canvasModuleItemId } },
+        update: {
+          moduleId: module.id,
+          courseModuleId: courseModule.id,
+          canvasCourseId,
+          canvasContentId: item.content_id == null ? undefined : String(item.content_id),
+          kind,
+          title,
+          position: item.position ?? 0,
+          htmlUrl: item.html_url ?? undefined,
+          apiUrl: item.url ?? undefined,
+          externalUrl: item.external_url ?? undefined,
+          contentType: file?.["content-type"],
+          byteSize: safeCanvasByteSize(file?.size),
+          extractedText,
+          contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
+          sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
+          unlockAt: canvasDate(file?.unlock_at),
+          published: page?.published ?? item.published,
+          active: true,
+          lastSeenAt: now,
+        },
+        create: {
+          workspaceId: workspace.id,
+          moduleId: module.id,
+          courseModuleId: courseModule.id,
+          canvasCourseId,
+          canvasModuleItemId,
+          canvasContentId: item.content_id == null ? undefined : String(item.content_id),
+          kind,
+          title,
+          position: item.position ?? 0,
+          htmlUrl: item.html_url ?? undefined,
+          apiUrl: item.url ?? undefined,
+          externalUrl: item.external_url ?? undefined,
+          contentType: file?.["content-type"],
+          byteSize: safeCanvasByteSize(file?.size),
+          extractedText,
+          contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
+          sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
+          unlockAt: canvasDate(file?.unlock_at),
+          published: page?.published ?? item.published,
+          lastSeenAt: now,
+        },
+      });
+    }
+  }
+
+  await prisma.studyCanvasCourseModule.updateMany({
+    where: { workspaceId: workspace.id, canvasCourseId, active: true, canvasModuleId: { notIn: [...seenModuleIds] } },
+    data: { active: false },
+  });
+  await prisma.studyCanvasMaterial.updateMany({
+    where: { workspaceId: workspace.id, canvasCourseId, active: true, canvasModuleItemId: { notIn: [...seenMaterialIds] } },
+    data: { active: false },
+  });
+  return { courseModulesSeen: seenModuleIds.size, materialsSeen: seenMaterialIds.size, pagesCached, filesIndexed };
+}
+
+export function canvasMaterialKind(value: string | undefined): StudyCanvasMaterialKind {
+  const type = value?.toLowerCase();
+  if (type === "page") return StudyCanvasMaterialKind.PAGE;
+  if (type === "file") return StudyCanvasMaterialKind.FILE;
+  if (type === "assignment") return StudyCanvasMaterialKind.ASSIGNMENT;
+  if (type === "quiz") return StudyCanvasMaterialKind.QUIZ;
+  if (type === "discussion") return StudyCanvasMaterialKind.DISCUSSION;
+  if (type === "externalurl" || type === "external_url") return StudyCanvasMaterialKind.EXTERNAL_URL;
+  return StudyCanvasMaterialKind.OTHER;
+}
+
+function safeCanvasByteSize(value: number | undefined): number | undefined {
+  return Number.isSafeInteger(value) && value! >= 0 && value! <= 2_147_483_647 ? value : undefined;
+}
+
+async function canvasGetFromApiUrl<T>(value: string): Promise<T> {
+  const base = new URL(env.CANVAS_BASE_URL);
+  const url = new URL(value, base);
+  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname.replace(/\/$/, ""))) {
+    throw new Error("Canvas returned a material API URL outside the configured Canvas API origin.");
+  }
+  const response = await canvasFetch(url.toString());
+  return response.json() as Promise<T>;
 }
 
 async function canvasGetPages<T>(path: string, params: Record<string, string | string[]>): Promise<T[]> {
