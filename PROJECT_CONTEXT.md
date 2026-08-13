@@ -364,3 +364,85 @@ enough for a future invite-only Study bot. Do not activate or publicize that bot
 Before any implementation begins, add the approved scope and exact files/migrations expected.
 After each checkpoint, record completed work, tests run, current Git status, unresolved risks,
 and the next command/action. Never mark incomplete work complete.
+
+### UI recovery polish checkpoint — approved scope before implementation (2026-08-13)
+
+- User supplied a final screenshot audit and approved implementation. Only defects that are
+  still present in the current dashboard are in scope; already-replaced native pickers,
+  native destructive confirmation, oversized resource picker, mobile drawer scrollbar,
+  old library-search overlap, and the original nullable session-save payload are not to be
+  reimplemented.
+- Remaining Ari work: rebuild the eight-frame untangling sprite as a reproducible,
+  transparent, consistently registered asset; remove the visible cream card/rectangle;
+  use a correctly proportioned frame; and restore two frames per second (500 ms per frame).
+  The offline Ari artwork must also use a transparent normal asset so it blends with the
+  page instead of appearing as a rectangle.
+- Remaining Deep Work work: normalize same-role type sizes at mobile and desktop sizes and
+  replace corrupted separator/ellipsis characters that still surface in session/module
+  copy. Preserve the incumbent layout and custom accessible pickers.
+- Remaining numeric-input work: prevent sticky or irremovable leading zeros in every
+  dashboard integer field, especially Daily reminder cap and Timed practice from week,
+  while preserving empty edit states, min/max validation, and numeric API payloads.
+- Expected dashboard files: `src/components/study-dashboard.tsx`,
+  `src/app/study-dashboard.css`, `src/app/globals.css`, `src/components/ari.tsx`,
+  `src/lib/ari-loader.ts`, their focused tests, `public/sw.js`, reproducible Ari asset
+  generation metadata/script, and generated transparent assets under `public/brand/`.
+  No backend schema, repository data, secrets, deployment configuration, or poisoned
+  recovery artifacts are in scope.
+- Validation plan: focused Vitest coverage for numeric normalization/Ari metadata, dashboard
+  typecheck/lint/build/test suite, static scan for embedded base64 and mojibake, Impeccable
+  detector on changed UI targets, responsive browser checks for loading/offline/Deep Work/
+  Rhythm settings, and a final source diff. Update this ledger after each checkpoint.
+
+### UI recovery polish checkpoint — implementation in progress (2026-08-13 21:21 SGT)
+
+- Ari v4 is now generated reproducibly by `scripts/normalize_ari_assets.py`. The loader uses
+  eight 640x640 transparent frames, registers the main teal silhouette to a common x-axis,
+  centers every foreground vertically, removes inherited encoder seams, and retains the
+  intentional thread motion. Playback is 500 ms per frame (2 fps), 7 seconds for the full
+  forward/reverse loop. The visible card border/background/shadow were removed.
+- Offline/light and dark avatar artwork now use circular-alpha assets so Ari remains centered
+  on the warm canvas without a rectangular source sheet. Service-worker shell cache bumped
+  to v3 and precaches the new offline avatar.
+- Added an empty-edit-safe `IntegerInput` plus pure normalization/clamping helpers. Study
+  Rhythm, Study travel buffers, timetable week bounds/buffer, and general reminder settings
+  no longer coerce an emptied control immediately back to `0`; redundant leading zeros are
+  removed while typing and committed values are clamped. The controlled expense preview now
+  preserves a genuinely empty total instead of coercing it to zero.
+- Deep Work form roles now share a readable 12/13/14px hierarchy across field labels,
+  selected values, option details, methods, techniques, resources, history, and the active
+  companion; the incumbent layout and custom pickers remain unchanged.
+- Focused Vitest gate passes: 3 files / 6 tests. TypeScript passes. Initial lint found the
+  React 19 `set-state-in-effect` rule in the first numeric-input implementation; the effect
+  has been removed in favor of an idle-prop/editing-draft model. Lint rerun, full tests,
+  build, detector, browser QA, and final diff are still pending.
+
+### UI recovery polish checkpoint — validated locally (2026-08-13 21:34 SGT)
+
+- Final dashboard gates pass: TypeScript, ESLint, production build, and all 78 Vitest tests.
+  `git diff --check` is clean and the changed source contains no embedded base64 payloads.
+- Playwright mobile QA at 393x852 confirms the offline avatar is centered and blends as a
+  circular illustration with no rectangular sheet. The production loader markup renders
+  with no card/background and a 220x220 computed frame box. The browser reports a 7s
+  animation duration for the 14-frame forward/reverse sequence (2 fps).
+- Playwright interaction QA confirms a reminder integer control can remain empty while
+  focused and normalizes typed `019` to `19`. The same shared control is used for Study
+  Rhythm and travel-buffer fields; timetable week drafts use the same pure normalization.
+- Impeccable detector reported one pre-existing `border-left: 3px` on the expandable quiz
+  answer at `study-dashboard.css:693`. It is unrelated to this approved screenshot scope
+  and was not introduced or changed here. No detector finding applies to the changed Ari,
+  Deep Work, or numeric-control selectors.
+- Remaining action: review/stage the dashboard-only diff, commit, push, wait for Vercel,
+  check the production alias/response, then record the deployed commit. Backend files and
+  runtime behavior were not changed.
+
+### UI recovery polish checkpoint — deployed (2026-08-13 21:37 SGT)
+
+- Dashboard commit `e07a1dbf289722816874ad47b738be1991f1fc8d` (`fix study loader and
+  numeric inputs`) is pushed to `origin/main`.
+- Vercel reports the commit deployment successful. The canonical production `/offline`
+  route returns HTTP 200, and `/brand/ari-untangle-normalized-v4.png` returns HTTP 200 as
+  `image/png` with the expected 1,001,770-byte body.
+- Dashboard worktree was clean at `e07a1db` after push. No backend runtime, database,
+  repository data, deployment environment, or poisoned recovery artifact was accessed or
+  changed. This documentation update is the only backend-repository change.
