@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 import { describe, expect, it, vi } from "vitest";
-import { generateOpenAiStudyAnalysis } from "./openAiStudyApi";
+import { generateOpenAiStudyAnalysis, openAiStudyFailureMetadata } from "./openAiStudyApi";
 
 type StudyClient = Pick<OpenAI, "chat">;
 
@@ -8,8 +8,8 @@ function clientWith(create: ReturnType<typeof vi.fn>): StudyClient {
   return { chat: { completions: { create } } } as unknown as StudyClient;
 }
 
-function providerError(status: number, message: string) {
-  return Object.assign(new Error(message), { status });
+function providerError(status: number, message: string, details: { code?: string; type?: string } = {}) {
+  return Object.assign(new Error(message), { status, ...details });
 }
 
 describe("server-side OpenAI Study API", () => {
@@ -46,13 +46,36 @@ describe("server-side OpenAI Study API", () => {
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it("returns safe provider errors without retaining upstream detail", async () => {
-    const create = vi.fn().mockRejectedValue(providerError(429, "private provider detail"));
+  it("distinguishes quota exhaustion from temporary rate limits without retaining upstream detail", async () => {
+    const quotaCreate = vi.fn().mockRejectedValue(providerError(429, "private provider detail", { code: "insufficient_quota" }));
+    const quota = generateOpenAiStudyAnalysis("prompt", {
+      apiKey: "test-secret",
+      client: clientWith(quotaCreate),
+      models: ["gpt-test"],
+      timeoutMs: 1_000,
+    });
+    await expect(quota).rejects.toThrow("quota or billing");
+    await quota.catch((error) => {
+      expect(openAiStudyFailureMetadata(error)).toEqual({ status: 429, code: "insufficient_quota", type: undefined });
+      expect(String(error)).not.toContain("private provider detail");
+    });
+
+    const limitedCreate = vi.fn().mockRejectedValue(providerError(429, "another private detail", { code: "rate_limit_exceeded" }));
+    await expect(generateOpenAiStudyAnalysis("prompt", {
+      apiKey: "test-secret",
+      client: clientWith(limitedCreate),
+      models: ["gpt-test"],
+      timeoutMs: 1_000,
+    })).rejects.toThrow("rate limit reached");
+  });
+
+  it("reports an invalid configured key as an authorization problem", async () => {
+    const create = vi.fn().mockRejectedValue(providerError(401, "secret upstream detail"));
     await expect(generateOpenAiStudyAnalysis("prompt", {
       apiKey: "test-secret",
       client: clientWith(create),
       models: ["gpt-test"],
       timeoutMs: 1_000,
-    })).rejects.toThrow("busy");
+    })).rejects.toThrow("rejected the configured API key");
   });
 });

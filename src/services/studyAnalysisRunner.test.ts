@@ -19,6 +19,7 @@ vi.mock("./studyAnalysis", () => ({
 vi.mock("./openAiStudyApi", () => ({
   openAiStudyApiConfigured: () => true,
   generateOpenAiStudyAnalysis: mocks.generate,
+  openAiStudyFailureMetadata: () => ({}),
 }));
 
 import { runStudyAnalysisPass } from "./studyAnalysisRunner";

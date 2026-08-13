@@ -7,6 +7,38 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Study review UI and provider diagnostics (2026-08-14 SGT)
+
+- User-reported production defects are confirmed in source: Module review still renders two
+  native `<select>` controls; the Review “Top three” card spans a nonexistent second grid row
+  and therefore stretches into a large empty panel; OpenAI HTTP 429 errors are collapsed into
+  the generic “analysis service is busy” message.
+- Approved implementation in progress: reuse and harden the existing Threadwise Study choice
+  popover for Module and Review type, make the Top three card content-height, and preserve safe
+  OpenAI failure metadata so invalid credentials, insufficient quota/billing, temporary rate
+  limits, and provider outages have distinct actionable messages. No secret or upstream error
+  payload may enter the browser or database.
+- Safe diagnostic evidence: the failed live analysis reached OpenAI and returned HTTP 429.
+  A minimal local probe (printing only status/code/type) returned HTTP 401, proving the laptop
+  `.env` credential is not equivalent to a working deployed credential and cannot validate the
+  Render key. No key value was read or printed.
+- Expected files: dashboard Study component/CSS/regression tests and `CLAUDE.md`; backend OpenAI
+  Study adapter/runner tests and continuity docs. Validate sequentially to avoid unnecessary
+  laptop load, then commit and push both `main` branches and verify Render/Vercel production.
+- Local implementation checkpoint: Module and Review type now use the shared Study choice picker
+  with explicit non-empty choices, selected-state checks, outside-click close, Escape, and
+  Arrow/Home/End keyboard movement. The picker keeps its existing mobile bottom-sheet geometry.
+  The Top three card now aligns to the start of its real grid row and no longer creates/spans an
+  implicit row. OpenAI failures now retain only safe numeric status and normalized code/type in a
+  typed error; the persisted message distinguishes 401, 403, insufficient quota/billing, temporary
+  429 rate limiting, and 5xx availability, while logs receive only the same safe metadata.
+- Validation checkpoint: dashboard Study UI regressions pass 4/4 and the full dashboard suite
+  passes 83/83; TypeScript, ESLint, and the production Next build pass. Backend OpenAI
+  adapter/runner tests pass 7/7; TypeScript, build, and Prisma generation pass. The full backend
+  suite reached 856 pass + 6 intentional skips; one unrelated Excel configuration test timed out
+  only under full-suite concurrency and passed 2/2 immediately in isolation. Both diffs pass
+  whitespace validation. Final review, commit/push, and live deployment verification remain.
+
 ## Current checkpoint — 2026-08-13
 
 - Status: Phase 1 is complete in production. Phase 2 (Canvas completeness and material

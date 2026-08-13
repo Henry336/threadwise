@@ -130,12 +130,21 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
-- **2026-08-14 (Codex, in progress):** Implemented the approved correction locally: durable Study
+- **2026-08-14 (Codex, local validation complete):** Replaced Study module review's native
+  Module/Review type selects with the existing Threadwise choice popover and keyboard/focus
+  behavior, and fixed the Review Top three card's accidental implicit-row stretch. OpenAI Study
+  failures now distinguish invalid credentials, quota/billing exhaustion, temporary rate limits,
+  permissions, and outages while persisting/logging only safe status/code/type metadata. A bounded
+  local probe returned 401 while the live failure was 429, so the local and deployed credentials
+  are not equivalent; no secret was printed. Focused tests/typechecks pass; the full backend suite
+  reached 856 pass + 6 skip with one unrelated concurrent Excel timeout that passes independently;
+  build and Prisma generation pass. Dashboard validation is recorded in its own `CLAUDE.md`.
+
+- **2026-08-14 (Codex):** Implemented the approved correction: durable Study
   analysis now uses the deployed OpenAI configuration with its evidence/validation boundaries intact,
   and general Telegram albums now produce one leased, deduplicated, atomically saved batch with one
-  shared caption. Prisma, focused tests, TypeScript, build, and diff checks pass. Full-suite validation,
-  final review, commit/push, migration deployment, and live verification remain; details are in
-  `PROJECT_CONTEXT.md`.
+  shared caption. Backend commits `85f6812` and `3f0b12a` are live on Render; private, ordinary
+  group, and Study albums retain their scoped durable batch paths. Details are in `PROJECT_CONTEXT.md`.
 
 - **2026-08-13 (Codex):** Implemented Phase 5 locally: bounded Study evidence graph v2 with
   session/resource/work/Canvas provenance and timing, Connections/Quiz/Both modes, conservative

@@ -7,7 +7,7 @@ import {
   completeStudyAnalysisJob,
   failStudyAnalysisJob,
 } from "./studyAnalysis";
-import { generateOpenAiStudyAnalysis, openAiStudyApiConfigured } from "./openAiStudyApi";
+import { generateOpenAiStudyAnalysis, openAiStudyApiConfigured, openAiStudyFailureMetadata } from "./openAiStudyApi";
 
 const SERVER_WORKER_ID = `study-api:${hostname()}:${process.pid}:${randomUUID()}`;
 let passInFlight: Promise<boolean> | undefined;
@@ -52,8 +52,9 @@ async function executePass(): Promise<boolean> {
     if (!completed) logger.warn("Study analysis completed after its lease was no longer owned.", { jobId: job.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The analysis service failed.";
+    const provider = openAiStudyFailureMetadata(error);
     await failStudyAnalysisJob({ id: job.id, workerId: SERVER_WORKER_ID, error: message, model: job.model ?? undefined });
-    logger.warn("Server-side Study analysis failed.", { jobId: job.id, error: message });
+    logger.warn("Server-side Study analysis failed.", { jobId: job.id, error: message, ...provider });
   }
   return true;
 }

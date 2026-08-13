@@ -5,6 +5,27 @@ const MAX_PROVIDER_RESPONSE_CHARS = 200_000;
 type StudyOpenAiClient = Pick<OpenAI, "chat">;
 
 export type OpenAiStudyApiResult = { text: string; model: string };
+export type OpenAiStudyFailureMetadata = { status?: number; code?: string; type?: string };
+
+export class OpenAiStudyApiError extends Error {
+  readonly status?: number;
+  readonly code?: string;
+  readonly providerType?: string;
+
+  constructor(message: string, metadata: OpenAiStudyFailureMetadata) {
+    super(message);
+    this.name = "OpenAiStudyApiError";
+    this.status = metadata.status;
+    this.code = metadata.code;
+    this.providerType = metadata.type;
+  }
+}
+
+export function openAiStudyFailureMetadata(error: unknown): OpenAiStudyFailureMetadata {
+  return error instanceof OpenAiStudyApiError
+    ? { status: error.status, code: error.code, type: error.providerType }
+    : {};
+}
 
 export function openAiStudyApiConfigured(): boolean {
   return Boolean(env.OPENAI_API_KEY);
@@ -63,7 +84,7 @@ export async function generateOpenAiStudyAnalysis(
         lastModelError = error;
         continue;
       }
-      throw new Error(safeOpenAiError(error));
+      throw safeOpenAiError(error);
     } finally {
       clearTimeout(timeout);
     }
@@ -71,17 +92,36 @@ export async function generateOpenAiStudyAnalysis(
   throw new Error(lastModelError ? "No configured OpenAI Study model is currently available." : "No OpenAI Study model is configured.");
 }
 
-function safeOpenAiError(error: unknown): string {
-  const status = (error as { status?: unknown }).status;
-  if (status === 401 || status === 403) return "Study analysis is not authorized with the configured provider.";
-  if (status === 429) return "The analysis service is busy. Try again shortly.";
-  if (typeof status === "number" && status >= 500) return "The analysis service is temporarily unavailable. Try again.";
-  return "The analysis service could not complete this review. Try again.";
+function safeOpenAiError(error: unknown): OpenAiStudyApiError {
+  const metadata = providerErrorMetadata(error);
+  const rawMessage = error instanceof Error ? error.message.toLowerCase() : "";
+  const quotaFailure = metadata.code === "insufficient_quota"
+    || metadata.type === "insufficient_quota"
+    || metadata.code === "billing_hard_limit_reached"
+    || /quota|billing limit|billing status/.test(rawMessage);
+  let message = "The analysis service could not complete this review. Try again.";
+  if (metadata.status === 401) message = "OpenAI rejected the configured API key. Replace it in the backend deployment and try again.";
+  else if (metadata.status === 403) message = "The configured OpenAI project does not have permission to run Study analysis.";
+  else if (metadata.status === 429 && quotaFailure) message = "OpenAI API quota or billing is unavailable. Check the configured project's usage and billing, then try again.";
+  else if (metadata.status === 429) message = "OpenAI rate limit reached. Wait a moment, then try again.";
+  else if (typeof metadata.status === "number" && metadata.status >= 500) message = "OpenAI is temporarily unavailable. Try again.";
+  return new OpenAiStudyApiError(message, metadata);
+}
+
+function providerErrorMetadata(error: unknown): OpenAiStudyFailureMetadata {
+  const value = error as { status?: unknown; code?: unknown; type?: unknown; error?: { code?: unknown; type?: unknown } };
+  const code = typeof value.code === "string" ? value.code : typeof value.error?.code === "string" ? value.error.code : undefined;
+  const type = typeof value.type === "string" ? value.type : typeof value.error?.type === "string" ? value.error.type : undefined;
+  return {
+    status: typeof value.status === "number" ? value.status : undefined,
+    code: code?.toLowerCase(),
+    type: type?.toLowerCase(),
+  };
 }
 
 function isModelAvailabilityError(error: unknown): boolean {
-  const value = error as { status?: unknown; code?: unknown; type?: unknown; message?: unknown };
-  const message = error instanceof Error ? error.message.toLowerCase() : String(value.message ?? "").toLowerCase();
+  const value = providerErrorMetadata(error);
+  const message = error instanceof Error ? error.message.toLowerCase() : String((error as { message?: unknown }).message ?? "").toLowerCase();
   if (value.status === 404 || value.code === "model_not_found" || value.type === "model_not_found") return true;
   return value.status === 400
     && message.includes("model")
