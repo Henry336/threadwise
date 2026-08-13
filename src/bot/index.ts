@@ -22,6 +22,7 @@ import { registerGroupTopics } from "./groupTopics";
 import { registerStudyMode } from "./study";
 import { shouldHandleStudyUpdate } from "../services/study";
 import { handleTelegramGroupMigrationUpdate } from "../services/telegramChatMigrations";
+import { hasOpenGroupImageUploadBatch } from "../services/imageUploadBatches";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -59,7 +60,18 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
 
   bot.use(async (ctx, next) => {
     if (!privateCodexScopeForContext(ctx) && !(await shouldHandleStudyUpdate(ctx)) && !shouldHandleGroupUpdate(ctx)) {
-      return;
+      const message = ctx.message;
+      const mediaGroupId = message?.media_group_id;
+      const isImage = Boolean(message && (
+        "photo" in message
+        || ("document" in message && message.document?.mime_type?.startsWith("image/"))
+      ));
+      const continuesOpenGroupAlbum = isGroupChat(ctx)
+        && isImage
+        && Boolean(mediaGroupId)
+        && Boolean(ctx.chat?.id)
+        && await hasOpenGroupImageUploadBatch(String(ctx.chat!.id), mediaGroupId!);
+      if (!continuesOpenGroupAlbum) return;
     }
 
     const shouldProcess = await claimTelegramUpdate(ctx.update.update_id);

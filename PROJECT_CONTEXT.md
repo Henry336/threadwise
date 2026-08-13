@@ -653,3 +653,20 @@ and the next command/action. Never mark incomplete work complete.
   batch/keyboard tests pass (48 assertions plus 6 intentional skips); TypeScript, production build,
   and `git diff --check` pass. Next action: run the complete backend suite, review the final diff and
   migration, update both continuity logs, then commit/push and validate Render if all gates remain green.
+
+### General image albums — ordinary-group routing correction (2026-08-14 SGT)
+
+- Live feedback exposed a routing gap in the local batch implementation: Telegram supplies an album
+  caption only on its first item. An addressed first image in an ordinary group opened the durable
+  batch, but global mention/privacy routing discarded the later uncaptioned items before the image
+  collector could associate them with that batch. This did not affect the dedicated Study collector;
+  private albums also already reached the general collector. Production still shows the old per-image
+  UI because backend commit `85f6812` has not been pushed/deployed.
+- The correction permits an otherwise-unaddressed group image update only when it has an image media
+  group ID and an unexpired COLLECTING/REVIEW batch already exists for the exact synthetic group owner,
+  chat ID, and Telegram media-group ID. It never creates state from an unaddressed album and does not
+  broaden ordinary group listening. Focused private/general-group/Study routing and batch coverage is
+  green (50 tests); backend TypeScript, production build, Prisma validation, and `git diff --check` pass.
+  The user explicitly authorized always pushing completed changes. Next action: commit and push this
+  correction to `main`, then verify the Render migration/deployment, OpenAI analysis availability, and
+  production health without exposing the configured API key.

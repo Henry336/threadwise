@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ nextPublicId: vi.fn() }));
 const db = vi.hoisted(() => {
   const client: Record<string, any> = {
+    user: { findUnique: vi.fn() },
     pendingImageUpload: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -11,6 +12,7 @@ const db = vi.hoisted(() => {
       deleteMany: vi.fn(),
     },
     pendingImageUploadBatch: {
+      count: vi.fn(),
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       findFirst: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock("./publicIds", () => ({ nextPublicId: mocks.nextPublicId }));
 
 import {
   applyPendingImageUploadBatchCaption,
+  hasOpenGroupImageUploadBatch,
   IMAGE_UPLOAD_BATCH_TTL_MS,
   processImageUploadBatches,
   registerImageUploadBatchItem,
@@ -51,6 +54,8 @@ beforeEach(() => {
       : Promise.all(operation as Promise<unknown>[])
   ));
   db.pendingImageUpload.findFirst.mockResolvedValue(null);
+  db.user.findUnique.mockResolvedValue(null);
+  db.pendingImageUploadBatch.count.mockResolvedValue(0);
   db.pendingImageUploadBatch.findUnique.mockResolvedValue(null);
   db.pendingImageUploadBatch.updateMany.mockResolvedValue({ count: 0 });
   db.pendingImageUploadBatch.deleteMany.mockResolvedValue({ count: 0 });
@@ -59,6 +64,32 @@ beforeEach(() => {
 });
 
 describe("durable general image upload batches", () => {
+  it("continues only the exact open album owned by an ordinary group", async () => {
+    db.user.findUnique.mockResolvedValue({ id: "group-user-1" });
+    db.pendingImageUploadBatch.count.mockResolvedValue(1);
+
+    await expect(hasOpenGroupImageUploadBatch("-100456", "album-1")).resolves.toBe(true);
+
+    expect(db.user.findUnique).toHaveBeenCalledWith({
+      where: { telegramId: "chat:-100456" },
+      select: { id: true },
+    });
+    expect(db.pendingImageUploadBatch.count).toHaveBeenCalledWith({
+      where: {
+        userId: "group-user-1",
+        chatId: "-100456",
+        telegramMediaGroupId: "album-1",
+        status: { in: [ImageUploadBatchStatus.COLLECTING, ImageUploadBatchStatus.REVIEW] },
+        expiresAt: { gt: new Date() },
+      },
+    });
+  });
+
+  it("does not create group state for an unaddressed album without an open batch", async () => {
+    await expect(hasOpenGroupImageUploadBatch("-100456", "album-1")).resolves.toBe(false);
+    expect(db.pendingImageUploadBatch.count).not.toHaveBeenCalled();
+  });
+
   it("groups Telegram album items by owner, chat, and media-group id", async () => {
     const batch = {
       id: "batch-1",

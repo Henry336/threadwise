@@ -38,6 +38,22 @@ export async function hasOpenImageUploadBatch(userId: string, chatId: string, te
   return count > 0;
 }
 
+/**
+ * Telegram only attaches an album caption to one message. In an ordinary
+ * group, later album items therefore cannot pass mention-based routing on
+ * their own. Continue them only when the exact group-owned batch was already
+ * opened by an addressed first item; never create group state from an
+ * unaddressed follow-on.
+ */
+export async function hasOpenGroupImageUploadBatch(chatId: string, telegramMediaGroupId: string) {
+  const user = await prisma.user.findUnique({
+    where: { telegramId: `chat:${chatId}` },
+    select: { id: true },
+  });
+  if (!user) return false;
+  return hasOpenImageUploadBatch(user.id, chatId, telegramMediaGroupId);
+}
+
 export async function registerImageUploadBatchItem(input: ImageUploadBatchInput) {
   const now = new Date();
   const readyAt = new Date(now.getTime() + IMAGE_UPLOAD_BATCH_SETTLE_MS);
