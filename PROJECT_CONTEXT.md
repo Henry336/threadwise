@@ -7,6 +7,39 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Review/timetable/Ari/Study-analysis correction pass (2026-08-14 SGT)
+
+- The user approved a focused production correction pass after live review. Dashboard scope is:
+  rebuild the Review `Top three` card as one aligned form with a distinct action footer; make the
+  horizontal timetable reserve its visible space for the explicit block title before optional
+  module/location metadata while keeping exact time in the accessible label/details; and replace
+  Ari's rapid alternating eye-state crossfades with a calmer authored cadence containing one
+  deliberate blink and stable eyes through the rest of the motion.
+- The backend OpenAI migration is already deployed and uses the server-side `OPENAI_API_KEY`; it
+  does not require Gemini or a laptop worker. Live validation still produced a failed analysis job,
+  so this pass must distinguish a functioning integration from provider/account availability. The
+  current public error mapper collapses OpenAI quota/rate-limit detail into a generic busy message;
+  preserve safe actionable provider errors without exposing credentials or raw provider payloads.
+- Validate focused UI/provider tests, full dashboard gates, backend typecheck/build/tests as
+  applicable, visual animation output, then push every completed repository change and verify the
+  corresponding production deployment.
+- Implementation checkpoint: the OpenAI Study adapter now advances through the configured fallback
+  model chain for temporary 429/5xx/model-availability failures, while quota/billing failures stop
+  immediately rather than multiplying calls. If every configured model is temporarily limited, the
+  final safe provider classification is retained. Persistence now keeps distinct safe messages for
+  invalid deployed keys, project permissions, quota/billing, cross-model rate limiting, timeouts,
+  and model availability instead of collapsing them to generic busyness.
+- Dashboard checkpoint: Review's Top three card is a semantic form with one content alignment and a
+  separate responsive action footer; the horizontal timetable gives its title up to three visible
+  lines before optional module/location metadata and removes redundant visible time while retaining
+  exact time in its accessible label/details; the Up next summary and accessible label are title-first.
+  Ari v6 contains 42 registered frames over 6.09 seconds, 13 open-eye anchors and one 330 ms authored
+  blink. Closed-eye source poses are deterministically normalized from neighboring authored open eyes.
+- Validation checkpoint: dashboard focused tests 9/9, full tests 83/83, TypeScript, ESLint, production
+  build, generator decode/alpha/registration checks and diff checks pass. Backend focused tests 11/11,
+  full tests 858 plus 6 intentional skips, TypeScript, build and diff checks pass. Next action: final
+  source review, commit and push both `main` branches, then verify Render/Vercel and public health/assets.
+
 ## Active checkpoint — Study review UI and provider diagnostics (2026-08-14 SGT)
 
 - User-reported production defects are confirmed in source: Module review still renders two

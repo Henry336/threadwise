@@ -32,7 +32,7 @@ describe("server-side OpenAI Study API", () => {
     expect(JSON.stringify(create.mock.calls)).not.toContain("test-secret");
   });
 
-  it("falls back only when a configured model is unavailable", async () => {
+  it("falls back when a configured model is unavailable", async () => {
     const create = vi.fn()
       .mockRejectedValueOnce(providerError(404, "model not found"))
       .mockResolvedValueOnce({ choices: [{ message: { content: '{"summary":"Fallback"}' } }] });
@@ -43,6 +43,20 @@ describe("server-side OpenAI Study API", () => {
       timeoutMs: 1_000,
     });
     expect(result.model).toBe("gpt-stable");
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries the configured fallback chain for temporary rate limits", async () => {
+    const create = vi.fn()
+      .mockRejectedValueOnce(providerError(429, "private rate detail", { code: "rate_limit_exceeded" }))
+      .mockResolvedValueOnce({ choices: [{ message: { content: '{"summary":"Recovered"}' } }] });
+    const result = await generateOpenAiStudyAnalysis("prompt", {
+      apiKey: "test-secret",
+      client: clientWith(create),
+      models: ["gpt-primary", "gpt-fallback"],
+      timeoutMs: 1_000,
+    });
+    expect(result.model).toBe("gpt-fallback");
     expect(create).toHaveBeenCalledTimes(2);
   });
 

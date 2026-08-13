@@ -80,7 +80,7 @@ export async function generateOpenAiStudyAnalysis(
       return { text, model };
     } catch (error) {
       if (isAbortError(error)) throw new Error("The analysis service timed out. Try again.");
-      if (isModelAvailabilityError(error)) {
+      if (isModelAvailabilityError(error) || isRetryableModelError(error)) {
         lastModelError = error;
         continue;
       }
@@ -89,7 +89,8 @@ export async function generateOpenAiStudyAnalysis(
       clearTimeout(timeout);
     }
   }
-  throw new Error(lastModelError ? "No configured OpenAI Study model is currently available." : "No OpenAI Study model is configured.");
+  if (lastModelError) throw safeOpenAiError(lastModelError);
+  throw new Error("No OpenAI Study model is configured.");
 }
 
 function safeOpenAiError(error: unknown): OpenAiStudyApiError {
@@ -126,6 +127,14 @@ function isModelAvailabilityError(error: unknown): boolean {
   return value.status === 400
     && message.includes("model")
     && (message.includes("not found") || message.includes("does not exist") || message.includes("unsupported"));
+}
+
+function isRetryableModelError(error: unknown): boolean {
+  const value = providerErrorMetadata(error);
+  if (value.status !== 429 && !(typeof value.status === "number" && value.status >= 500)) return false;
+  return value.code !== "insufficient_quota"
+    && value.type !== "insufficient_quota"
+    && value.code !== "billing_hard_limit_reached";
 }
 
 function isAbortError(error: unknown): boolean {

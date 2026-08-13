@@ -411,8 +411,10 @@ function cleanText(value: string, maximum: number): string { return Array.from(v
 function cleanOptional(value: string | undefined, maximum: number): string | null { const clean = value?.trim(); return clean ? Array.from(clean).slice(0, maximum).join("") : null; }
 function safeProviderError(error: string): string {
   if (/timed?\s*out/i.test(error)) return "The analysis service timed out. Try again.";
-  if (/busy|rate|429/i.test(error)) return "The analysis service is busy. Try again shortly.";
-  if (/not authorized|configured provider|api key|401|403/i.test(error)) return "Study analysis is not configured correctly right now.";
+  if (/quota|billing/i.test(error)) return "OpenAI API quota or billing is unavailable. Check the configured project's usage and billing, then try again.";
+  if (/rate limit|busy|429/i.test(error)) return "OpenAI rate limit reached across the configured models. Wait a moment, then try again.";
+  if (/rejected the configured api key|api key|401/i.test(error)) return "OpenAI rejected the configured API key. Replace it in the backend deployment and try again.";
+  if (/does not have permission|403/i.test(error)) return "The configured OpenAI project does not have permission to run Study analysis.";
   if (/no configured.*model|not available/i.test(error)) return "The analysis model is temporarily unavailable. Try again.";
   return "The analysis service could not complete this review. Try again.";
 }
