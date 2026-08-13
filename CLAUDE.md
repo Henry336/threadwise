@@ -130,6 +130,25 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-13 (Codex):** Implemented and locally validated Phase 1 of the approved roadmap
+  in the dashboard: stable timetable dialog focus, body-level bounded sheets, uniform scrim,
+  safe destination payloads and plain-language guidance, title-first compact blocks, and
+  per-collision-group lane sizing. Dashboard tests pass 73/73; TypeScript, targeted lint,
+  production build, detector, and bounded desktop/mobile browser QA pass. Push/deploy is next.
+
+- **2026-08-13 (Codex):** Extended `PROJECT_CONTEXT.md` with future public-Study groundwork;
+  no runtime code changed. Preserve the sealed founder instance, prepare a separately branded
+  bot identity on the shared service, require per-user Canvas OAuth rather than pasted manual
+  tokens, and keep all new AI/sync/reminder state tenant-scoped. Public activation remains
+  explicitly deferred.
+
+- **2026-08-13 (Codex):** Created tracked `PROJECT_CONTEXT.md` as the active,
+  compaction-safe cross-repository implementation ledger; no product code changed. It records
+  the user-confirmed server-side Gemini API direction, evidence-grounded review/quizzes,
+  Canvas coverage work, durable multi-reminders, merged Telegram completion controls, and
+  the supplied timetable defects. Update it before implementation, after each material
+  checkpoint, and before an interrupted stop. Implementation awaits approval.
+
 - **2026-08-13 (Codex):** Added an opt-in, evidence-backed Study module review through the
   existing private Gemini CLI worker. Completed non-archived module sessions gate eligibility;
   results are cached by evidence hash, cite known sessions/resources, remain readable offline,
