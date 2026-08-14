@@ -762,3 +762,72 @@ and the next command/action. Never mark incomplete work complete.
 - Validation: 50 focused routing/batch tests, backend typecheck, production build, Prisma validation,
   and diff checks passed. No secret value was read or printed. Operational next action is user-side
   live verification of one multi-image album in each desired mode and one Study analysis request.
+
+### Dashboard reminder editor cleanup — implementation started (2026-08-14 SGT)
+
+- Live mobile feedback shows the shared task editor's empty exact-reminders `fieldset` rendering as
+  a large beige panel whose full-width legend collides with its border. The approved correction is a
+  compact reminder section: keep the heading, limit, timezone, and add action together; render dated
+  rows only when they exist; retain the existing maximum of 20 and unchanged form payload semantics.
+- The editor is shared by personal and group task flows, so the correction must remain in that shared
+  component. Study-specific settings do not currently expose the same exact-reminder editor and must
+  not receive a speculative second implementation.
+- The user also reported redundant copy and a UI defect in Personal Settings, but the supplied image
+  shows only the task editor. That part is awaiting an exact screenshot or text identification so the
+  wrong Settings content is not removed. No privacy/security work is in scope for this pass.
+- Next action: implement and test the shared reminder section, then incorporate the Personal Settings
+  correction once identified; update this ledger before stopping, and push the completed dashboard.
+
+### Dashboard reminder editor cleanup — local checkpoint (2026-08-14 SGT)
+
+- The shared personal/group `EntityEditor` now renders a compact exact-reminder header with the add
+  action, 20-item limit, and active timezone together. The dated-row card is mounted only when one
+  or more reminders exist, eliminating the empty beige fieldset and legend/border collision. The
+  repeated explanatory callout was removed; persistence and ISO conversion are unchanged.
+- A focused source regression test passes, as do changed-file ESLint, non-incremental TypeScript,
+  and `git diff --check`. The normal TypeScript command could not replace its existing build-info
+  cache under the sandbox, so validation was rerun successfully with `--incremental false`.
+- The Personal Settings portion remains intentionally untouched because the supplied screenshot is
+  the task editor and does not identify which Settings copy or layout is defective. The user has
+  been asked for the exact text or a Settings screenshot. Do not guess, commit, or push this partial
+  pass until that remaining defect is identified, corrected, and the combined change is validated.
+
+### Study block controls + Personal reminder settings — scope confirmed (2026-08-15 SGT)
+
+- New screenshots identify the remaining work precisely. Study timetable block creation still uses
+  browser-native Module, Type, Day, Starts, Ends, and origin controls; replace them with the existing
+  accessible Threadwise choice-popover language, including a branded time chooser that preserves
+  existing values. Do not introduce a second visual system.
+- In day agenda/laptop view, the entire scheduled block row must open block details rather than only
+  its trailing icon. Preserve keyboard semantics and avoid nested interactive controls.
+- Personal Settings > Reminders must remove the ornamental “Helpful, never noisy” heading and its
+  vague subtitle. Rename and explain regular follow-up frequency separately from the deadline-warning
+  window, based on backend semantics: regular cadence covers ordinary/undated follow-ups; deadline
+  warnings start N minutes before due and repeat at that near-deadline pace. The daily cap is a safety
+  limit for ordinary reminders; deadline warnings bypass it. Fix the stretched cap input by preventing
+  unequal helper-copy rows from stretching neighboring controls.
+- Complete the already-local compact exact-reminder editor in the same dashboard release. Next action:
+  implement shared Study choice controls, agenda-row activation, reminder copy/layout, focused tests,
+  full validation, continuity logs, commit/push, and production verification.
+
+### Study block controls + reminder UI cleanup — deployed (2026-08-15 SGT)
+
+- Dashboard commit `dd6e233` is pushed to `origin/main`; GitHub reports the exact Vercel deployment
+  successful and the canonical production `/dashboard` route returns HTTP 200.
+- Study block creation/editing now uses the shared accessible Threadwise choice popover for module,
+  block type, weekday, start/end time, and usual origin. Time choices use 15-minute steps while
+  preserving any existing off-step value. Mouse, touch, Escape, Arrow/Home/End navigation, outside
+  click, selected-state checks, and focus return use one reusable component.
+- The full Study day-agenda schedule row is now a semantic button that opens block details, with the
+  former trailing button retained as a non-interactive visual affordance. Vertical and horizontal
+  week cards already had full-card activation and remain unchanged.
+- Personal Reminder settings no longer show “Helpful, never noisy.” Regular follow-up frequency,
+  near-deadline warning interval, message format, and the ordinary-reminder daily safety limit now
+  have distinct plain-language explanations grounded in scheduler behavior. Grid alignment prevents
+  the daily-limit input from stretching to match neighboring helper copy.
+- The shared personal/group exact-reminder editor is compact when empty and mounts its dated rows
+  only after Add reminder is used; timezone, optional status, and the 20-item limit remain visible.
+- Validation passed: 87/87 dashboard tests, non-incremental TypeScript, full ESLint, optimized Next.js
+  production build, and `git diff --check`. The optional local `21st` CLI is not installed, so its
+  supplemental deterministic review could not run; direct source review and focused regressions cover
+  the reported defects. No backend runtime, schema, repository data, or privacy/security behavior changed.
