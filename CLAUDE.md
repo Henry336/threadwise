@@ -130,6 +130,14 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-16 (Codex, validated locally):** Audited the production Study-analysis configuration without
+  reading secret values. Render currently has `OPENAI_MODEL` but no `OPENAI_API_KEY`, so the existing
+  fail-closed OpenAI adapter correctly reports analysis unavailable; this is a deployment-secret
+  omission, not an integration defect. The user's conditional Gemini migration is therefore not
+  activated. The paired dashboard repair passes 88 tests, TypeScript, ESLint, production build, and
+  browser QA at normal and expanded CSS viewports; details are tracked in `PROJECT_CONTEXT.md` and
+  the dashboard `CLAUDE.md`.
+
 - **2026-08-14 (Codex):** Replaced Study module review's native
   Module/Review type selects with the existing Threadwise choice popover and keyboard/focus
   behavior, and fixed the Review Top three card's accidental implicit-row stretch. OpenAI Study

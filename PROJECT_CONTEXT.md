@@ -7,6 +7,30 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Weekly review viewport repair + OpenAI configuration audit (2026-08-16 SGT)
+
+- The user reported that Weekly review's dark sheet overlay creates a black halo over the
+  underlying “Close the loop” heading, Module signals cannot reliably reach every module, and
+  reduced browser zoom makes the right-side sheet disproportionately narrow.
+- Dashboard source diagnosis: the shared Study overlay applies `backdrop-filter: blur(7px)`, which
+  blooms the large underlying serif text; the wide sheet and wizard both claim viewport height
+  while a sticky footer competes with the same overflow container. The approved repair removes
+  backdrop blur, sizes the wide sheet proportionally at expanded CSS viewports, and gives Weekly
+  review fixed header/progress/footer rows with exactly one independently scrollable step body.
+- Safe production configuration audit via Render's read-only API found `OPENAI_MODEL` configured
+  but no `OPENAI_API_KEY` variable on the Threadwise service. No value was read or printed. The
+  backend OpenAI adapter and fail-closed availability check are correct; new Study analysis cannot
+  run until a server-side key is added. Because the user's Gemini migration instruction was
+  conditional on finding no OpenAI problem, that condition is false and no provider migration is
+  authorized in this pass.
+- Validation checkpoint: focused Study UI regressions pass 7/7 and the full dashboard suite passes
+  88/88; non-incremental TypeScript, full ESLint, optimized Next production build, and diff checks
+  pass. A browser fixture with fourteen module
+  cards proves the step body scrolls from 0 to 271 px while the progress row and footer remain fixed;
+  at 1920px and an expanded 2880px CSS viewport, the sheet remains proportional and the overlay's
+  computed backdrop filter is `none`. Temporary QA files and processes were removed. Final source
+  review, dashboard/backend documentation commits, pushes, and Vercel verification remain.
+
 ## Active checkpoint — Review/timetable/Ari/Study-analysis correction pass (2026-08-14 SGT)
 
 - The user approved a focused production correction pass after live review. Dashboard scope is:
