@@ -28,8 +28,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   pass. A browser fixture with fourteen module
   cards proves the step body scrolls from 0 to 271 px while the progress row and footer remain fixed;
   at 1920px and an expanded 2880px CSS viewport, the sheet remains proportional and the overlay's
-  computed backdrop filter is `none`. Temporary QA files and processes were removed. Final source
-  review, dashboard/backend documentation commits, pushes, and Vercel verification remain.
+  computed backdrop filter is `none`. Temporary QA files and processes were removed.
+- Release checkpoint: dashboard runtime commit `d928ef9` is pushed to `origin/main`; Vercel reports
+  success and the canonical `/dashboard` route returns HTTP 200. Backend continuity commit `d8e9a8c`
+  is live on Render and `/health` returns HTTP 200 with that commit. No backend runtime code or AI
+  provider was changed. Operational next action is user-side UI verification and, separately, adding
+  a valid server-side `OPENAI_API_KEY` in Render if OpenAI Study analysis should be re-enabled.
 
 ## Active checkpoint — Review/timetable/Ari/Study-analysis correction pass (2026-08-14 SGT)
 
