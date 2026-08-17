@@ -7,6 +7,73 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 1 security containment authorized (2026-08-17 SGT)
+
+- The user explicitly authorized Phase 1 implementation and publication. Scope is limited to
+  Phase 1A (authenticate and rotate the primary Telegram webhook) and Phase 1B (patch the four
+  known high-severity dashboard production dependency advisories). Phase 2 production privacy/data
+  inspection and every later phase remain unauthorized and must not start in this pass.
+- Starting release heads are backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
+  `bc949f19f8d85c26c66c5a9c9bbd322caa818609`; both `main` worktrees were clean and matched
+  `origin/main` before Phase 1 edits.
+- Phase 1A invariants: a dedicated server-side Telegram secret (never documented or logged), a
+  rotated non-secret route, constant-time secret-header validation before grammY receives an
+  update, fail-closed production webhook startup, unchanged polling behavior, and independent
+  Beacon authentication. Expected surfaces are environment validation/examples, Render service
+  configuration, Telegram registration/startup, Fastify route authentication, focused tests, and
+  deployment documentation. Roll back by restoring the prior backend release and its prior webhook
+  configuration only if the new authenticated registration cannot pass legitimate Telegram traffic.
+- Phase 1B invariants: make the smallest compatible Next.js/transitive production patch supported
+  by current advisories, preserve React/application behavior, avoid unrelated package upgrades,
+  and require a clean production audit plus focused/full tests, TypeScript, ESLint, and production
+  build. Roll back as one dashboard dependency/lockfile commit if framework regressions appear.
+- Reasoning policy for this execution follows the recorded plan: authentication receives the
+  bounded high-attention review it warrants; dependency patching remains mechanical and scoped.
+  No credential value, production data, repository content unrelated to Phase 1, or poisoned-task
+  artifact may enter the implementation or its audit trail.
+- Phase 1A implementation checkpoint: production webhook mode now requires a dedicated 32–256
+  character Telegram-compatible secret; registration sends it as `secret_token`; the shared
+  Fastify boundary validates the resulting header with a fixed-length SHA-256/timing-safe compare
+  before invoking either bot handler; and the primary route rotates from `/telegram/webhook` to
+  `/telegram/threadwise-v2`. Webhook URLs/routes were removed from runtime logs. Beacon remains a
+  separate path/secret and now shares the same reviewed guard without changing its identity.
+- Production configuration checkpoint: a new 64-character random secret was generated in memory
+  and stored directly on the exact Render `threadwise` service, and the route variable was updated
+  to `/telegram/threadwise-v2`. No secret value was printed, persisted locally, or documented.
+  Render confirms both settings; its environment update endpoint does not deploy automatically, so
+  production still runs the prior release until the reviewed backend commit is pushed.
+- Phase 1A local gate so far: missing, malformed, invalid, and valid-header tests plus retired-route
+  rejection pass 5/5; backend TypeScript and build pass. Full-suite and production Telegram/health
+  verification remain pending.
+- Phase 1B implementation checkpoint: dashboard Next.js and its matching ESLint config move only
+  from `16.2.10` to the stable `16.2.12` patch. The vulnerable shipped transitive paths are pinned
+  to Nano ID `3.3.18`, PostCSS `8.5.26`, and Sharp `0.35.3`; no other installed package version
+  changed outside Next.js/Sharp platform artifacts. The production audit moved from four high
+  findings to zero findings, and focused proxy/access/schema tests pass 35/35. A full audit still
+  reports two development-only parser/glob advisories (`brace-expansion` and `js-yaml`); they are
+  not in the shipped dependency graph and are intentionally not forced across incompatible ranges
+  during this production patch. Full dashboard gates and deployment remain pending.
+- Phase 1 completion checkpoint: backend runtime commit `5630f1e` is live on Render. `/health`
+  returned HTTP 200 with that exact commit; Telegram reports the rotated route registered, zero
+  pending updates, the intended allowed-update set, and no last webhook error. Bounded external
+  probes confirmed the retired route plus missing and invalid secret headers all return opaque 404s.
+  The dedicated secret remains only in Render and Telegram's registration; its value was never
+  printed, copied locally, committed, or written to documentation.
+- Dashboard runtime commit `5bf0ab4` is deployed successfully by Vercel and the canonical
+  `/dashboard` route returns HTTP 200. Local gates passed: 35 focused proxy/access/schema tests,
+  all 91 tests, non-incremental TypeScript, ESLint, isolated optimized production build, production
+  audit with zero findings, lockfile/version review, and diff checks. The first local build attempt
+  encountered the already-running app's locked `.next` trace; an isolated webpack build passed and
+  Vercel's clean production build independently succeeded. Temporary build/panic artifacts were
+  removed.
+- Backend final local gates passed: webhook security tests 5/5, affected integration tests 19/19,
+  TypeScript, build, production audit with zero findings, and the complete suite with one worker
+  (111 files, 866 passed, 6 intentional skips). A concurrent run's sole unrelated file-courier
+  filesystem timeout passed in the focused rerun and in the sequential full suite.
+- **Phase 1 is complete. Phase 2 and later remain unauthorized.** Next action is to retain this
+  release under normal observation and wait for explicit approval before any production privacy/data
+  inspection, penetration testing, migration, encryption backfill, or additional remediation phase.
+
 ## Active checkpoint — security remediation roadmap recorded (2026-08-17 SGT)
 
 - The cross-repository security/readability/scalability audit is complete. One critical
@@ -27,9 +94,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   Sol high for auth/crypto/migrations/pentest interpretation, and xhigh only for a bounded final
   review of unusually consequential irreversible work. Ultra/max is exceptional and is not the
   default for security tasks.
-- **No phase has started.** No application code, dependency, production configuration, database,
-  credential, webhook, deployment, or external service was changed. Wait for explicit approval
-  before Phase 1A or any production inspection/testing.
+- Historical planning state: no phase had started when this roadmap was first recorded. Phase 1
+  was subsequently authorized on 2026-08-17; production inspection/testing beyond its bounded
+  deployment verification still requires separate approval.
 
 ## Active checkpoint — Threadwise-native Markdown notes (2026-08-17 SGT)
 

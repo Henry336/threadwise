@@ -130,6 +130,15 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-17 (Codex):** Completed security remediation Phase 1. Backend runtime commit `5630f1e`
+  authenticates and rotates the primary Telegram webhook with a dedicated Render-held secret,
+  Telegram `secret_token`, pre-handler timing-safe validation, opaque rejection, and no route/URL
+  logging. Production health reports the exact commit; Telegram registration is healthy; retired,
+  missing-secret, and forged-secret probes return 404. TypeScript/build, zero-production-finding
+  audit, 19 focused tests, and the sequential full suite (866 passed, 6 skipped) pass. Paired
+  dashboard runtime `5bf0ab4` removes all four shipped high dependency findings. Phase 2 remains
+  unauthorized; see `PROJECT_CONTEXT.md` and `docs/SECURITY_REMEDIATION_ROADMAP.md`.
+
 - **2026-08-17 (Codex):** Recorded the planning-only security remediation sequence in
   `docs/SECURITY_REMEDIATION_ROADMAP.md` and linked it from `PROJECT_CONTEXT.md`. The roadmap
   preserves seven staged phases, safety/rollback/validation gates, staging-first penetration

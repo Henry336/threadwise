@@ -2,8 +2,8 @@
 
 This document is the durable, cross-repository plan for addressing the security,
 privacy, scalability, reliability, and maintainability findings reviewed on
-2026-08-17. It is a continuity and handoff document, not evidence that any phase
-has started or completed.
+2026-08-17. Execution status is recorded explicitly below; an unmarked phase is
+not authorized or complete.
 
 The active cross-repository checkpoint remains
 [`../PROJECT_CONTEXT.md`](../PROJECT_CONTEXT.md). Update both documents before a
@@ -12,7 +12,9 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **planning recorded; no remediation phase has started**.
+- Status: **Phase 1 complete; Phase 2 and later are not authorized**.
+- Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
+  `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
 - Dashboard baseline at audit: `ad6e59391eb4a85585556b9b86b145c325dd07b9`.
 - Both worktrees were clean when the audit ended.
@@ -20,6 +22,25 @@ phase is validated or rolled back.
   dependency inspection. It was not an active penetration test, production data
   dump, full Git-history secret scan, or destructive database exercise.
 - No old poisoned Codex task or rollout is needed or permitted for this work.
+
+### Phase 1 completion record (2026-08-17 SGT)
+
+- Phase 1A shipped in backend runtime commit `5630f1e`: the primary Telegram registration now uses
+  a dedicated secret header, Fastify validates it before grammY, the route is rotated, and route/URL
+  logging is removed. Render and Telegram hold the secret; it was never exposed to local files,
+  logs, Git, documentation, or chat. Production health is HTTP 200, the new registration has no
+  reported error or pending update, and the retired/missing/forged request paths return opaque 404s.
+- Phase 1B shipped in dashboard runtime commit `5bf0ab4`: Next.js/ESLint config moved from `16.2.10`
+  to stable patch `16.2.12`, with shipped Nano ID/PostCSS/Sharp paths pinned to patched versions.
+  The production audit moved from four high findings to zero. Two development-only advisories remain
+  outside the shipped graph and were not force-overridden across incompatible ranges in this bounded
+  production release.
+- Validation passed: backend TypeScript/build, focused security/integration tests, 866 full-suite
+  passes plus 6 intentional skips, and zero-production-finding audit; dashboard 35 focused tests,
+  all 91 tests, TypeScript, ESLint, clean production build, zero-production-finding audit, Vercel
+  exact-commit success, and canonical route HTTP 200.
+- Rollback was not needed. Phase 2 requires a new explicit approval and must begin with its own
+  scope/invariants/validation/rollback checkpoint.
 
 ## Established findings that drive the plan
 
@@ -86,6 +107,8 @@ phase is validated or rolled back.
 
 ### Phase 1A: authenticate and rotate the primary Telegram webhook
 
+Status: **completed in backend runtime commit `5630f1e` (2026-08-17)**.
+
 Objectives:
 
 - Add a dedicated random webhook secret distinct from the webhook path.
@@ -106,6 +129,8 @@ Validation gate:
 Recommended model: **GPT-5.6 Sol, high reasoning**. Ultra is not justified.
 
 ### Phase 1B: patch production dashboard dependencies
+
+Status: **completed in dashboard runtime commit `5bf0ab4` (2026-08-17)**.
 
 Objectives:
 
