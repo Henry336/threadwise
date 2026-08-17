@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Threadwise-native Markdown Study notes
+- Upgraded Study notes without creating a second note store: `StudyResource.body` remains the canonical Markdown source shared by Telegram, dashboard search, sessions, and AI evidence.
+- Added bounded encrypted note revisions, optimistic edit-conflict protection, `[[wiki link]]` resolution, backlinks, and additive relational persistence. Code examples do not create accidental note links.
+- Added a readable Telegram fallback for rich notes and Mermaid diagrams while keeping raw HTML, arbitrary scripts, Obsidian plugins, and local-vault synchronization outside the trust boundary.
+
 ### Server-side Gemini Study analysis
 - Replaced Study module review's laptop-worker readiness and execution path with a bounded Gemini API loop running inside the deployed backend. Requests remain asynchronous, durable jobs retain database leases across restarts, and one server pass handles at most one job at a time.
 - Kept `GEMINI_API_KEY` in the backend environment and out of URLs, logs, persisted jobs, Telegram, and browser responses. Provider calls use an abort timeout, output-token/response-size limits, structured JSON, safe error mapping, configurable model fallbacks, and the existing Zod/citation validation before results are stored.

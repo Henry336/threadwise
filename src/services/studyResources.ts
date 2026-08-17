@@ -10,6 +10,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { StudyModeError, findStudyModule } from "./study";
 import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
@@ -175,6 +176,10 @@ export async function createStudyResource(workspace: StudyWorkspace, input: Stud
       },
     },
   });
+  if (resource.kind === StudyResourceKind.NOTE) {
+    await recordStudyNoteRevision(resource, input.sourceMessageId ? "TELEGRAM" : "DASHBOARD");
+    await rebuildStudyNoteLinks(workspace.id, resource.id);
+  }
   return { resource, duplicate: false };
 }
 

@@ -6,6 +6,8 @@ const db = vi.hoisted(() => {
     studyModule: { findFirst: vi.fn(), count: vi.fn() },
     studyWorkspace: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     studyResource: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
+    studyResourceRevision: { create: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    studyNoteLink: { deleteMany: vi.fn(), createMany: vi.fn() },
     studyPendingCapture: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     studyNoteCaptureSession: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     studyNoteCaptureSegment: { create: vi.fn() },
@@ -44,6 +46,8 @@ beforeEach(() => {
     ? (input as (tx: typeof db) => unknown)(db)
     : Promise.all(input as unknown[]));
   db.auditLog.create.mockResolvedValue({});
+  db.studyResourceRevision.create.mockResolvedValue({});
+  db.studyResourceRevision.findMany.mockResolvedValue([]);
 });
 
 describe("durable Study note sessions", () => {

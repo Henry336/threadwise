@@ -45,6 +45,7 @@ import {
   createStudyResource,
   findStudyResource,
 } from "../services/studyResources";
+import { rebuildStudyNoteLinks, recordStudyNoteRevision, studyNoteMetadata } from "../services/studyMarkdown";
 import {
   activateStudyOrigin,
   addStudyOriginFromVenue,
@@ -166,6 +167,7 @@ export const studyResourceUpdateSchema = z.object({
   tags: z.array(text(100)).max(20).optional(),
   caption: nullableText(4_000),
   pinned: z.boolean().optional(),
+  expectedUpdatedAt: isoDate.optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one resource change.");
 
 export const studySearchQuerySchema = z.object({
@@ -571,7 +573,8 @@ export async function listDashboardStudyResources(workspace: StudyWorkspace, inp
 }
 
 export async function getDashboardStudyResource(workspace: StudyWorkspace, resourceId: string) {
-  return findStudyResource(workspace.id, resourceId);
+  const resource = await findStudyResource(workspace.id, resourceId);
+  return { ...resource, noteMeta: await studyNoteMetadata(resource) };
 }
 
 export async function createDashboardStudyResource(workspace: StudyWorkspace, input: z.infer<typeof studyResourceCreateSchema>) {
@@ -590,21 +593,37 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
 export async function updateDashboardStudyResource(workspace: StudyWorkspace, resourceId: string, input: z.infer<typeof studyResourceUpdateSchema>) {
   const resource = await findStudyResource(workspace.id, resourceId);
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
-  const updated = await prisma.studyResource.update({
-    where: { id: resource.id },
-    data: {
-      ...(input.moduleId ? { moduleId: input.moduleId } : {}),
-      ...(input.title ? { title: input.title } : {}),
-      ...(input.body !== undefined ? { body: input.body } : {}),
-      ...(input.url !== undefined ? { url: input.url } : {}),
-      ...(input.tags ? { tags: normalizeTags(input.tags) } : {}),
-      ...(input.caption !== undefined ? { caption: input.caption } : {}),
-      ...(input.pinned !== undefined ? { pinnedAt: input.pinned ? new Date() : null } : {}),
-    },
-    include: { module: true },
-  });
+  const data = {
+    ...(input.moduleId ? { moduleId: input.moduleId } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.url !== undefined ? { url: input.url } : {}),
+    ...(input.tags ? { tags: normalizeTags(input.tags) } : {}),
+    ...(input.caption !== undefined ? { caption: input.caption } : {}),
+    ...(input.pinned !== undefined ? { pinnedAt: input.pinned ? new Date() : null } : {}),
+  };
+  let updated;
+  if (input.expectedUpdatedAt) {
+    const written = await prisma.studyResource.updateMany({
+      where: { id: resource.id, workspaceId: workspace.id, updatedAt: new Date(input.expectedUpdatedAt) },
+      data,
+    });
+    if (written.count !== 1) {
+      throw new StudyModeError("This note changed somewhere else. Reopen it before saving so nothing is overwritten.", "conflict");
+    }
+    updated = await prisma.studyResource.findUniqueOrThrow({ where: { id: resource.id }, include: { module: true } });
+  } else {
+    updated = await prisma.studyResource.update({ where: { id: resource.id }, data, include: { module: true } });
+  }
+  const noteContentChanged = resource.kind === StudyResourceKind.NOTE && (
+    input.title !== undefined || input.body !== undefined || input.tags !== undefined || input.moduleId !== undefined
+  );
+  if (noteContentChanged) {
+    await recordStudyNoteRevision(updated, "DASHBOARD");
+    await rebuildStudyNoteLinks(workspace.id, updated.id);
+  }
   await audit(workspace, "study.resource.dashboard_updated", { resourceId: resource.id, publicId: resource.publicId });
-  return updated;
+  return { ...updated, noteMeta: await studyNoteMetadata(updated) };
 }
 
 export async function archiveDashboardStudyResource(workspace: StudyWorkspace, resourceId: string) {

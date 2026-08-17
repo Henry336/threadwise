@@ -7,6 +7,46 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Threadwise-native Markdown notes (2026-08-17 SGT)
+
+- The user approved the previously discussed Obsidian-compatible direction for Study notes.
+  This release is intentionally Threadwise-native rather than an Obsidian clone: existing
+  `StudyResource.body` remains the canonical source and ordinary Telegram-captured text remains
+  valid Markdown.
+- Approved first production slice: safe GitHub-Flavored Markdown rendering, strict/lazy Mermaid
+  diagrams, a responsive reader and write/preview/split editor, restart-safe local draft recovery,
+  `[[wiki links]]` and backlinks, bounded note revision history, and portable `.md` import/export.
+  Telegram must show a readable bounded fallback instead of raw diagram/source noise.
+- Security and scope boundaries: do not execute raw HTML, Obsidian plugins, arbitrary JavaScript,
+  or imported vault code; do not add local-vault synchronization. Preserve the existing Study
+  authorization boundary, content encryption behavior, AI/manual-approval semantics, stable
+  resource identities, module/session links, search, and current image/file handling.
+- Expected backend work: additive encrypted revision persistence, optimistic edit-conflict checks,
+  note-link metadata, route/proxy coverage, Markdown-to-Telegram fallback, migration, and focused
+  tests. Expected dashboard work: Markdown utilities/renderer, specialized note reader/editor,
+  Library integration, responsive styling, dependencies, and regression tests.
+- Validation and publication: Prisma format/validate/generate, focused and full backend tests,
+  backend typecheck/build; dashboard focused/full tests, TypeScript, ESLint, production build,
+  diff checks, then commit and push both `main` branches. Update this checkpoint after each
+  material implementation/validation boundary.
+- Implementation checkpoint: additive `StudyResourceRevision` and `StudyNoteLink` persistence is
+  wired through dashboard saves, Telegram/dashboard note creation, and approved AI note edits.
+  Note detail exposes a bounded connection/history projection; saves carry the observed update
+  timestamp; Telegram converts rich notes to readable plain text. The dashboard now has a dedicated
+  Markdown reader/editor, branded module control, local crash-safe draft, Write/Preview/Split modes,
+  safe GFM/Mermaid, `.md` import/export, Library excerpts, backlinks, and version recovery.
+- Validation checkpoint: Prisma format/validate/generate, backend typecheck/build, 18 focused tests,
+  and the full 861-pass/6-skip suite succeed. Dashboard non-incremental TypeScript, ESLint, isolated
+  optimized production build, 10 focused tests, and all 91 tests succeed. The isolated build avoided
+  the already-running local Next process and its temporary output was removed. `npm audit --omit=dev`
+  found no advisory introduced by the Markdown/Mermaid packages; four existing production advisories
+  remain in Next.js 16.2.10 and its pinned transitive toolchain for a separate framework update.
+- Final hardening checkpoint: note saves now condition the database update itself on the observed
+  `updatedAt` value, closing the simultaneous-write race rather than checking only before the write.
+  The final full backend rerun reached 860 passes plus 6 skips with the existing unrelated concurrent
+  Excel import timeout; `src/services/excel.test.ts` passed 2/2 immediately in isolation and the
+  affected Study/dashboard suites remained green.
+
 ## Active checkpoint — Weekly review viewport repair + OpenAI configuration audit (2026-08-16 SGT)
 
 - The user reported that Weekly review's dark sheet overlay creates a black halo over the

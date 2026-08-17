@@ -34,6 +34,7 @@ import { buildStudyAttentionSnapshot, buildStudyWeeklyPreview } from "../service
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
 import { extractTextFromImage, MAX_IMAGE_BYTES } from "../services/imageOcr";
 import { parseStudyNaturalLanguage, type StudyNaturalIntent } from "../services/studyNaturalLanguage";
+import { markdownForTelegram } from "../services/studyMarkdown";
 import {
   activeStudyModule,
   appendStudyNoteSegment,
@@ -1437,7 +1438,8 @@ async function showResources(
 
 async function showResource(ctx: Context, workspace: StudyWorkspace, reference: string, requestedPage = 0, edit = false): Promise<void> {
   const resource = await findStudyResource(workspace.id, reference);
-  const body = resource.body || resource.caption || resource.ocrText || resource.url || resource.fileName || "No text.";
+  const sourceBody = resource.body || resource.caption || resource.ocrText || resource.url || resource.fileName || "No text.";
+  const body = resource.kind === StudyResourceKind.NOTE ? markdownForTelegram(sourceBody) : sourceBody;
   const pages = paginateStudyText(body);
   const page = Math.min(Math.max(0, requestedPage), pages.length - 1);
   const text = [

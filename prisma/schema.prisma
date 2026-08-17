@@ -421,6 +421,8 @@ model StudyWorkspace {
   conversation          StudyConversation?
   reminderDeliveries    StudyReminderDelivery[]
   resources             StudyResource[]
+  noteRevisions         StudyResourceRevision[]
+  noteLinks             StudyNoteLink[]
   pendingCaptures       StudyPendingCapture[]
   pendingCaptureBatches StudyPendingCaptureBatch[]
   analysisJobs          GeminiStudyAnalysisJob[]
@@ -687,6 +689,9 @@ model StudyResource {
   module              StudyModule               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   sessions            StudySessionResource[]
   noteEditSuggestions StudyNoteEditSuggestion[]
+  revisions           StudyResourceRevision[]
+  outgoingNoteLinks   StudyNoteLink[]           @relation("StudyNoteLinkSource")
+  incomingNoteLinks   StudyNoteLink[]           @relation("StudyNoteLinkTarget")
 
   @@unique([workspaceId, publicId])
   @@unique([workspaceId, telegramUniqueId])
@@ -694,6 +699,38 @@ model StudyResource {
   @@index([moduleId, kind, pinnedAt, createdAt])
   @@index([workspaceId, archivedAt])
   @@index([searchTokens], type: Gin)
+}
+
+model StudyResourceRevision {
+  id          String   @id @default(uuid())
+  workspaceId String
+  resourceId  String
+  title       String
+  body        String
+  tags        String[] @default([])
+  source      String   @default("DASHBOARD")
+  createdAt   DateTime @default(now())
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  resource  StudyResource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+model StudyNoteLink {
+  id               String   @id @default(uuid())
+  workspaceId      String
+  sourceResourceId String
+  targetResourceId String
+  createdAt        DateTime @default(now())
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source    StudyResource  @relation("StudyNoteLinkSource", fields: [sourceResourceId], references: [id], onDelete: Cascade)
+  target    StudyResource  @relation("StudyNoteLinkTarget", fields: [targetResourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceResourceId, targetResourceId])
+  @@index([workspaceId, targetResourceId])
 }
 
 model StudySessionResource {

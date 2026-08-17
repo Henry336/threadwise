@@ -130,6 +130,15 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-17 (Codex, validated locally):** Upgraded canonical Study resources into portable
+  Markdown notes with safe GFM/Mermaid rendering, wiki links/backlinks, restart-safe local drafts,
+  bounded encrypted revisions, conflict-aware saves, `.md` import/export, and a readable Telegram
+  fallback. Raw HTML/plugins/scripts remain unsupported. Prisma format/validate/generate, backend
+  typecheck/build, 861 tests plus 6 skips, dashboard TypeScript/ESLint/build, and 91 tests pass.
+  A final backend rerun after atomic conflict hardening reached 860 passes plus 6 skips with the known
+  unrelated concurrent Excel timeout; that test passed 2/2 independently. Publication commits are
+  recorded in both repositories after push.
+
 - **2026-08-16 (Codex, deployed):** Audited the production Study-analysis configuration without
   reading secret values. Render currently has `OPENAI_MODEL` but no `OPENAI_API_KEY`, so the existing
   fail-closed OpenAI adapter correctly reports analysis unavailable; this is a deployment-secret

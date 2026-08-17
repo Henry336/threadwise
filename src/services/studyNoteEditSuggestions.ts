@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { StudyNoteEditSuggestionStatus, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
+import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 
 export type StudyNoteSuggestionReview = {
   action: "APPLY" | "DISMISS";
@@ -41,14 +42,18 @@ export async function reviewStudyNoteEditSuggestion(
       });
       return { conflict: "changed" as const };
     }
-    await tx.studyResource.update({ where: { id: current.resourceId }, data: { body: appliedBody } });
+    const resource = await tx.studyResource.update({ where: { id: current.resourceId }, data: { body: appliedBody } });
     const applied = await tx.studyNoteEditSuggestion.update({
       where: { id: current.id },
       data: { status: StudyNoteEditSuggestionStatus.APPLIED, appliedBody, reviewedAt: new Date() },
     });
-    return { applied };
+    return { applied, resource };
   });
-  if ("applied" in result) return result.applied;
+  if ("applied" in result && result.applied && result.resource) {
+    await recordStudyNoteRevision(result.resource, "AI_SUGGESTION");
+    await rebuildStudyNoteLinks(workspace.id, result.resource.id);
+    return result.applied;
+  }
   if (result.conflict === "changed") throw new StudyModeError("This note changed after the suggestion was created. Review the current note before editing it.", "conflict");
   throw new StudyModeError("That note suggestion has already been reviewed.", "conflict");
 }

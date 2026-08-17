@@ -90,4 +90,16 @@ describe("content encryption", () => {
     expect(args.data.status.set).toBe("OPEN");
     expect(args.data.searchTokens.push.length).toBeGreaterThan(0);
   });
+
+  it("encrypts note revision snapshots without creating a searchable plaintext index", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const args = prepareContentWrite("StudyResourceRevision", "create", {
+      data: { title: "Private revision", body: "A previous Markdown body", source: "DASHBOARD" },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(args.data.title)).toBe(true);
+    expect(isEncryptedContent(args.data.body)).toBe(true);
+    expect(args.data.source).toBe("DASHBOARD");
+    expect(args.data.searchTokens).toBeUndefined();
+  });
 });

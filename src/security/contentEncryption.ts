@@ -3,11 +3,11 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:
 const PREFIX = "twenc:v1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
+const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource|StudyResourceRevision):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
 
 let cachedEnvironmentCipher: { signature: string; cipher: ContentCipher } | undefined;
 
-export type ContentModel = "Task" | "Note" | "Idea" | "StoredImage" | "StudyResource";
+export type ContentModel = "Task" | "Note" | "Idea" | "StoredImage" | "StudyResource" | "StudyResourceRevision";
 export type ContentEncryptionMode = "off" | "write";
 
 type ModelPolicy = {
@@ -21,6 +21,7 @@ export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   Idea: { encrypted: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"], searchable: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"] },
   StoredImage: { encrypted: ["fileName", "caption", "ocrText"], searchable: ["fileName", "caption", "ocrText"] },
   StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
+  StudyResourceRevision: { encrypted: ["title", "body"], searchable: [] },
 };
 
 export class ContentCipher {

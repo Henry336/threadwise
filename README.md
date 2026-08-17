@@ -490,6 +490,8 @@ Telegram and the Study dashboard share the same records rather than synchronizin
 
 Deep Work is a persistent Study companion rather than a route that hides the rest of the workspace. An active session keeps its timer and controls available while the owner opens Timetable, Work, Modules, Library, or Search. Sessions may record a focus structure, one or more techniques, a custom topic, linked notes/images/files, exact start and end times, and a written outcome. Completed records can be corrected or archived without deleting the underlying evidence. AI-generated study analysis is intentionally outside this phase and is not required for capture, timing, or recall.
 
+Study notes use portable Markdown in the existing canonical resource body. The dashboard supports GitHub-Flavored Markdown, strict Mermaid diagrams, `[[wiki links]]`, backlinks, local unsaved-draft recovery, bounded version history, and `.md` import/export. Telegram shows a readable text fallback for the same note instead of executing formatting or diagram source. Threadwise does not execute imported HTML, scripts, Obsidian plugins, or vault automation.
+
 It is disabled unless both exact numeric identifiers are configured on Render:
 
 ```text
