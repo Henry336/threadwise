@@ -9,11 +9,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Study image inspection, desktop sidebar, and Coursemology research (2026-08-17 SGT)
 
-- Status: implementation and local validation are complete on matching
+- Status: implementation, local validation, and push are complete on matching
   `codex/study-image-sidebar-coursemology` branches, stacked from the pushed post-Phase-7 guarded
   heads (backend `eb8406b`, dashboard `f604a21`). No merge, deployment, production mutation,
   credential collection, provider connection, database operation, or public Study activation is
-  authorized in this checkpoint.
+  authorized in this checkpoint. Dashboard implementation commit is `7a768a7`; backend research
+  and continuity commit is `557fbae`.
 - Objective: let Study users click a saved Library image into a full-viewport, natural-resolution
   scrollable inspection mode; add an explicit persisted desktop/laptop sidebar toggle while
   retaining the existing mobile drawer; and determine whether Coursemology can safely provide
@@ -30,8 +31,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   Playwright pass (5 passed, one intentional mobile skip). The generic browser suite does not seed a
   private Study Library image, so the exact signed-in image interaction remains an owner live-check
   after branch deployment; source regressions cover its state and natural-resolution CSS contract.
-- Exact next action: commit and push both guarded branches, then wait for owner review. Do not deploy
-  or begin a Coursemology connector.
+- Exact next action: wait for owner live review of the pushed dashboard branch. Do not merge, deploy,
+  or begin a Coursemology connector without a new explicit instruction.
 
 ## Completed checkpoint — post-Phase-7 Work selector fix and final audit (2026-08-17 SGT)
 
