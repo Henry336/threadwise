@@ -19,7 +19,7 @@ import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
 import { initialTaskReminderAt } from "../services/reminders";
 import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "../services/taskReminderSchedules";
-import { contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
 import {
   recordArchiveUndo,
   recordCreateUndo,
@@ -579,6 +579,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   // group cadence so an old ignored-nudge streak cannot immediately slow a
   // newly edited task to daily reminders.
   data.undatedNudgeCount = 0;
+  if (titleChanged || descriptionChanged) Object.assign(data, completeSearchableContentUpdate("Task", task, data as Record<string, unknown>));
   if (Object.keys(data).length === 1 && reminderTimesChanged) data.updatedAt = new Date();
 
   const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
@@ -733,6 +734,7 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
+  if (titleChanged || bodyChanged) Object.assign(data, completeSearchableContentUpdate("Note", note, data as Record<string, unknown>));
   if (Object.keys(data).length === 0) return noteView(note);
   const revisionWhere: Prisma.NoteWhereUniqueInput = {
     id: note.id,
@@ -850,6 +852,7 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   if (input.tags !== undefined) data.tags = input.tags;
   if (input.status !== undefined) data.status = input.status;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
+  if (titleChanged || conceptChanged) Object.assign(data, completeSearchableContentUpdate("Idea", idea, data as Record<string, unknown>));
   if (Object.keys(data).length === 0) return ideaView(idea);
   const revisionWhere: Prisma.IdeaWhereUniqueInput = {
     id: idea.id,
@@ -905,7 +908,7 @@ export async function analyzeDashboardIdea(
   });
   const updated = await database.idea.update({
     where: { id: idea.id },
-    data: { scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts }
+    data: completeSearchableContentUpdate("Idea", idea, { scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts })
   });
   return { idea: ideaView(updated), brief };
 }
@@ -1073,7 +1076,7 @@ export async function updateDashboardImage(
         await recordImageCaptionUndo(tx, user.id, image, image.caption);
         return tx.storedImage.update({
           where,
-          data: { caption, ...(pinnedChanged ? { pinnedAt: input.pinned ? new Date() : null } : {}) },
+          data: completeSearchableContentUpdate("StoredImage", image, { caption, ...(pinnedChanged ? { pinnedAt: input.pinned ? new Date() : null } : {}) }),
           select: imageSelect
         });
       })

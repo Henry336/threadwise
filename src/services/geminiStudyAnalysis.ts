@@ -12,6 +12,12 @@ import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
 import { configuredOpenAiStudyModel, openAiStudyApiConfigured } from "./openAiStudyApi";
 import {
+  PROTECTED_JSON_PLACEHOLDER,
+  PROTECTED_PAYLOAD_PLACEHOLDER,
+  parseProtectedPayload,
+  serializeProtectedPayload,
+} from "../security/protectedPayload";
+import {
   collectStudyEvidence,
   publicStudyEvidence,
   type EvidenceSnapshot,
@@ -123,6 +129,13 @@ const providerResultSchema = z.object({
   noteEdits: z.array(noteEditSchema).max(6).default([]),
   uncertainty: z.array(z.string().trim().min(1).max(500)).max(5).default([]),
 }).strict();
+const persistedResultSchema = providerResultSchema.omit({ uncertainty: true, noteEdits: true });
+const evidenceSnapshotSchema = z.custom<EvidenceSnapshot>((value) => Boolean(
+  value && typeof value === "object" && !Array.isArray(value)
+  && Array.isArray((value as EvidenceSnapshot).evidence)
+  && typeof (value as EvidenceSnapshot).sessionCount === "number"
+  && typeof (value as EvidenceSnapshot).resourceCount === "number",
+), "Invalid evidence snapshot.");
 
 type ProviderResult = z.infer<typeof providerResultSchema>;
 type PersistedResult = Omit<ProviderResult, "uncertainty" | "noteEdits">;
@@ -177,6 +190,7 @@ export async function requestGeminiStudyAnalysis(
     include: { noteEditSuggestions: true },
   });
   if (recent) return { available: true, reason: "request_recently_submitted", analysis: mapJob(recent, snapshot) };
+  const prompt = buildGeminiStudyAnalysisPrompt(snapshot);
   const job = await prisma.geminiStudyAnalysisJob.create({
     data: {
       workspaceId: workspace.id,
@@ -184,8 +198,10 @@ export async function requestGeminiStudyAnalysis(
       requesterTelegramId,
       mode,
       evidenceHash,
-      evidenceJson: snapshot as unknown as Prisma.InputJsonValue,
-      prompt: buildGeminiStudyAnalysisPrompt(snapshot),
+      evidenceJson: PROTECTED_JSON_PLACEHOLDER as unknown as Prisma.InputJsonValue,
+      prompt: PROTECTED_PAYLOAD_PLACEHOLDER,
+      evidenceCiphertext: serializeProtectedPayload(snapshot),
+      promptCiphertext: prompt,
       model: configuredOpenAiStudyModel(),
     },
     include: { noteEditSuggestions: true },
@@ -200,14 +216,16 @@ export async function claimGeminiStudyAnalysisJob(workerId: string, leaseSeconds
     const candidate = await tx.geminiStudyAnalysisJob.findFirst({
       where: { OR: [{ status: CodexJobStatus.PENDING }, { status: CodexJobStatus.RUNNING, leaseExpiresAt: { lt: now } }] },
       orderBy: { createdAt: "asc" },
-      select: { id: true, prompt: true, model: true },
+      select: { id: true, prompt: true, promptCiphertext: true, model: true },
     });
     if (!candidate) return undefined;
     const claimed = await tx.geminiStudyAnalysisJob.updateMany({
       where: { id: candidate.id, OR: [{ status: CodexJobStatus.PENDING }, { status: CodexJobStatus.RUNNING, leaseExpiresAt: { lt: now } }] },
       data: { status: CodexJobStatus.RUNNING, workerId, claimedAt: now, startedAt: now, leaseExpiresAt, error: null },
     });
-    return claimed.count === 1 ? candidate : undefined;
+    return claimed.count === 1
+      ? { id: candidate.id, prompt: candidate.promptCiphertext ?? candidate.prompt, model: candidate.model }
+      : undefined;
   })) ?? undefined;
 }
 
@@ -215,7 +233,7 @@ export async function completeGeminiStudyAnalysisJob(input: { id: string; worker
   const job = await prisma.geminiStudyAnalysisJob.findFirst({ where: { id: input.id, workerId: input.workerId, status: CodexJobStatus.RUNNING } });
   if (!job) return false;
   try {
-    const snapshot = parseSnapshot(job.evidenceJson);
+    const snapshot = storedSnapshot(job);
     const parsed = parseGeminiStudyAnalysisOutput(input.finalResponse, snapshot);
     await prisma.$transaction(async (tx) => {
       for (const edit of parsed.noteEdits) {
@@ -240,7 +258,8 @@ export async function completeGeminiStudyAnalysisJob(input: { id: string; worker
         where: { id: job.id },
         data: {
           status: CodexJobStatus.COMPLETED,
-          result: stored as unknown as Prisma.InputJsonValue,
+          result: PROTECTED_JSON_PLACEHOLDER as unknown as Prisma.InputJsonValue,
+          resultCiphertext: serializeProtectedPayload(stored),
           model: cleanOptional(input.model, 200),
           error: null,
           completedAt: new Date(),
@@ -360,8 +379,8 @@ export function parseGeminiStudyAnalysisOutput(raw: string, snapshotOrIds: Evide
 type JobWithSuggestions = Prisma.GeminiStudyAnalysisJobGetPayload<{ include: { noteEditSuggestions: true } }>;
 
 function mapJob(job: JobWithSuggestions, current: EvidenceSnapshot): DashboardStudyAnalysis {
-  const stored = parseSnapshot(job.evidenceJson);
-  const result = parseStoredResult(job.result);
+  const stored = storedSnapshot(job);
+  const result = storedResult(job);
   const status = publicStatus(job.status);
   return {
     id: job.id,
@@ -391,12 +410,24 @@ function publicStatus(status: CodexJobStatus): DashboardStudyAnalysis["status"] 
   return "QUEUED";
 }
 
-function parseSnapshot(value: Prisma.JsonValue): EvidenceSnapshot {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid evidence snapshot.");
-  return value as unknown as EvidenceSnapshot;
+function storedSnapshot(job: { evidenceCiphertext?: string | null; evidenceJson: Prisma.JsonValue }): EvidenceSnapshot {
+  return parseProtectedPayload(job.evidenceCiphertext, job.evidenceJson, evidenceSnapshotSchema);
 }
-function parseStoredResult(value: Prisma.JsonValue | null): PersistedResult | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as unknown as PersistedResult : undefined;
+
+export function readStoredStudyAnalysisSnapshot(job: { evidenceCiphertext?: string | null; evidenceJson: Prisma.JsonValue }): EvidenceSnapshot {
+  return storedSnapshot(job);
+}
+
+export function compactStudyAnalysisSnapshot(snapshot: EvidenceSnapshot): EvidenceSnapshot {
+  return {
+    ...snapshot,
+    evidence: publicStudyEvidence(snapshot.evidence).map(({ detail: _detail, ...entry }) => entry),
+    edges: [],
+  };
+}
+function storedResult(job: { resultCiphertext?: string | null; result: Prisma.JsonValue | null }): PersistedResult | undefined {
+  if (!job.resultCiphertext && !job.result) return undefined;
+  return parseProtectedPayload(job.resultCiphertext, job.result, persistedResultSchema) as PersistedResult;
 }
 function latestJob(workspaceId: string, moduleId: string, mode: StudyAnalysisMode) {
   return prisma.geminiStudyAnalysisJob.findFirst({ where: { workspaceId, moduleId, mode }, orderBy: { requestedAt: "desc" }, include: { noteEditSuggestions: true } });

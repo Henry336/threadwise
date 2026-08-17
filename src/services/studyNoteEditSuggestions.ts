@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { StudyNoteEditSuggestionStatus, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import { StudyModeError } from "./study";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 
@@ -32,7 +33,7 @@ export async function reviewStudyNoteEditSuggestion(
   const result = await prisma.$transaction(async (tx) => {
     const current = await tx.studyNoteEditSuggestion.findFirst({
       where: { id: suggestion.id, workspaceId: workspace.id },
-      include: { resource: { select: { body: true, archivedAt: true } } },
+      include: { resource: true },
     });
     if (!current || current.status !== StudyNoteEditSuggestionStatus.PENDING) return { conflict: "reviewed" as const };
     if (current.resource.archivedAt || hashText(current.resource.body ?? "") !== current.originalBodyHash) {
@@ -42,7 +43,10 @@ export async function reviewStudyNoteEditSuggestion(
       });
       return { conflict: "changed" as const };
     }
-    const resource = await tx.studyResource.update({ where: { id: current.resourceId }, data: { body: appliedBody } });
+    const resource = await tx.studyResource.update({
+      where: { id: current.resourceId },
+      data: completeSearchableContentUpdate("StudyResource", current.resource, { body: appliedBody }),
+    });
     const applied = await tx.studyNoteEditSuggestion.update({
       where: { id: current.id },
       data: { status: StudyNoteEditSuggestionStatus.APPLIED, appliedBody, reviewedAt: new Date() },

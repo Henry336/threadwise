@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3 implementation is complete on a guarded branch, but production activation is blocked at Gate 3A; Phase 4 and later are not authorized**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -176,12 +176,18 @@ Outcome: the guarded inspection verified a read-only transaction, found 190 encr
 926 plaintext protected field values, confirmed zero malformed envelopes and zero anomalies across
 26 cross-workspace relationship checks, measured unretained AI duplicates, and confirmed blind
 search-token accumulation. Backup/PITR/restore readiness remains a control-plane prerequisite.
-See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 remains unauthorized.
+See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 was subsequently authorized for guarded implementation.
 
 Recommended model: **GPT-5.6 Terra, medium reasoning** for bounded evidence
 collection; **GPT-5.6 Sol, high reasoning** for migration and threat analysis.
 
 ## Phase 3 — privacy and encryption remediation
+
+Status: **implementation and synthetic validation complete; production schema deployment,
+backfill, diagnostics minimization, and retention deletion are not activated**. Gate 3A still
+requires evidence of a current provider backup, an isolated restore test, and independent
+recovery of the content-encryption key. The implementation is intentionally published on a
+non-production branch until that evidence exists. See `docs/PHASE3_PRIVACY_RUNBOOK.md`.
 
 Objectives:
 

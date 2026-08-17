@@ -9,7 +9,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { StudyModeError, findStudyModule } from "./study";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
@@ -189,9 +189,13 @@ export async function updateStudyResourceOcr(
   text: string,
   confidence: number,
 ): Promise<void> {
-  await prisma.studyResource.updateMany({
-    where: { id: resourceId, workspaceId },
-    data: { ocrText: text.slice(0, 100_000), ocrConfidence: confidence },
+  const resource = await prisma.studyResource.findFirst({ where: { id: resourceId, workspaceId } });
+  if (!resource) return;
+  await prisma.studyResource.update({
+    where: { id: resource.id },
+    data: completeSearchableContentUpdate("StudyResource", resource, {
+      ocrText: text.slice(0, 100_000), ocrConfidence: confidence,
+    }),
   });
 }
 

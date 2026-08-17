@@ -4,6 +4,14 @@ Entry point for any AI or human contributor. Written to be model-agnostic: it wo
 for Claude Code, Codex, or any other assistant. If you read one file first, read this,
 then follow the pointers below.
 
+## Latest implementation checkpoint
+
+- **2026-08-17 (Codex):** Implemented the approved Phase 3 privacy remediation behind Gate 3A:
+  extended server-side encryption to retained AI/Canvas/suggestion payloads, replaced cumulative
+  blind indexes with complete-record sets, added guarded resumable backfill and retention tooling,
+  and documented activation/rollback. Production apply/deletion remains blocked until backup,
+  isolated restore, and encryption-key recovery are proven.
+
 > **Ground every answer in the live repository and current deployment, not in this file
 > or any summary.** Re-run checks; re-read the code. Version numbers and counts here are
 > snapshots and drift.

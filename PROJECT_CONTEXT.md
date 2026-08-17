@@ -7,6 +7,49 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 3 privacy remediation authorized (2026-08-17 SGT)
+
+- The user explicitly authorized security remediation Phase 3 and publication where safe. Scope is
+  the approved Phase 3 design only: encrypted/minimized AI payloads, exact blind-index replacement,
+  bounded retention, restart-safe dry-run-first backfill/cleanup tooling, tests, schema additions,
+  and operator documentation. Phase 4 and later remain unauthorized.
+- The retention defaults in the Phase 2 report are treated as the selected implementation policy:
+  failed/abandoned jobs 14 days; completed prompt/evidence diagnostics 7 days; superseded completed
+  results 30 days while preserving the latest successful result per workspace/module/mode; pending
+  suggestions until reviewed/superseded; applied/dismissed/superseded suggestions 30 days.
+- Safety boundary: local implementation and synthetic validation may proceed. No production
+  backfill, plaintext redaction, retention deletion, or irreversible migration apply may run until
+  Gate 3A proves a current backup, isolated restore, and independent encryption-key recovery. The
+  absence of Supabase control-plane access or owner confirmation must remain a reported blocker,
+  not be guessed around. An additive schema migration must not be pushed to an auto-deploying
+  production branch before that gate is resolved.
+- Invariants: existing mixed plaintext/ciphertext reads continue; new AI payloads never create
+  plaintext duplicates; blind tokens are replaced from the complete current content; concurrent
+  edits use compare-and-swap; every apply path requires explicit acknowledgement and verified
+  backup reference; checkpoints/audits contain aggregates and safe codes only; no private content,
+  keys, identifiers, or row payloads enter logs/docs/chat.
+- Expected surfaces: `prisma/schema.prisma` and one additive migration; content-encryption policy;
+  Study/Idea AI persistence; a bounded retention service; guarded backfill/cleanup scripts;
+  focused encryption, retention, migration, and mixed-compatibility tests; encryption/runbook and
+  security roadmap/context documentation. Dashboard behavior should remain contract-compatible.
+- Validation: Prisma format/validate/generate, focused and full tests, TypeScript/build, production
+  dependency audit, synthetic interruption/retry/tamper/mixed-state tests, dry runs with no writes,
+  diff/secret scan, and explicit production-gate review. Rollback before legacy redaction uses the
+  prior release/additive legacy fields; after any future redaction it requires the verified backup
+  and preserved key.
+- Starting backend head is `a1694b9e88741c5808649395bb3088a735891be1`, clean on `main` and
+  matched to `origin/main`. Implementation checkpoint: additive AI ciphertext/diagnostic columns,
+  encrypted Canvas extraction and suggestions, exact complete-record blind-token replacement,
+  guarded restart-safe backfill, bounded retention/minimization, focused tests, and the operator
+  runbook are implemented locally. Final local validation passes: Prisma validate/format/generate,
+  TypeScript, production build, all 873 tests with 6 intentional skips, 15 focused privacy tests,
+  diff whitespace review, and a production dependency audit with zero vulnerabilities. The guarded
+  utilities were not pointed at production or run in apply mode. No production database,
+  configuration, deployment, content, or retention state has changed. Publication target is the
+  non-production `codex/phase3-privacy-remediation` branch; production merge/apply is deliberately
+  withheld. Gate 3A remains blocked on verified backup, isolated restore, and independent key
+  recovery.
+
 ## Active checkpoint — Phase 2 privacy inspection completed (2026-08-17 SGT)
 
 - The user explicitly authorized Phase 2 after Phase 1 containment passed production validation.

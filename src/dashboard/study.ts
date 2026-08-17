@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import {
   addStudyModule,
   addStudyScheduleBlock,
@@ -593,7 +593,7 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
 export async function updateDashboardStudyResource(workspace: StudyWorkspace, resourceId: string, input: z.infer<typeof studyResourceUpdateSchema>) {
   const resource = await findStudyResource(workspace.id, resourceId);
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
-  const data = {
+  const partialData = {
     ...(input.moduleId ? { moduleId: input.moduleId } : {}),
     ...(input.title ? { title: input.title } : {}),
     ...(input.body !== undefined ? { body: input.body } : {}),
@@ -602,6 +602,7 @@ export async function updateDashboardStudyResource(workspace: StudyWorkspace, re
     ...(input.caption !== undefined ? { caption: input.caption } : {}),
     ...(input.pinned !== undefined ? { pinnedAt: input.pinned ? new Date() : null } : {}),
   };
+  const data = completeSearchableContentUpdate("StudyResource", resource, partialData);
   let updated;
   if (input.expectedUpdatedAt) {
     const written = await prisma.studyResource.updateMany({

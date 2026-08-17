@@ -8,7 +8,7 @@ import { nextPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
@@ -114,7 +114,7 @@ export async function renameNoteTitle(userId: string, publicId: string, title: s
     await recordRenameUndo(tx, userId, { kind: "note", id: note.id, publicId: note.publicId, title: nextTitle }, note.title);
     return tx.note.update({
       where: { id: note.id },
-      data: { title: nextTitle }
+      data: completeSearchableContentUpdate("Note", note, { title: nextTitle })
     });
   });
 }
@@ -130,11 +130,12 @@ export async function updateNoteBody(userId: string, publicId: string, body: str
     await recordFieldEditUndo(tx, userId, { kind: "note", id: note.id, publicId: note.publicId, title: note.title }, "body", note.body);
     return tx.note.update({
       where: { id: note.id },
-      data: {
+      data: completeSearchableContentUpdate("Note", note, {
         body: nextBody,
         summary: summarizeManualText(nextBody),
+        sourceText: nextBody,
         embedding: Prisma.JsonNull
-      }
+      })
     });
   });
 }

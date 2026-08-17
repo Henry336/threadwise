@@ -12,7 +12,7 @@ Threadwise supports optional server-side application encryption for task, note, 
 
 The server still holds the key and can decrypt content. This reduces exposure through Supabase/SQL consoles, raw backups, and database-only access; it is not end-to-end encryption and does not prevent an authorized operator or compromised running server from reading content.
 
-## Protected in version 1
+## Protected fields
 
 | Model | Protected fields |
 | --- | --- |
@@ -21,6 +21,16 @@ The server still holds the key and can decrypt content. This reduces exposure th
 | Idea | title, concept, problem, target user, source text, market notes |
 | Saved image | filename, caption, OCR text |
 | Study resource | title, body, URL, filename, caption, OCR text |
+| Study resource revision | title, body |
+| Idea-analysis job | prompt, final response |
+| Study-analysis job | encrypted evidence, prompt, and result payload columns |
+| Study note-edit suggestion | original body, suggested body, rationale, applied body |
+| Canvas material | extracted text |
+
+Phase 3 also replaces blind-token arrays from the complete current protected record whenever
+searchable content changes. Partial searchable updates must first be completed from the current
+decrypted row; otherwise the write fails closed. This prevents removed terms and duplicate tokens
+from accumulating indefinitely.
 
 Scheduling, status, recurrence, ownership, authorization, public identifiers, timestamps, Telegram provider identifiers, and binary image delivery remain unchanged so reminders and synchronization continue to work normally.
 
@@ -62,4 +72,4 @@ Scheduling, status, recurrence, ownership, authorization, public identifiers, ti
 
 ## Expected performance
 
-Encryption/decryption is linear in the small amount of content being read or written and occurs only on protected Prisma results. Search remains indexed; reminders and synchronization continue to query unencrypted operational metadata. The migration is intentionally sequential in batches of 100 to avoid connection spikes on the small Supabase pool.
+Encryption/decryption is linear in the small amount of content being read or written and occurs only on protected Prisma results. Search remains indexed; reminders and synchronization continue to query unencrypted operational metadata. The original migration is intentionally sequential in batches of 100. The Phase 3 backfill and retention workers use batches of 25, compare-and-swap writes, leases, and durable aggregate-only checkpoints. Their default mode is read-only. Do not use either `--apply` path until the backup, restore, and key-recovery gate in `docs/PHASE3_PRIVACY_RUNBOOK.md` has passed.

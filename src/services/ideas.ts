@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
@@ -98,7 +99,7 @@ export async function renameIdeaTitle(userId: string, publicOrUuid: string, titl
     await recordRenameUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: nextTitle }, idea.title);
     return tx.idea.update({
       where: { id: idea.id },
-      data: { title: nextTitle }
+      data: completeSearchableContentUpdate("Idea", idea, { title: nextTitle })
     });
   });
 }
@@ -114,10 +115,11 @@ export async function updateIdeaConcept(userId: string, publicOrUuid: string, co
     await recordFieldEditUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title }, "concept", idea.concept);
     return tx.idea.update({
       where: { id: idea.id },
-      data: {
+      data: completeSearchableContentUpdate("Idea", idea, {
         concept: nextConcept,
+        sourceText: nextConcept,
         embedding: Prisma.JsonNull
-      }
+      })
     });
   });
 }
@@ -137,12 +139,12 @@ export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProv
 
   await prisma.idea.update({
     where: { id: idea.id },
-    data: {
+    data: completeSearchableContentUpdate("Idea", idea, {
       scores: score,
       marketNotes: score.marketNotes,
       dos: score.dos,
       donts: score.donts
-    }
+    })
   });
 
   return { publicId: idea.publicId, score };

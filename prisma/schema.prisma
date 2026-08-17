@@ -1897,6 +1897,7 @@ model GeminiIdeaJob {
   leaseExpiresAt           DateTime?
   finalResponse            String?
   error                    String?
+  diagnosticsPurgedAt      DateTime?
   createdAt                DateTime       @default(now())
   startedAt                DateTime?
   completedAt              DateTime?
@@ -1921,6 +1922,10 @@ model GeminiStudyAnalysisJob {
   evidenceHash        String
   evidenceJson        Json
   prompt              String
+  evidenceCiphertext  String?
+  promptCiphertext    String?
+  resultCiphertext    String?
+  diagnosticsPurgedAt DateTime?
   model               String?
   workerId            String?
   claimedAt           DateTime?
@@ -1968,6 +1973,29 @@ model StudyNoteEditSuggestion {
   @@unique([analysisJobId, resourceId])
   @@index([workspaceId, status, createdAt])
   @@index([resourceId, status])
+}
+
+model PrivacyMaintenanceRun {
+  id                  String    @id @default(uuid())
+  kind                String
+  status              String
+  backupReferenceHash String
+  target              String?
+  lastCursor          String?
+  processedCount      Int       @default(0)
+  changedCount        Int       @default(0)
+  conflictCount       Int       @default(0)
+  safeErrorCode       String?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  startedAt           DateTime  @default(now())
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([kind, status, updatedAt])
+  @@index([backupReferenceHash, kind, status])
+  @@index([status, leaseExpiresAt])
 }
 
 model CodexThread {

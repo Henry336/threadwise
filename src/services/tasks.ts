@@ -11,6 +11,7 @@ import { nextPublicId } from "./publicIds";
 import { initialTaskReminderAt } from "./reminders";
 import { cancelPendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "./taskReminderSchedules";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
+import { completeSearchableContentUpdate } from "../security/contentEncryption";
 
 export type TaskListItem = {
   id: string;
@@ -352,11 +353,11 @@ export async function renameTaskTitle(userId: string, reference: string, title: 
     await recordRenameUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle }, task.title);
     return tx.task.update({
       where: { id: task.id },
-      data: {
+      data: completeSearchableContentUpdate("Task", task as unknown as Record<string, unknown>, {
         title: nextTitle,
         calendarUrl,
         undatedNudgeCount: 0
-      }
+      })
     });
   });
   return refreshCalendarState(userId, updated);
@@ -382,12 +383,12 @@ export async function updateTaskDescription(userId: string, reference: string, d
     await recordFieldEditUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title }, "description", task.description ?? null);
     return tx.task.update({
       where: { id: task.id },
-      data: {
+      data: completeSearchableContentUpdate("Task", task as unknown as Record<string, unknown>, {
         description: nextDescription,
         calendarUrl,
         embedding: Prisma.JsonNull,
         undatedNudgeCount: 0
-      }
+      })
     });
   });
   return refreshCalendarState(userId, updated);
