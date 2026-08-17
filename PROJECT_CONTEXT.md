@@ -7,6 +7,67 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Completed checkpoint — Phase 5 browser hardening and maintainability (2026-08-17 SGT)
+
+- Status: implementation and local validation complete on guarded branches. The user explicitly authorized
+  Phase 5 and publication where safe; Phase 6 active security assurance and Phase 7 public Study
+  architecture remain unauthorized.
+- Repository baselines: backend `da3992130b1112d0d2b813a47f63d605fe361325` on new stacked branch
+  `codex/phase5-browser-hardening`; dashboard `c560351d92b98316d555a259d66009dbbe1523c2`
+  on its own `codex/phase5-browser-hardening` branch. Both baselines were clean and matched their
+  remotes. Dashboard work is isolated in the writable linked worktree
+  `D:\CodexData\WindowsDocuments\Codex\Threadwise\.local\phase5-dashboard`.
+- Authorized scope: staged nonce-based CSP without `unsafe-inline`/`unsafe-eval`; expiring and
+  identity/workspace-scoped local note drafts with logout/workspace cleanup; an explicit safe
+  remote-Markdown-image policy; bounded/deferred Mermaid rendering with safe failures; dashboard
+  pull-request/main CI with reproducible install, tests, lint, typecheck, build, dependency audit,
+  and secret scanning; meaningful behavior/browser coverage; one bounded responsibility split where
+  it reduces risk; and reconciliation of retired local-worker documentation with the server-side
+  OpenAI implementation.
+- Invariants: preserve safe GFM notes, same-origin protected images, crash-safe drafts, authenticated
+  BFF authorization, Study owner/chat fail-closed behavior, PWA static-only caching, and production
+  functionality. Do not weaken CSP with broad inline/eval allowances, render raw HTML, load arbitrary
+  remote media automatically, expose secrets, inspect private production data, run active attacks,
+  deploy, or mutate production configuration in this phase.
+- Validation gate: focused CSP/draft/Markdown/Mermaid/auth/focus/scroll/responsive behavior tests;
+  full dashboard tests, TypeScript, ESLint, production build, production dependency audit, CI syntax,
+  diff/secret review, and clean pushed branches. Backend documentation changes receive the backend
+  full gate. Deployment remains separate from branch publication.
+- Rollback: all runtime changes stay on the dashboard Phase 5 branch and all cross-repository
+  documentation stays on the stacked backend Phase 5 branch. Reverting either branch leaves current
+  production untouched. No migration or destructive cleanup is planned.
+- Recommended execution setup recorded by the roadmap: Terra medium for CI/tests/docs/mechanical
+  refactors and Sol medium for CSP design or responsibility splits; high/xhigh/Ultra are not needed.
+- Implementation checkpoint: the dashboard now has a request nonce CSP staged in report-only mode
+  by default (`THREADWISE_CSP_MODE=enforce` is the explicit later activation switch), with no
+  `unsafe-inline` or `unsafe-eval`; the Telegram bootstrap receives the request nonce. Study note
+  and weekly-review drafts use versioned seven-day envelopes scoped to their owner/tenant/resource,
+  invalid or expired records fail closed, prior-workspace and legacy drafts are cleared on the next
+  workspace mount, and logout clears all Threadwise drafts before submission.
+- Markdown media checkpoint: same-origin images continue to load; arbitrary HTTPS images now require
+  a per-render explicit click that warns about the destination host/IP disclosure; insecure,
+  protocol-relative, and embedded `data:` image payloads are blocked. Mermaid rendering moved to a
+  dedicated component, is deferred until near the viewport, rejects configuration directives and
+  diagrams over character/line/statement budgets, renders through a serialized queue with a timeout,
+  and still sanitizes the strict-security SVG with DOMPurify.
+- Final implementation: the dashboard also has pull-request/main CI with least-privilege workflow
+  permissions, reproducible install, secret scanning, full and production dependency audits, unit,
+  type, lint, build, and real Chromium desktop/mobile gates. Risky Markdown media and Mermaid work
+  moved out of the generic Markdown renderer into bounded components. Provider documentation now
+  names the deployed Study analysis path as server-side OpenAI; the historical/local Gemini Ideas
+  adapter is not presented as a required laptop worker.
+- Final validation: dashboard secret scan passed across 144 tracked files; 24 test files and all 99
+  tests passed; TypeScript, ESLint, and the production build passed; Playwright passed five desktop/
+  mobile smoke tests with one intentional mobile-only command-palette skip; full and production npm
+  audits reported zero vulnerabilities. Backend documentation received the full gate: 117 files,
+  884 tests passed with 6 intentional skips, TypeScript and build passed, and both dependency audits
+  are clean after a non-breaking development-only `nanoid` lockfile refresh.
+- Activation boundary: CSP remains report-only by design. Report-only browser evidence identifies
+  framework/component inline style attributes that must be migrated before enforcement. Do not set
+  `THREADWISE_CSP_MODE=enforce` until the inventory and rollout steps in the dashboard
+  `docs/CSP_ROLLOUT.md` pass in a preview environment. Production, databases, migrations, and hosted
+  configuration remain untouched. Phase 6 and Phase 7 remain unauthorized.
+
 ## Active checkpoint — Phase 4 Study scalability and transactional reliability authorized (2026-08-17 SGT)
 
 - The user explicitly authorized Phase 4 implementation and publication where safe. Scope is the

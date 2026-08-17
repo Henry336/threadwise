@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3 and Phase 4 implementation are complete on guarded stacked branches, but production activation is blocked at Gate 3A; Phase 5 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 and later are not authorized**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -252,6 +252,9 @@ test expansion after the design is fixed.
 
 ## Phase 5 — browser hardening and maintainability
 
+Status: **implemented and locally validated on `codex/phase5-browser-hardening` in both repositories;
+no deployment or production configuration change is authorized by completion alone**.
+
 Objectives:
 
 - Introduce and stage a nonce-based Content Security Policy without papering over
@@ -272,6 +275,27 @@ Objectives:
 Recommended model: **GPT-5.6 Terra, medium reasoning** for CI, tests, documentation,
 and bounded component work; **GPT-5.6 Sol, medium reasoning** for CSP design and
 large responsibility splits.
+
+Completion record (2026-08-17 SGT):
+
+- Added a nonce-bearing CSP pipeline with report-only staging as the safe default and an explicit
+  enforcement switch. The policy contains no `unsafe-inline` or `unsafe-eval`; report-only evidence
+  still identifies inline style attributes, so enforcement is intentionally deferred to a preview
+  rollout governed by the dashboard `docs/CSP_ROLLOUT.md` runbook.
+- Versioned local drafts now expire after seven days, are scoped to owner/workspace/resource, reject
+  malformed or future records, and clear on logout or workspace changes. Remote Markdown images are
+  same-origin by default and require explicit click-to-load consent for HTTPS third-party hosts;
+  insecure, protocol-relative, and embedded data images are blocked.
+- Mermaid rendering is viewport-deferred, serialized, time- and complexity-bounded, strict-security,
+  and sanitized after rendering. Markdown media/Mermaid responsibilities were split from the generic
+  renderer without a broad file move.
+- Dashboard CI now runs a tracked-file secret scan, full and production dependency audits, 99 unit/
+  component tests, TypeScript, ESLint, production build, and Chromium desktop/mobile smoke coverage.
+  Local final validation passed all gates (five browser passes and one intentional mobile skip), with
+  zero dependency findings. Backend documentation passed all 884 tests (6 intentional skips),
+  TypeScript, build, and zero-finding audits after a non-breaking development-only lockfile refresh.
+- Production, hosted configuration, databases, migrations, and active security testing were not
+  touched. Phase 6 and Phase 7 remain separate approval boundaries.
 
 ## Phase 6 — active security assurance
 

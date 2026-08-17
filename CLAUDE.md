@@ -6,6 +6,11 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-17 (Codex):** Completed Phase 5 browser hardening on guarded cross-repository branches:
+  staged nonce CSP, scoped/expiring browser drafts, consent-gated remote Markdown images, bounded
+  Mermaid rendering, dashboard CI/security scans/browser tests, and a bounded Markdown media split.
+  CSP remains report-only until preview evidence is clean; no deployment or production mutation was
+  performed. Backend validation passed 884 tests with 6 intentional skips and clean dependency audits.
 - **2026-08-17 (Codex):** Implemented the approved Phase 3 privacy remediation behind Gate 3A:
   extended server-side encryption to retained AI/Canvas/suggestion payloads, replaced cumulative
   blind indexes with complete-record sets, added guarded resumable backfill and retention tooling,
