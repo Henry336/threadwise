@@ -7,6 +7,30 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — security remediation roadmap recorded (2026-08-17 SGT)
+
+- The cross-repository security/readability/scalability audit is complete. One critical
+  boundary requires first attention: the primary Telegram webhook is registered and handled
+  without Telegram secret-header validation. Additional priorities are plaintext duplication
+  in Study AI-analysis records, vulnerable dashboard dependencies, oversized Study snapshots,
+  optional/incomplete content encryption, non-atomic note side effects, browser hardening,
+  maintainability/CI, and proper multi-tenant groundwork before public Study mode.
+- The authoritative staged plan is
+  [`docs/SECURITY_REMEDIATION_ROADMAP.md`](docs/SECURITY_REMEDIATION_ROADMAP.md). It records seven
+  phases, validation and rollback gates, safe production-inspection and staging-penetration-test
+  boundaries, model/effort guidance, and the exact handoff template required after every subphase.
+- Phase order: (1) webhook containment and dependency patching; (2) bounded read-only production
+  privacy/data inspection; (3) encryption and retention remediation; (4) Study scalability and
+  transactional reliability; (5) browser/maintainability hardening; (6) staging-first active
+  security assurance; (7) public Study multi-tenant architecture.
+- Model policy: Terra medium for routine/mechanical work, Sol medium for ordinary architecture,
+  Sol high for auth/crypto/migrations/pentest interpretation, and xhigh only for a bounded final
+  review of unusually consequential irreversible work. Ultra/max is exceptional and is not the
+  default for security tasks.
+- **No phase has started.** No application code, dependency, production configuration, database,
+  credential, webhook, deployment, or external service was changed. Wait for explicit approval
+  before Phase 1A or any production inspection/testing.
+
 ## Active checkpoint — Threadwise-native Markdown notes (2026-08-17 SGT)
 
 - The user approved the previously discussed Obsidian-compatible direction for Study notes.

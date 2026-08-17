@@ -130,6 +130,13 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-17 (Codex):** Recorded the planning-only security remediation sequence in
+  `docs/SECURITY_REMEDIATION_ROADMAP.md` and linked it from `PROJECT_CONTEXT.md`. The roadmap
+  preserves seven staged phases, safety/rollback/validation gates, staging-first penetration
+  testing, bounded read-only production inspection, per-phase model/effort guidance, and an exact
+  handoff checkpoint template. No remediation phase, product code, dependency, production state,
+  database operation, credential rotation, deployment, or active test has started.
+
 - **2026-08-17 (Codex, validated locally):** Upgraded canonical Study resources into portable
   Markdown notes with safe GFM/Mermaid rendering, wiki links/backlinks, restart-safe local drafts,
   bounded encrypted revisions, conflict-aware saves, `.md` import/export, and a readable Telegram
