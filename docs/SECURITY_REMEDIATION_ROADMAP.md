@@ -13,6 +13,10 @@ phase is validated or rolled back.
 ## Current state
 
 - Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is stopped at findings review; Phase 7 architecture is complete on guarded branches, with implementation and activation not started**.
+- The final local reconciliation after Phase 7 is recorded in
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. It confirms that F-01 through F-03, Gate 3A, CSP
+  enforcement evidence, and hosted synthetic staging remain open; no audit finding was silently
+  remediated or deployed.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.

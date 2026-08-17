@@ -7,6 +7,32 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — post-Phase-7 Work selector fix and final audit (2026-08-17 SGT)
+
+- Status: implementation and audit are complete on matching
+  `codex/post-phase7-work-filter-audit` branches from Phase 7 heads (backend `06b9146`, dashboard
+  `45864dc`). The Study **Work** module filter now uses the accessible `StudyChoicePicker`, retains
+  persisted `all`/module semantics, and has a focused regression guard. No merge, deployment,
+  production mutation, credential change, database operation, or public Study activation occurred.
+- Audit result: the guarded seven-phase codebase is materially safer and more testable with no
+  confirmed cycle-caused regression. Production has not inherited most Phase 3–7 changes. Phase 6
+  F-01 (Canvas cross-origin bearer forwarding), F-02 (dashboard JWT replay), and F-03 (no shared
+  principal/route rate limit) remain unresolved; Phase 3/4 production activation remains blocked at
+  Gate 3A; CSP enforcement and hosted synthetic staging remain incomplete. Canonical detail is in
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`.
+- Audit safety: read local repositories and redacted reports only; do not inspect private production
+  rows or secrets, run active production penetration tests, rotate credentials, provision staging,
+  or silently remediate audit findings. The explicitly requested Work selector is the only approved
+  product-code correction in this checkpoint.
+- Validation: dashboard 119 tests, focused selector 8 tests, security assurance 52 tests, Playwright
+  5 passed/1 intentional skip, typecheck/lint/build, tracked-secret scan, and both dependency audits
+  pass. Backend deterministic rerun passes 886 tests with 6 skips/2 explicit TODOs; focused security
+  assurance passes 136 tests with 2 TODOs; typecheck/build/Prisma/secret/dependency gates pass. One
+  first-run concurrent Excel failure passed independently and in the one-worker full rerun.
+- Exact next action: commit and push both guarded branches, then wait for owner review. Do not merge,
+  deploy, activate migrations/CSP/public Study, rotate credentials, or remediate F-01–F-03 without a
+  new explicit instruction.
+
 ## Completed checkpoint — Phase 7 public Study architecture (2026-08-17 SGT)
 
 - Status: the user explicitly authorized Phase 7 and the architecture package is complete on

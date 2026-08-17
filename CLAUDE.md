@@ -6,6 +6,24 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
 - **2026-08-17 (Codex):** Completed Phase 7 public Study architecture on the guarded
   `codex/phase7-public-study-architecture` branch. Backend architecture commit `77739bd` defines
   tenant membership/capabilities, founder compatibility, OAuth-only encrypted Canvas custody,
