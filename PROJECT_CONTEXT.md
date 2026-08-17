@@ -55,6 +55,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   reports zero vulnerabilities. Diff/secret review found no added credential; the only matched API
   key text is the pre-existing documentation placeholder `OPENAI_API_KEY=...`. No production data,
   configuration, deployment, migration, backfill, or live load test was touched.
+- Phase 4 implementation commit: `90db323` (`harden Study scaling and note transactions`). This
+  commit is the reviewed code/schema/test/runbook checkpoint. The next action is publication of this
+  stacked branch only; operational activation still waits for Gate 3A and the Phase 4 runbook.
 
 ## Active checkpoint — Phase 3 privacy remediation authorized (2026-08-17 SGT)
 
