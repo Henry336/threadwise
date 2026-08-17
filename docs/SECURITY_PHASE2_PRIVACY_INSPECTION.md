@@ -1,9 +1,9 @@
 # Phase 2 production privacy inspection
 
-Date: 17 August 2026 (SGT)  
-Scope: bounded, aggregate-only inspection of the production PostgreSQL database and local
-encryption/retention implementation  
-Production mutation: **none**
+- Date: 17 August 2026 (SGT)
+- Scope: bounded, aggregate-only inspection of the production PostgreSQL database and local
+  encryption/retention implementation
+- Production mutation: **none**
 
 ## Executive summary
 
@@ -215,4 +215,3 @@ Even after authorization, Gate 3A must pass before any production apply or delet
 Recommended execution remains GPT-5.6 Sol with high reasoning for the migration implementation
 and threat review. Xhigh/Ultra is not warranted by default; a bounded xhigh review may be useful
 only immediately before an irreversible production apply.
-
