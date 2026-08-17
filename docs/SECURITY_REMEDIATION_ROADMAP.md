@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3 implementation is complete on a guarded branch, but production activation is blocked at Gate 3A; Phase 4 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3 and Phase 4 implementation are complete on guarded stacked branches, but production activation is blocked at Gate 3A; Phase 5 and later are not authorized**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -219,6 +219,11 @@ bounded final review of an irreversible migration/backfill if it provides a clea
 quality gain. Do not use Ultra by default.
 
 ## Phase 4 — Study scalability and transactional reliability
+
+Status: **implementation and synthetic validation complete on the non-production
+`codex/phase4-study-scalability` branch; production schema deployment, backfill,
+activation, and load testing have not occurred**. The branch is stacked on Phase 3 and
+inherits Gate 3A. See `docs/PHASE4_STUDY_SCALE_RUNBOOK.md`.
 
 Objectives:
 

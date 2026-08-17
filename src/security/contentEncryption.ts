@@ -30,12 +30,12 @@ export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   Note: { encrypted: ["title", "body", "summary", "sourceText"], searchable: ["title", "body", "summary", "sourceText"] },
   Idea: { encrypted: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"], searchable: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"] },
   StoredImage: { encrypted: ["fileName", "caption", "ocrText"], searchable: ["fileName", "caption", "ocrText"] },
-  StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
+  StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText", "analysisExcerpt", "captionPreview", "ocrPreview"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
   StudyResourceRevision: { encrypted: ["title", "body"], searchable: [] },
   GeminiIdeaJob: { encrypted: ["prompt", "finalResponse"], searchable: [] },
   GeminiStudyAnalysisJob: { encrypted: ["evidenceCiphertext", "promptCiphertext", "resultCiphertext"], searchable: [] },
   StudyNoteEditSuggestion: { encrypted: ["originalBody", "suggestedBody", "rationale", "appliedBody"], searchable: [] },
-  StudyCanvasMaterial: { encrypted: ["extractedText"], searchable: [] },
+  StudyCanvasMaterial: { encrypted: ["extractedText", "analysisExcerpt"], searchable: [] },
 };
 
 export class ContentCipher {

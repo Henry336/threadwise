@@ -18,6 +18,7 @@
     "db:inspect-privacy": "tsx scripts/inspect-privacy-aggregates.ts",
     "db:migrate-phase3-privacy": "tsx scripts/migrate-phase3-privacy.ts",
     "db:enforce-privacy-retention": "tsx scripts/enforce-privacy-retention.ts",
+    "db:migrate-phase4-study-scale": "tsx scripts/migrate-phase4-study-scale.ts",
     "db:dev": "prisma migrate dev"
   },
   "keywords": [

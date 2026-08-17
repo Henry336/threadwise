@@ -7,6 +7,7 @@ import {
   studyModuleCreateSchema,
   studyScheduleCreateSchema,
   studyScheduleUpdateSchema,
+  studyResourcePreviewSelect,
 } from "./study";
 import type { DashboardWorkspaceScope } from "./workspaces";
 
@@ -71,6 +72,13 @@ describe("private Study dashboard authorization", () => {
 });
 
 describe("Study dashboard input contracts", () => {
+  it("keeps list and snapshot resource queries on bounded excerpt fields", () => {
+    expect(studyResourcePreviewSelect).toMatchObject({ analysisExcerpt: true, analysisExcerptTruncated: true });
+    expect(studyResourcePreviewSelect).not.toHaveProperty("body");
+    expect(studyResourcePreviewSelect).not.toHaveProperty("caption");
+    expect(studyResourcePreviewSelect).not.toHaveProperty("ocrText");
+  });
+
   it("accepts the module color chosen by the creation sheet", () => {
     expect(studyModuleCreateSchema.parse({
       code: "CS2100",

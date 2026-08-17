@@ -6,7 +6,7 @@ const db = vi.hoisted(() => {
     studyModule: { findFirst: vi.fn(), count: vi.fn() },
     studyWorkspace: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     studyResource: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
-    studyResourceRevision: { create: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    studyResourceRevision: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
     studyNoteLink: { deleteMany: vi.fn(), createMany: vi.fn() },
     studyPendingCapture: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
     studyNoteCaptureSession: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -47,6 +47,7 @@ beforeEach(() => {
     : Promise.all(input as unknown[]));
   db.auditLog.create.mockResolvedValue({});
   db.studyResourceRevision.create.mockResolvedValue({});
+  db.studyResourceRevision.findFirst.mockResolvedValue(null);
   db.studyResourceRevision.findMany.mockResolvedValue([]);
 });
 
@@ -104,6 +105,7 @@ describe("durable Study note sessions", () => {
     const result = await finalizeStudyNoteCaptureSession(workspace);
 
     expect(result?.paragraphCount).toBe(2);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(db.studyResource.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         title: "Cache misses stall the pipeline.",
@@ -112,6 +114,10 @@ describe("durable Study note sessions", () => {
       }),
     }));
     expect(db.studyNoteCaptureSession.delete).toHaveBeenCalledWith({ where: { id: session.id } });
+    expect(db.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      action: "study.resource.created",
+      metadata: expect.objectContaining({ resourceId: "resource-1" }),
+    }) });
   });
 });
 

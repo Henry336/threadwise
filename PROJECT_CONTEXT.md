@@ -7,6 +7,55 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 4 Study scalability and transactional reliability authorized (2026-08-17 SGT)
+
+- The user explicitly authorized Phase 4 implementation and publication where safe. Scope is the
+  recorded Phase 4 only: bounded Study evidence/list payloads, precomputed encrypted excerpts,
+  explicit query/payload/revision budgets, atomic note mutation side effects, indexed incremental
+  wiki-link resolution, and synthetic scale/concurrency regression coverage. Phase 5 and later are
+  not authorized.
+- Dependency boundary: Phase 3 is validated but remains on the non-production
+  `codex/phase3-privacy-remediation` branch because Gate 3A is unresolved. Phase 4 therefore starts
+  from Phase 3 commit `14e8466183d1773b493165a6384f6279a007550f` and must publish on a separate
+  stacked non-production branch. Do not merge, deploy, or apply either migration merely because
+  Phase 4 code passes. Production remains unchanged until the Phase 3 backup/restore/key gate.
+- Design decisions: store encrypted, bounded analysis excerpts rather than hydrating full resource
+  and Canvas bodies for evidence; keep the existing dedicated full-resource endpoint for explicit
+  detail; list at most 30 resource previews per paginated request and cap the compatibility snapshot
+  at 400 records with each preview text field capped at 700 characters rather than 400 full bodies;
+  keep evidence caps at 20 sessions, 28
+  resources, 16 work items, 28 Canvas materials, and 16 assignments; retain a 48,000-character AI
+  prompt ceiling; and cap revision history at 20 full snapshots of at most the existing 100,000
+  body characters while skipping consecutive duplicates.
+- Transaction invariant: a Study note create/update or accepted AI edit must commit the current
+  resource, revision, outgoing links, and audit record in one database transaction. Optimistic
+  concurrency remains fail-closed. Link resolution must query indexed normalized lookup keys for
+  only the targets present in the changed note instead of scanning every active note.
+- Expected surfaces: additive Study resource/Canvas excerpt and wiki-key schema migration;
+  encryption policy and excerpt derivation; Canvas/Study persistence; evidence and dashboard
+  preview queries; transaction-aware Markdown/revision/link services; guarded backfill tooling;
+  focused contract, atomicity, concurrency, and synthetic scale tests; roadmap/context/runbook and
+  working-log documentation.
+- Validation: Prisma validate/format/generate, TypeScript/build, focused and full tests, synthetic
+  large-workspace payload/query-budget checks, concurrent edit behavior, production dependency
+  audit, diff/secret review, and clean pushed branch. No production database inspection, write,
+  migration apply, deployment, or load test is authorized in this phase.
+- Implementation checkpoint: the additive schema, encrypted/readiness-marked resource and Canvas
+  excerpts, bounded preview/evidence queries, tenant-scoped pre-backfill compatibility fallback,
+  guarded restart-safe backfill, indexed wiki targets, 20-snapshot revision policy, and atomic
+  resource/revision/link/audit writes are implemented. Focused validation currently passes, including
+  legacy readability and a 10,000-record synthetic derivation budget. The durable activation and
+  rollback sequence is in `docs/PHASE4_STUDY_SCALE_RUNBOOK.md`.
+- Publication boundary: publish only `codex/phase4-study-scalability`, stacked on Phase 3 commit
+  `14e8466183d1773b493165a6384f6279a007550f`. Do not merge or deploy it and do not apply
+  `20260817190000_phase4_study_scalability` or the Phase 4 backfill while Gate 3A remains unresolved.
+  The dashboard contract remains backward-compatible, so no dashboard code change is required.
+- Final local gate: Prisma validate and format check, Prisma generation, TypeScript, build, and all
+  117 test files pass (884 tests passed; 6 intentionally skipped). The production dependency audit
+  reports zero vulnerabilities. Diff/secret review found no added credential; the only matched API
+  key text is the pre-existing documentation placeholder `OPENAI_API_KEY=...`. No production data,
+  configuration, deployment, migration, backfill, or live load test was touched.
+
 ## Active checkpoint — Phase 3 privacy remediation authorized (2026-08-17 SGT)
 
 - The user explicitly authorized security remediation Phase 3 and publication where safe. Scope is

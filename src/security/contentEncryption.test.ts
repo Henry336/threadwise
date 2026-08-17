@@ -141,4 +141,28 @@ describe("content encryption", () => {
     expect(job.data.searchTokens).toBeUndefined();
     expect(suggestion.data.searchTokens).toBeUndefined();
   });
+
+  it("encrypts bounded Study excerpts without adding them to search tokens", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const resource = prepareContentWrite("StudyResource", "create", {
+      data: {
+        title: "Note", body: "Full body", analysisExcerpt: "Bounded private excerpt",
+        captionPreview: "Bounded caption", ocrPreview: "Bounded OCR",
+      },
+    }, cipher) as { data: Record<string, unknown> };
+    const material = prepareContentWrite("StudyCanvasMaterial", "create", {
+      data: { extractedText: "Full Canvas text", analysisExcerpt: "Bounded Canvas excerpt" },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(resource.data.analysisExcerpt)).toBe(true);
+    expect(isEncryptedContent(resource.data.captionPreview)).toBe(true);
+    expect(isEncryptedContent(resource.data.ocrPreview)).toBe(true);
+    expect(isEncryptedContent(material.data.analysisExcerpt)).toBe(true);
+    expect(resource.data.searchTokens).toEqual(expect.arrayContaining(cipher.searchTokens("StudyResource", [
+      { field: "title", value: "Note" },
+      { field: "body", value: "Full body" },
+    ])));
+    expect(JSON.stringify(resource.data.searchTokens)).not.toContain("Bounded private excerpt");
+    expect(JSON.stringify(resource.data.searchTokens)).not.toContain("Bounded OCR");
+  });
 });

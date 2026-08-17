@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
+import { deriveCanvasAnalysisExcerpt } from "./studyScale";
 import { logger } from "../logger";
 import {
   StudyModeError,
@@ -631,6 +632,7 @@ async function syncCanvasCourseMaterials(
         if (file) filesIndexed += 1;
       }
       const extractedText = page?.body ? htmlToPlainText(page.body)?.slice(0, CANVAS_MAX_PAGE_TEXT) : undefined;
+      const analysisExcerpt = deriveCanvasAnalysisExcerpt(extractedText);
       const title = (page?.title ?? file?.display_name ?? file?.filename ?? item.title ?? `Canvas material ${canvasModuleItemId}`).trim().slice(0, 500);
       await prisma.studyCanvasMaterial.upsert({
         where: { workspaceId_canvasModuleItemId: { workspaceId: workspace.id, canvasModuleItemId } },
@@ -648,6 +650,8 @@ async function syncCanvasCourseMaterials(
           contentType: file?.["content-type"],
           byteSize: safeCanvasByteSize(file?.size),
           extractedText,
+          analysisExcerpt,
+          analysisExcerptReady: true,
           contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
           sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
           unlockAt: canvasDate(file?.unlock_at),
@@ -671,6 +675,8 @@ async function syncCanvasCourseMaterials(
           contentType: file?.["content-type"],
           byteSize: safeCanvasByteSize(file?.size),
           extractedText,
+          analysisExcerpt,
+          analysisExcerptReady: true,
           contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
           sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
           unlockAt: canvasDate(file?.unlock_at),
