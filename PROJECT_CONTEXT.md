@@ -46,6 +46,11 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   The final full backend rerun reached 860 passes plus 6 skips with the existing unrelated concurrent
   Excel import timeout; `src/services/excel.test.ts` passed 2/2 immediately in isolation and the
   affected Study/dashboard suites remained green.
+- Release checkpoint: backend runtime commit `13b2431` is pushed and Render `/health` reports that
+  exact commit with HTTP 200, confirming the additive note migration deployed. Dashboard runtime
+  commit `14b691b` is pushed, its exact GitHub/Vercel deployment status is successful, and the
+  canonical `/dashboard` route returns HTTP 200. Both canonical worktrees are expected clean after
+  the deployment-outcome documentation commits.
 
 ## Active checkpoint — Weekly review viewport repair + OpenAI configuration audit (2026-08-16 SGT)
 

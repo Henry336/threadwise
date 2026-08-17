@@ -136,8 +136,9 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   fallback. Raw HTML/plugins/scripts remain unsupported. Prisma format/validate/generate, backend
   typecheck/build, 861 tests plus 6 skips, dashboard TypeScript/ESLint/build, and 91 tests pass.
   A final backend rerun after atomic conflict hardening reached 860 passes plus 6 skips with the known
-  unrelated concurrent Excel timeout; that test passed 2/2 independently. Publication commits are
-  recorded in both repositories after push.
+  unrelated concurrent Excel timeout; that test passed 2/2 independently. Backend commit `13b2431`
+  is live on Render with its additive migration and HTTP 200; dashboard commit `14b691b` has a
+  successful Vercel deployment and the canonical dashboard returns HTTP 200.
 
 - **2026-08-16 (Codex, deployed):** Audited the production Study-analysis configuration without
   reading secret values. Render currently has `OPENAI_MODEL` but no `OPENAI_API_KEY`, so the existing
