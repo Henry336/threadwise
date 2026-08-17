@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is authorized and stopped at findings review; Phase 7 is not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is stopped at findings review; Phase 7 architecture is complete on guarded branches, with implementation and activation not started**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -339,6 +339,16 @@ targeted investigation. Ultra is not required.
 This is a product architecture phase, not a permission change to the founder
 workspace.
 
+Status: **architecture completed on `codex/phase7-public-study-architecture`; no runtime,
+schema, configuration, credential, bot, database, invitation, merge, or deployment change**.
+
+Canonical records:
+
+- [`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md)
+- [`PUBLIC_STUDY_THREAT_MODEL.md`](PUBLIC_STUDY_THREAT_MODEL.md)
+- [`PUBLIC_STUDY_ROLLOUT.md`](PUBLIC_STUDY_ROLLOUT.md)
+- dashboard `docs/PUBLIC_STUDY_DASHBOARD_BOUNDARY.md` on its matching guarded branch
+
 Required design:
 
 - Tenant-scoped Study users, workspaces, ownership, memberships, authorization,
@@ -402,7 +412,13 @@ phase complete merely because code was written or pushed.
 
 ## Next authorized action
 
-Phase 6 assurance infrastructure, bounded local testing, and branch publication are authorized.
-Present F-01 through F-03 from `docs/SECURITY_PHASE6_ASSURANCE.md` before remediation. Wait for
-explicit approval before fixing those findings, provisioning hosted staging, rotating the Canvas
-token, performing safe production verification, merging/deploying, or beginning Phase 7.
+Phase 7 architecture and guarded-branch publication are complete. The next safe product unit is
+**Stage 7.1 tenant foundations only**, but it is not authorized: wait for explicit approval before
+adding schema/runtime code, applying a migration/backfill, or beginning any later rollout stage.
+
+Separately, present and obtain explicit remediation approval for Phase 6 F-01 through F-03 before
+fixing them. Those findings, remote ephemeral PostgreSQL CI, dedicated hosted synthetic staging,
+and Gate 3A backup/restore/key-recovery evidence remain blockers before any public cohort. Do not
+provision hosted staging, rotate credentials, perform production verification, merge/deploy, create
+or register a public Study bot, connect a real Canvas tenant, invite users, or cut over the founder
+workspace without the corresponding recorded approval and gate evidence.

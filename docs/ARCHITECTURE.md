@@ -75,6 +75,14 @@ Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSess
 
 Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
 
+The approved public-Study direction is additive and does not weaken this sealed path. Its tenant,
+membership, credential, bot, scheduling, privacy, and rollout boundaries are recorded in
+[`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md),
+[`PUBLIC_STUDY_THREAT_MODEL.md`](PUBLIC_STUDY_THREAT_MODEL.md), and
+[`PUBLIC_STUDY_ROLLOUT.md`](PUBLIC_STUDY_ROLLOUT.md). Those Phase 7 documents are architecture only:
+the founder workspace remains behind the current owner/chat gate, and no public bot, OAuth
+connection, tenant migration, invitation, or deployment is active.
+
 Study services are split by responsibility. `study.ts` owns weeks, modules, work, sessions, mistakes, reviews, schedule blocks, dashboard aggregation, and CSV exports. `studyNaturalLanguage.ts` performs deterministic intent and module extraction. `studyCanvas.ts` owns a single-flight, paginated, retry-bounded, read-only Canvas mirror. `studyAttention.ts` scores work from deadlines, explicit priority, mastery, backlog age, effort, and source uncertainty. `studyResources.ts` owns module resources, reply/pending captures, local OCR metadata, durable silent note sessions, and Unicode-safe Telegram pagination. `studyTransit.ts` consumes the public Improved NextBus contract and manages saved/default/temporary origins. `studyReminders.ts` derives and prioritizes proactive candidates while `studyCapture.ts` and `study.ts` keep Telegram handlers thin.
 
 `studyNusmods.ts` is the deterministic timetable-import boundary. It parses only canonical NUSMods semester share URLs, derives the academic year from the configured Study semester, fetches the selected modules from the public NUSMods API, matches the exact lesson type and class number, and upserts recurring blocks with `source=NUSMODS` plus stable source references. A re-import reconciles only that source namespace: stale NUSMods selections are deactivated, while manual schedule blocks are never rewritten. Published venue labels are passed through `studyTransit.ts`; a resolved venue enables the existing live-journey and class-departure pipeline, while an unresolved venue stays visible and produces an explicit import warning.
