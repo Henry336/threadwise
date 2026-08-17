@@ -50,10 +50,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   dashboard full suite 118 passed; Chromium 5 passed with one intentional mobile skip;
   both secret scans and both complete/production dependency audits passed with zero
   findings; TypeScript/build/Prisma and dashboard lint/build passed.
-- Exact next action: publish the guarded branches, allow GitHub to exercise the synthetic
-  PostgreSQL migration gate, present F-01 through F-03, and wait for explicit remediation
-  approval. Hosted staging, token rotation, safe production checks, merge, and deployment
-  remain separate approval boundaries.
+- Exact next action: present F-01 through F-03, wait for explicit remediation approval, and
+  run the pushed synthetic PostgreSQL workflow after GitHub CLI re-authentication or through a
+  reviewed pull request. Hosted staging, token rotation, safe production checks, merge, and
+  deployment remain separate approval boundaries.
+- Publication checkpoint: backend assurance commit `be7d2ec` and dashboard assurance commit
+  `bf9c948` are pushed on their respective `codex/phase6-security-assurance` branches. No pull
+  request, merge, or deployment was created. The workflows expose manual dispatch, but the local
+  GitHub CLI credential is expired; therefore the remote ephemeral PostgreSQL stage is still
+  awaiting a user-authenticated dispatch or pull request and must not be reported as passed.
 
 ## Completed checkpoint — Phase 5 browser hardening and maintainability (2026-08-17 SGT)
 

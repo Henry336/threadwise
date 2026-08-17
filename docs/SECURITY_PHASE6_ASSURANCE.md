@@ -12,6 +12,7 @@ staging substitute.
 
 - Backend baseline: Phase 5 commit `a440c0b`, branch `codex/phase6-security-assurance`.
 - Dashboard baseline: Phase 5 commit `9d47b57`, branch `codex/phase6-security-assurance`.
+- Published assurance commits: backend `be7d2ec`; dashboard `bf9c948`.
 - Node/npx are available. Docker, Render CLI, an installed Render connector, and a proven
   dedicated non-production database/credential set are not available on this machine.
 - The repository CI now defines an isolated PostgreSQL 17 service with synthetic credentials,
@@ -19,6 +20,9 @@ staging substitute.
   pass on GitHub before the branch can satisfy the ephemeral-database gate.
 - A network-reachable hosted staging deployment was **not** created. Doing so without a proven
   isolated database and synthetic secrets could accidentally cross the production boundary.
+- Both guarded branches are pushed. Manual workflow dispatch is available, but the local `gh`
+  session is expired, so the remote ephemeral PostgreSQL job has not been dispatched or claimed
+  as passing. No pull request was opened merely to trigger it.
 - CSP remains report-only under the separate Phase 5 rollout gate. Phase 3 production activation
   remains blocked at Gate 3A.
 
@@ -116,7 +120,8 @@ an unbounded in-memory key map.
 2. Fix F-01 first and rotate the Canvas token after deployment because token confidentiality cannot
    be proven historically from code inspection alone.
 3. Decide the JTI replay and rate-limit storage/latency architecture before implementing F-02/F-03.
-4. Push the guarded branches and let GitHub run the ephemeral PostgreSQL/migration CI gate.
+4. Re-authenticate GitHub CLI or open a reviewed pull request, then run the pushed ephemeral
+   PostgreSQL/migration CI gate.
 5. Provision a dedicated hosted staging database and synthetic secret set; never clone production
    credentials or private data into it.
 6. Only after hosted staging passes, request separate approval for safe production header/config

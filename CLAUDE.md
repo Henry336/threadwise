@@ -143,13 +143,15 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
-- **2026-08-17 (Codex):** Phase 6 synthetic security assurance is stopped at findings review on
-  `codex/phase6-security-assurance`. Added focused adversarial/secret/dependency gates and an
+- **2026-08-17 (Codex):** Phase 6 synthetic security assurance commit `be7d2ec` is pushed and
+  stopped at findings review on `codex/phase6-security-assurance`. Added focused adversarial/secret/dependency gates and an
   ephemeral PostgreSQL migration CI stage; local backend assurance passed 136 checks (2 TODO
   findings), the full suite passed 886 with 6 skips, and all type/build/audit gates passed. The
   redacted `docs/SECURITY_PHASE6_ASSURANCE.md` records a high Canvas pagination bearer-leak risk,
   medium JWT replay gap, and medium route-rate-limit gap. No finding, production state, deployment,
   credential, or database was changed; hosted staging still needs proven isolated infrastructure.
+  Dashboard assurance commit `bf9c948` is also pushed. Remote manual CI awaits GitHub CLI
+  re-authentication; no PR was opened merely to trigger it.
 
 - **2026-08-17 (Codex):** Completed security remediation Phase 2 as a single guarded,
   aggregate-only production inspection in a verified read-only PostgreSQL transaction. It found

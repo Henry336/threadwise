@@ -300,8 +300,9 @@ Completion record (2026-08-17 SGT):
 ## Phase 6 — active security assurance
 
 Status: **local synthetic assurance and CI infrastructure completed on
-`codex/phase6-security-assurance`; three findings await review, and hosted staging is blocked on a
-proven isolated database/credential set**. See `docs/SECURITY_PHASE6_ASSURANCE.md`. No finding has
+`codex/phase6-security-assurance` (backend `be7d2ec`, dashboard `bf9c948`); three findings await
+review, the remote ephemeral database workflow awaits authenticated dispatch, and hosted staging is
+blocked on a proven isolated database/credential set**. See `docs/SECURITY_PHASE6_ASSURANCE.md`. No finding has
 been remediated silently, and production was not tested or changed.
 
 Begin only after the known critical boundary and plaintext duplication are
