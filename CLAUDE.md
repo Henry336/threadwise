@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-17 (Codex):** Researched Coursemology assignment/deadline integration on guarded branch
+  `codex/study-image-sidebar-coursemology`; canonical evidence and the safety gate are in
+  `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md`. The authenticated lesson-plan JSON contains the
+  required timing data, but no documented public third-party OAuth/API/calendar contract was found.
+  Do not collect browser tokens/cookies or build a connector until the NUS/Coursemology operator
+  confirms a supported read-only contract. No provider, credential, schema, database, production,
+  merge, or deployment state changed.
 - **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
   `codex/post-phase7-work-filter-audit`; canonical evidence is
   `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed

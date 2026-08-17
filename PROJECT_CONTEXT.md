@@ -7,7 +7,33 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — post-Phase-7 Work selector fix and final audit (2026-08-17 SGT)
+## Active checkpoint — Study image inspection, desktop sidebar, and Coursemology research (2026-08-17 SGT)
+
+- Status: implementation and local validation are complete on matching
+  `codex/study-image-sidebar-coursemology` branches, stacked from the pushed post-Phase-7 guarded
+  heads (backend `eb8406b`, dashboard `f604a21`). No merge, deployment, production mutation,
+  credential collection, provider connection, database operation, or public Study activation is
+  authorized in this checkpoint.
+- Objective: let Study users click a saved Library image into a full-viewport, natural-resolution
+  scrollable inspection mode; add an explicit persisted desktop/laptop sidebar toggle while
+  retaining the existing mobile drawer; and determine whether Coursemology can safely provide
+  assignment/deadline data without browser-token or cookie scraping.
+- Decisions: image viewing defaults to fit-to-window and toggles between fit and original-pixel
+  inspection from either the image or a labelled header action. `Escape` exits original-size mode
+  before closing the viewer. The desktop sidebar choice is local UI preference only and never
+  changes mobile drawer behavior. Coursemology remains research-only pending a supported read-only
+  OAuth/export contract from the instance operator; do not collect credentials.
+- Durable research: `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md` records evidence, safe integration
+  options, a provider-neutral connector shape, and the operator-confirmation gate.
+- Validation: dashboard focused regressions pass 10 tests; the full suite passes 121 tests;
+  typecheck, lint, production build, tracked-secret scan, production/full dependency audits, and
+  Playwright pass (5 passed, one intentional mobile skip). The generic browser suite does not seed a
+  private Study Library image, so the exact signed-in image interaction remains an owner live-check
+  after branch deployment; source regressions cover its state and natural-resolution CSS contract.
+- Exact next action: commit and push both guarded branches, then wait for owner review. Do not deploy
+  or begin a Coursemology connector.
+
+## Completed checkpoint — post-Phase-7 Work selector fix and final audit (2026-08-17 SGT)
 
 - Status: implementation and audit are complete on matching
   `codex/post-phase7-work-filter-audit` branches from Phase 7 heads (backend `06b9146`, dashboard
