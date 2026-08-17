@@ -342,6 +342,8 @@ workspace.
 Status: **architecture completed on `codex/phase7-public-study-architecture`; no runtime,
 schema, configuration, credential, bot, database, invitation, merge, or deployment change**.
 
+Architecture publication commits: backend `77739bd`; dashboard `16687b3`.
+
 Canonical records:
 
 - [`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md)

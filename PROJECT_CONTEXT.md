@@ -7,12 +7,13 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — Phase 7 public Study architecture (2026-08-17 SGT)
+## Completed checkpoint — Phase 7 public Study architecture (2026-08-17 SGT)
 
-- Status: the user explicitly authorized Phase 7. Architecture work is isolated on
+- Status: the user explicitly authorized Phase 7 and the architecture package is complete on
   `codex/phase7-public-study-architecture`, stacked from the pushed Phase 6 assurance
-  checkpoints (backend `c5b0726`, dashboard `638b10d`). No production, database,
-  credential, bot, provider, or deployment state is being changed.
+  checkpoints (backend `c5b0726`, dashboard `638b10d`). Canonical backend architecture commit is
+  `77739bd`; the dashboard boundary commit is `16687b3`. No production, database, schema,
+  credential, bot, provider, invitation, merge, or deployment state changed.
 - Objective: produce an implementation-ready public Study architecture covering tenant-scoped
   identity, ownership, membership and authorization; encrypted per-tenant Canvas credentials;
   an isolated Study bot identity; tenant-scoped jobs, quotas, leases, rate limits, abuse controls,
@@ -26,21 +27,27 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   JWT replay), and F-03 (principal/route rate limiting) remain unresolved and must be remediated
   before a public cohort. Hosted synthetic staging also remains blocked on an isolated database and
   synthetic credential set. Phase 3/4 production activation still inherits Gate 3A.
-- Expected deliverables: a canonical architecture and data-boundary specification, privacy/threat
-  model, staged rollout/migration plan, dashboard boundary contract, updated roadmap/context and
-  both contributor working logs. This is a design phase; proposed schema/API examples are not
-  migrations or runtime implementation.
-- Validation: trace every decision to the current Prisma schema and backend/dashboard authorization
-  paths; verify complete coverage of the Phase 7 requirements; run documentation/link/secret/diff
-  checks; confirm both worktrees are clean after intentional commits; publish guarded branches only.
+- Deliverables: `docs/PUBLIC_STUDY_ARCHITECTURE.md`,
+  `docs/PUBLIC_STUDY_THREAT_MODEL.md`, `docs/PUBLIC_STUDY_ROLLOUT.md`, and dashboard
+  `docs/PUBLIC_STUDY_DASHBOARD_BOUNDARY.md`, plus linked architecture/roadmap and both contributor
+  logs. This is a design phase; its proposed schema/API examples are not migrations or runtime
+  implementation.
+- Validation: decisions were traced to the current Prisma schema, singleton Study services,
+  bot registration, Canvas/reminder/analysis jobs, backend authorization, and dashboard BFF.
+  Requirement coverage, code-fence parity, local links, prohibited embedded payloads/secret
+  material, `git diff --check`, exact branch/status, and the final committed file sets were checked.
+  No runtime test/build was warranted because Phase 7 changed documentation only.
 - Rollback: revert or delete only the Phase 7 documentation commits/branches. The Phase 6 branches
   remain the immutable baselines; no runtime rollback or data restore should be necessary.
 - Recommended setup: GPT-5.6 Sol with high reasoning for tenant, authorization, credential and threat
   boundaries. xhigh/Ultra are not required because the phase is bounded and produces reviewable
   architecture rather than an irreversible migration.
-- Exact next action: inspect the live Study schema, singleton authorization, bot registration,
-  dashboard BFF, jobs/reminders/sync and deletion/export surfaces; then write and cross-check the
-  architecture, threat model and rollout gates before publication.
+- Exact next action: wait for explicit approval. The first bounded implementation unit is Stage 7.1
+  tenant foundations only: additive workspace lifecycle/membership/capability/audit foundations
+  behind disabled flags plus founder authorization shadow tests. Do not combine it with Canvas
+  OAuth, a public bot, invitations, production migration/backfill, founder cutover, merge, or
+  deployment. Phase 6 F-01–F-03 remediation remains a separate approval boundary and is required
+  before any cohort.
 
 ## Active checkpoint — Phase 6 synthetic security assurance (2026-08-17 SGT)
 

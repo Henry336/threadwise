@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-17 (Codex):** Completed Phase 7 public Study architecture on the guarded
+  `codex/phase7-public-study-architecture` branch. Backend architecture commit `77739bd` defines
+  tenant membership/capabilities, founder compatibility, OAuth-only encrypted Canvas custody,
+  isolated bot identity, fair jobs/quotas, audit/export/deletion, threat controls, and a staged
+  cohort. Matching dashboard boundary commit `16687b3` preserves the BFF and sealed founder path.
+  Phase 7 made documentation only: no schema, runtime, credential, bot, database, invitation,
+  merge, deployment, or production change.
 - **2026-08-17 (Codex):** Completed Phase 5 browser hardening on guarded cross-repository branches:
   staged nonce CSP, scoped/expiring browser drafts, consent-gated remote Markdown images, bounded
   Mermaid rendering, dashboard CI/security scans/browser tests, and a bounded Markdown media split.
@@ -142,6 +149,14 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-17 (Codex):** Phase 7 architecture is complete on guarded backend/dashboard branches.
+  Backend `77739bd` adds `docs/PUBLIC_STUDY_ARCHITECTURE.md`,
+  `docs/PUBLIC_STUDY_THREAT_MODEL.md`, and `docs/PUBLIC_STUDY_ROLLOUT.md`; dashboard `16687b3`
+  adds its BFF/browser boundary. The founder workspace remains sealed. Phase 6 F-01–F-03, hosted
+  synthetic staging, remote ephemeral PostgreSQL CI, and Gate 3A remain cohort blockers. No public
+  bot, OAuth connection, migration, invitation, merge, deploy, production read, or secret change
+  occurred. Next safe unit is Stage 7.1 tenant foundations only, pending explicit approval.
 
 - **2026-08-17 (Codex):** Phase 6 synthetic security assurance commit `be7d2ec` is pushed and
   stopped at findings review on `codex/phase6-security-assurance`. Added focused adversarial/secret/dependency gates and an
