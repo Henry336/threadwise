@@ -60,4 +60,38 @@ describe("authenticated Telegram webhook", () => {
     expect(handler).not.toHaveBeenCalled();
     await server.close();
   });
+
+  it("rejects malformed JSON before the bot handler", async () => {
+    const { server, handler } = testServer();
+    const response = await server.inject({
+      method: "POST",
+      url: PATH,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": SECRET
+      },
+      payload: "{broken"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+    await server.close();
+  });
+
+  it("applies Fastify's body limit before invoking the bot", async () => {
+    const { server, handler } = testServer();
+    const response = await server.inject({
+      method: "POST",
+      url: PATH,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": SECRET
+      },
+      payload: JSON.stringify({ padding: "x".repeat(1_048_576) })
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(handler).not.toHaveBeenCalled();
+    await server.close();
+  });
 });

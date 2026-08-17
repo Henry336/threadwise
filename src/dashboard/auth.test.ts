@@ -70,4 +70,6 @@ describe("dashboard service JWT authentication", () => {
       DashboardConfigurationError
     );
   });
+
+  it.todo("rejects a consumed JTI when the same signed service token is replayed");
 });

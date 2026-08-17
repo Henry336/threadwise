@@ -143,6 +143,14 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-17 (Codex):** Phase 6 synthetic security assurance is stopped at findings review on
+  `codex/phase6-security-assurance`. Added focused adversarial/secret/dependency gates and an
+  ephemeral PostgreSQL migration CI stage; local backend assurance passed 136 checks (2 TODO
+  findings), the full suite passed 886 with 6 skips, and all type/build/audit gates passed. The
+  redacted `docs/SECURITY_PHASE6_ASSURANCE.md` records a high Canvas pagination bearer-leak risk,
+  medium JWT replay gap, and medium route-rate-limit gap. No finding, production state, deployment,
+  credential, or database was changed; hosted staging still needs proven isolated infrastructure.
+
 - **2026-08-17 (Codex):** Completed security remediation Phase 2 as a single guarded,
   aggregate-only production inspection in a verified read-only PostgreSQL transaction. It found
   190 encrypted versus 926 plaintext protected field values, no malformed envelopes, no anomalies

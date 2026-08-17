@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is authorized and stopped at findings review; Phase 7 is not authorized**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -299,6 +299,11 @@ Completion record (2026-08-17 SGT):
 
 ## Phase 6 — active security assurance
 
+Status: **local synthetic assurance and CI infrastructure completed on
+`codex/phase6-security-assurance`; three findings await review, and hosted staging is blocked on a
+proven isolated database/credential set**. See `docs/SECURITY_PHASE6_ASSURANCE.md`. No finding has
+been remediated silently, and production was not tested or changed.
+
 Begin only after the known critical boundary and plaintext duplication are
 remediated. Create a staging deployment with synthetic users, chats, workspaces,
 provider responses, and credentials.
@@ -396,6 +401,7 @@ phase complete merely because code was written or pushed.
 
 ## Next authorized action
 
-None. The user requested that this roadmap be recorded before implementation.
-Wait for explicit approval before starting Phase 1A or any inspection, migration,
-penetration test, deployment, rotation, or cleanup.
+Phase 6 assurance infrastructure, bounded local testing, and branch publication are authorized.
+Present F-01 through F-03 from `docs/SECURITY_PHASE6_ASSURANCE.md` before remediation. Wait for
+explicit approval before fixing those findings, provisioning hosted staging, rotating the Canvas
+token, performing safe production verification, merging/deploying, or beginning Phase 7.

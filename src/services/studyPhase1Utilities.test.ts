@@ -35,6 +35,8 @@ describe("Canvas mapping rules", () => {
     expect(nextCanvasLink(null)).toBeUndefined();
   });
 
+  it.todo("rejects a Canvas pagination link whose origin differs from CANVAS_BASE_URL");
+
   it("maps Canvas module items into stable material kinds", () => {
     expect(canvasMaterialKind("Page")).toBe(StudyCanvasMaterialKind.PAGE);
     expect(canvasMaterialKind("File")).toBe(StudyCanvasMaterialKind.FILE);

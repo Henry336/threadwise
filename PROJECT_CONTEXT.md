@@ -7,6 +7,54 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 6 synthetic security assurance (2026-08-17 SGT)
+
+- Status: the user explicitly authorized Phase 6. Work is isolated on stacked branches
+  `codex/phase6-security-assurance` from backend Phase 5 commit `a440c0b` and dashboard
+  Phase 5 commit `9d47b57`; production and the Phase 3 activation gate remain untouched.
+- Objective: exercise the recorded threat matrix with synthetic identities, chats,
+  workspaces, provider responses, credentials, and bounded hostile inputs; make the
+  checks reproducible in CI; publish a redacted evidence report; and present any
+  security findings before changing the affected security behavior.
+- Safety boundary: do not read or mutate private production data, reuse production
+  credentials in staging, invoke real providers with abusive payloads, run destructive
+  account deletion or forged bot mutations in production, deploy or merge to `main`,
+  or perform Phase 7 public-Study architecture work. Safe production header/config
+  verification still requires separate explicit approval.
+- Environment checkpoint: this laptop has Node/npx but no Docker, Render CLI, or
+  installed Render connector. No dedicated synthetic hosted database or staging secret
+  set is present in the repositories. Phase 6 therefore starts with a deterministic
+  in-process synthetic assurance harness and CI gates. A hosted deployment may proceed
+  only if a genuinely isolated non-production database and credentials can be proven;
+  it must never fall back to production configuration.
+- Required coverage: Telegram webhook authenticity/replay/malformed behavior;
+  authentication, authorization, membership, and IDOR boundaries; dashboard JWT,
+  workspace, proxy, origin/CSRF, and payload limits; Markdown/Mermaid XSS and resource
+  limits; SSRF surfaces; rate/lease/duplicate/concurrency/recovery behavior; and secret,
+  dependency, and static analysis gates.
+- Validation and reporting: run focused hostile-input tests, full backend/dashboard test
+  gates, TypeScript/build/lint/browser checks where applicable, dependency and secret
+  scans, and a diff/secret review. Record passing evidence, limitations, residual risks,
+  and any blocked hosted-staging work in a dedicated Phase 6 report.
+- Rollback: revert or discard only the two Phase 6 branches. The Phase 5 branches remain
+  the immutable baselines; no database migration, hosted configuration mutation, or
+  production deployment is part of this phase.
+- Findings checkpoint: local synthetic assurance and the new CI gates pass. Phase 6 is
+  stopped before remediation with three review items documented in
+  `docs/SECURITY_PHASE6_ASSURANCE.md`: Canvas pagination can forward its bearer token to a
+  cross-origin next link (F-01, high); dashboard service JWT JTIs are not replay-consumed
+  (F-02, medium); and the HTTP API has no principal/route rate-limit gate (F-03, medium
+  availability/cost gap). Do not fix or dismiss these without the user's review.
+- Validation checkpoint: backend focused assurance 136 passed with two explicit TODOs;
+  backend full suite 886 passed, 6 skipped, 2 TODO; dashboard focused assurance 52 passed;
+  dashboard full suite 118 passed; Chromium 5 passed with one intentional mobile skip;
+  both secret scans and both complete/production dependency audits passed with zero
+  findings; TypeScript/build/Prisma and dashboard lint/build passed.
+- Exact next action: publish the guarded branches, allow GitHub to exercise the synthetic
+  PostgreSQL migration gate, present F-01 through F-03, and wait for explicit remediation
+  approval. Hosted staging, token rotation, safe production checks, merge, and deployment
+  remain separate approval boundaries.
+
 ## Completed checkpoint — Phase 5 browser hardening and maintainability (2026-08-17 SGT)
 
 - Status: implementation and local validation complete on guarded branches. The user explicitly authorized
