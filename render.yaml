@@ -39,7 +39,9 @@ services:
       - key: WEBHOOK_URL
         sync: false
       - key: WEBHOOK_SECRET_PATH
-        value: /telegram/webhook
+        value: /telegram/threadwise-v2
+      - key: WEBHOOK_SECRET_TOKEN
+        sync: false
       - key: BEACON_BOT_TOKEN
         sync: false
       - key: BEACON_OWNER_TELEGRAM_ID

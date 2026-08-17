@@ -6,6 +6,7 @@ describe("Excel configuration", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     vi.stubEnv("DATABASE_URL", "postgresql://user:pass@example.com:5432/threadwise");
     vi.stubEnv("WEBHOOK_URL", "https://threadwise.example.com");
+    vi.stubEnv("WEBHOOK_SECRET_TOKEN", "test_webhook_secret_0123456789_ABCDEFG");
     vi.stubEnv("MICROSOFT_CLIENT_ID", "client-id");
     vi.stubEnv("MICROSOFT_CLIENT_SECRET", "client-secret");
     vi.stubEnv("MICROSOFT_TOKEN_ENCRYPTION_KEY", "microsoft-test-secret");

@@ -1,6 +1,6 @@
 import Fastify from "fastify";
-import { timingSafeEqual } from "node:crypto";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import { createHash, timingSafeEqual } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { InputFile, type Bot } from "grammy";
 import { webhookCallback } from "grammy";
 import type { AiProvider } from "./ai/types";
@@ -68,6 +68,7 @@ export async function startServer(
   options: {
     port: number;
     webhookPath: string;
+    webhookSecret: string;
     adminStatusToken?: string;
     dashboardPublicKey?: string;
     telegramBotToken?: string;
@@ -713,17 +714,19 @@ export async function startServer(
     }
   });
 
-  server.post(options.webhookPath, webhookCallback(bot, "fastify"));
+  registerAuthenticatedTelegramWebhook(server, {
+    path: options.webhookPath,
+    secret: options.webhookSecret,
+    handler: webhookCallback(bot, "fastify")
+  });
   if (options.beaconBot && options.beaconWebhookPath) {
     if (options.beaconWebhookPath === options.webhookPath) {
       throw new Error("Beacon and Threadwise must use different webhook paths.");
     }
-    const beaconHandler = webhookCallback(options.beaconBot, "fastify");
-    server.post(options.beaconWebhookPath, async (request, reply) => {
-      if (!secureTokenEqual(headerToken(request.headers["x-telegram-bot-api-secret-token"]), options.beaconWebhookSecret)) {
-        return reply.code(404).send({ error: "not_found" });
-      }
-      return beaconHandler(request, reply);
+    registerAuthenticatedTelegramWebhook(server, {
+      path: options.beaconWebhookPath,
+      secret: options.beaconWebhookSecret,
+      handler: webhookCallback(options.beaconBot, "fastify")
     });
   }
 
@@ -743,9 +746,7 @@ export async function startServer(
 
   await server.listen({ port: options.port, host: "0.0.0.0" });
   logger.info("HTTP server started.", {
-    port: options.port,
-    webhookPath: options.webhookPath,
-    beaconWebhookPath: options.beaconBot ? options.beaconWebhookPath : undefined
+    port: options.port
   });
 
   return server;
@@ -768,6 +769,23 @@ function headerToken(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+export function registerAuthenticatedTelegramWebhook(
+  server: FastifyInstance,
+  options: {
+    path: string;
+    secret: string | undefined;
+    handler: (request: FastifyRequest, reply: FastifyReply) => unknown | Promise<unknown>;
+  }
+): void {
+  server.post(options.path, async (request, reply) => {
+    const suppliedSecret = headerToken(request.headers["x-telegram-bot-api-secret-token"]);
+    if (!secureTokenEqual(suppliedSecret, options.secret)) {
+      return reply.code(404).send({ error: "not_found" });
+    }
+    return options.handler(request, reply);
+  });
+}
+
 function isAdminAuthorized(authorization: string | undefined, adminHeader: string | string[] | undefined, expectedToken: string | undefined): boolean {
   if (!expectedToken) {
     return false;
@@ -782,9 +800,9 @@ function isAdminAuthorized(authorization: string | undefined, adminHeader: strin
 
 function secureTokenEqual(actualToken: string | undefined, expectedToken: string | undefined): boolean {
   if (!actualToken || !expectedToken) return false;
-  const actual = Buffer.from(actualToken);
-  const expected = Buffer.from(expectedToken);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  const actual = createHash("sha256").update(actualToken).digest();
+  const expected = createHash("sha256").update(expectedToken).digest();
+  return timingSafeEqual(actual, expected);
 }
 
 function isSignedCodexTaskSyncAuthorized(

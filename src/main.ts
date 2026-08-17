@@ -71,12 +71,19 @@ async function main() {
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
   if (env.WEBHOOK_URL) {
+    const webhookSecret = env.WEBHOOK_SECRET_TOKEN;
+    if (!webhookSecret) {
+      throw new Error("Authenticated webhook configuration is incomplete.");
+    }
     await bot.init();
     await beaconBot?.init();
     await registerThreadwiseCommandMenus(bot);
     if (beaconBot && beacon) await registerBeaconCommandMenus(beaconBot, beacon);
     const webhookUrl = `${env.WEBHOOK_URL.replace(/\/$/, "")}${env.WEBHOOK_SECRET_PATH}`;
-    await bot.api.setWebhook(webhookUrl, { allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"] });
+    await bot.api.setWebhook(webhookUrl, {
+      allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"],
+      secret_token: webhookSecret
+    });
     const beaconWebhookUrl = beaconBot && beacon
       ? `${env.WEBHOOK_URL.replace(/\/$/, "")}${beacon.webhookPath}`
       : undefined;
@@ -90,6 +97,7 @@ async function main() {
     server = await startServer(bot, ai, {
       port: env.PORT,
       webhookPath: env.WEBHOOK_SECRET_PATH,
+      webhookSecret,
       adminStatusToken: env.ADMIN_STATUS_TOKEN,
       // Keep production trust anchored to the reviewed public key in source.
       // A stale multiline Render value must never shadow it.
@@ -100,7 +108,6 @@ async function main() {
       beaconWebhookSecret
     });
     logger.info("Threadwise is running with Telegram webhooks.", {
-      webhookUrl,
       botUsername: bot.botInfo.username,
       allowedUpdates: webhookInfo.allowed_updates,
       pendingUpdates: webhookInfo.pending_update_count,
@@ -109,7 +116,6 @@ async function main() {
     if (beaconBot) {
       const beaconWebhookInfo = await beaconBot.api.getWebhookInfo();
       logger.info("Beacon is running with Telegram webhooks.", {
-        webhookPath: beacon?.webhookPath,
         botUsername: beaconBot.botInfo.username,
         pendingUpdates: beaconWebhookInfo.pending_update_count,
         lastWebhookError: beaconWebhookInfo.last_error_message

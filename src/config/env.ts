@@ -39,7 +39,8 @@ const envSchema = z.object({
   ADMIN_STATUS_TOKEN: optional(z.string()),
   PORT: z.coerce.number().int().positive().default(3000),
   WEBHOOK_URL: optional(z.string().url()),
-  WEBHOOK_SECRET_PATH: z.string().startsWith("/").default("/telegram/webhook"),
+  WEBHOOK_SECRET_PATH: z.string().startsWith("/").default("/telegram/threadwise-v2"),
+  WEBHOOK_SECRET_TOKEN: optional(z.string().min(32).max(256).regex(/^[A-Za-z0-9_-]+$/)),
   BEACON_BOT_TOKEN: optional(z.string()),
   BEACON_OWNER_TELEGRAM_ID: optional(z.string().regex(/^\d+$/)),
   BEACON_TEST_CHAT_ID: optional(z.string().regex(/^-\d+$/)),
@@ -83,6 +84,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["CONTENT_ENCRYPTION_KEY"],
       message: "CONTENT_ENCRYPTION_KEY is required when CONTENT_ENCRYPTION_MODE=write.",
+    });
+  }
+  if (value.WEBHOOK_URL && !value.WEBHOOK_SECRET_TOKEN) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["WEBHOOK_SECRET_TOKEN"],
+      message: "WEBHOOK_SECRET_TOKEN is required when WEBHOOK_URL is configured.",
     });
   }
 });

@@ -26,6 +26,7 @@ describe("Google Calendar connection health", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
     vi.stubEnv("DATABASE_URL", "postgresql://user:pass@example.com:5432/threadwise");
     vi.stubEnv("WEBHOOK_URL", "https://threadwise.example.com");
+    vi.stubEnv("WEBHOOK_SECRET_TOKEN", "test_webhook_secret_0123456789_ABCDEFG");
     vi.stubEnv("GOOGLE_CLIENT_ID", "client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "client-secret");
     vi.stubEnv("GOOGLE_TOKEN_ENCRYPTION_KEY", "calendar-test-secret-key");
