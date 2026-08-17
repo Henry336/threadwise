@@ -130,14 +130,22 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-17 (Codex):** Completed security remediation Phase 2 as a single guarded,
+  aggregate-only production inspection in a verified read-only PostgreSQL transaction. It found
+  190 encrypted versus 926 plaintext protected field values, no malformed envelopes, no anomalies
+  across 26 cross-workspace relationships, two unretained failed Study-analysis payloads, and
+  confirmed blind-token accumulation. No production state changed. The redacted report and
+  restart-safe Phase 3 design are in `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`; Phase 3 remains
+  unauthorized and is blocked on verified backup/PITR/restore readiness.
+
 - **2026-08-17 (Codex):** Completed security remediation Phase 1. Backend runtime commit `5630f1e`
   authenticates and rotates the primary Telegram webhook with a dedicated Render-held secret,
   Telegram `secret_token`, pre-handler timing-safe validation, opaque rejection, and no route/URL
   logging. Production health reports the exact commit; Telegram registration is healthy; retired,
   missing-secret, and forged-secret probes return 404. TypeScript/build, zero-production-finding
   audit, 19 focused tests, and the sequential full suite (866 passed, 6 skipped) pass. Paired
-  dashboard runtime `5bf0ab4` removes all four shipped high dependency findings. Phase 2 remains
-  unauthorized; see `PROJECT_CONTEXT.md` and `docs/SECURITY_REMEDIATION_ROADMAP.md`.
+  dashboard runtime `5bf0ab4` removes all four shipped high dependency findings. Phase 2 was later
+  completed read-only; see `PROJECT_CONTEXT.md` and `docs/SECURITY_REMEDIATION_ROADMAP.md`.
 
 - **2026-08-17 (Codex):** Recorded the planning-only security remediation sequence in
   `docs/SECURITY_REMEDIATION_ROADMAP.md` and linked it from `PROJECT_CONTEXT.md`. The roadmap

@@ -12,7 +12,7 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phase 1 complete; Phase 2 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3 and later are not authorized**.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -39,8 +39,8 @@ phase is validated or rolled back.
   passes plus 6 intentional skips, and zero-production-finding audit; dashboard 35 focused tests,
   all 91 tests, TypeScript, ESLint, clean production build, zero-production-finding audit, Vercel
   exact-commit success, and canonical route HTTP 200.
-- Rollback was not needed. Phase 2 requires a new explicit approval and must begin with its own
-  scope/invariants/validation/rollback checkpoint.
+- Rollback was not needed. Phase 2 was subsequently authorized and completed read-only; its result
+  is recorded below and in `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`.
 
 ## Established findings that drive the plan
 
@@ -64,10 +64,9 @@ phase is validated or rolled back.
    access are currently bound to one configured owner, one chat, and one Canvas
    token. The checks are appropriately fail-closed and must not be relaxed to
    simulate multi-tenancy.
-6. **Medium — incomplete encryption posture.** Content encryption defaults to
-   off unless the deployed runtime explicitly enables write mode. Blind search
-   tokens are appended on updates, so removed terms can remain represented and
-   arrays can grow.
+6. **Medium — incomplete encryption posture.** Phase 2 confirmed production write mode is enabled,
+   but historical content remains mostly plaintext. Blind search tokens are appended on updates,
+   so removed terms can remain represented and arrays can grow.
 7. **Medium — non-atomic note side effects.** A note row can be committed before
    its revision, backlinks, and audit record. A later failure may return an error
    after the primary save already succeeded.
@@ -152,6 +151,8 @@ if the patch introduces a real framework incompatibility.
 
 ## Phase 2 — read-only production privacy and data inspection
 
+Status: **completed read-only on 2026-08-17; no production writes occurred**.
+
 Do this only after Phase 1 containment. The inspection is deliberately narrow and
 must not read or export private note text merely for convenience.
 
@@ -170,6 +171,12 @@ Inspect and record only safe aggregates:
 
 Deliverable: a redacted inspection report, remediation/backfill design, rollback
 plan, and explicit user approval gate before any write.
+
+Outcome: the guarded inspection verified a read-only transaction, found 190 encrypted versus
+926 plaintext protected field values, confirmed zero malformed envelopes and zero anomalies across
+26 cross-workspace relationship checks, measured unretained AI duplicates, and confirmed blind
+search-token accumulation. Backup/PITR/restore readiness remains a control-plane prerequisite.
+See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 remains unauthorized.
 
 Recommended model: **GPT-5.6 Terra, medium reasoning** for bounded evidence
 collection; **GPT-5.6 Sol, high reasoning** for migration and threat analysis.

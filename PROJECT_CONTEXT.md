@@ -7,6 +7,45 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 2 privacy inspection completed (2026-08-17 SGT)
+
+- The user explicitly authorized Phase 2 after Phase 1 containment passed production validation.
+  Scope is read-only production privacy/data inspection only. Phase 3 writes, migrations,
+  encryption backfills, retention deletion, credential rotation, active penetration testing, and
+  every later remediation phase remain unauthorized.
+- Production-query invariants: use the existing controlled database connection only in process;
+  run aggregate/select-only queries; never select, print, export, or persist private note/OCR/image
+  text, prompts, evidence, results, tokens, credentials, ciphertext, blind-token values, user ids,
+  Telegram ids, workspace ids, or row-level records. Report counts, bounded size/age buckets,
+  minima/maxima/averages/percentiles, boolean configuration presence, and anomaly counts only.
+- Inspection targets are exactly the roadmap list: encryption presence/effective mode and protected
+  model coverage; AI job/suggestion volume, age, aggregate bytes, and retention state; blind-search
+  token distributions; cross-workspace relationship anomaly counts; Study resource/OCR/snapshot/
+  revision size distributions; and backup/PITR/restore-test readiness. Unknown or inaccessible
+  control-plane facts must be labelled unknown rather than inferred from database contents.
+- Deliverables: a tracked redacted inspection report plus Phase 3 remediation/backfill design,
+  rollback requirements, and an explicit approval gate. Expected repository changes are continuity
+  documentation, the Phase 2 report, and—only if it materially improves repeatability—a narrowly
+  guarded aggregate-only inspection utility. No dashboard product/runtime change is expected.
+- Validation: inspect every query projection for aggregate-only output; verify production session
+  read-only mode where supported; confirm report contains no secret/private identifiers or content;
+  run relevant static/test gates for any utility; diff/secret scan; commit and push documentation.
+  Rollback is deletion/reversion of local report/utility changes because production data and
+  configuration must remain untouched. Recommended execution remains Terra/medium collection with
+  bounded high-attention threat/migration analysis; Ultra/max is not justified.
+- Starting backend head was `17866aea74831a1bd29353ae13294c8082560af3`, clean on `main` and
+  matched to `origin/main`. A single guarded production inspection completed inside a verified
+  read-only PostgreSQL transaction. It found effective write-mode encryption with a valid key,
+  190 encrypted versus 926 plaintext protected field values, zero malformed envelopes, zero
+  anomalies across 26 cross-workspace relationships, two failed/unretained Study analysis jobs,
+  and confirmed blind-token accumulation (including one Study resource with 1,960 duplicate token
+  entries). No production state or configuration changed.
+- The redacted evidence, measured storage, backup/PITR unknowns, restart-safe backfill design,
+  retention proposal, rollback rules, and explicit Phase 3 gate are in
+  `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 and all production writes remain
+  unauthorized. First prerequisite if Phase 3 is later approved: verify a current provider backup,
+  perform an isolated restore test, and confirm independent key recovery before any apply/delete.
+
 ## Active checkpoint — Phase 1 security containment authorized (2026-08-17 SGT)
 
 - The user explicitly authorized Phase 1 implementation and publication. Scope is limited to

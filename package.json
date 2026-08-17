@@ -15,6 +15,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "node scripts/migrate-deploy.mjs",
     "db:encrypt-content": "tsx scripts/migrate-content-encryption.ts",
+    "db:inspect-privacy": "tsx scripts/inspect-privacy-aggregates.ts",
     "db:dev": "prisma migrate dev"
   },
   "keywords": [
