@@ -49,6 +49,10 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   non-production `codex/phase3-privacy-remediation` branch; production merge/apply is deliberately
   withheld. Gate 3A remains blocked on verified backup, isolated restore, and independent key
   recovery.
+- Publication checkpoint: commit `0804596` was pushed to
+  `origin/codex/phase3-privacy-remediation`. It has not been merged into `main`, so the additive
+  migration has not entered the production auto-deploy path. The next authorized action is Gate 3A
+  evidence collection and review; do not run either apply utility or merge this branch before it.
 
 ## Active checkpoint — Phase 2 privacy inspection completed (2026-08-17 SGT)
 
