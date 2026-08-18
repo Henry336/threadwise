@@ -1,17 +1,17 @@
 # Phase 6 active security assurance
 
 Date: 2026-08-17 SGT  
-Status: **release remediation, local/remote validation, and Gate 3A complete; production activation pending**
+Status: **release remediation, validation, Gate 3A, and production activation complete**
 
 This report contains no credentials, private payloads, production records, or provider
 responses. Phase 6 used synthetic identities, chats, workspaces, tokens, bodies, provider
-responses, and mocked persistence. Production was not probed, mutated, deployed, or used as a
-staging substitute.
+responses, and mocked persistence. The assurance run did not use production as a staging substitute;
+the separately authorized release activation and read-only verification are recorded below.
 
 ## 2026-08-18 release-remediation checkpoint
 
-The owner authorized release of the complete guarded stack. F-01 through F-03 have now been
-implemented on the release branch but are not yet merged or deployed:
+The owner authorized release of the complete guarded stack. F-01 through F-03 are now implemented,
+merged, and active in production:
 
 - F-01 validates every Canvas material/pagination request against the exact configured origin and
   API path before attaching a bearer token, rejects URL credentials, and disables automatic
@@ -28,12 +28,17 @@ resolved with the compatible 8.0.0 package override; both production-only and co
 audits now report zero findings. Backend PR #17 passes its hosted isolated PostgreSQL 17 migration
 and assurance job. Dashboard PR #2 passes hosted validate/browser jobs and its Vercel preview after
 unit and Playwright discovery were explicitly separated. Gate 3A recoverability evidence, merge,
-production deployment/verification, and post-fix Canvas-token rotation remain pending. Gate 3A
-subsequently passed using a fresh encrypted logical backup: all 95 public tables and 21,563 rows
-matched an isolated restore, all release migrations applied cleanly, temporary plaintext/restore
+production deployment/verification, and post-fix Canvas-token rotation remained pending at that
+checkpoint. Gate 3A subsequently passed using a fresh encrypted logical backup: all 95 public
+tables and 21,563 rows matched an isolated restore, all release migrations applied cleanly,
+temporary plaintext/restore
 state was removed, and the owner confirmed independent recovery of the exact production content
 key. See `docs/GATE3A_RECOVERY_EVIDENCE.md` for non-secret evidence. Historical Phase 6 evidence
-below is preserved to show what originally caused each finding.
+below is preserved to show what originally caused each finding. Production activation subsequently
+completed: backend merge `0699835d8ffe` is healthy on Render, the database reports all 60 migrations
+and the three new security tables, dashboard merge `b00a3d15660a` completed on Vercel, and the
+canonical demo route returned HTTP 200. Historical Canvas-token rotation remains the only immediate
+operator follow-up from this release.
 
 ## Environment and safety boundary
 
@@ -44,14 +49,13 @@ below is preserved to show what originally caused each finding.
   dedicated non-production database/credential set are not available on this machine.
 - The repository CI now defines an isolated PostgreSQL 17 service with synthetic credentials,
   applies every checked-in migration, and runs the bounded adversarial suite. That workflow must
-  pass on GitHub before the branch can satisfy the ephemeral-database gate.
+  pass on GitHub before the branch can satisfy the ephemeral-database gate; it passed before merge.
 - A network-reachable hosted staging deployment was **not** created. Doing so without a proven
   isolated database and synthetic secrets could accidentally cross the production boundary.
-- Both guarded branches are pushed. Manual workflow dispatch is available, but the local `gh`
-  session is expired, so the remote ephemeral PostgreSQL job has not been dispatched or claimed
-  as passing. No pull request was opened merely to trigger it.
-- CSP remains report-only under the separate Phase 5 rollout gate. Phase 3 production activation
-  remains blocked at Gate 3A.
+- The release branches were reviewed through backend PR #17 and dashboard PR #2. GitHub's remote
+  PostgreSQL migration/assurance job and the dashboard validate/browser jobs passed before merge.
+- CSP remains report-only under the separate Phase 5 rollout gate. Gate 3A passed and the additive
+  Phase 3/4 schema/runtime release is active; destructive backfill/retention remains separately gated.
 
 ## Assurance matrix
 
@@ -61,14 +65,14 @@ below is preserved to show what originally caused each finding.
 | Malformed and oversized Telegram webhook bodies | Pass | JSON parse failure and Fastify's body limit reject before the bot handler. |
 | Telegram duplicate delivery/replay | Pass at update layer | `ProcessedTelegramUpdate` claims use a unique update id and `skipDuplicates`; duplicate work does not proceed. |
 | Dashboard JWT issuer, audience, expiry, subject, lifetime, signature | Pass | Synthetic Ed25519 tokens fail closed on every tested invalid claim. |
-| Dashboard JWT JTI replay | **Remediated locally; release pending** | Mutation JTIs are atomically consumed in shared PostgreSQL storage using hashed fingerprints. |
+| Dashboard JWT JTI replay | **Remediated and active** | Mutation JTIs are atomically consumed in shared PostgreSQL storage using hashed fingerprints. |
 | Personal/group/Study/Beacon authorization and membership changes | Pass for covered boundaries | Signed identity is server-derived; personal records are owner-scoped; Telegram group authority is freshly checked before privileged mutations; Study/Beacon checks fail closed. |
 | BFF workspace, route/method allowlist, origin/CSRF, JSON/body/response bounds | Pass | Extracted pure security helpers and adversarial allowlist tests cover wrong/missing origins, traversal/unsupported paths, malformed JSON, and size boundaries. |
 | Markdown links/images and raw HTML | Pass | Raw HTML is skipped; executable/embedded link schemes are rejected; remote images require explicit consent; embedded/insecure images are blocked. |
 | Mermaid XSS/resource exhaustion | Pass for local bounded renderer | Configuration directives and character/line/statement exhaustion are rejected; render work is serialized, timed out, strict-security rendered, and SVG-sanitized. |
-| Canvas/NUSMods/transit/OAuth/media SSRF review | **Remediated locally; release pending** | Canvas credential-bearing requests now fail closed outside the configured API boundary and never auto-follow redirects. |
+| Canvas/NUSMods/transit/OAuth/media SSRF review | **Remediated and active** | Canvas credential-bearing requests now fail closed outside the configured API boundary and never auto-follow redirects. |
 | Queue leases, duplicate delivery, concurrency, interrupted recovery | Pass for covered synthetic cases | File courier, voice transcription, task imports, Study analysis, Canvas sync recovery, and note/capture exact-once tests pass. |
-| Application-level rate limiting/resource abuse | **Remediated locally; release pending** | Shared hashed-principal route-class buckets now cover dashboard, Telegram webhook, and remaining HTTP ingress. |
+| Application-level rate limiting/resource abuse | **Remediated and active** | Shared hashed-principal route-class buckets now cover dashboard, Telegram webhook, and remaining HTTP ingress. |
 | Secret scan, dependency audit, type/static/build checks | Pass locally | Both tracked-file scans pass; complete and production npm audits report zero vulnerabilities; TypeScript, lint where configured, builds, and full tests pass. |
 | Browser security/responsive smoke | Pass | Five Chromium desktop/mobile tests pass; one desktop-only palette check is intentionally skipped on mobile. |
 | Hosted synthetic staging and safe production headers | Blocked/not run | No isolated hosted database/secret set or deployment connector is available; production verification requires separate approval. |
@@ -155,12 +159,11 @@ have independent conservative budgets; raw principal identifiers and raw paths a
 
 ## Exact next safe action
 
-1. Run the complete local gates and the GitHub-hosted ephemeral PostgreSQL/migration workflow.
-2. Complete Gate 3A backup/PITR, isolated-restore, and independent key-recovery evidence.
-3. Merge and deploy the authorized backend/dashboard release only after both gates pass.
-4. Rotate the Canvas access token after the fixed backend is live; update Render without exposing
+1. Rotate the Canvas access token now that the fixed backend is live; update Render without exposing
    the token, then confirm Canvas sync with the least-privilege replacement.
-5. Keep CSP report-only until its separate clean preview evidence window supports enforcement.
+2. Keep CSP report-only until its separate clean preview evidence window supports enforcement.
+3. Do not run destructive privacy backfill or retention until its runbook acknowledgements and
+   rollback controls are independently approved.
 
 Recommended model for interpreting and remediating these security boundaries: GPT-5.6 Sol high.
 Ultra is not required.

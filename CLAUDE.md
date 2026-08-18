@@ -6,6 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-18 (Codex, deployed):** Completed the authorized guarded-stack release. Backend PR #17
+  merged as `0699835d8ffe2132e8ce29dd03496d8fada71538`; Render `/health` reports HTTP 200 at
+  `0699835d8ffe`. Gate 3A used a fresh encrypted logical backup, an exact 95-table/21,563-row
+  isolated restore comparison, all 60 migrations, and owner-attested independent content-key
+  recovery. Production now reports the privacy, mutation-replay, and shared-rate-limit tables.
+  Dashboard PR #2 merged as `b00a3d15660a5714852a7a4096387f6995127845`; Vercel completed the
+  deployment and `/dashboard?demo=1` returned HTTP 200. No destructive privacy backfill or retention
+  ran. Rotate the historical Canvas access token next; preserve the ignored Gate 3A backup and
+  passphrase-source file until the rollback-retention decision is explicit.
 - **2026-08-17 (Codex):** Researched Coursemology assignment/deadline integration on guarded branch
   `codex/study-image-sidebar-coursemology`; canonical evidence and the safety gate are in
   `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md`. The authenticated lesson-plan JSON contains the

@@ -49,3 +49,19 @@ Gate 3A now permits merging and deploying the additive schema/runtime release. I
 authorize destructive retention, plaintext removal, or an unreviewed backfill. Those operations
 remain governed by the Phase 3 and Phase 4 runbooks and their explicit apply acknowledgements.
 
+## Production activation evidence
+
+- Backend PR #17 merged as `0699835d8ffe2132e8ce29dd03496d8fada71538`.
+- Render `/health` returned HTTP 200 with commit `0699835d8ffe` after cutover and again after the
+  paired dashboard release.
+- A read-only production check reported 60 completed Prisma migrations. `PrivacyMaintenanceRun`,
+  `DashboardRequestReplay`, and `SharedRateLimitBucket` all exist.
+- Dashboard PR #2 merged as `b00a3d15660a5714852a7a4096387f6995127845`; Vercel reported the
+  deployment complete and the canonical `/dashboard?demo=1` route returned HTTP 200.
+- No destructive privacy backfill, retention, plaintext removal, token rotation, or unrelated
+  production cleanup was performed during activation.
+
+The encrypted Gate 3A archive and its ignored local passphrase-source file remain the immediate
+database rollback evidence. The archive's published SHA-256 detects accidental corruption; it is
+not a separate keyed authentication tag. The owner-confirmed independent production content-key
+recovery remains required for any ciphertext restore.

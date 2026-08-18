@@ -7,12 +7,12 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — full guarded-stack production release authorized (2026-08-18 SGT)
+## Active checkpoint — full guarded-stack production release completed (2026-08-18 SGT)
 
 - Authorization: the owner explicitly authorized releasing the complete currently guarded backend
   and dashboard stack to production, including merging and deployment after required safety gates.
-- Candidate releases: backend PR #17 contains product/security candidate `d0d76f9` plus only this
-  durable release-state checkpoint; dashboard PR #2 is at `f181ad8`. Both branches are pushed.
+- Released revisions: backend PR #17 merged as `0699835d8ffe2132e8ce29dd03496d8fada71538`;
+  dashboard PR #2 merged as `b00a3d15660a5714852a7a4096387f6995127845`.
 - Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
   validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
   until Gate 3A proves a current backup/PITR reference, an isolated restore, and independent recovery
@@ -21,11 +21,10 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   ephemeral PostgreSQL migration validation; prove Gate 3A; merge both repositories; allow/trigger
   Render and Vercel production releases; verify health, release commits, migrations, and key product
   flows; then update this ledger and both tracked contributor logs.
-- Rollback: no production mutation has occurred in this checkpoint yet. Until merge, rollback is the
-  existing guarded branches. After deployment, use the prior known-good app releases; database
-  rollback must follow the Phase 3/4 runbooks and the verified Gate 3A backup rather than destructive
-  ad-hoc SQL.
-- Current status: release preflight is complete and F-01/F-02/F-03 are locally remediated. Canvas pagination
+- Rollback: the additive schema/runtime release is active. Application rollback uses the prior
+  known-good Render/Vercel releases; database recovery must follow the Phase 3/4 runbooks and the
+  verified Gate 3A backup rather than destructive ad-hoc SQL.
+- Current status: release preflight is complete and F-01/F-02/F-03 are active in production. Canvas pagination
   and material URLs are now constrained to the exact configured origin/API path before credentials
   are attached, URL credentials are rejected, and automatic redirects are disabled. The hostile
   URL/redirect regressions and existing Canvas utilities pass. Dashboard mutation JWT identifiers
@@ -52,8 +51,14 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   encrypted archive is retained under the ignored `backups/` directory by SHA-256 reference; all
   plaintext/decrypted dumps and temporary local databases were removed. The owner confirmed
   independent recovery of the exact production content-encryption key without exposing it.
-  Canonical non-secret evidence is in `docs/GATE3A_RECOVERY_EVIDENCE.md`. Exact next action: merge
-  PRs #17/#2, deploy Render/Vercel, verify production, then rotate the Canvas access token.
+  Canonical non-secret evidence is in `docs/GATE3A_RECOVERY_EVIDENCE.md`. The backend and dashboard
+  PRs were then merged in that order. Render reports HTTP 200 at backend commit `0699835d8ffe`;
+  the production database reports 60 completed migrations and the new privacy, replay-protection,
+  and shared-rate-limit tables. Vercel completed deployment of dashboard merge `b00a3d15660a`, and
+  the canonical demo dashboard returned HTTP 200. Exact next operator action: rotate the historical
+  Canvas access token because the pre-release F-01 behavior may previously have exposed it to an
+  untrusted pagination/material URL. Do not run destructive privacy backfill or retention work as
+  part of that rotation.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
