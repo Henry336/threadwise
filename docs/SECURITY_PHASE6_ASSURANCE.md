@@ -22,10 +22,13 @@ implemented on the release branch but are not yet merged or deployed:
   read/write/expensive/stream, authenticated Telegram-actor, and remaining server-ingress budgets.
   Bounded `429` responses include `Retry-After`.
 
-Focused regressions and local type/schema gates pass. The complete suites, remote ephemeral
-PostgreSQL workflow, Gate 3A recoverability evidence, merge, deployment, production verification,
-and post-fix Canvas-token rotation remain pending. Historical Phase 6 evidence below is preserved
-to show what originally caused each finding.
+Complete local regressions, schemas, builds, secret scans, browser checks, and security assurance
+pass. A newly published high-severity `deepmerge-ts` advisory discovered by the release audit is
+resolved with the compatible 8.0.0 package override; both production-only and complete dependency
+audits now report zero findings. The remote ephemeral PostgreSQL workflow, Gate 3A recoverability
+evidence, merge, deployment, production verification, and post-fix Canvas-token rotation remain
+pending. Historical Phase 6 evidence below is preserved to show what originally caused each
+finding.
 
 ## Environment and safety boundary
 

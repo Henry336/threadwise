@@ -11,7 +11,7 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 - Authorization: the owner explicitly authorized releasing the complete currently guarded backend
   and dashboard stack to production, including merging and deployment after required safety gates.
-- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `0494915`; dashboard matching
+- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `59d55df`; dashboard matching
   branch at `29748a4`. Both are pushed, clean, and respectively 14 and 8 commits ahead of `main`.
 - Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
   validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
@@ -35,10 +35,14 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   principals: authenticated dashboard routes have read/write/expensive/stream budgets, Telegram
   webhooks are limited by verified actor only after secret validation, and remaining
   admin/worker/OAuth HTTP ingress has independent IP/route-class budgets. Rate-limit responses are
-  bounded `429` replies with `Retry-After`. Focused F-02/F-03 auth/store/route/webhook suites,
-  Prisma format/validate/generate, and backend typecheck pass. Exact next action is the complete
-  local and GitHub-hosted release gates, followed by Gate 3A recoverability proof before
-  merge/deploy.
+  bounded `429` replies with `Retry-After`. The live npm advisory gate then identified
+  `GHSA-ggr8-5vv4-36mx` in Prisma's transitive `deepmerge-ts` 7.x; a narrow 8.0.0 override is
+  compatible with the current Prisma 6.19.3 config surface and now yields zero production and
+  complete audit findings. Complete backend tests (907 passed, 6 skipped), Prisma
+  validate/generate, typecheck, build, secret scan, and 140 security-assurance tests pass.
+  Complete dashboard tests (122), typecheck, lint, production build, secret scan, 52 security
+  tests, and Playwright (5 passed, 1 intentional mobile skip) pass. Exact next action is the
+  GitHub-hosted release gates, followed by Gate 3A recoverability proof before merge/deploy.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
