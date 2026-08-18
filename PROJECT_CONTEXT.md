@@ -7,6 +7,24 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
+
+- Status: implementation and validation are complete on the existing pushed
+  `codex/study-image-sidebar-coursemology` branches (backend `0610007`, dashboard `7a768a7`).
+  This is a narrow visual refinement; no merge, deployment, production mutation, provider work,
+  database operation, or credential change is authorized.
+- Objective: replace the browser-default desktop scrollbar presentation in the Study sidebar
+  navigation and horizontal timetable with restrained Threadwise-styled tracks/thumbs that remain
+  legible in light and dark themes. Preserve native scrolling, keyboard behavior, overflow sizing,
+  mobile's hidden drawer scrollbar, and every unrelated overflow surface.
+- Validation: focused Study regressions pass 11 tests; the full suite passes 122 tests; typecheck,
+  lint, production build, tracked-secret scan, design JSON parsing, and Playwright pass (5 passed,
+  one intentional mobile skip). The required Impeccable detector found only two unrelated,
+  pre-existing side-border warnings at stylesheet lines 575 and 822; this scoped change did not
+  alter them.
+- Exact next action: commit and push the two guarded branches, then wait for owner live review. Do
+  not merge or deploy without a new explicit instruction.
+
 ## Active checkpoint — Study image inspection, desktop sidebar, and Coursemology research (2026-08-17 SGT)
 
 - Status: implementation, local validation, and push are complete on matching
