@@ -11,8 +11,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 - Authorization: the owner explicitly authorized releasing the complete currently guarded backend
   and dashboard stack to production, including merging and deployment after required safety gates.
-- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `d0d76f9`; dashboard matching
-  branch at `f181ad8`. Both are pushed and have release PRs: backend #17 and dashboard #2.
+- Candidate releases: backend PR #17 contains product/security candidate `d0d76f9` plus only this
+  durable release-state checkpoint; dashboard PR #2 is at `f181ad8`. Both branches are pushed.
 - Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
   validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
   until Gate 3A proves a current backup/PITR reference, an isolated restore, and independent recovery
