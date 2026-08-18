@@ -6,6 +6,7 @@ import { registerDashboardRoute } from "./route";
 import type { DashboardSnapshot } from "./snapshot";
 import type { AiProvider } from "../ai/types";
 import { DashboardRequestReplayError } from "../security/dashboardRequestReplay";
+import { SharedRateLimitExceededError } from "../security/sharedRateLimit";
 
 vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -14,6 +15,13 @@ vi.mock("../logger", () => ({
 vi.mock("../security/dashboardRequestReplay", () => ({
   DashboardRequestReplayError: class DashboardRequestReplayError extends Error {},
   consumeDashboardMutationToken: vi.fn(async () => undefined),
+}));
+
+vi.mock("../security/sharedRateLimit", () => ({
+  SharedRateLimitExceededError: class SharedRateLimitExceededError extends Error {
+    constructor(readonly retryAfterSeconds: number) { super("Too many requests."); }
+  },
+  limitDashboardRequest: vi.fn(async () => undefined),
 }));
 
 describe("dashboard API routes", () => {
@@ -220,6 +228,27 @@ describe("dashboard API routes", () => {
     expect(replay.statusCode).toBe(409);
     expect(replay.json()).toMatchObject({ error: "request_replayed" });
     expect(createTask).toHaveBeenCalledTimes(1);
+    await server.close();
+  });
+
+  it("returns a bounded retry response before running rate-limited work", async () => {
+    const server = Fastify();
+    const loadSnapshot = vi.fn(async () => snapshot);
+    const requestRateLimiter = vi.fn(async () => {
+      throw new SharedRateLimitExceededError(17);
+    });
+    registerDashboardRoute(server, { publicKey: publicKeyPem, loadSnapshot, requestRateLimiter });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard",
+      headers: { authorization: `Bearer ${await validToken()}` },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["retry-after"]).toBe("17");
+    expect(response.json()).toMatchObject({ error: "rate_limited" });
+    expect(loadSnapshot).not.toHaveBeenCalled();
     await server.close();
   });
 

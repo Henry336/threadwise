@@ -2630,3 +2630,17 @@ model DashboardRequestReplay {
 
   @@index([expiresAt])
 }
+
+model SharedRateLimitBucket {
+  bucketKey            String   @id
+  principalFingerprint String
+  routeClass           String
+  windowStartedAt      DateTime
+  requestCount         Int      @default(1)
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@index([principalFingerprint, routeClass, windowStartedAt])
+}

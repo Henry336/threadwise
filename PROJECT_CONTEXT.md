@@ -25,15 +25,20 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   existing guarded branches. After deployment, use the prior known-good app releases; database
   rollback must follow the Phase 3/4 runbooks and the verified Gate 3A backup rather than destructive
   ad-hoc SQL.
-- Current status: release preflight is complete and F-01/F-02 are locally remediated. Canvas pagination
+- Current status: release preflight is complete and F-01/F-02/F-03 are locally remediated. Canvas pagination
   and material URLs are now constrained to the exact configured origin/API path before credentials
   are attached, URL credentials are rejected, and automatic redirects are disabled. The hostile
   URL/redirect regressions and existing Canvas utilities pass. Dashboard mutation JWT identifiers
   are now atomically consumed in a shared PostgreSQL table using hashed token/principal fingerprints;
   safe reads remain retryable, replayed mutations fail before their side effect, and expired rows are
-  sampled for indexed cleanup. The focused F-02 auth/store/route suite passes 24 tests, Prisma
-  format/validate/generate and backend typecheck pass. Exact next action is F-03 shared
-  principal/route rate limiting, then the complete local/remote release gates.
+  sampled for indexed cleanup. F-03 now uses shared PostgreSQL fixed-window buckets with hashed
+  principals: authenticated dashboard routes have read/write/expensive/stream budgets, Telegram
+  webhooks are limited by verified actor only after secret validation, and remaining
+  admin/worker/OAuth HTTP ingress has independent IP/route-class budgets. Rate-limit responses are
+  bounded `429` replies with `Retry-After`. Focused F-02/F-03 auth/store/route/webhook suites,
+  Prisma format/validate/generate, and backend typecheck pass. Exact next action is the complete
+  local and GitHub-hosted release gates, followed by Gate 3A recoverability proof before
+  merge/deploy.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 

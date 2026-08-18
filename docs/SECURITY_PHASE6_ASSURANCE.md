@@ -1,12 +1,31 @@
 # Phase 6 active security assurance
 
 Date: 2026-08-17 SGT  
-Status: **findings review — assurance infrastructure and local synthetic checks complete; remediation and hosted staging not started**
+Status: **release remediation implemented locally; complete/remote validation and production activation pending**
 
 This report contains no credentials, private payloads, production records, or provider
 responses. Phase 6 used synthetic identities, chats, workspaces, tokens, bodies, provider
 responses, and mocked persistence. Production was not probed, mutated, deployed, or used as a
 staging substitute.
+
+## 2026-08-18 release-remediation checkpoint
+
+The owner authorized release of the complete guarded stack. F-01 through F-03 have now been
+implemented on the release branch but are not yet merged or deployed:
+
+- F-01 validates every Canvas material/pagination request against the exact configured origin and
+  API path before attaching a bearer token, rejects URL credentials, and disables automatic
+  redirects.
+- F-02 consumes mutation JWT identifiers atomically in PostgreSQL using only hashed token/principal
+  fingerprints. Safe reads remain retryable; a replayed mutation is rejected before its effect.
+- F-03 uses shared PostgreSQL fixed-window buckets with hashed principals and separate dashboard
+  read/write/expensive/stream, authenticated Telegram-actor, and remaining server-ingress budgets.
+  Bounded `429` responses include `Retry-After`.
+
+Focused regressions and local type/schema gates pass. The complete suites, remote ephemeral
+PostgreSQL workflow, Gate 3A recoverability evidence, merge, deployment, production verification,
+and post-fix Canvas-token rotation remain pending. Historical Phase 6 evidence below is preserved
+to show what originally caused each finding.
 
 ## Environment and safety boundary
 
@@ -34,19 +53,19 @@ staging substitute.
 | Malformed and oversized Telegram webhook bodies | Pass | JSON parse failure and Fastify's body limit reject before the bot handler. |
 | Telegram duplicate delivery/replay | Pass at update layer | `ProcessedTelegramUpdate` claims use a unique update id and `skipDuplicates`; duplicate work does not proceed. |
 | Dashboard JWT issuer, audience, expiry, subject, lifetime, signature | Pass | Synthetic Ed25519 tokens fail closed on every tested invalid claim. |
-| Dashboard JWT JTI replay | **Finding F-02** | JTI shape is checked, but successful JTIs are not consumed. |
+| Dashboard JWT JTI replay | **Remediated locally; release pending** | Mutation JTIs are atomically consumed in shared PostgreSQL storage using hashed fingerprints. |
 | Personal/group/Study/Beacon authorization and membership changes | Pass for covered boundaries | Signed identity is server-derived; personal records are owner-scoped; Telegram group authority is freshly checked before privileged mutations; Study/Beacon checks fail closed. |
 | BFF workspace, route/method allowlist, origin/CSRF, JSON/body/response bounds | Pass | Extracted pure security helpers and adversarial allowlist tests cover wrong/missing origins, traversal/unsupported paths, malformed JSON, and size boundaries. |
 | Markdown links/images and raw HTML | Pass | Raw HTML is skipped; executable/embedded link schemes are rejected; remote images require explicit consent; embedded/insecure images are blocked. |
 | Mermaid XSS/resource exhaustion | Pass for local bounded renderer | Configuration directives and character/line/statement exhaustion are rejected; render work is serialized, timed out, strict-security rendered, and SVG-sanitized. |
-| Canvas/NUSMods/transit/OAuth/media SSRF review | **Finding F-01** | Fixed-provider surfaces are constrained, but Canvas pagination accepts a cross-origin next link while retaining the bearer token. |
+| Canvas/NUSMods/transit/OAuth/media SSRF review | **Remediated locally; release pending** | Canvas credential-bearing requests now fail closed outside the configured API boundary and never auto-follow redirects. |
 | Queue leases, duplicate delivery, concurrency, interrupted recovery | Pass for covered synthetic cases | File courier, voice transcription, task imports, Study analysis, Canvas sync recovery, and note/capture exact-once tests pass. |
-| Application-level rate limiting/resource abuse | **Gap F-03** | Body, queue, timeout, and provider cooldown bounds exist, but the HTTP server has no principal/route rate-limit gate. |
+| Application-level rate limiting/resource abuse | **Remediated locally; release pending** | Shared hashed-principal route-class buckets now cover dashboard, Telegram webhook, and remaining HTTP ingress. |
 | Secret scan, dependency audit, type/static/build checks | Pass locally | Both tracked-file scans pass; complete and production npm audits report zero vulnerabilities; TypeScript, lint where configured, builds, and full tests pass. |
 | Browser security/responsive smoke | Pass | Five Chromium desktop/mobile tests pass; one desktop-only palette check is intentionally skipped on mobile. |
 | Hosted synthetic staging and safe production headers | Blocked/not run | No isolated hosted database/secret set or deployment connector is available; production verification requires separate approval. |
 
-## Findings — review before remediation
+## Findings — historical evidence and implemented remediation
 
 ### F-01 — High: Canvas pagination can forward the Canvas bearer token to another origin
 
@@ -62,6 +81,10 @@ fragments, and cross-origin links. Add tests for same-origin absolute/relative l
 ports, encoded host tricks, credentials in URLs, and cross-origin redirects. Do not merely strip
 the header after following the link; fail closed before fetch.
 
+Implemented: `requireCanvasApiUrl` enforces exact origin and API-path containment before fetch,
+rejects userinfo/path escapes, and `fetchCanvasApiResponse` uses `redirect: "manual"` and rejects
+all redirects. Hostile URL and redirect regressions are active rather than TODOs.
+
 ### F-02 — Medium: dashboard service JWT JTI is validated but not replay-consumed
 
 `src/dashboard/auth.ts` requires a bounded JTI and a maximum 120-second token age, but verification
@@ -75,6 +98,10 @@ safe across multiple instances/restarts; binding signed claims to method/path/bo
 replay but does not make an identical mutation one-time. Prefer durable one-time enforcement for
 mutations and idempotency keys for naturally repeatable operations, then measure latency.
 
+Implemented: mutation JTIs are consumed through the additive `DashboardRequestReplay` table. Only
+SHA-256 token/principal fingerprints, operation class, and short expiry metadata are retained.
+Reads are not consumed; duplicate mutations fail with a stable `409` before route work.
+
 ### F-03 — Medium availability/cost gap: no HTTP principal/route rate-limit gate
 
 The Fastify server has request-body limits, bounded provider work, leases, cooldowns, and queue
@@ -86,6 +113,10 @@ Recommended remediation: add conservative route-class limits keyed by verified p
 separate webhook policy after secret validation), return `429` with bounded retry guidance, keep
 health and OAuth callbacks independently protected, and test proxy/IP trust configuration. Avoid
 an unbounded in-memory key map.
+
+Implemented: the additive `SharedRateLimitBucket` table provides atomic shared counters and indexed
+expiry. Dashboard cost classes, authenticated Telegram actors, and remaining server route classes
+have independent conservative budgets; raw principal identifiers and raw paths are not stored.
 
 ## Validation evidence
 
@@ -116,16 +147,12 @@ an unbounded in-memory key map.
 
 ## Exact next safe action
 
-1. Review F-01 through F-03 and authorize a bounded Phase 6 remediation subphase if accepted.
-2. Fix F-01 first and rotate the Canvas token after deployment because token confidentiality cannot
-   be proven historically from code inspection alone.
-3. Decide the JTI replay and rate-limit storage/latency architecture before implementing F-02/F-03.
-4. Re-authenticate GitHub CLI or open a reviewed pull request, then run the pushed ephemeral
-   PostgreSQL/migration CI gate.
-5. Provision a dedicated hosted staging database and synthetic secret set; never clone production
-   credentials or private data into it.
-6. Only after hosted staging passes, request separate approval for safe production header/config
-   verification with dedicated test identities.
+1. Run the complete local gates and the GitHub-hosted ephemeral PostgreSQL/migration workflow.
+2. Complete Gate 3A backup/PITR, isolated-restore, and independent key-recovery evidence.
+3. Merge and deploy the authorized backend/dashboard release only after both gates pass.
+4. Rotate the Canvas access token after the fixed backend is live; update Render without exposing
+   the token, then confirm Canvas sync with the least-privilege replacement.
+5. Keep CSP report-only until its separate clean preview evidence window supports enforcement.
 
 Recommended model for interpreting and remediating these security boundaries: GPT-5.6 Sol high.
 Ultra is not required.

@@ -58,6 +58,12 @@ import {
 } from "./services/fileCourier";
 import { deliverFileCourierJobOnce } from "./bot/files";
 import { FILE_COURIER_RESULT_LIMIT } from "./services/fileCourierPolicy";
+import {
+  SharedRateLimitExceededError,
+  consumeSharedRateLimit,
+  limitTelegramWebhookRequest,
+  serverIngressRateLimitPolicy,
+} from "./security/sharedRateLimit";
 
 const MAX_CODEX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const FILE_COURIER_CONTENT_TYPE = "application/x-threadwise-file";
@@ -80,6 +86,31 @@ export async function startServer(
   const server = Fastify({ logger: false });
   server.addContentTypeParser(FILE_COURIER_CONTENT_TYPE, (_request, payload, done) => {
     done(null, payload);
+  });
+  server.addHook("onRequest", async (request, reply) => {
+    const pathname = request.url.split("?", 1)[0] ?? request.url;
+    if (
+      pathname === "/health"
+      || pathname.startsWith("/api/v1/dashboard")
+      || pathname === options.webhookPath
+      || pathname === options.beaconWebhookPath
+    ) return;
+    const policy = serverIngressRateLimitPolicy(pathname);
+    try {
+      await consumeSharedRateLimit({
+        principalKey: `ip:${request.ip}`,
+        routeClass: policy.routeClass,
+        limit: policy.limit,
+      });
+    } catch (error) {
+      if (error instanceof SharedRateLimitExceededError) {
+        return reply
+          .code(429)
+          .header("Retry-After", String(error.retryAfterSeconds))
+          .send({ error: "rate_limited" });
+      }
+      throw error;
+    }
   });
 
   server.get("/health", async () => ({
@@ -717,6 +748,7 @@ export async function startServer(
   registerAuthenticatedTelegramWebhook(server, {
     path: options.webhookPath,
     secret: options.webhookSecret,
+    channel: "threadwise",
     handler: webhookCallback(bot, "fastify")
   });
   if (options.beaconBot && options.beaconWebhookPath) {
@@ -726,6 +758,7 @@ export async function startServer(
     registerAuthenticatedTelegramWebhook(server, {
       path: options.beaconWebhookPath,
       secret: options.beaconWebhookSecret,
+      channel: "beacon",
       handler: webhookCallback(options.beaconBot, "fastify")
     });
   }
@@ -774,6 +807,8 @@ export function registerAuthenticatedTelegramWebhook(
   options: {
     path: string;
     secret: string | undefined;
+    channel?: "threadwise" | "beacon";
+    rateLimiter?: typeof limitTelegramWebhookRequest;
     handler: (request: FastifyRequest, reply: FastifyReply) => unknown | Promise<unknown>;
   }
 ): void {
@@ -781,6 +816,20 @@ export function registerAuthenticatedTelegramWebhook(
     const suppliedSecret = headerToken(request.headers["x-telegram-bot-api-secret-token"]);
     if (!secureTokenEqual(suppliedSecret, options.secret)) {
       return reply.code(404).send({ error: "not_found" });
+    }
+    try {
+      await (options.rateLimiter ?? limitTelegramWebhookRequest)(
+        request.body,
+        options.channel ?? "threadwise",
+      );
+    } catch (error) {
+      if (error instanceof SharedRateLimitExceededError) {
+        return reply
+          .code(429)
+          .header("Retry-After", String(error.retryAfterSeconds))
+          .send({ error: "rate_limited" });
+      }
+      throw error;
     }
     return options.handler(request, reply);
   });

@@ -41,9 +41,12 @@ export async function consumeDashboardMutationToken(
   }
 
   // Deterministic sampling keeps the short-lived replay table bounded without adding a cleanup
-  // query to every mutation. The expiry index makes the sampled deletion cheap.
+  // query to every mutation. Cleanup is best-effort: a maintenance failure must not turn an
+  // already-consumed mutation into a false 500 that will replay as a conflict on retry.
   if ((Number.parseInt(fingerprint.slice(0, 2), 16) & 31) === 0) {
-    await database.dashboardRequestReplay.deleteMany({ where: { expiresAt: { lte: now } } });
+    await database.dashboardRequestReplay
+      .deleteMany({ where: { expiresAt: { lte: now } } })
+      .catch(() => undefined);
   }
 }
 
