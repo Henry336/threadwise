@@ -5,9 +5,15 @@ import { DASHBOARD_TOKEN_AUDIENCE, DASHBOARD_TOKEN_ISSUER } from "./auth";
 import { registerDashboardRoute } from "./route";
 import type { DashboardSnapshot } from "./snapshot";
 import type { AiProvider } from "../ai/types";
+import { DashboardRequestReplayError } from "../security/dashboardRequestReplay";
 
 vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+}));
+
+vi.mock("../security/dashboardRequestReplay", () => ({
+  DashboardRequestReplayError: class DashboardRequestReplayError extends Error {},
+  consumeDashboardMutationToken: vi.fn(async () => undefined),
 }));
 
 describe("dashboard API routes", () => {
@@ -178,6 +184,42 @@ describe("dashboard API routes", () => {
     });
     expect(accepted.statusCode).toBe(200);
     expect(createTask).toHaveBeenCalledWith("123456789", { title: "Reasonable cadence", reminderIntervalMinutes: 15 });
+    await server.close();
+  });
+
+  it("rejects a replayed mutation before repeating its side effect", async () => {
+    const server = Fastify();
+    const createTask = vi.fn(async () => ({ id: "task-1" }));
+    const consumed = new Set<string>();
+    const requestReplayGuard = vi.fn(async (principal: { tokenId: string }, method: string) => {
+      if (method !== "POST") return;
+      if (consumed.has(principal.tokenId)) throw new DashboardRequestReplayError();
+      consumed.add(principal.tokenId);
+    });
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      actions: { createTask: createTask as never },
+      requestReplayGuard: requestReplayGuard as never,
+    });
+    const authorization = `Bearer ${await validToken()}`;
+
+    const first = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization },
+      payload: { title: "Only once" },
+    });
+    const replay = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization },
+      payload: { title: "Only once" },
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json()).toMatchObject({ error: "request_replayed" });
+    expect(createTask).toHaveBeenCalledTimes(1);
     await server.close();
   });
 

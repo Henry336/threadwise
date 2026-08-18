@@ -118,6 +118,10 @@ import {
 } from "../services/studyAnalysis";
 import { reviewStudyNoteEditSuggestion } from "../services/studyNoteEditSuggestions";
 import {
+  DashboardRequestReplayError,
+  consumeDashboardMutationToken,
+} from "../security/dashboardRequestReplay";
+import {
   DashboardStudyAccessError,
   archiveDashboardStudyItem,
   archiveDashboardStudyResource,
@@ -231,6 +235,7 @@ type DashboardRouteOptions = {
   ai?: AiProvider;
   loadSnapshot?: (telegramId: string) => Promise<DashboardSnapshot>;
   actions?: Partial<DashboardRouteActions>;
+  requestReplayGuard?: typeof consumeDashboardMutationToken;
 };
 
 const defaultActions: DashboardRouteActions = {
@@ -274,11 +279,13 @@ type RouteWork = (telegramId: string, scope: DashboardWorkspaceScope) => Promise
 export function registerDashboardRoute(server: FastifyInstance, options: DashboardRouteOptions = {}): void {
   const loadSnapshot = options.loadSnapshot ?? getDashboardSnapshot;
   const actions = { ...defaultActions, ...options.actions };
+  const requestReplayGuard = options.requestReplayGuard ?? consumeDashboardMutationToken;
 
   const run = async (request: FastifyRequest, reply: FastifyReply, work: RouteWork, operation: string) => {
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      await requestReplayGuard(principal, request.method, operation);
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
         dashboardWorkspaceHeader(request),
@@ -975,6 +982,12 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
       .code(401)
       .header("WWW-Authenticate", 'Bearer realm="threadwise-dashboard", error="invalid_token"')
       .send({ error: "unauthorized" });
+  }
+  if (error instanceof DashboardRequestReplayError) {
+    return reply.code(409).send({
+      error: "request_replayed",
+      message: "This request was already processed. Refresh and try again.",
+    });
   }
   if (error instanceof DashboardGroupAccessError) {
     return reply.code(403).send({ error: "group_access_denied", message: error.message });

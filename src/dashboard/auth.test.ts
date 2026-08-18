@@ -38,7 +38,9 @@ describe("dashboard service JWT authentication", () => {
     const escapedPem = publicKeyPem.replace(/\n/g, "\\n");
 
     await expect(verifyDashboardAuthorization(`Bearer ${jwt}`, escapedPem, now)).resolves.toEqual({
-      telegramId: "123456789"
+      telegramId: "123456789",
+      tokenId: "request-1",
+      expiresAt: new Date((nowSeconds + 60) * 1_000),
     });
   });
 
@@ -71,5 +73,4 @@ describe("dashboard service JWT authentication", () => {
     );
   });
 
-  it.todo("rejects a consumed JTI when the same signed service token is replayed");
 });

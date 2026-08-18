@@ -2620,3 +2620,13 @@ model CommunityProcessedUpdate {
 
   @@index([createdAt])
 }
+
+model DashboardRequestReplay {
+  fingerprint          String   @id
+  principalFingerprint String
+  operation            String
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+
+  @@index([expiresAt])
+}

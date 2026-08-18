@@ -25,12 +25,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   existing guarded branches. After deployment, use the prior known-good app releases; database
   rollback must follow the Phase 3/4 runbooks and the verified Gate 3A backup rather than destructive
   ad-hoc SQL.
-- Current status: release preflight is complete and F-01 is locally remediated. Canvas pagination
+- Current status: release preflight is complete and F-01/F-02 are locally remediated. Canvas pagination
   and material URLs are now constrained to the exact configured origin/API path before credentials
   are attached, URL credentials are rejected, and automatic redirects are disabled. The hostile
-  URL/redirect regressions and existing Canvas utilities pass (18 focused tests) with backend
-  typecheck clean. Exact next action is F-02 durable dashboard-JWT replay consumption, followed by
-  F-03 shared principal/route rate limiting and the complete local/remote release gates.
+  URL/redirect regressions and existing Canvas utilities pass. Dashboard mutation JWT identifiers
+  are now atomically consumed in a shared PostgreSQL table using hashed token/principal fingerprints;
+  safe reads remain retryable, replayed mutations fail before their side effect, and expired rows are
+  sampled for indexed cleanup. The focused F-02 auth/store/route suite passes 24 tests, Prisma
+  format/validate/generate and backend typecheck pass. Exact next action is F-03 shared
+  principal/route rate limiting, then the complete local/remote release gates.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
