@@ -1,7 +1,7 @@
 # Phase 6 active security assurance
 
 Date: 2026-08-17 SGT  
-Status: **release remediation and local/remote validation complete; Gate 3A blocks production activation**
+Status: **release remediation, local/remote validation, and Gate 3A complete; production activation pending**
 
 This report contains no credentials, private payloads, production records, or provider
 responses. Phase 6 used synthetic identities, chats, workspaces, tokens, bodies, provider
@@ -28,11 +28,12 @@ resolved with the compatible 8.0.0 package override; both production-only and co
 audits now report zero findings. Backend PR #17 passes its hosted isolated PostgreSQL 17 migration
 and assurance job. Dashboard PR #2 passes hosted validate/browser jobs and its Vercel preview after
 unit and Playwright discovery were explicitly separated. Gate 3A recoverability evidence, merge,
-production deployment/verification, and post-fix Canvas-token rotation remain pending. Local
-capability inspection found PostgreSQL restore tooling but no usable production database URL,
-Supabase management credential, or independently recoverable content-encryption key, so none of
-those missing recovery facts is inferred. Historical Phase 6 evidence below is preserved to show
-what originally caused each finding.
+production deployment/verification, and post-fix Canvas-token rotation remain pending. Gate 3A
+subsequently passed using a fresh encrypted logical backup: all 95 public tables and 21,563 rows
+matched an isolated restore, all release migrations applied cleanly, temporary plaintext/restore
+state was removed, and the owner confirmed independent recovery of the exact production content
+key. See `docs/GATE3A_RECOVERY_EVIDENCE.md` for non-secret evidence. Historical Phase 6 evidence
+below is preserved to show what originally caused each finding.
 
 ## Environment and safety boundary
 

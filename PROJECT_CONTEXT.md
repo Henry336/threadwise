@@ -45,13 +45,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   also pass on both PRs, including the backend's isolated PostgreSQL 17
   migration job and the dashboard's separate validate/browser jobs plus Vercel preview. Dashboard
   CI initially discovered its Playwright spec through Vitest on Linux; `f181ad8` now explicitly
-  separates those suites and the rerun is green. Gate 3A is the only pre-merge blocker. This
-  machine has PostgreSQL 18 client/server tooling, but the repository `DATABASE_URL` is a safe
-  placeholder, no Supabase management credential/CLI is available, and no independent
-  `CONTENT_ENCRYPTION_KEY` recovery copy is present locally. Therefore provider backup status,
-  restoration of that backup, and independent key recovery cannot be claimed. Do not merge either
-  PR or trigger production until the owner supplies/records those three facts without exposing
-  secrets.
+  separates those suites and the rerun is green. Gate 3A passed on 2026-08-18 SGT using a fresh
+  encrypted logical production backup and an isolated local PostgreSQL restore. All 95 public
+  tables and 21,563 rows matched exactly; the four pending release migrations applied cleanly, and
+  the only post-migration count delta was the expected Prisma history change from 56 to 60. The
+  encrypted archive is retained under the ignored `backups/` directory by SHA-256 reference; all
+  plaintext/decrypted dumps and temporary local databases were removed. The owner confirmed
+  independent recovery of the exact production content-encryption key without exposing it.
+  Canonical non-secret evidence is in `docs/GATE3A_RECOVERY_EVIDENCE.md`. Exact next action: merge
+  PRs #17/#2, deploy Render/Vercel, verify production, then rotate the Canvas access token.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
