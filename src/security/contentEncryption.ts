@@ -3,11 +3,21 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:
 const PREFIX = "twenc:v1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource|StudyResourceRevision):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
+const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource|StudyResourceRevision|GeminiIdeaJob|GeminiStudyAnalysisJob|StudyNoteEditSuggestion|StudyCanvasMaterial):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
 
 let cachedEnvironmentCipher: { signature: string; cipher: ContentCipher } | undefined;
 
-export type ContentModel = "Task" | "Note" | "Idea" | "StoredImage" | "StudyResource" | "StudyResourceRevision";
+export type ContentModel =
+  | "Task"
+  | "Note"
+  | "Idea"
+  | "StoredImage"
+  | "StudyResource"
+  | "StudyResourceRevision"
+  | "GeminiIdeaJob"
+  | "GeminiStudyAnalysisJob"
+  | "StudyNoteEditSuggestion"
+  | "StudyCanvasMaterial";
 export type ContentEncryptionMode = "off" | "write";
 
 type ModelPolicy = {
@@ -20,8 +30,12 @@ export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   Note: { encrypted: ["title", "body", "summary", "sourceText"], searchable: ["title", "body", "summary", "sourceText"] },
   Idea: { encrypted: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"], searchable: ["title", "concept", "problem", "targetUser", "sourceText", "marketNotes"] },
   StoredImage: { encrypted: ["fileName", "caption", "ocrText"], searchable: ["fileName", "caption", "ocrText"] },
-  StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
+  StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText", "analysisExcerpt", "captionPreview", "ocrPreview"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
   StudyResourceRevision: { encrypted: ["title", "body"], searchable: [] },
+  GeminiIdeaJob: { encrypted: ["prompt", "finalResponse"], searchable: [] },
+  GeminiStudyAnalysisJob: { encrypted: ["evidenceCiphertext", "promptCiphertext", "resultCiphertext"], searchable: [] },
+  StudyNoteEditSuggestion: { encrypted: ["originalBody", "suggestedBody", "rationale", "appliedBody"], searchable: [] },
+  StudyCanvasMaterial: { encrypted: ["extractedText", "analysisExcerpt"], searchable: [] },
 };
 
 export class ContentCipher {
@@ -145,6 +159,20 @@ export function contentMatchesQuery(model: ContentModel, value: Record<string, u
   return fields.some((field) => typeof value[field] === "string" && normalizeSearchText(value[field] as string).includes(normalized));
 }
 
+export function completeSearchableContentUpdate<T extends Record<string, unknown>>(
+  model: ContentModel,
+  current: object,
+  changes: T,
+): T {
+  const searchable = CONTENT_POLICIES[model].searchable;
+  if (!searchable.some((field) => Object.prototype.hasOwnProperty.call(changes, field))) return changes;
+  const completed: Record<string, unknown> = { ...changes };
+  for (const field of searchable) {
+    if (!Object.prototype.hasOwnProperty.call(completed, field)) completed[field] = (current as Record<string, unknown>)[field] ?? null;
+  }
+  return completed as T;
+}
+
 function prepareData(model: ContentModel, input: unknown, kind: "create" | "update", cipher: ContentCipher): unknown {
   if (Array.isArray(input)) return input.map((value) => prepareData(model, value, kind, cipher));
   if (!input || typeof input !== "object") return input;
@@ -155,11 +183,14 @@ function prepareData(model: ContentModel, input: unknown, kind: "create" | "upda
   const data = input as Record<string, unknown>;
   const policy = CONTENT_POLICIES[model];
   const searchableValues: Array<{ field: string; value: string }> = [];
+  const suppliedSearchableFields = new Set<string>();
   for (const field of policy.encrypted) {
     const value = data[field];
     const direct = typeof value === "string" ? value : undefined;
     const setValue = isSetOperation(value) && typeof value.set === "string" ? value.set : undefined;
     const plaintext = direct ?? setValue;
+    const explicitlyNull = value === null || (isSetOperation(value) && value.set === null);
+    if (policy.searchable.includes(field) && (plaintext !== undefined || explicitlyNull)) suppliedSearchableFields.add(field);
     if (plaintext === undefined) continue;
     const cleartext = isEncryptedContent(plaintext) ? cipher.decrypt(plaintext) : plaintext;
     if (policy.searchable.includes(field)) searchableValues.push({ field, value: cleartext });
@@ -167,13 +198,13 @@ function prepareData(model: ContentModel, input: unknown, kind: "create" | "upda
     if (direct !== undefined) data[field] = encrypted;
     else (value as { set: string }).set = encrypted;
   }
-  const tokens = cipher.searchTokens(model, searchableValues);
-  if (tokens.length) {
-    data.searchTokens = Array.isArray(data.searchTokens)
-      ? [...new Set([...data.searchTokens.filter((value): value is string => typeof value === "string"), ...tokens])]
-      : kind === "create"
-        ? tokens
-        : { push: tokens };
+  if (policy.searchable.length) {
+    const tokens = cipher.searchTokens(model, searchableValues);
+    if (kind === "update" && suppliedSearchableFields.size > 0 && suppliedSearchableFields.size !== policy.searchable.length) {
+      throw new Error(`${model} searchable-content updates must supply every protected searchable field so the blind index can be replaced exactly.`);
+    }
+    if (kind === "create") data.searchTokens = tokens;
+    else if (suppliedSearchableFields.size === policy.searchable.length) data.searchTokens = { set: tokens };
   }
   return input;
 }

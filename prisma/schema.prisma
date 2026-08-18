@@ -658,32 +658,39 @@ model StudyScheduleBlock {
 }
 
 model StudyResource {
-  id                     String            @id @default(uuid())
-  workspaceId            String
-  moduleId               String
-  publicId               String
-  kind                   StudyResourceKind
-  title                  String
-  body                   String?
-  url                    String?
-  tags                   String[]          @default([])
-  telegramFileId         String?
-  telegramUniqueId       String?
-  mediaKind              String?
-  mimeType               String?
-  fileName               String?
-  fileSize               Int?
-  caption                String?
-  ocrText                String?
-  searchTokens           String[]          @default([])
-  ocrConfidence          Float?
-  sourceMessageId        Int?
-  sourceSenderTelegramId String?
-  sourceSentAt           DateTime?
-  pinnedAt               DateTime?
-  archivedAt             DateTime?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
+  id                       String            @id @default(uuid())
+  workspaceId              String
+  moduleId                 String
+  publicId                 String
+  kind                     StudyResourceKind
+  title                    String
+  body                     String?
+  url                      String?
+  tags                     String[]          @default([])
+  telegramFileId           String?
+  telegramUniqueId         String?
+  mediaKind                String?
+  mimeType                 String?
+  fileName                 String?
+  fileSize                 Int?
+  caption                  String?
+  ocrText                  String?
+  analysisExcerpt          String?
+  analysisExcerptReady     Boolean           @default(false)
+  analysisExcerptTruncated Boolean           @default(false)
+  captionPreview           String?
+  ocrPreview               String?
+  ocrPreviewTruncated      Boolean           @default(false)
+  wikiLookupKeys           String[]          @default([])
+  searchTokens             String[]          @default([])
+  ocrConfidence            Float?
+  sourceMessageId          Int?
+  sourceSenderTelegramId   String?
+  sourceSentAt             DateTime?
+  pinnedAt                 DateTime?
+  archivedAt               DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
 
   workspace           StudyWorkspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   module              StudyModule               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -698,6 +705,7 @@ model StudyResource {
   @@index([workspaceId, kind, createdAt])
   @@index([moduleId, kind, pinnedAt, createdAt])
   @@index([workspaceId, archivedAt])
+  @@index([wikiLookupKeys], type: Gin)
   @@index([searchTokens], type: Gin)
 }
 
@@ -878,30 +886,32 @@ model StudyCanvasCourseModule {
 }
 
 model StudyCanvasMaterial {
-  id                 String                  @id @default(uuid())
-  workspaceId        String
-  moduleId           String
-  courseModuleId     String?
-  canvasCourseId     String
-  canvasModuleItemId String
-  canvasContentId    String?
-  kind               StudyCanvasMaterialKind
-  title              String
-  position           Int                     @default(0)
-  htmlUrl            String?
-  apiUrl             String?
-  externalUrl        String?
-  contentType        String?
-  byteSize           Int?
-  extractedText      String?
-  contentHash        String?
-  sourceUpdatedAt    DateTime?
-  unlockAt           DateTime?
-  published          Boolean?
-  active             Boolean                 @default(true)
-  lastSeenAt         DateTime
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  id                   String                  @id @default(uuid())
+  workspaceId          String
+  moduleId             String
+  courseModuleId       String?
+  canvasCourseId       String
+  canvasModuleItemId   String
+  canvasContentId      String?
+  kind                 StudyCanvasMaterialKind
+  title                String
+  position             Int                     @default(0)
+  htmlUrl              String?
+  apiUrl               String?
+  externalUrl          String?
+  contentType          String?
+  byteSize             Int?
+  extractedText        String?
+  analysisExcerpt      String?
+  analysisExcerptReady Boolean                 @default(false)
+  contentHash          String?
+  sourceUpdatedAt      DateTime?
+  unlockAt             DateTime?
+  published            Boolean?
+  active               Boolean                 @default(true)
+  lastSeenAt           DateTime
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   workspace    StudyWorkspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   module       StudyModule              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -1897,6 +1907,7 @@ model GeminiIdeaJob {
   leaseExpiresAt           DateTime?
   finalResponse            String?
   error                    String?
+  diagnosticsPurgedAt      DateTime?
   createdAt                DateTime       @default(now())
   startedAt                DateTime?
   completedAt              DateTime?
@@ -1921,6 +1932,10 @@ model GeminiStudyAnalysisJob {
   evidenceHash        String
   evidenceJson        Json
   prompt              String
+  evidenceCiphertext  String?
+  promptCiphertext    String?
+  resultCiphertext    String?
+  diagnosticsPurgedAt DateTime?
   model               String?
   workerId            String?
   claimedAt           DateTime?
@@ -1968,6 +1983,29 @@ model StudyNoteEditSuggestion {
   @@unique([analysisJobId, resourceId])
   @@index([workspaceId, status, createdAt])
   @@index([resourceId, status])
+}
+
+model PrivacyMaintenanceRun {
+  id                  String    @id @default(uuid())
+  kind                String
+  status              String
+  backupReferenceHash String
+  target              String?
+  lastCursor          String?
+  processedCount      Int       @default(0)
+  changedCount        Int       @default(0)
+  conflictCount       Int       @default(0)
+  safeErrorCode       String?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  startedAt           DateTime  @default(now())
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([kind, status, updatedAt])
+  @@index([backupReferenceHash, kind, status])
+  @@index([status, leaseExpiresAt])
 }
 
 model CodexThread {
@@ -2581,4 +2619,28 @@ model CommunityProcessedUpdate {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model DashboardRequestReplay {
+  fingerprint          String   @id
+  principalFingerprint String
+  operation            String
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model SharedRateLimitBucket {
+  bucketKey            String   @id
+  principalFingerprint String
+  routeClass           String
+  windowStartedAt      DateTime
+  requestCount         Int      @default(1)
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@index([principalFingerprint, routeClass, windowStartedAt])
 }

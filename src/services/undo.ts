@@ -1,5 +1,6 @@
 import { Prisma, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import { bold, code, h } from "../utils/html";
 import { syncTaskCalendarBestEffort } from "./googleCalendar";
 
@@ -369,11 +370,14 @@ async function undoRename(entryId: string, payload: Record<string, unknown>): Pr
 
   await prisma.$transaction(async (tx) => {
     if (target.kind === "task") {
-      await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
+      const current = await tx.task.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.task.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Task", current, { title: previousTitle }) });
     } else if (target.kind === "note") {
-      await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
+      const current = await tx.note.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.note.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Note", current, { title: previousTitle }) });
     } else {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { title: previousTitle } });
+      const current = await tx.idea.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.idea.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Idea", current, { title: previousTitle }) });
     }
 
     await consumeUndo(tx, entryId, "rename");
@@ -389,18 +393,22 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
 
   await prisma.$transaction(async (tx) => {
     if (target.kind === "task" && field === "description") {
-      await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { description: previousValue, embedding: Prisma.JsonNull } });
+      const current = await tx.task.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.task.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Task", current, { description: previousValue, embedding: Prisma.JsonNull }) });
     } else if (target.kind === "note" && field === "body") {
-      await tx.note.updateMany({
-        where: { id: target.id, archivedAt: null },
-        data: {
+      const current = await tx.note.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.note.update({
+        where: { id: current.id },
+        data: completeSearchableContentUpdate("Note", current, {
           body: previousValue ?? "",
           summary: summarizeManualText(previousValue ?? ""),
+          sourceText: previousValue ?? "",
           embedding: Prisma.JsonNull
-        }
+        })
       });
     } else if (target.kind === "idea" && field === "concept") {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { concept: previousValue ?? "", embedding: Prisma.JsonNull } });
+      const current = await tx.idea.findFirst({ where: { id: target.id, archivedAt: null } });
+      if (current) await tx.idea.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Idea", current, { concept: previousValue ?? "", sourceText: previousValue ?? "", embedding: Prisma.JsonNull }) });
     } else {
       throw new Error("Invalid field edit undo payload.");
     }
@@ -417,7 +425,8 @@ async function undoImageCaption(entryId: string, payload: Record<string, unknown
   if (!id || !publicId) throw new Error("Invalid image caption undo payload.");
   const previousCaption = nullableStringValue(payload.previousCaption);
   await prisma.$transaction(async (tx) => {
-    await tx.storedImage.update({ where: { id }, data: { caption: previousCaption } });
+    const current = await tx.storedImage.findUnique({ where: { id } });
+    if (current) await tx.storedImage.update({ where: { id }, data: completeSearchableContentUpdate("StoredImage", current, { caption: previousCaption }) });
     await consumeUndo(tx, entryId, "image-caption");
   });
   return `${bold("↩️ Undone")} Restored the previous caption for ${code(publicId)}.`;

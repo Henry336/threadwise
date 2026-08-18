@@ -12,7 +12,11 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3 and later are not authorized**.
+- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is stopped at findings review; Phase 7 architecture is complete on guarded branches, with implementation and activation not started**.
+- The final local reconciliation after Phase 7 is recorded in
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. It confirms that F-01 through F-03, Gate 3A, CSP
+  enforcement evidence, and hosted synthetic staging remain open; no audit finding was silently
+  remediated or deployed.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -176,12 +180,18 @@ Outcome: the guarded inspection verified a read-only transaction, found 190 encr
 926 plaintext protected field values, confirmed zero malformed envelopes and zero anomalies across
 26 cross-workspace relationship checks, measured unretained AI duplicates, and confirmed blind
 search-token accumulation. Backup/PITR/restore readiness remains a control-plane prerequisite.
-See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 remains unauthorized.
+See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 was subsequently authorized for guarded implementation.
 
 Recommended model: **GPT-5.6 Terra, medium reasoning** for bounded evidence
 collection; **GPT-5.6 Sol, high reasoning** for migration and threat analysis.
 
 ## Phase 3 — privacy and encryption remediation
+
+Status: **implementation and synthetic validation complete; production schema deployment,
+backfill, diagnostics minimization, and retention deletion are not activated**. Gate 3A still
+requires evidence of a current provider backup, an isolated restore test, and independent
+recovery of the content-encryption key. The implementation is intentionally published on a
+non-production branch until that evidence exists. See `docs/PHASE3_PRIVACY_RUNBOOK.md`.
 
 Objectives:
 
@@ -214,6 +224,11 @@ quality gain. Do not use Ultra by default.
 
 ## Phase 4 — Study scalability and transactional reliability
 
+Status: **implementation and synthetic validation complete on the non-production
+`codex/phase4-study-scalability` branch; production schema deployment, backfill,
+activation, and load testing have not occurred**. The branch is stacked on Phase 3 and
+inherits Gate 3A. See `docs/PHASE4_STUDY_SCALE_RUNBOOK.md`.
+
 Objectives:
 
 - Replace full-resource snapshot reads with selected preview fields or precomputed
@@ -241,6 +256,9 @@ test expansion after the design is fixed.
 
 ## Phase 5 — browser hardening and maintainability
 
+Status: **implemented and locally validated on `codex/phase5-browser-hardening` in both repositories;
+no deployment or production configuration change is authorized by completion alone**.
+
 Objectives:
 
 - Introduce and stage a nonce-based Content Security Policy without papering over
@@ -262,7 +280,34 @@ Recommended model: **GPT-5.6 Terra, medium reasoning** for CI, tests, documentat
 and bounded component work; **GPT-5.6 Sol, medium reasoning** for CSP design and
 large responsibility splits.
 
+Completion record (2026-08-17 SGT):
+
+- Added a nonce-bearing CSP pipeline with report-only staging as the safe default and an explicit
+  enforcement switch. The policy contains no `unsafe-inline` or `unsafe-eval`; report-only evidence
+  still identifies inline style attributes, so enforcement is intentionally deferred to a preview
+  rollout governed by the dashboard `docs/CSP_ROLLOUT.md` runbook.
+- Versioned local drafts now expire after seven days, are scoped to owner/workspace/resource, reject
+  malformed or future records, and clear on logout or workspace changes. Remote Markdown images are
+  same-origin by default and require explicit click-to-load consent for HTTPS third-party hosts;
+  insecure, protocol-relative, and embedded data images are blocked.
+- Mermaid rendering is viewport-deferred, serialized, time- and complexity-bounded, strict-security,
+  and sanitized after rendering. Markdown media/Mermaid responsibilities were split from the generic
+  renderer without a broad file move.
+- Dashboard CI now runs a tracked-file secret scan, full and production dependency audits, 99 unit/
+  component tests, TypeScript, ESLint, production build, and Chromium desktop/mobile smoke coverage.
+  Local final validation passed all gates (five browser passes and one intentional mobile skip), with
+  zero dependency findings. Backend documentation passed all 884 tests (6 intentional skips),
+  TypeScript, build, and zero-finding audits after a non-breaking development-only lockfile refresh.
+- Production, hosted configuration, databases, migrations, and active security testing were not
+  touched. Phase 6 and Phase 7 remain separate approval boundaries.
+
 ## Phase 6 — active security assurance
+
+Status: **local synthetic assurance and CI infrastructure completed on
+`codex/phase6-security-assurance` (backend `be7d2ec`, dashboard `bf9c948`); three findings await
+review, the remote ephemeral database workflow awaits authenticated dispatch, and hosted staging is
+blocked on a proven isolated database/credential set**. See `docs/SECURITY_PHASE6_ASSURANCE.md`. No finding has
+been remediated silently, and production was not tested or changed.
 
 Begin only after the known critical boundary and plaintext duplication are
 remediated. Create a staging deployment with synthetic users, chats, workspaces,
@@ -297,6 +342,18 @@ targeted investigation. Ultra is not required.
 
 This is a product architecture phase, not a permission change to the founder
 workspace.
+
+Status: **architecture completed on `codex/phase7-public-study-architecture`; no runtime,
+schema, configuration, credential, bot, database, invitation, merge, or deployment change**.
+
+Architecture publication commits: backend `77739bd`; dashboard `16687b3`.
+
+Canonical records:
+
+- [`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md)
+- [`PUBLIC_STUDY_THREAT_MODEL.md`](PUBLIC_STUDY_THREAT_MODEL.md)
+- [`PUBLIC_STUDY_ROLLOUT.md`](PUBLIC_STUDY_ROLLOUT.md)
+- dashboard `docs/PUBLIC_STUDY_DASHBOARD_BOUNDARY.md` on its matching guarded branch
 
 Required design:
 
@@ -361,6 +418,13 @@ phase complete merely because code was written or pushed.
 
 ## Next authorized action
 
-None. The user requested that this roadmap be recorded before implementation.
-Wait for explicit approval before starting Phase 1A or any inspection, migration,
-penetration test, deployment, rotation, or cleanup.
+Phase 7 architecture and guarded-branch publication are complete. The next safe product unit is
+**Stage 7.1 tenant foundations only**, but it is not authorized: wait for explicit approval before
+adding schema/runtime code, applying a migration/backfill, or beginning any later rollout stage.
+
+Separately, present and obtain explicit remediation approval for Phase 6 F-01 through F-03 before
+fixing them. Those findings, remote ephemeral PostgreSQL CI, dedicated hosted synthetic staging,
+and Gate 3A backup/restore/key-recovery evidence remain blockers before any public cohort. Do not
+provision hosted staging, rotate credentials, perform production verification, merge/deploy, create
+or register a public Study bot, connect a real Canvas tenant, invite users, or cut over the founder
+workspace without the corresponding recorded approval and gate evidence.

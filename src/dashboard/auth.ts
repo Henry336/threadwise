@@ -27,6 +27,8 @@ export class DashboardConfigurationError extends Error {
 
 export type DashboardPrincipal = {
   telegramId: string;
+  tokenId: string;
+  expiresAt: Date;
 };
 
 function bearerToken(authorization: string | undefined): string {
@@ -104,7 +106,11 @@ export async function verifyDashboardAuthorization(
       throw new DashboardAuthenticationError();
     }
 
-    return { telegramId: payload.sub };
+    return {
+      telegramId: payload.sub,
+      tokenId: payload.jti,
+      expiresAt: new Date(expiresAt * 1_000),
+    };
   } catch (error) {
     if (error instanceof DashboardAuthenticationError) {
       throw error;

@@ -4,6 +4,51 @@ Entry point for any AI or human contributor. Written to be model-agnostic: it wo
 for Claude Code, Codex, or any other assistant. If you read one file first, read this,
 then follow the pointers below.
 
+## Latest implementation checkpoint
+
+- **2026-08-17 (Codex):** Researched Coursemology assignment/deadline integration on guarded branch
+  `codex/study-image-sidebar-coursemology`; canonical evidence and the safety gate are in
+  `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md`. The authenticated lesson-plan JSON contains the
+  required timing data, but no documented public third-party OAuth/API/calendar contract was found.
+  Do not collect browser tokens/cookies or build a connector until the NUS/Coursemology operator
+  confirms a supported read-only contract. No provider, credential, schema, database, production,
+  merge, or deployment state changed.
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
+- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
+  `codex/post-phase7-work-filter-audit`; canonical evidence is
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
+  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
+  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
+  finding was remediated, merged, deployed, or used to mutate production in this pass.
+- **2026-08-17 (Codex):** Completed Phase 7 public Study architecture on the guarded
+  `codex/phase7-public-study-architecture` branch. Backend architecture commit `77739bd` defines
+  tenant membership/capabilities, founder compatibility, OAuth-only encrypted Canvas custody,
+  isolated bot identity, fair jobs/quotas, audit/export/deletion, threat controls, and a staged
+  cohort. Matching dashboard boundary commit `16687b3` preserves the BFF and sealed founder path.
+  Phase 7 made documentation only: no schema, runtime, credential, bot, database, invitation,
+  merge, deployment, or production change.
+- **2026-08-17 (Codex):** Completed Phase 5 browser hardening on guarded cross-repository branches:
+  staged nonce CSP, scoped/expiring browser drafts, consent-gated remote Markdown images, bounded
+  Mermaid rendering, dashboard CI/security scans/browser tests, and a bounded Markdown media split.
+  CSP remains report-only until preview evidence is clean; no deployment or production mutation was
+  performed. Backend validation passed 884 tests with 6 intentional skips and clean dependency audits.
+- **2026-08-17 (Codex):** Implemented the approved Phase 3 privacy remediation behind Gate 3A:
+  extended server-side encryption to retained AI/Canvas/suggestion payloads, replaced cumulative
+  blind indexes with complete-record sets, added guarded resumable backfill and retention tooling,
+  and documented activation/rollback. Production apply/deletion remains blocked until backup,
+  isolated restore, and encryption-key recovery are proven.
+
 > **Ground every answer in the live repository and current deployment, not in this file
 > or any summary.** Re-run checks; re-read the code. Version numbers and counts here are
 > snapshots and drift.
@@ -129,6 +174,24 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-17 (Codex):** Phase 7 architecture is complete on guarded backend/dashboard branches.
+  Backend `77739bd` adds `docs/PUBLIC_STUDY_ARCHITECTURE.md`,
+  `docs/PUBLIC_STUDY_THREAT_MODEL.md`, and `docs/PUBLIC_STUDY_ROLLOUT.md`; dashboard `16687b3`
+  adds its BFF/browser boundary. The founder workspace remains sealed. Phase 6 F-01–F-03, hosted
+  synthetic staging, remote ephemeral PostgreSQL CI, and Gate 3A remain cohort blockers. No public
+  bot, OAuth connection, migration, invitation, merge, deploy, production read, or secret change
+  occurred. Next safe unit is Stage 7.1 tenant foundations only, pending explicit approval.
+
+- **2026-08-17 (Codex):** Phase 6 synthetic security assurance commit `be7d2ec` is pushed and
+  stopped at findings review on `codex/phase6-security-assurance`. Added focused adversarial/secret/dependency gates and an
+  ephemeral PostgreSQL migration CI stage; local backend assurance passed 136 checks (2 TODO
+  findings), the full suite passed 886 with 6 skips, and all type/build/audit gates passed. The
+  redacted `docs/SECURITY_PHASE6_ASSURANCE.md` records a high Canvas pagination bearer-leak risk,
+  medium JWT replay gap, and medium route-rate-limit gap. No finding, production state, deployment,
+  credential, or database was changed; hosted staging still needs proven isolated infrastructure.
+  Dashboard assurance commit `bf9c948` is also pushed. Remote manual CI awaits GitHub CLI
+  re-authentication; no PR was opened merely to trigger it.
 
 - **2026-08-17 (Codex):** Completed security remediation Phase 2 as a single guarded,
   aggregate-only production inspection in a verified read-only PostgreSQL transaction. It found

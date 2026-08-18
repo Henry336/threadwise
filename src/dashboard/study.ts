@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import {
   addStudyModule,
   addStudyScheduleBlock,
@@ -46,6 +46,7 @@ import {
   findStudyResource,
 } from "../services/studyResources";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision, studyNoteMetadata } from "../services/studyMarkdown";
+import { deriveStudyResourceAnalysis, STUDY_SCALE_BUDGETS, studyResourceWikiLookupKeys } from "../services/studyScale";
 import {
   activateStudyOrigin,
   addStudyOriginFromVenue,
@@ -139,7 +140,7 @@ export const studyResourceQuerySchema = z.object({
   kind: z.nativeEnum(StudyResourceKind).optional(),
   q: z.string().trim().max(200).optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
-  limit: z.coerce.number().int().min(1).max(60).default(30),
+  limit: z.coerce.number().int().min(1).max(STUDY_SCALE_BUDGETS.dashboardResourcePage).default(STUDY_SCALE_BUDGETS.dashboardResourcePage),
 }).strict();
 
 export const studyResourceCreateSchema = z.object({
@@ -373,9 +374,9 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     }),
     prisma.studyResource.findMany({
       where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null },
-      include: { module: { select: { id: true, code: true, name: true, color: true } } },
+      select: studyResourcePreviewSelect,
       orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
-      take: 400,
+      take: STUDY_SCALE_BUDGETS.dashboardSnapshotResources,
     }),
     listStudyMistakes(workspace.id, now),
   ]);
@@ -385,7 +386,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
       include: {
         module: { select: { code: true, name: true } },
         item: { select: { publicId: true, title: true } },
-        resources: { include: { resource: { include: { module: { select: { id: true, code: true, name: true, color: true } } } } } },
+        resources: { include: { resource: { select: studyResourcePreviewSelect } } },
       },
       orderBy: { startedAt: "desc" },
       take: 80,
@@ -409,6 +410,11 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     }),
     listStudyOrigins(workspace.id),
   ]);
+  const hydratedResourcePreviews = await hydrateLegacyStudyResourceAnalysis([
+    ...resources,
+    ...sessions.flatMap((session) => session.resources.map((link) => link.resource)),
+  ]);
+  const resourcePreviewById = new Map(hydratedResourcePreviews.map((resource) => [resource.id, resource]));
   const summaryByModule = new Map(dashboard.modules.map((module) => [module.id, module]));
   return {
     generatedAt: now,
@@ -427,9 +433,15 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     modules: modules.map((module) => ({ ...module, summary: summaryByModule.get(module.id) })),
     inactiveModules,
     items,
-    resources: resources.map(studyResourcePreview),
+    resources: resources.map((resource) => studyResourcePreview(resourcePreviewById.get(resource.id) ?? resource)),
     mistakes,
-    sessions,
+    sessions: sessions.map((session) => ({
+      ...session,
+      resources: session.resources.map((link) => ({
+        ...link,
+        resource: studyResourcePreview(resourcePreviewById.get(link.resource.id) ?? link.resource),
+      })),
+    })),
     reviews,
     scheduleBlocks,
     canvas: {
@@ -560,15 +572,24 @@ export async function listDashboardStudyResources(workspace: StudyWorkspace, inp
   };
   const [total, rows] = await Promise.all([
     prisma.studyResource.count({ where }),
-    prisma.studyResource.findMany({
-      where,
-      include: { module: { select: { id: true, code: true, name: true, color: true } } },
-      orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
-      skip: (input.page - 1) * input.limit,
-      take: input.limit,
-    }),
+    query
+      ? prisma.studyResource.findMany({
+          where,
+          include: { module: { select: { id: true, code: true, name: true, color: true } } },
+          orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+          skip: (input.page - 1) * input.limit,
+          take: input.limit,
+        })
+      : prisma.studyResource.findMany({
+          where,
+          select: studyResourcePreviewSelect,
+          orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+          skip: (input.page - 1) * input.limit,
+          take: input.limit,
+        }),
   ]);
-  const visible = query ? rows.filter((row) => contentMatchesQuery("StudyResource", row, query)) : rows;
+  const previewRows = query ? rows : await hydrateLegacyStudyResourceAnalysis(rows);
+  const visible = query ? previewRows.filter((row) => contentMatchesQuery("StudyResource", row, query)) : previewRows;
   return { items: visible.map(studyResourcePreview), page: input.page, limit: input.limit, total, hasMore: input.page * input.limit < total };
 }
 
@@ -593,7 +614,7 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
 export async function updateDashboardStudyResource(workspace: StudyWorkspace, resourceId: string, input: z.infer<typeof studyResourceUpdateSchema>) {
   const resource = await findStudyResource(workspace.id, resourceId);
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
-  const data = {
+  const partialData = {
     ...(input.moduleId ? { moduleId: input.moduleId } : {}),
     ...(input.title ? { title: input.title } : {}),
     ...(input.body !== undefined ? { body: input.body } : {}),
@@ -602,27 +623,37 @@ export async function updateDashboardStudyResource(workspace: StudyWorkspace, re
     ...(input.caption !== undefined ? { caption: input.caption } : {}),
     ...(input.pinned !== undefined ? { pinnedAt: input.pinned ? new Date() : null } : {}),
   };
-  let updated;
-  if (input.expectedUpdatedAt) {
-    const written = await prisma.studyResource.updateMany({
-      where: { id: resource.id, workspaceId: workspace.id, updatedAt: new Date(input.expectedUpdatedAt) },
-      data,
-    });
-    if (written.count !== 1) {
-      throw new StudyModeError("This note changed somewhere else. Reopen it before saving so nothing is overwritten.", "conflict");
-    }
-    updated = await prisma.studyResource.findUniqueOrThrow({ where: { id: resource.id }, include: { module: true } });
-  } else {
-    updated = await prisma.studyResource.update({ where: { id: resource.id }, data, include: { module: true } });
+  const nextTitle = input.title ?? resource.title;
+  const nextBody = input.body !== undefined ? input.body : resource.body;
+  const nextCaption = input.caption !== undefined ? input.caption : resource.caption;
+  if (input.body !== undefined || input.caption !== undefined) {
+    Object.assign(partialData, deriveStudyResourceAnalysis({ ...resource, body: nextBody, caption: nextCaption }));
   }
+  if (input.title !== undefined) {
+    Object.assign(partialData, { wikiLookupKeys: studyResourceWikiLookupKeys({ kind: resource.kind, title: nextTitle, publicId: resource.publicId }) });
+  }
+  const data = completeSearchableContentUpdate("StudyResource", resource, partialData);
   const noteContentChanged = resource.kind === StudyResourceKind.NOTE && (
     input.title !== undefined || input.body !== undefined || input.tags !== undefined || input.moduleId !== undefined
   );
-  if (noteContentChanged) {
-    await recordStudyNoteRevision(updated, "DASHBOARD");
-    await rebuildStudyNoteLinks(workspace.id, updated.id);
-  }
-  await audit(workspace, "study.resource.dashboard_updated", { resourceId: resource.id, publicId: resource.publicId });
+  const updated = await prisma.$transaction(async (tx) => {
+    if (input.expectedUpdatedAt) {
+      const written = await tx.studyResource.updateMany({
+        where: { id: resource.id, workspaceId: workspace.id, updatedAt: new Date(input.expectedUpdatedAt) },
+        data,
+      });
+      if (written.count !== 1) throw new StudyModeError("This note changed somewhere else. Reopen it before saving so nothing is overwritten.", "conflict");
+    } else {
+      await tx.studyResource.update({ where: { id: resource.id }, data });
+    }
+    const saved = await tx.studyResource.findUniqueOrThrow({ where: { id: resource.id }, include: { module: true } });
+    if (noteContentChanged) {
+      await recordStudyNoteRevision(saved, "DASHBOARD", tx);
+      await rebuildStudyNoteLinks(workspace.id, saved.id, tx);
+    }
+    await tx.auditLog.create({ data: { userId: workspace.ownerUserId, action: "study.resource.dashboard_updated", metadata: { workspaceId: workspace.id, resourceId: resource.id, publicId: resource.publicId } } });
+    return saved;
+  });
   return { ...updated, noteMeta: await studyNoteMetadata(updated) };
 }
 
@@ -941,15 +972,51 @@ function studyWorkspaceView(workspace: StudyWorkspace) {
   };
 }
 
-function studyResourcePreview<T extends { body: string | null; ocrText: string | null; caption: string | null }>(resource: T) {
+export const studyResourcePreviewSelect = {
+  id: true, workspaceId: true, moduleId: true, publicId: true, kind: true, title: true, url: true, tags: true,
+  mediaKind: true, mimeType: true, fileName: true, fileSize: true, ocrConfidence: true, pinnedAt: true,
+  sourceSentAt: true, createdAt: true, updatedAt: true, analysisExcerpt: true, analysisExcerptReady: true,
+  analysisExcerptTruncated: true, captionPreview: true, ocrPreview: true, ocrPreviewTruncated: true,
+  module: { select: { id: true, code: true, name: true, color: true } },
+} satisfies Prisma.StudyResourceSelect;
+
+function studyResourcePreview<T extends {
+  kind: StudyResourceKind; analysisExcerpt?: string | null; analysisExcerptReady?: boolean; analysisExcerptTruncated?: boolean;
+  captionPreview?: string | null; ocrPreview?: string | null; ocrPreviewTruncated?: boolean;
+  body?: string | null; ocrText?: string | null; caption?: string | null;
+}>(resource: T) {
+  const {
+    analysisExcerpt, analysisExcerptReady: _analysisExcerptReady, analysisExcerptTruncated,
+    captionPreview, ocrPreview, ocrPreviewTruncated, ...rest
+  } = resource;
+  const bodyPreview = excerpt(analysisExcerpt ?? resource.body ?? null, STUDY_SCALE_BUDGETS.dashboardResourcePreviewChars);
+  const imageCaptionPreview = excerpt(captionPreview ?? resource.caption ?? null, STUDY_SCALE_BUDGETS.dashboardResourcePreviewChars);
+  const imageOcrPreview = excerpt(ocrPreview ?? resource.ocrText ?? null, STUDY_SCALE_BUDGETS.dashboardResourcePreviewChars);
+  const documentLike = resource.kind === StudyResourceKind.NOTE || resource.kind === StudyResourceKind.QUESTION || resource.kind === StudyResourceKind.LINK;
   return {
-    ...resource,
-    body: excerpt(resource.body, 700),
-    ocrText: excerpt(resource.ocrText, 700),
-    caption: excerpt(resource.caption, 700),
-    hasMoreBody: Boolean(resource.body && resource.body.length > 700),
-    hasMoreOcr: Boolean(resource.ocrText && resource.ocrText.length > 700),
+    ...rest,
+    body: documentLike ? bodyPreview : null,
+    ocrText: documentLike ? null : imageOcrPreview,
+    caption: documentLike ? null : imageCaptionPreview,
+    hasMoreBody: documentLike && Boolean(analysisExcerptTruncated),
+    hasMoreOcr: !documentLike && Boolean(ocrPreviewTruncated || (resource.ocrText && Array.from(resource.ocrText).length > STUDY_SCALE_BUDGETS.dashboardResourcePreviewChars)),
   };
+}
+
+async function hydrateLegacyStudyResourceAnalysis<
+  T extends {
+    id: string; workspaceId: string; kind: StudyResourceKind; analysisExcerpt: string | null; analysisExcerptReady: boolean;
+    analysisExcerptTruncated: boolean; captionPreview: string | null; ocrPreview: string | null; ocrPreviewTruncated: boolean;
+  },
+>(resources: T[]): Promise<T[]> {
+  const legacyIds = [...new Set(resources.filter((resource) => !resource.analysisExcerptReady).map((resource) => resource.id))];
+  if (!legacyIds.length) return resources;
+  const legacyRows = await prisma.studyResource.findMany({
+    where: { workspaceId: resources[0]!.workspaceId, id: { in: legacyIds } },
+    select: { id: true, kind: true, body: true, caption: true, ocrText: true },
+  });
+  const derivedById = new Map(legacyRows.map((resource) => [resource.id, deriveStudyResourceAnalysis(resource)]));
+  return resources.map((resource) => ({ ...resource, ...derivedById.get(resource.id) }));
 }
 
 function resourceSearchWhere(query: string): Prisma.StudyResourceWhereInput[] {

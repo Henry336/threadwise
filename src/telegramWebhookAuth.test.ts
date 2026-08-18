@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { registerAuthenticatedTelegramWebhook } from "./server";
+import { SharedRateLimitExceededError } from "./security/sharedRateLimit";
 
 const PATH = "/telegram/threadwise-v2";
 const OLD_PATH = "/telegram/webhook";
@@ -9,8 +10,9 @@ const SECRET = "phase1_test_secret_0123456789_ABCDEFG";
 function testServer() {
   const server = Fastify();
   const handler = vi.fn(async (_request, reply) => reply.code(204).send());
-  registerAuthenticatedTelegramWebhook(server, { path: PATH, secret: SECRET, handler });
-  return { server, handler };
+  const rateLimiter = vi.fn(async () => undefined);
+  registerAuthenticatedTelegramWebhook(server, { path: PATH, secret: SECRET, handler, rateLimiter });
+  return { server, handler, rateLimiter };
 }
 
 describe("authenticated Telegram webhook", () => {
@@ -19,7 +21,7 @@ describe("authenticated Telegram webhook", () => {
     ["malformed", "spaces are not a Telegram secret"],
     ["invalid", "phase1_test_secret_0123456789_WRONGVALUE"]
   ])("rejects a %s secret before the bot handler", async (_label, secret) => {
-    const { server, handler } = testServer();
+    const { server, handler, rateLimiter } = testServer();
     const response = await server.inject({
       method: "POST",
       url: PATH,
@@ -30,11 +32,12 @@ describe("authenticated Telegram webhook", () => {
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "not_found" });
     expect(handler).not.toHaveBeenCalled();
+    expect(rateLimiter).not.toHaveBeenCalled();
     await server.close();
   });
 
   it("accepts the configured secret and invokes the bot handler once", async () => {
-    const { server, handler } = testServer();
+    const { server, handler, rateLimiter } = testServer();
     const response = await server.inject({
       method: "POST",
       url: PATH,
@@ -43,7 +46,26 @@ describe("authenticated Telegram webhook", () => {
     });
 
     expect(response.statusCode).toBe(204);
+    expect(rateLimiter).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledTimes(1);
+    await server.close();
+  });
+
+  it("returns a retryable 429 before invoking the bot when the actor exceeds its budget", async () => {
+    const { server, handler, rateLimiter } = testServer();
+    rateLimiter.mockRejectedValue(new SharedRateLimitExceededError(23));
+
+    const response = await server.inject({
+      method: "POST",
+      url: PATH,
+      headers: { "x-telegram-bot-api-secret-token": SECRET },
+      payload: { update_id: 1, message: { from: { id: 123456789 } } },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["retry-after"]).toBe("23");
+    expect(response.json()).toEqual({ error: "rate_limited" });
+    expect(handler).not.toHaveBeenCalled();
     await server.close();
   });
 
@@ -57,6 +79,40 @@ describe("authenticated Telegram webhook", () => {
     });
 
     expect(response.statusCode).toBe(404);
+    expect(handler).not.toHaveBeenCalled();
+    await server.close();
+  });
+
+  it("rejects malformed JSON before the bot handler", async () => {
+    const { server, handler } = testServer();
+    const response = await server.inject({
+      method: "POST",
+      url: PATH,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": SECRET
+      },
+      payload: "{broken"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+    await server.close();
+  });
+
+  it("applies Fastify's body limit before invoking the bot", async () => {
+    const { server, handler } = testServer();
+    const response = await server.inject({
+      method: "POST",
+      url: PATH,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": SECRET
+      },
+      payload: JSON.stringify({ padding: "x".repeat(1_048_576) })
+    });
+
+    expect(response.statusCode).toBe(413);
     expect(handler).not.toHaveBeenCalled();
     await server.close();
   });

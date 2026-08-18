@@ -362,7 +362,7 @@ describe("dashboard data security", () => {
     expect(scoreIdea).toHaveBeenCalledWith(expect.objectContaining({ title: idea.title, concept: idea.concept, sourceText: idea.sourceText }));
     expect(ideaUpdate).toHaveBeenCalledWith({
       where: { id: "idea-1" },
-      data: { scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts }
+      data: expect.objectContaining({ scores: brief, marketNotes: brief.marketNotes, dos: brief.dos, donts: brief.donts })
     });
   });
 

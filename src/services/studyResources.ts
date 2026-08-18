@@ -9,8 +9,9 @@ import { randomBytes } from "crypto";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { StudyModeError, findStudyModule } from "./study";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
+import { deriveStudyResourceAnalysis, studyResourceWikiLookupKeys } from "./studyScale";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
@@ -138,8 +139,10 @@ export async function createStudyResource(workspace: StudyWorkspace, input: Stud
   const fallback = input.fileName || caption || url || body || `${humanKind(input.kind)} capture`;
   const title = cleanTitle(input.title || deriveStudyResourceTitle(fallback));
   const publicId = await nextStudyResourcePublicId(workspace.id, input.kind);
-  const resource = await prisma.studyResource.create({
-    data: {
+  const analysis = deriveStudyResourceAnalysis({ kind: input.kind, body, caption, ocrText: input.ocrText });
+  const resource = await prisma.$transaction(async (tx) => {
+    const created = await tx.studyResource.create({
+      data: {
       workspaceId: workspace.id,
       moduleId: module.id,
       publicId,
@@ -156,30 +159,32 @@ export async function createStudyResource(workspace: StudyWorkspace, input: Stud
       fileSize: input.fileSize,
       caption: caption?.slice(0, 4_000),
       ocrText: input.ocrText?.slice(0, 100_000),
+      ...analysis,
+      wikiLookupKeys: studyResourceWikiLookupKeys({ kind: input.kind, title, publicId }),
       ocrConfidence: input.ocrConfidence,
       sourceMessageId: input.sourceMessageId,
       sourceSenderTelegramId: input.sourceSenderTelegramId,
       sourceSentAt: input.sourceSentAt,
-    },
-    include: { module: true },
-  });
-  await prisma.auditLog.create({
-    data: {
+      },
+      include: { module: true },
+    });
+    await tx.auditLog.create({ data: {
       userId: workspace.ownerUserId,
       action: "study.resource.created",
       metadata: {
         workspaceId: workspace.id,
         moduleId: module.id,
-        resourceId: resource.id,
+        resourceId: created.id,
         publicId,
         kind: input.kind,
       },
-    },
+    } });
+    if (created.kind === StudyResourceKind.NOTE) {
+      await recordStudyNoteRevision(created, input.sourceMessageId ? "TELEGRAM" : "DASHBOARD", tx);
+      await rebuildStudyNoteLinks(workspace.id, created.id, tx);
+    }
+    return created;
   });
-  if (resource.kind === StudyResourceKind.NOTE) {
-    await recordStudyNoteRevision(resource, input.sourceMessageId ? "TELEGRAM" : "DASHBOARD");
-    await rebuildStudyNoteLinks(workspace.id, resource.id);
-  }
   return { resource, duplicate: false };
 }
 
@@ -189,9 +194,15 @@ export async function updateStudyResourceOcr(
   text: string,
   confidence: number,
 ): Promise<void> {
-  await prisma.studyResource.updateMany({
-    where: { id: resourceId, workspaceId },
-    data: { ocrText: text.slice(0, 100_000), ocrConfidence: confidence },
+  const resource = await prisma.studyResource.findFirst({ where: { id: resourceId, workspaceId } });
+  if (!resource) return;
+  const ocrText = text.slice(0, 100_000);
+  await prisma.studyResource.update({
+    where: { id: resource.id },
+    data: completeSearchableContentUpdate("StudyResource", resource, {
+      ocrText, ocrConfidence: confidence,
+      ...deriveStudyResourceAnalysis({ ...resource, ocrText }),
+    }),
   });
 }
 

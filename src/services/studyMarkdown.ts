@@ -1,9 +1,12 @@
-import { StudyResourceKind, type StudyResource } from "@prisma/client";
+import { Prisma, StudyResourceKind, type PrismaClient, type StudyResource } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { normalizeStudyWikiTarget, STUDY_SCALE_BUDGETS } from "./studyScale";
+export { normalizeStudyWikiTarget } from "./studyScale";
 
 const WIKI_LINK = /(?<!\\)\[\[([^\]\n]{1,240})\]\]/gu;
-const MAX_NOTE_REVISIONS = 50;
-const RETURNED_NOTE_REVISIONS = 20;
+const MAX_NOTE_REVISIONS = STUDY_SCALE_BUDGETS.noteRevisions;
+const RETURNED_NOTE_REVISIONS = STUDY_SCALE_BUDGETS.noteRevisions;
+type StudyMarkdownDatabase = Pick<PrismaClient, "studyResource" | "studyResourceRevision" | "studyNoteLink"> | Prisma.TransactionClient;
 
 export type StudyWikiLink = {
   target: string;
@@ -39,10 +42,6 @@ function wikiLinkSource(markdown: string): string {
   }).join("\n");
 }
 
-export function normalizeStudyWikiTarget(value: string): string {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en");
-}
-
 export function markdownForTelegram(markdown: string): string {
   return markdown
     .replace(/```mermaid\s*[\s\S]*?```/giu, "\n[Mermaid diagram — open this note in Threadwise to view it]\n")
@@ -70,9 +69,19 @@ export function markdownForTelegram(markdown: string): string {
 export async function recordStudyNoteRevision(
   resource: Pick<StudyResource, "id" | "workspaceId" | "kind" | "title" | "body" | "tags">,
   source: "TELEGRAM" | "DASHBOARD" | "AI_SUGGESTION" | "RESTORE" = "DASHBOARD",
+  database: StudyMarkdownDatabase = prisma,
 ): Promise<void> {
   if (resource.kind !== StudyResourceKind.NOTE || !resource.body) return;
-  await prisma.studyResourceRevision.create({
+  if (Array.from(resource.body).length > STUDY_SCALE_BUDGETS.noteRevisionBodyChars) {
+    throw new Error(`Study note revisions cannot exceed ${STUDY_SCALE_BUDGETS.noteRevisionBodyChars} characters.`);
+  }
+  const latest = await database.studyResourceRevision.findFirst({
+    where: { resourceId: resource.id },
+    orderBy: { createdAt: "desc" },
+    select: { title: true, body: true, tags: true },
+  });
+  if (latest && latest.title === resource.title && latest.body === resource.body && sameStrings(latest.tags, resource.tags)) return;
+  await database.studyResourceRevision.create({
     data: {
       workspaceId: resource.workspaceId,
       resourceId: resource.id,
@@ -82,51 +91,55 @@ export async function recordStudyNoteRevision(
       source,
     },
   });
-  const stale = await prisma.studyResourceRevision.findMany({
+  const stale = await database.studyResourceRevision.findMany({
     where: { resourceId: resource.id },
     orderBy: { createdAt: "desc" },
     skip: MAX_NOTE_REVISIONS,
     select: { id: true },
   });
-  if (stale.length) await prisma.studyResourceRevision.deleteMany({ where: { id: { in: stale.map(({ id }) => id) } } });
+  if (stale.length) await database.studyResourceRevision.deleteMany({ where: { id: { in: stale.map(({ id }) => id) } } });
 }
 
-export async function rebuildStudyNoteLinks(workspaceId: string, sourceResourceId: string): Promise<void> {
-  const [source, candidates] = await Promise.all([
-    prisma.studyResource.findFirst({
-      where: { id: sourceResourceId, workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null },
-      select: { id: true, body: true },
-    }),
-    prisma.studyResource.findMany({
-      where: { workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null },
-      select: { id: true, title: true, publicId: true },
-    }),
-  ]);
+export async function rebuildStudyNoteLinks(
+  workspaceId: string,
+  sourceResourceId: string,
+  database: StudyMarkdownDatabase = prisma,
+): Promise<void> {
+  const source = await database.studyResource.findFirst({
+    where: { id: sourceResourceId, workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null },
+    select: { id: true, body: true },
+  });
   if (!source) return;
+  const links = parseStudyWikiLinks(source.body ?? "");
+  const lookupKeys = [...new Set(links.map(({ target }) => normalizeStudyWikiTarget(target)).filter(Boolean))];
+  const candidates = lookupKeys.length ? await database.studyResource.findMany({
+    where: { workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null, wikiLookupKeys: { hasSome: lookupKeys } },
+    select: { id: true, title: true, publicId: true },
+  }) : [];
   const targets = new Map<string, string>();
   for (const candidate of candidates) {
     targets.set(normalizeStudyWikiTarget(candidate.title), candidate.id);
     targets.set(normalizeStudyWikiTarget(candidate.publicId), candidate.id);
   }
-  const targetIds = [...new Set(parseStudyWikiLinks(source.body ?? "")
+  const targetIds = [...new Set(links
     .map(({ target }) => targets.get(normalizeStudyWikiTarget(target)))
     .filter((id): id is string => Boolean(id && id !== source.id)))];
-  await prisma.$transaction([
-    prisma.studyNoteLink.deleteMany({ where: { workspaceId, sourceResourceId: source.id } }),
-    ...(targetIds.length ? [prisma.studyNoteLink.createMany({
-      data: targetIds.map((targetResourceId) => ({ workspaceId, sourceResourceId: source.id, targetResourceId })),
-      skipDuplicates: true,
-    })] : []),
-  ]);
+  await database.studyNoteLink.deleteMany({ where: { workspaceId, sourceResourceId: source.id } });
+  if (targetIds.length) await database.studyNoteLink.createMany({
+    data: targetIds.map((targetResourceId) => ({ workspaceId, sourceResourceId: source.id, targetResourceId })),
+    skipDuplicates: true,
+  });
 }
 
 export async function studyNoteMetadata(
   resource: Pick<StudyResource, "id" | "workspaceId" | "kind" | "body">,
 ) {
   if (resource.kind !== StudyResourceKind.NOTE) return undefined;
+  const outgoing = parseStudyWikiLinks(resource.body ?? "");
+  const lookupKeys = [...new Set(outgoing.map(({ target }) => normalizeStudyWikiTarget(target)).filter(Boolean))];
   const [candidates, backlinks, revisions] = await Promise.all([
     prisma.studyResource.findMany({
-      where: { workspaceId: resource.workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null },
+      where: { workspaceId: resource.workspaceId, kind: StudyResourceKind.NOTE, archivedAt: null, wikiLookupKeys: { hasSome: lookupKeys.length ? lookupKeys : ["__no_wiki_target__"] } },
       select: { id: true, publicId: true, title: true, module: { select: { code: true } } },
     }),
     prisma.studyNoteLink.findMany({
@@ -146,7 +159,7 @@ export async function studyNoteMetadata(
     targets.set(normalizeStudyWikiTarget(candidate.title), candidate);
     targets.set(normalizeStudyWikiTarget(candidate.publicId), candidate);
   }
-  const outgoingLinks = parseStudyWikiLinks(resource.body ?? "").map((link) => {
+  const outgoingLinks = outgoing.map((link) => {
     const target = targets.get(normalizeStudyWikiTarget(link.target));
     return {
       ...link,
@@ -165,4 +178,8 @@ export async function studyNoteMetadata(
     revisions,
     revisionLimit: MAX_NOTE_REVISIONS,
   };
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

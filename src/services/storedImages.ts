@@ -3,7 +3,7 @@ import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
 import { nextPublicId } from "./publicIds";
 import { recordImageCaptionUndo } from "./undo";
-import { contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
+import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
 const IMAGE_PAGE_SIZE = 10;
 
@@ -149,12 +149,18 @@ export async function updateStoredImageCaption(userId: string, reference: string
   if (!nextCaption) throw new Error("The caption cannot be empty.");
   return prisma.$transaction(async (tx) => {
     await recordImageCaptionUndo(tx, userId, image, image.caption);
-    return tx.storedImage.update({ where: { id: image.id }, data: { caption: nextCaption } });
+    return tx.storedImage.update({ where: { id: image.id }, data: completeSearchableContentUpdate("StoredImage", image, { caption: nextCaption }) });
   });
 }
 
 export async function updateStoredImageOcr(userId: string, id: string, text: string, confidence: number) {
-  return prisma.storedImage.updateMany({ where: { id, userId }, data: { ocrText: text, ocrConfidence: confidence } });
+  const image = await prisma.storedImage.findFirst({ where: { id, userId } });
+  if (!image) return { count: 0 };
+  await prisma.storedImage.update({
+    where: { id: image.id },
+    data: completeSearchableContentUpdate("StoredImage", image, { ocrText: text, ocrConfidence: confidence }),
+  });
+  return { count: 1 };
 }
 
 export async function deleteStoredImage(userId: string, id: string) {

@@ -7,6 +7,381 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — full guarded-stack production release authorized (2026-08-18 SGT)
+
+- Authorization: the owner explicitly authorized releasing the complete currently guarded backend
+  and dashboard stack to production, including merging and deployment after required safety gates.
+- Candidate releases: backend PR #17 contains product/security candidate `d0d76f9` plus only this
+  durable release-state checkpoint; dashboard PR #2 is at `f181ad8`. Both branches are pushed.
+- Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
+  validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
+  until Gate 3A proves a current backup/PITR reference, an isolated restore, and independent recovery
+  of every production encryption key needed by retained ciphertext. Never print or commit secrets.
+- Release sequence: reconcile with `main`; close F-01 through F-03; run full local and remote CI plus
+  ephemeral PostgreSQL migration validation; prove Gate 3A; merge both repositories; allow/trigger
+  Render and Vercel production releases; verify health, release commits, migrations, and key product
+  flows; then update this ledger and both tracked contributor logs.
+- Rollback: no production mutation has occurred in this checkpoint yet. Until merge, rollback is the
+  existing guarded branches. After deployment, use the prior known-good app releases; database
+  rollback must follow the Phase 3/4 runbooks and the verified Gate 3A backup rather than destructive
+  ad-hoc SQL.
+- Current status: release preflight is complete and F-01/F-02/F-03 are locally remediated. Canvas pagination
+  and material URLs are now constrained to the exact configured origin/API path before credentials
+  are attached, URL credentials are rejected, and automatic redirects are disabled. The hostile
+  URL/redirect regressions and existing Canvas utilities pass. Dashboard mutation JWT identifiers
+  are now atomically consumed in a shared PostgreSQL table using hashed token/principal fingerprints;
+  safe reads remain retryable, replayed mutations fail before their side effect, and expired rows are
+  sampled for indexed cleanup. F-03 now uses shared PostgreSQL fixed-window buckets with hashed
+  principals: authenticated dashboard routes have read/write/expensive/stream budgets, Telegram
+  webhooks are limited by verified actor only after secret validation, and remaining
+  admin/worker/OAuth HTTP ingress has independent IP/route-class budgets. Rate-limit responses are
+  bounded `429` replies with `Retry-After`. The live npm advisory gate then identified
+  `GHSA-ggr8-5vv4-36mx` in Prisma's transitive `deepmerge-ts` 7.x; a narrow 8.0.0 override is
+  compatible with the current Prisma 6.19.3 config surface and now yields zero production and
+  complete audit findings. Complete backend tests (907 passed, 6 skipped), Prisma
+  validate/generate, typecheck, build, secret scan, and 140 security-assurance tests pass.
+  Complete dashboard tests (122), typecheck, lint, production build, secret scan, 52 security
+  tests, and Playwright (5 passed, 1 intentional mobile skip) pass. GitHub-hosted release gates
+  also pass on both PRs, including the backend's isolated PostgreSQL 17
+  migration job and the dashboard's separate validate/browser jobs plus Vercel preview. Dashboard
+  CI initially discovered its Playwright spec through Vitest on Linux; `f181ad8` now explicitly
+  separates those suites and the rerun is green. Gate 3A passed on 2026-08-18 SGT using a fresh
+  encrypted logical production backup and an isolated local PostgreSQL restore. All 95 public
+  tables and 21,563 rows matched exactly; the four pending release migrations applied cleanly, and
+  the only post-migration count delta was the expected Prisma history change from 56 to 60. The
+  encrypted archive is retained under the ignored `backups/` directory by SHA-256 reference; all
+  plaintext/decrypted dumps and temporary local databases were removed. The owner confirmed
+  independent recovery of the exact production content-encryption key without exposing it.
+  Canonical non-secret evidence is in `docs/GATE3A_RECOVERY_EVIDENCE.md`. Exact next action: merge
+  PRs #17/#2, deploy Render/Vercel, verify production, then rotate the Canvas access token.
+
+## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
+
+- Status: implementation, validation, and push are complete on the existing
+  `codex/study-image-sidebar-coursemology` branches. The scrollbar dashboard commit is `29748a4`
+  and the paired continuity checkpoint is `d243ac2`.
+  This is a narrow visual refinement; no merge, deployment, production mutation, provider work,
+  database operation, or credential change is authorized.
+- Objective: replace the browser-default desktop scrollbar presentation in the Study sidebar
+  navigation and horizontal timetable with restrained Threadwise-styled tracks/thumbs that remain
+  legible in light and dark themes. Preserve native scrolling, keyboard behavior, overflow sizing,
+  mobile's hidden drawer scrollbar, and every unrelated overflow surface.
+- Validation: focused Study regressions pass 11 tests; the full suite passes 122 tests; typecheck,
+  lint, production build, tracked-secret scan, design JSON parsing, and Playwright pass (5 passed,
+  one intentional mobile skip). The required Impeccable detector found only two unrelated,
+  pre-existing side-border warnings at stylesheet lines 575 and 822; this scoped change did not
+  alter them.
+- Exact next action: wait for owner live review. Do not merge or deploy without a new explicit
+  instruction.
+
+## Active checkpoint — Study image inspection, desktop sidebar, and Coursemology research (2026-08-17 SGT)
+
+- Status: implementation, local validation, and push are complete on matching
+  `codex/study-image-sidebar-coursemology` branches, stacked from the pushed post-Phase-7 guarded
+  heads (backend `eb8406b`, dashboard `f604a21`). No merge, deployment, production mutation,
+  credential collection, provider connection, database operation, or public Study activation is
+  authorized in this checkpoint. Dashboard implementation commit is `7a768a7`; backend research
+  and continuity commit is `557fbae`.
+- Objective: let Study users click a saved Library image into a full-viewport, natural-resolution
+  scrollable inspection mode; add an explicit persisted desktop/laptop sidebar toggle while
+  retaining the existing mobile drawer; and determine whether Coursemology can safely provide
+  assignment/deadline data without browser-token or cookie scraping.
+- Decisions: image viewing defaults to fit-to-window and toggles between fit and original-pixel
+  inspection from either the image or a labelled header action. `Escape` exits original-size mode
+  before closing the viewer. The desktop sidebar choice is local UI preference only and never
+  changes mobile drawer behavior. Coursemology remains research-only pending a supported read-only
+  OAuth/export contract from the instance operator; do not collect credentials.
+- Durable research: `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md` records evidence, safe integration
+  options, a provider-neutral connector shape, and the operator-confirmation gate.
+- Validation: dashboard focused regressions pass 10 tests; the full suite passes 121 tests;
+  typecheck, lint, production build, tracked-secret scan, production/full dependency audits, and
+  Playwright pass (5 passed, one intentional mobile skip). The generic browser suite does not seed a
+  private Study Library image, so the exact signed-in image interaction remains an owner live-check
+  after branch deployment; source regressions cover its state and natural-resolution CSS contract.
+- Exact next action: wait for owner live review of the pushed dashboard branch. Do not merge, deploy,
+  or begin a Coursemology connector without a new explicit instruction.
+
+## Completed checkpoint — post-Phase-7 Work selector fix and final audit (2026-08-17 SGT)
+
+- Status: implementation and audit are complete on matching
+  `codex/post-phase7-work-filter-audit` branches from Phase 7 heads (backend `06b9146`, dashboard
+  `45864dc`). The Study **Work** module filter now uses the accessible `StudyChoicePicker`, retains
+  persisted `all`/module semantics, and has a focused regression guard. No merge, deployment,
+  production mutation, credential change, database operation, or public Study activation occurred.
+- Audit result: the guarded seven-phase codebase is materially safer and more testable with no
+  confirmed cycle-caused regression. Production has not inherited most Phase 3–7 changes. Phase 6
+  F-01 (Canvas cross-origin bearer forwarding), F-02 (dashboard JWT replay), and F-03 (no shared
+  principal/route rate limit) remain unresolved; Phase 3/4 production activation remains blocked at
+  Gate 3A; CSP enforcement and hosted synthetic staging remain incomplete. Canonical detail is in
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md`.
+- Audit safety: read local repositories and redacted reports only; do not inspect private production
+  rows or secrets, run active production penetration tests, rotate credentials, provision staging,
+  or silently remediate audit findings. The explicitly requested Work selector is the only approved
+  product-code correction in this checkpoint.
+- Validation: dashboard 119 tests, focused selector 8 tests, security assurance 52 tests, Playwright
+  5 passed/1 intentional skip, typecheck/lint/build, tracked-secret scan, and both dependency audits
+  pass. Backend deterministic rerun passes 886 tests with 6 skips/2 explicit TODOs; focused security
+  assurance passes 136 tests with 2 TODOs; typecheck/build/Prisma/secret/dependency gates pass. One
+  first-run concurrent Excel failure passed independently and in the one-worker full rerun.
+- Exact next action: commit and push both guarded branches, then wait for owner review. Do not merge,
+  deploy, activate migrations/CSP/public Study, rotate credentials, or remediate F-01–F-03 without a
+  new explicit instruction.
+
+## Completed checkpoint — Phase 7 public Study architecture (2026-08-17 SGT)
+
+- Status: the user explicitly authorized Phase 7 and the architecture package is complete on
+  `codex/phase7-public-study-architecture`, stacked from the pushed Phase 6 assurance
+  checkpoints (backend `c5b0726`, dashboard `638b10d`). Canonical backend architecture commit is
+  `77739bd`; the dashboard boundary commit is `16687b3`. No production, database, schema,
+  credential, bot, provider, invitation, merge, or deployment state changed.
+- Objective: produce an implementation-ready public Study architecture covering tenant-scoped
+  identity, ownership, membership and authorization; encrypted per-tenant Canvas credentials;
+  an isolated Study bot identity; tenant-scoped jobs, quotas, leases, rate limits, abuse controls,
+  audit, export and deletion; a privacy/threat model; and a staged cohort rollout.
+- Invariants: preserve the sealed founder Study workspace and its fail-closed owner/chat gate;
+  do not relax singleton checks as a shortcut, expose or rotate any secret, create the public bot,
+  migrate data, deploy, merge, or claim general-availability readiness. Server-side AI and Canvas
+  processing require deliberate plaintext-in-memory trust boundaries and must not be mislabeled as
+  end-to-end encryption.
+- Dependency gates: Phase 6 findings F-01 (Canvas cross-origin bearer forwarding), F-02 (dashboard
+  JWT replay), and F-03 (principal/route rate limiting) remain unresolved and must be remediated
+  before a public cohort. Hosted synthetic staging also remains blocked on an isolated database and
+  synthetic credential set. Phase 3/4 production activation still inherits Gate 3A.
+- Deliverables: `docs/PUBLIC_STUDY_ARCHITECTURE.md`,
+  `docs/PUBLIC_STUDY_THREAT_MODEL.md`, `docs/PUBLIC_STUDY_ROLLOUT.md`, and dashboard
+  `docs/PUBLIC_STUDY_DASHBOARD_BOUNDARY.md`, plus linked architecture/roadmap and both contributor
+  logs. This is a design phase; its proposed schema/API examples are not migrations or runtime
+  implementation.
+- Validation: decisions were traced to the current Prisma schema, singleton Study services,
+  bot registration, Canvas/reminder/analysis jobs, backend authorization, and dashboard BFF.
+  Requirement coverage, code-fence parity, local links, prohibited embedded payloads/secret
+  material, `git diff --check`, exact branch/status, and the final committed file sets were checked.
+  No runtime test/build was warranted because Phase 7 changed documentation only.
+- Rollback: revert or delete only the Phase 7 documentation commits/branches. The Phase 6 branches
+  remain the immutable baselines; no runtime rollback or data restore should be necessary.
+- Recommended setup: GPT-5.6 Sol with high reasoning for tenant, authorization, credential and threat
+  boundaries. xhigh/Ultra are not required because the phase is bounded and produces reviewable
+  architecture rather than an irreversible migration.
+- Exact next action: wait for explicit approval. The first bounded implementation unit is Stage 7.1
+  tenant foundations only: additive workspace lifecycle/membership/capability/audit foundations
+  behind disabled flags plus founder authorization shadow tests. Do not combine it with Canvas
+  OAuth, a public bot, invitations, production migration/backfill, founder cutover, merge, or
+  deployment. Phase 6 F-01–F-03 remediation remains a separate approval boundary and is required
+  before any cohort.
+
+## Active checkpoint — Phase 6 synthetic security assurance (2026-08-17 SGT)
+
+- Status: the user explicitly authorized Phase 6. Work is isolated on stacked branches
+  `codex/phase6-security-assurance` from backend Phase 5 commit `a440c0b` and dashboard
+  Phase 5 commit `9d47b57`; production and the Phase 3 activation gate remain untouched.
+- Objective: exercise the recorded threat matrix with synthetic identities, chats,
+  workspaces, provider responses, credentials, and bounded hostile inputs; make the
+  checks reproducible in CI; publish a redacted evidence report; and present any
+  security findings before changing the affected security behavior.
+- Safety boundary: do not read or mutate private production data, reuse production
+  credentials in staging, invoke real providers with abusive payloads, run destructive
+  account deletion or forged bot mutations in production, deploy or merge to `main`,
+  or perform Phase 7 public-Study architecture work. Safe production header/config
+  verification still requires separate explicit approval.
+- Environment checkpoint: this laptop has Node/npx but no Docker, Render CLI, or
+  installed Render connector. No dedicated synthetic hosted database or staging secret
+  set is present in the repositories. Phase 6 therefore starts with a deterministic
+  in-process synthetic assurance harness and CI gates. A hosted deployment may proceed
+  only if a genuinely isolated non-production database and credentials can be proven;
+  it must never fall back to production configuration.
+- Required coverage: Telegram webhook authenticity/replay/malformed behavior;
+  authentication, authorization, membership, and IDOR boundaries; dashboard JWT,
+  workspace, proxy, origin/CSRF, and payload limits; Markdown/Mermaid XSS and resource
+  limits; SSRF surfaces; rate/lease/duplicate/concurrency/recovery behavior; and secret,
+  dependency, and static analysis gates.
+- Validation and reporting: run focused hostile-input tests, full backend/dashboard test
+  gates, TypeScript/build/lint/browser checks where applicable, dependency and secret
+  scans, and a diff/secret review. Record passing evidence, limitations, residual risks,
+  and any blocked hosted-staging work in a dedicated Phase 6 report.
+- Rollback: revert or discard only the two Phase 6 branches. The Phase 5 branches remain
+  the immutable baselines; no database migration, hosted configuration mutation, or
+  production deployment is part of this phase.
+- Findings checkpoint: local synthetic assurance and the new CI gates pass. Phase 6 is
+  stopped before remediation with three review items documented in
+  `docs/SECURITY_PHASE6_ASSURANCE.md`: Canvas pagination can forward its bearer token to a
+  cross-origin next link (F-01, high); dashboard service JWT JTIs are not replay-consumed
+  (F-02, medium); and the HTTP API has no principal/route rate-limit gate (F-03, medium
+  availability/cost gap). Do not fix or dismiss these without the user's review.
+- Validation checkpoint: backend focused assurance 136 passed with two explicit TODOs;
+  backend full suite 886 passed, 6 skipped, 2 TODO; dashboard focused assurance 52 passed;
+  dashboard full suite 118 passed; Chromium 5 passed with one intentional mobile skip;
+  both secret scans and both complete/production dependency audits passed with zero
+  findings; TypeScript/build/Prisma and dashboard lint/build passed.
+- Exact next action: present F-01 through F-03, wait for explicit remediation approval, and
+  run the pushed synthetic PostgreSQL workflow after GitHub CLI re-authentication or through a
+  reviewed pull request. Hosted staging, token rotation, safe production checks, merge, and
+  deployment remain separate approval boundaries.
+- Publication checkpoint: backend assurance commit `be7d2ec` and dashboard assurance commit
+  `bf9c948` are pushed on their respective `codex/phase6-security-assurance` branches. No pull
+  request, merge, or deployment was created. The workflows expose manual dispatch, but the local
+  GitHub CLI credential is expired; therefore the remote ephemeral PostgreSQL stage is still
+  awaiting a user-authenticated dispatch or pull request and must not be reported as passed.
+
+## Completed checkpoint — Phase 5 browser hardening and maintainability (2026-08-17 SGT)
+
+- Status: implementation and local validation complete on guarded branches. The user explicitly authorized
+  Phase 5 and publication where safe; Phase 6 active security assurance and Phase 7 public Study
+  architecture remain unauthorized.
+- Repository baselines: backend `da3992130b1112d0d2b813a47f63d605fe361325` on new stacked branch
+  `codex/phase5-browser-hardening`; dashboard `c560351d92b98316d555a259d66009dbbe1523c2`
+  on its own `codex/phase5-browser-hardening` branch. Both baselines were clean and matched their
+  remotes. Dashboard work is isolated in the writable linked worktree
+  `D:\CodexData\WindowsDocuments\Codex\Threadwise\.local\phase5-dashboard`.
+- Authorized scope: staged nonce-based CSP without `unsafe-inline`/`unsafe-eval`; expiring and
+  identity/workspace-scoped local note drafts with logout/workspace cleanup; an explicit safe
+  remote-Markdown-image policy; bounded/deferred Mermaid rendering with safe failures; dashboard
+  pull-request/main CI with reproducible install, tests, lint, typecheck, build, dependency audit,
+  and secret scanning; meaningful behavior/browser coverage; one bounded responsibility split where
+  it reduces risk; and reconciliation of retired local-worker documentation with the server-side
+  OpenAI implementation.
+- Invariants: preserve safe GFM notes, same-origin protected images, crash-safe drafts, authenticated
+  BFF authorization, Study owner/chat fail-closed behavior, PWA static-only caching, and production
+  functionality. Do not weaken CSP with broad inline/eval allowances, render raw HTML, load arbitrary
+  remote media automatically, expose secrets, inspect private production data, run active attacks,
+  deploy, or mutate production configuration in this phase.
+- Validation gate: focused CSP/draft/Markdown/Mermaid/auth/focus/scroll/responsive behavior tests;
+  full dashboard tests, TypeScript, ESLint, production build, production dependency audit, CI syntax,
+  diff/secret review, and clean pushed branches. Backend documentation changes receive the backend
+  full gate. Deployment remains separate from branch publication.
+- Rollback: all runtime changes stay on the dashboard Phase 5 branch and all cross-repository
+  documentation stays on the stacked backend Phase 5 branch. Reverting either branch leaves current
+  production untouched. No migration or destructive cleanup is planned.
+- Recommended execution setup recorded by the roadmap: Terra medium for CI/tests/docs/mechanical
+  refactors and Sol medium for CSP design or responsibility splits; high/xhigh/Ultra are not needed.
+- Implementation checkpoint: the dashboard now has a request nonce CSP staged in report-only mode
+  by default (`THREADWISE_CSP_MODE=enforce` is the explicit later activation switch), with no
+  `unsafe-inline` or `unsafe-eval`; the Telegram bootstrap receives the request nonce. Study note
+  and weekly-review drafts use versioned seven-day envelopes scoped to their owner/tenant/resource,
+  invalid or expired records fail closed, prior-workspace and legacy drafts are cleared on the next
+  workspace mount, and logout clears all Threadwise drafts before submission.
+- Markdown media checkpoint: same-origin images continue to load; arbitrary HTTPS images now require
+  a per-render explicit click that warns about the destination host/IP disclosure; insecure,
+  protocol-relative, and embedded `data:` image payloads are blocked. Mermaid rendering moved to a
+  dedicated component, is deferred until near the viewport, rejects configuration directives and
+  diagrams over character/line/statement budgets, renders through a serialized queue with a timeout,
+  and still sanitizes the strict-security SVG with DOMPurify.
+- Final implementation: the dashboard also has pull-request/main CI with least-privilege workflow
+  permissions, reproducible install, secret scanning, full and production dependency audits, unit,
+  type, lint, build, and real Chromium desktop/mobile gates. Risky Markdown media and Mermaid work
+  moved out of the generic Markdown renderer into bounded components. Provider documentation now
+  names the deployed Study analysis path as server-side OpenAI; the historical/local Gemini Ideas
+  adapter is not presented as a required laptop worker.
+- Final validation: dashboard secret scan passed across 144 tracked files; 24 test files and all 99
+  tests passed; TypeScript, ESLint, and the production build passed; Playwright passed five desktop/
+  mobile smoke tests with one intentional mobile-only command-palette skip; full and production npm
+  audits reported zero vulnerabilities. Backend documentation received the full gate: 117 files,
+  884 tests passed with 6 intentional skips, TypeScript and build passed, and both dependency audits
+  are clean after a non-breaking development-only `nanoid` lockfile refresh.
+- Activation boundary: CSP remains report-only by design. Report-only browser evidence identifies
+  framework/component inline style attributes that must be migrated before enforcement. Do not set
+  `THREADWISE_CSP_MODE=enforce` until the inventory and rollout steps in the dashboard
+  `docs/CSP_ROLLOUT.md` pass in a preview environment. Production, databases, migrations, and hosted
+  configuration remain untouched. Phase 6 and Phase 7 remain unauthorized.
+
+## Active checkpoint — Phase 4 Study scalability and transactional reliability authorized (2026-08-17 SGT)
+
+- The user explicitly authorized Phase 4 implementation and publication where safe. Scope is the
+  recorded Phase 4 only: bounded Study evidence/list payloads, precomputed encrypted excerpts,
+  explicit query/payload/revision budgets, atomic note mutation side effects, indexed incremental
+  wiki-link resolution, and synthetic scale/concurrency regression coverage. Phase 5 and later are
+  not authorized.
+- Dependency boundary: Phase 3 is validated but remains on the non-production
+  `codex/phase3-privacy-remediation` branch because Gate 3A is unresolved. Phase 4 therefore starts
+  from Phase 3 commit `14e8466183d1773b493165a6384f6279a007550f` and must publish on a separate
+  stacked non-production branch. Do not merge, deploy, or apply either migration merely because
+  Phase 4 code passes. Production remains unchanged until the Phase 3 backup/restore/key gate.
+- Design decisions: store encrypted, bounded analysis excerpts rather than hydrating full resource
+  and Canvas bodies for evidence; keep the existing dedicated full-resource endpoint for explicit
+  detail; list at most 30 resource previews per paginated request and cap the compatibility snapshot
+  at 400 records with each preview text field capped at 700 characters rather than 400 full bodies;
+  keep evidence caps at 20 sessions, 28
+  resources, 16 work items, 28 Canvas materials, and 16 assignments; retain a 48,000-character AI
+  prompt ceiling; and cap revision history at 20 full snapshots of at most the existing 100,000
+  body characters while skipping consecutive duplicates.
+- Transaction invariant: a Study note create/update or accepted AI edit must commit the current
+  resource, revision, outgoing links, and audit record in one database transaction. Optimistic
+  concurrency remains fail-closed. Link resolution must query indexed normalized lookup keys for
+  only the targets present in the changed note instead of scanning every active note.
+- Expected surfaces: additive Study resource/Canvas excerpt and wiki-key schema migration;
+  encryption policy and excerpt derivation; Canvas/Study persistence; evidence and dashboard
+  preview queries; transaction-aware Markdown/revision/link services; guarded backfill tooling;
+  focused contract, atomicity, concurrency, and synthetic scale tests; roadmap/context/runbook and
+  working-log documentation.
+- Validation: Prisma validate/format/generate, TypeScript/build, focused and full tests, synthetic
+  large-workspace payload/query-budget checks, concurrent edit behavior, production dependency
+  audit, diff/secret review, and clean pushed branch. No production database inspection, write,
+  migration apply, deployment, or load test is authorized in this phase.
+- Implementation checkpoint: the additive schema, encrypted/readiness-marked resource and Canvas
+  excerpts, bounded preview/evidence queries, tenant-scoped pre-backfill compatibility fallback,
+  guarded restart-safe backfill, indexed wiki targets, 20-snapshot revision policy, and atomic
+  resource/revision/link/audit writes are implemented. Focused validation currently passes, including
+  legacy readability and a 10,000-record synthetic derivation budget. The durable activation and
+  rollback sequence is in `docs/PHASE4_STUDY_SCALE_RUNBOOK.md`.
+- Publication boundary: publish only `codex/phase4-study-scalability`, stacked on Phase 3 commit
+  `14e8466183d1773b493165a6384f6279a007550f`. Do not merge or deploy it and do not apply
+  `20260817190000_phase4_study_scalability` or the Phase 4 backfill while Gate 3A remains unresolved.
+  The dashboard contract remains backward-compatible, so no dashboard code change is required.
+- Final local gate: Prisma validate and format check, Prisma generation, TypeScript, build, and all
+  117 test files pass (884 tests passed; 6 intentionally skipped). The production dependency audit
+  reports zero vulnerabilities. Diff/secret review found no added credential; the only matched API
+  key text is the pre-existing documentation placeholder `OPENAI_API_KEY=...`. No production data,
+  configuration, deployment, migration, backfill, or live load test was touched.
+- Phase 4 implementation commit: `90db323` (`harden Study scaling and note transactions`). This
+  commit is the reviewed code/schema/test/runbook checkpoint. The next action is publication of this
+  stacked branch only; operational activation still waits for Gate 3A and the Phase 4 runbook.
+
+## Active checkpoint — Phase 3 privacy remediation authorized (2026-08-17 SGT)
+
+- The user explicitly authorized security remediation Phase 3 and publication where safe. Scope is
+  the approved Phase 3 design only: encrypted/minimized AI payloads, exact blind-index replacement,
+  bounded retention, restart-safe dry-run-first backfill/cleanup tooling, tests, schema additions,
+  and operator documentation. Phase 4 and later remain unauthorized.
+- The retention defaults in the Phase 2 report are treated as the selected implementation policy:
+  failed/abandoned jobs 14 days; completed prompt/evidence diagnostics 7 days; superseded completed
+  results 30 days while preserving the latest successful result per workspace/module/mode; pending
+  suggestions until reviewed/superseded; applied/dismissed/superseded suggestions 30 days.
+- Safety boundary: local implementation and synthetic validation may proceed. No production
+  backfill, plaintext redaction, retention deletion, or irreversible migration apply may run until
+  Gate 3A proves a current backup, isolated restore, and independent encryption-key recovery. The
+  absence of Supabase control-plane access or owner confirmation must remain a reported blocker,
+  not be guessed around. An additive schema migration must not be pushed to an auto-deploying
+  production branch before that gate is resolved.
+- Invariants: existing mixed plaintext/ciphertext reads continue; new AI payloads never create
+  plaintext duplicates; blind tokens are replaced from the complete current content; concurrent
+  edits use compare-and-swap; every apply path requires explicit acknowledgement and verified
+  backup reference; checkpoints/audits contain aggregates and safe codes only; no private content,
+  keys, identifiers, or row payloads enter logs/docs/chat.
+- Expected surfaces: `prisma/schema.prisma` and one additive migration; content-encryption policy;
+  Study/Idea AI persistence; a bounded retention service; guarded backfill/cleanup scripts;
+  focused encryption, retention, migration, and mixed-compatibility tests; encryption/runbook and
+  security roadmap/context documentation. Dashboard behavior should remain contract-compatible.
+- Validation: Prisma format/validate/generate, focused and full tests, TypeScript/build, production
+  dependency audit, synthetic interruption/retry/tamper/mixed-state tests, dry runs with no writes,
+  diff/secret scan, and explicit production-gate review. Rollback before legacy redaction uses the
+  prior release/additive legacy fields; after any future redaction it requires the verified backup
+  and preserved key.
+- Starting backend head is `a1694b9e88741c5808649395bb3088a735891be1`, clean on `main` and
+  matched to `origin/main`. Implementation checkpoint: additive AI ciphertext/diagnostic columns,
+  encrypted Canvas extraction and suggestions, exact complete-record blind-token replacement,
+  guarded restart-safe backfill, bounded retention/minimization, focused tests, and the operator
+  runbook are implemented locally. Final local validation passes: Prisma validate/format/generate,
+  TypeScript, production build, all 873 tests with 6 intentional skips, 15 focused privacy tests,
+  diff whitespace review, and a production dependency audit with zero vulnerabilities. The guarded
+  utilities were not pointed at production or run in apply mode. No production database,
+  configuration, deployment, content, or retention state has changed. Publication target is the
+  non-production `codex/phase3-privacy-remediation` branch; production merge/apply is deliberately
+  withheld. Gate 3A remains blocked on verified backup, isolated restore, and independent key
+  recovery.
+- Publication checkpoint: commit `0804596` was pushed to
+  `origin/codex/phase3-privacy-remediation`. It has not been merged into `main`, so the additive
+  migration has not entered the production auto-deploy path. The next authorized action is Gate 3A
+  evidence collection and review; do not run either apply utility or merge this branch before it.
+
 ## Active checkpoint — Phase 2 privacy inspection completed (2026-08-17 SGT)
 
 - The user explicitly authorized Phase 2 after Phase 1 containment passed production validation.

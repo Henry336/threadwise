@@ -1,14 +1,14 @@
 import { StudyAnalysisMode, StudyItemSource, StudyResourceKind, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
+import { deriveCanvasAnalysisExcerpt, deriveStudyResourceAnalysis, STUDY_SCALE_BUDGETS } from "./studyScale";
 
-const MAX_SESSIONS = 20;
-const MAX_RESOURCES = 28;
-const MAX_ITEMS = 16;
-const MAX_CANVAS_MATERIALS = 28;
-const MAX_ASSIGNMENTS = 16;
+const MAX_SESSIONS = STUDY_SCALE_BUDGETS.evidenceSessions;
+const MAX_RESOURCES = STUDY_SCALE_BUDGETS.evidenceResources;
+const MAX_ITEMS = STUDY_SCALE_BUDGETS.evidenceWorkItems;
+const MAX_CANVAS_MATERIALS = STUDY_SCALE_BUDGETS.evidenceCanvasMaterials;
+const MAX_ASSIGNMENTS = STUDY_SCALE_BUDGETS.evidenceAssignments;
 const MAX_DETAIL = 1_200;
-const MAX_EDITABLE_NOTE = 5_000;
 
 export type StudyEvidenceKind = "SESSION" | "RESOURCE" | "WORK_ITEM" | "CANVAS_MATERIAL" | "CANVAS_ASSIGNMENT";
 export type StudyEvidenceAuthority = "LEARNER_RECORD" | "OCR_TRANSCRIPT" | "COURSE_MATERIAL" | "COURSE_METADATA" | "ACTIVITY_LOG";
@@ -94,8 +94,8 @@ export async function collectStudyEvidence(
       orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
       take: MAX_RESOURCES,
       select: {
-        id: true, publicId: true, kind: true, title: true, body: true, url: true, tags: true,
-        caption: true, ocrText: true, sourceSentAt: true, createdAt: true,
+        id: true, publicId: true, kind: true, title: true, url: true, tags: true,
+        analysisExcerpt: true, analysisExcerptReady: true, analysisExcerptTruncated: true, sourceSentAt: true, createdAt: true,
       },
     }),
     prisma.studyItem.findMany({
@@ -115,7 +115,7 @@ export async function collectStudyEvidence(
       take: MAX_CANVAS_MATERIALS,
       select: {
         id: true, kind: true, title: true, position: true, contentType: true, byteSize: true,
-        extractedText: true, unlockAt: true, sourceUpdatedAt: true, updatedAt: true,
+        analysisExcerpt: true, analysisExcerptReady: true, unlockAt: true, sourceUpdatedAt: true, updatedAt: true,
         courseModule: { select: { id: true, name: true, position: true, unlockAt: true } },
       },
     }),
@@ -129,7 +129,8 @@ export async function collectStudyEvidence(
   ]);
 
   const sessions = sessionsNewest.reverse();
-  const resources = resourcesNewest.reverse();
+  const resources = (await hydrateLegacyResourceAnalysis(workspace.id, resourcesNewest)).reverse();
+  const analyzedMaterials = await hydrateLegacyCanvasAnalysis(workspace.id, materials);
   const items = itemsNewest.reverse();
   const evidence: StudyAnalysisEvidence[] = [];
   const sessionEvidenceById = new Map<string, string>();
@@ -163,23 +164,21 @@ export async function collectStudyEvidence(
     const id = `R${index + 1}`;
     resourceEvidenceById.set(resource.id, id);
     const occurredAt = resource.sourceSentAt ?? resource.createdAt;
-    const userText = resource.body?.trim();
+    const userText = resource.analysisExcerpt?.trim();
     evidence.push({
       id,
       kind: "RESOURCE",
-      authority: resource.ocrText && !userText ? "OCR_TRANSCRIPT" : "LEARNER_RECORD",
+      authority: resource.kind === StudyResourceKind.IMAGE ? "OCR_TRANSCRIPT" : "LEARNER_RECORD",
       title: cleanText(`${resource.kind}: ${resource.title}`, 180),
       detail: cleanText([
-        resource.caption ? `Caption: ${resource.caption}` : undefined,
-        userText ? `Learner text: ${userText}` : undefined,
-        resource.ocrText ? `OCR transcript (may contain recognition errors): ${resource.ocrText}` : undefined,
+        userText ? `${resource.kind === StudyResourceKind.NOTE ? "Learner text" : "Saved excerpt"}: ${userText}` : undefined,
         resource.tags.length ? `Tags: ${resource.tags.join(", ")}` : undefined,
         resource.url ? "A saved link is present; its contents were not fetched." : undefined,
       ].filter(Boolean).join("\n"), MAX_DETAIL),
       occurredAt: occurredAt.toISOString(),
       resourceId: resource.id,
       resourceKind: resource.kind,
-      ...(resource.kind === StudyResourceKind.NOTE && userText ? { editableText: cleanText(userText, MAX_EDITABLE_NOTE) } : {}),
+      ...(resource.kind === StudyResourceKind.NOTE && userText && !resource.analysisExcerptTruncated ? { editableText: userText } : {}),
     });
   }
 
@@ -201,16 +200,16 @@ export async function collectStudyEvidence(
     });
   }
 
-  for (const [index, material] of materials.entries()) {
+  for (const [index, material] of analyzedMaterials.entries()) {
     const id = `C${index + 1}`;
     const coursePosition = material.courseModule?.position;
     evidence.push({
       id,
       kind: "CANVAS_MATERIAL",
-      authority: material.extractedText ? "COURSE_MATERIAL" : "COURSE_METADATA",
+      authority: material.analysisExcerpt ? "COURSE_MATERIAL" : "COURSE_METADATA",
       title: cleanText(`${material.courseModule?.name ? `${material.courseModule.name}: ` : ""}${material.title}`, 180),
-      detail: cleanText(material.extractedText
-        ? `Published Canvas text: ${material.extractedText}`
+      detail: cleanText(material.analysisExcerpt
+        ? `Published Canvas excerpt: ${material.analysisExcerpt}`
         : [
             `Published ${material.kind.toLowerCase()} metadata; body was not downloaded.`,
             material.contentType ? `Content type: ${material.contentType}` : undefined,
@@ -247,7 +246,7 @@ export async function collectStudyEvidence(
   const expectedThroughPosition = expectedModules.length ? Math.max(...expectedModules.map((entry) => entry.position)) : undefined;
   const expectedMaterialCount = expectedThroughPosition === undefined
     ? 0
-    : materials.filter((entry) => (entry.courseModule?.position ?? Number.MAX_SAFE_INTEGER) <= expectedThroughPosition).length;
+    : analyzedMaterials.filter((entry) => (entry.courseModule?.position ?? Number.MAX_SAFE_INTEGER) <= expectedThroughPosition).length;
   const coverage: StudyCoverage = {
     status: timedModules.length ? "TIMED" : "UNKNOWN",
     explanation: timedModules.length
@@ -269,12 +268,41 @@ export async function collectStudyEvidence(
     sessionCount: sessions.length,
     resourceCount: resources.length,
     workItemCount: items.length,
-    canvasMaterialCount: materials.length,
+    canvasMaterialCount: analyzedMaterials.length,
     assignmentCount: assignments.length,
     coverage,
     evidence,
     edges,
   };
+}
+
+async function hydrateLegacyResourceAnalysis<
+  T extends { id: string; analysisExcerpt: string | null; analysisExcerptReady: boolean; analysisExcerptTruncated: boolean },
+>(workspaceId: string, resources: T[]): Promise<T[]> {
+  const legacyIds = resources.filter((resource) => !resource.analysisExcerptReady).map((resource) => resource.id);
+  if (!legacyIds.length) return resources;
+  const legacyRows = await prisma.studyResource.findMany({
+    where: { workspaceId, id: { in: legacyIds } },
+    select: { id: true, kind: true, body: true, caption: true, ocrText: true },
+  });
+  const derivedById = new Map(legacyRows.map((resource) => [resource.id, deriveStudyResourceAnalysis(resource)]));
+  return resources.map((resource) => ({ ...resource, ...derivedById.get(resource.id) }));
+}
+
+async function hydrateLegacyCanvasAnalysis<
+  T extends { id: string; analysisExcerpt: string | null; analysisExcerptReady: boolean },
+>(workspaceId: string, materials: T[]): Promise<T[]> {
+  const legacyIds = materials.filter((material) => !material.analysisExcerptReady).map((material) => material.id);
+  if (!legacyIds.length) return materials;
+  const legacyRows = await prisma.studyCanvasMaterial.findMany({
+    where: { workspaceId, id: { in: legacyIds } },
+    select: { id: true, extractedText: true },
+  });
+  const derivedById = new Map(legacyRows.map((material) => [material.id, {
+    analysisExcerpt: deriveCanvasAnalysisExcerpt(material.extractedText),
+    analysisExcerptReady: true,
+  }]));
+  return materials.map((material) => ({ ...material, ...derivedById.get(material.id) }));
 }
 
 export function buildStudyEvidenceEdges(input: {

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { StudyNoteEditSuggestionStatus, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
+import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import { StudyModeError } from "./study";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
+import { deriveStudyResourceAnalysis } from "./studyScale";
 
 export type StudyNoteSuggestionReview = {
   action: "APPLY" | "DISMISS";
@@ -32,7 +34,7 @@ export async function reviewStudyNoteEditSuggestion(
   const result = await prisma.$transaction(async (tx) => {
     const current = await tx.studyNoteEditSuggestion.findFirst({
       where: { id: suggestion.id, workspaceId: workspace.id },
-      include: { resource: { select: { body: true, archivedAt: true } } },
+      include: { resource: true },
     });
     if (!current || current.status !== StudyNoteEditSuggestionStatus.PENDING) return { conflict: "reviewed" as const };
     if (current.resource.archivedAt || hashText(current.resource.body ?? "") !== current.originalBodyHash) {
@@ -42,16 +44,23 @@ export async function reviewStudyNoteEditSuggestion(
       });
       return { conflict: "changed" as const };
     }
-    const resource = await tx.studyResource.update({ where: { id: current.resourceId }, data: { body: appliedBody } });
+    const resource = await tx.studyResource.update({
+      where: { id: current.resourceId },
+      data: completeSearchableContentUpdate("StudyResource", current.resource, {
+        body: appliedBody,
+        ...deriveStudyResourceAnalysis({ ...current.resource, body: appliedBody }),
+      }),
+    });
     const applied = await tx.studyNoteEditSuggestion.update({
       where: { id: current.id },
       data: { status: StudyNoteEditSuggestionStatus.APPLIED, appliedBody, reviewedAt: new Date() },
     });
+    await recordStudyNoteRevision(resource, "AI_SUGGESTION", tx);
+    await rebuildStudyNoteLinks(workspace.id, resource.id, tx);
+    await tx.auditLog.create({ data: { userId: workspace.ownerUserId, action: "study.note.suggestion_applied", metadata: { workspaceId: workspace.id, moduleId: current.moduleId, resourceId: resource.id, suggestionId: current.id } } });
     return { applied, resource };
   });
   if ("applied" in result && result.applied && result.resource) {
-    await recordStudyNoteRevision(result.resource, "AI_SUGGESTION");
-    await rebuildStudyNoteLinks(workspace.id, result.resource.id);
     return result.applied;
   }
   if (result.conflict === "changed") throw new StudyModeError("This note changed after the suggestion was created. Review the current note before editing it.", "conflict");

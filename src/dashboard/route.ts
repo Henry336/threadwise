@@ -118,6 +118,14 @@ import {
 } from "../services/studyAnalysis";
 import { reviewStudyNoteEditSuggestion } from "../services/studyNoteEditSuggestions";
 import {
+  DashboardRequestReplayError,
+  consumeDashboardMutationToken,
+} from "../security/dashboardRequestReplay";
+import {
+  SharedRateLimitExceededError,
+  limitDashboardRequest,
+} from "../security/sharedRateLimit";
+import {
   DashboardStudyAccessError,
   archiveDashboardStudyItem,
   archiveDashboardStudyResource,
@@ -231,6 +239,8 @@ type DashboardRouteOptions = {
   ai?: AiProvider;
   loadSnapshot?: (telegramId: string) => Promise<DashboardSnapshot>;
   actions?: Partial<DashboardRouteActions>;
+  requestReplayGuard?: typeof consumeDashboardMutationToken;
+  requestRateLimiter?: typeof limitDashboardRequest;
 };
 
 const defaultActions: DashboardRouteActions = {
@@ -274,11 +284,15 @@ type RouteWork = (telegramId: string, scope: DashboardWorkspaceScope) => Promise
 export function registerDashboardRoute(server: FastifyInstance, options: DashboardRouteOptions = {}): void {
   const loadSnapshot = options.loadSnapshot ?? getDashboardSnapshot;
   const actions = { ...defaultActions, ...options.actions };
+  const requestReplayGuard = options.requestReplayGuard ?? consumeDashboardMutationToken;
+  const requestRateLimiter = options.requestRateLimiter ?? limitDashboardRequest;
 
   const run = async (request: FastifyRequest, reply: FastifyReply, work: RouteWork, operation: string) => {
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      await requestRateLimiter(principal, request.method, operation);
+      await requestReplayGuard(principal, request.method, operation);
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
         dashboardWorkspaceHeader(request),
@@ -313,6 +327,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      await requestRateLimiter(principal, request.method, "list_workspaces");
       return { workspaces: await listDashboardWorkspaces(principal.telegramId) };
     } catch (error) {
       return sendDashboardError(reply, error, "list_workspaces");
@@ -363,6 +378,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+      await requestRateLimiter(principal, request.method, "live_sync");
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
         dashboardWorkspaceHeader(request),
@@ -975,6 +991,18 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
       .code(401)
       .header("WWW-Authenticate", 'Bearer realm="threadwise-dashboard", error="invalid_token"')
       .send({ error: "unauthorized" });
+  }
+  if (error instanceof DashboardRequestReplayError) {
+    return reply.code(409).send({
+      error: "request_replayed",
+      message: "This request was already processed. Refresh and try again.",
+    });
+  }
+  if (error instanceof SharedRateLimitExceededError) {
+    return reply
+      .code(429)
+      .header("Retry-After", String(error.retryAfterSeconds))
+      .send({ error: "rate_limited", message: "Too many requests. Try again shortly." });
   }
   if (error instanceof DashboardGroupAccessError) {
     return reply.code(403).send({ error: "group_access_denied", message: error.message });

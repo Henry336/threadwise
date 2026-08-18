@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ContentCipher,
+  completeSearchableContentUpdate,
   contentMatchesQuery,
   decryptContentTree,
   isEncryptedContent,
@@ -80,15 +81,36 @@ describe("content encryption", () => {
     expect(contentMatchesQuery("Note", result, "searchable")).toBe(true);
   });
 
-  it("encrypts Prisma set operations without changing unrelated fields", () => {
+  it("replaces the complete blind index for full Prisma set updates", () => {
     const cipher = new ContentCipher({ mode: "write", key: KEY });
     const args = prepareContentWrite("Task", "update", {
-      data: { title: { set: "Updated title" }, status: { set: "OPEN" } },
-    }, cipher) as { data: { title: { set: string }; status: { set: string }; searchTokens: { push: string[] } } };
+      data: {
+        title: { set: "Updated title" },
+        description: { set: null },
+        sourceText: { set: "Original capture" },
+        status: { set: "OPEN" },
+      },
+    }, cipher) as { data: { title: { set: string }; status: { set: string }; searchTokens: { set: string[] } } };
 
     expect(isEncryptedContent(args.data.title.set)).toBe(true);
     expect(args.data.status.set).toBe("OPEN");
-    expect(args.data.searchTokens.push.length).toBeGreaterThan(0);
+    expect(args.data.searchTokens.set.length).toBeGreaterThan(0);
+  });
+
+  it("rejects partial searchable updates instead of leaving stale or incomplete tokens", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    expect(() => prepareContentWrite("Task", "update", {
+      data: { title: "Updated title" },
+    }, cipher)).toThrow(/supply every protected searchable field/u);
+  });
+
+  it("completes partial content changes from the current decrypted record", () => {
+    const completed = completeSearchableContentUpdate("Task", {
+      title: "Old", description: "Details", sourceText: "Original capture",
+    }, { title: "New", status: "OPEN" });
+    expect(completed).toEqual({
+      title: "New", description: "Details", sourceText: "Original capture", status: "OPEN",
+    });
   });
 
   it("encrypts note revision snapshots without creating a searchable plaintext index", () => {
@@ -101,5 +123,46 @@ describe("content encryption", () => {
     expect(isEncryptedContent(args.data.body)).toBe(true);
     expect(args.data.source).toBe("DASHBOARD");
     expect(args.data.searchTokens).toBeUndefined();
+  });
+
+  it("encrypts AI payloads and suggestions without creating blind indexes", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const job = prepareContentWrite("GeminiStudyAnalysisJob", "create", {
+      data: { evidenceCiphertext: "{\"version\":1}", promptCiphertext: "private prompt", resultCiphertext: null },
+    }, cipher) as { data: Record<string, unknown> };
+    const suggestion = prepareContentWrite("StudyNoteEditSuggestion", "create", {
+      data: { originalBody: "before", suggestedBody: "after", rationale: "course evidence", appliedBody: null },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(job.data.evidenceCiphertext)).toBe(true);
+    expect(isEncryptedContent(job.data.promptCiphertext)).toBe(true);
+    expect(isEncryptedContent(suggestion.data.originalBody)).toBe(true);
+    expect(isEncryptedContent(suggestion.data.suggestedBody)).toBe(true);
+    expect(job.data.searchTokens).toBeUndefined();
+    expect(suggestion.data.searchTokens).toBeUndefined();
+  });
+
+  it("encrypts bounded Study excerpts without adding them to search tokens", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const resource = prepareContentWrite("StudyResource", "create", {
+      data: {
+        title: "Note", body: "Full body", analysisExcerpt: "Bounded private excerpt",
+        captionPreview: "Bounded caption", ocrPreview: "Bounded OCR",
+      },
+    }, cipher) as { data: Record<string, unknown> };
+    const material = prepareContentWrite("StudyCanvasMaterial", "create", {
+      data: { extractedText: "Full Canvas text", analysisExcerpt: "Bounded Canvas excerpt" },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(resource.data.analysisExcerpt)).toBe(true);
+    expect(isEncryptedContent(resource.data.captionPreview)).toBe(true);
+    expect(isEncryptedContent(resource.data.ocrPreview)).toBe(true);
+    expect(isEncryptedContent(material.data.analysisExcerpt)).toBe(true);
+    expect(resource.data.searchTokens).toEqual(expect.arrayContaining(cipher.searchTokens("StudyResource", [
+      { field: "title", value: "Note" },
+      { field: "body", value: "Full body" },
+    ])));
+    expect(JSON.stringify(resource.data.searchTokens)).not.toContain("Bounded private excerpt");
+    expect(JSON.stringify(resource.data.searchTokens)).not.toContain("Bounded OCR");
   });
 });
