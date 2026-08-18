@@ -7,6 +7,31 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — full guarded-stack production release authorized (2026-08-18 SGT)
+
+- Authorization: the owner explicitly authorized releasing the complete currently guarded backend
+  and dashboard stack to production, including merging and deployment after required safety gates.
+- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `0494915`; dashboard matching
+  branch at `29748a4`. Both are pushed, clean, and respectively 14 and 8 commits ahead of `main`.
+- Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
+  validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
+  until Gate 3A proves a current backup/PITR reference, an isolated restore, and independent recovery
+  of every production encryption key needed by retained ciphertext. Never print or commit secrets.
+- Release sequence: reconcile with `main`; close F-01 through F-03; run full local and remote CI plus
+  ephemeral PostgreSQL migration validation; prove Gate 3A; merge both repositories; allow/trigger
+  Render and Vercel production releases; verify health, release commits, migrations, and key product
+  flows; then update this ledger and both tracked contributor logs.
+- Rollback: no production mutation has occurred in this checkpoint yet. Until merge, rollback is the
+  existing guarded branches. After deployment, use the prior known-good app releases; database
+  rollback must follow the Phase 3/4 runbooks and the verified Gate 3A backup rather than destructive
+  ad-hoc SQL.
+- Current status: release preflight is complete and F-01 is locally remediated. Canvas pagination
+  and material URLs are now constrained to the exact configured origin/API path before credentials
+  are attached, URL credentials are rejected, and automatic redirects are disabled. The hostile
+  URL/redirect regressions and existing Canvas utilities pass (18 focused tests) with backend
+  typecheck clean. Exact next action is F-02 durable dashboard-JWT replay consumption, followed by
+  F-03 shared principal/route rate limiting and the complete local/remote release gates.
+
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
 - Status: implementation, validation, and push are complete on the existing

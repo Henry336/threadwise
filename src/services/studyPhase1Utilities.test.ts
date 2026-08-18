@@ -9,7 +9,7 @@ import {
 } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { scoreStudyAttentionItem } from "./studyAttention";
-import { canvasMaterialKind, canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink, studyCanvasSyncIsDue } from "./studyCanvas";
+import { canvasMaterialKind, canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink, requireCanvasApiUrl, studyCanvasSyncIsDue } from "./studyCanvas";
 import { studyReminderPriority } from "./studyReminders";
 import { deriveStudyResourceTitle, paginateStudyText } from "./studyResources";
 
@@ -35,7 +35,12 @@ describe("Canvas mapping rules", () => {
     expect(nextCanvasLink(null)).toBeUndefined();
   });
 
-  it.todo("rejects a Canvas pagination link whose origin differs from CANVAS_BASE_URL");
+  it("rejects a Canvas pagination link whose origin differs from CANVAS_BASE_URL", () => {
+    expect(() => requireCanvasApiUrl(
+      "https://attacker.example/api/v1/courses?page=2",
+      "https://canvas.example/api/v1",
+    )).toThrow("outside the configured Canvas API boundary");
+  });
 
   it("maps Canvas module items into stable material kinds", () => {
     expect(canvasMaterialKind("Page")).toBe(StudyCanvasMaterialKind.PAGE);

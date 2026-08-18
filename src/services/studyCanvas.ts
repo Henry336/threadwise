@@ -714,12 +714,7 @@ function safeCanvasByteSize(value: number | undefined): number | undefined {
 }
 
 async function canvasGetFromApiUrl<T>(value: string): Promise<T> {
-  const base = new URL(env.CANVAS_BASE_URL);
-  const url = new URL(value, base);
-  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname.replace(/\/$/, ""))) {
-    throw new Error("Canvas returned a material API URL outside the configured Canvas API origin.");
-  }
-  const response = await canvasFetch(url.toString());
+  const response = await canvasFetch(requireCanvasApiUrl(value));
   return response.json() as Promise<T>;
 }
 
@@ -752,10 +747,12 @@ async function canvasFetch(url: string): Promise<Response> {
     const timeout = setTimeout(() => controller.abort(), env.STUDY_EXTERNAL_REQUEST_TIMEOUT_MS);
     timeout.unref?.();
     try {
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${env.CANVAS_ACCESS_TOKEN!}`, Accept: "application/json" },
-        signal: controller.signal,
-      });
+      const response = await fetchCanvasApiResponse(
+        url,
+        env.CANVAS_ACCESS_TOKEN!,
+        fetch,
+        controller.signal,
+      );
       if (response.ok) return response;
       const body = (await response.text()).slice(0, 400);
       if (response.status === 401 || response.status === 403) {
@@ -777,6 +774,50 @@ async function canvasFetch(url: string): Promise<Response> {
     }
   }
   throw lastError;
+}
+
+export function requireCanvasApiUrl(
+  value: string,
+  configuredBaseUrl = env.CANVAS_BASE_URL,
+): string {
+  const base = new URL(configuredBaseUrl);
+  const resolutionBase = new URL(`${base.toString().replace(/\/$/, "")}/`);
+  const url = new URL(value, resolutionBase);
+  const basePath = base.pathname.replace(/\/$/, "");
+  const withinApiPath = url.pathname === basePath || url.pathname.startsWith(`${basePath}/`);
+  if (
+    url.origin !== base.origin
+    || url.username.length > 0
+    || url.password.length > 0
+    || !withinApiPath
+  ) {
+    throw new CanvasRequestError(
+      "Canvas returned an API URL outside the configured Canvas API boundary.",
+      false,
+    );
+  }
+  return url.toString();
+}
+
+export async function fetchCanvasApiResponse(
+  value: string,
+  accessToken: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const url = requireCanvasApiUrl(value);
+  const response = await fetcher(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    redirect: "manual",
+    signal,
+  });
+  if (response.status >= 300 && response.status < 400) {
+    throw new CanvasRequestError(
+      "Canvas returned a redirect. Threadwise refused to forward the access token.",
+      false,
+    );
+  }
+  return response;
 }
 
 function canvasUrl(path: string, params: Record<string, string | string[]> = {}): string {
