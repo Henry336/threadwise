@@ -9,8 +9,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 
-- Status: implementation and validation are complete on the existing pushed
-  `codex/study-image-sidebar-coursemology` branches (backend `0610007`, dashboard `7a768a7`).
+- Status: implementation, validation, and push are complete on the existing
+  `codex/study-image-sidebar-coursemology` branches. The scrollbar dashboard commit is `29748a4`
+  and the paired continuity checkpoint is `d243ac2`.
   This is a narrow visual refinement; no merge, deployment, production mutation, provider work,
   database operation, or credential change is authorized.
 - Objective: replace the browser-default desktop scrollbar presentation in the Study sidebar
@@ -22,8 +23,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   one intentional mobile skip). The required Impeccable detector found only two unrelated,
   pre-existing side-border warnings at stylesheet lines 575 and 822; this scoped change did not
   alter them.
-- Exact next action: commit and push the two guarded branches, then wait for owner live review. Do
-  not merge or deploy without a new explicit instruction.
+- Exact next action: wait for owner live review. Do not merge or deploy without a new explicit
+  instruction.
 
 ## Active checkpoint — Study image inspection, desktop sidebar, and Coursemology research (2026-08-17 SGT)
 
