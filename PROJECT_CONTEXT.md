@@ -11,8 +11,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 - Authorization: the owner explicitly authorized releasing the complete currently guarded backend
   and dashboard stack to production, including merging and deployment after required safety gates.
-- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `59d55df`; dashboard matching
-  branch at `29748a4`. Both are pushed, clean, and respectively 14 and 8 commits ahead of `main`.
+- Candidate heads: backend `codex/study-image-sidebar-coursemology` at `d0d76f9`; dashboard matching
+  branch at `f181ad8`. Both are pushed and have release PRs: backend #17 and dashboard #2.
 - Release boundary: do not ship the known Phase 6 F-01 Canvas bearer-forwarding flaw. Remediate and
   validate F-01 through F-03 before merge. Do not apply the additive Phase 3/4 production migrations
   until Gate 3A proves a current backup/PITR reference, an isolated restore, and independent recovery
@@ -41,8 +41,17 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   complete audit findings. Complete backend tests (907 passed, 6 skipped), Prisma
   validate/generate, typecheck, build, secret scan, and 140 security-assurance tests pass.
   Complete dashboard tests (122), typecheck, lint, production build, secret scan, 52 security
-  tests, and Playwright (5 passed, 1 intentional mobile skip) pass. Exact next action is the
-  GitHub-hosted release gates, followed by Gate 3A recoverability proof before merge/deploy.
+  tests, and Playwright (5 passed, 1 intentional mobile skip) pass. GitHub-hosted release gates
+  also pass on both PRs, including the backend's isolated PostgreSQL 17
+  migration job and the dashboard's separate validate/browser jobs plus Vercel preview. Dashboard
+  CI initially discovered its Playwright spec through Vitest on Linux; `f181ad8` now explicitly
+  separates those suites and the rerun is green. Gate 3A is the only pre-merge blocker. This
+  machine has PostgreSQL 18 client/server tooling, but the repository `DATABASE_URL` is a safe
+  placeholder, no Supabase management credential/CLI is available, and no independent
+  `CONTENT_ENCRYPTION_KEY` recovery copy is present locally. Therefore provider backup status,
+  restoration of that backup, and independent key recovery cannot be claimed. Do not merge either
+  PR or trigger production until the owner supplies/records those three facts without exposing
+  secrets.
 
 ## Active checkpoint — theme-aware Study scrollbars (2026-08-18 SGT)
 

@@ -1,7 +1,7 @@
 # Phase 6 active security assurance
 
 Date: 2026-08-17 SGT  
-Status: **release remediation implemented locally; complete/remote validation and production activation pending**
+Status: **release remediation and local/remote validation complete; Gate 3A blocks production activation**
 
 This report contains no credentials, private payloads, production records, or provider
 responses. Phase 6 used synthetic identities, chats, workspaces, tokens, bodies, provider
@@ -25,10 +25,14 @@ implemented on the release branch but are not yet merged or deployed:
 Complete local regressions, schemas, builds, secret scans, browser checks, and security assurance
 pass. A newly published high-severity `deepmerge-ts` advisory discovered by the release audit is
 resolved with the compatible 8.0.0 package override; both production-only and complete dependency
-audits now report zero findings. The remote ephemeral PostgreSQL workflow, Gate 3A recoverability
-evidence, merge, deployment, production verification, and post-fix Canvas-token rotation remain
-pending. Historical Phase 6 evidence below is preserved to show what originally caused each
-finding.
+audits now report zero findings. Backend PR #17 passes its hosted isolated PostgreSQL 17 migration
+and assurance job. Dashboard PR #2 passes hosted validate/browser jobs and its Vercel preview after
+unit and Playwright discovery were explicitly separated. Gate 3A recoverability evidence, merge,
+production deployment/verification, and post-fix Canvas-token rotation remain pending. Local
+capability inspection found PostgreSQL restore tooling but no usable production database URL,
+Supabase management credential, or independently recoverable content-encryption key, so none of
+those missing recovery facts is inferred. Historical Phase 6 evidence below is preserved to show
+what originally caused each finding.
 
 ## Environment and safety boundary
 
