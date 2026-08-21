@@ -52,7 +52,8 @@ describe("dashboard API routes", () => {
       ocrLanguages: "eng",
       directNudgesEnabled: false,
       calendarAutoSync: false,
-      excelAutoSync: false
+      excelAutoSync: false,
+      overviewQuotes: []
     },
     activity: [],
     integrations: []

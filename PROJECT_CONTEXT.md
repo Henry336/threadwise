@@ -7,6 +7,32 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — personal Overview quote library (2026-08-21 SGT)
+
+- Objective: let a user add and remove personal inspirational quotations from dashboard Settings;
+  those quotations join the deterministic daily line beneath the personal Overview greeting.
+- Product decision: use the dashboard rather than Telegram for management because quote text,
+  optional attribution, preview, duplicate feedback, and removal are clearer in one persistent form.
+  The existing built-in rotation remains available, and the owner-provided Jim Rohn and Henry
+  Bergson quotations join that built-in set.
+- Data boundary: add a bounded JSON quote list to `UserSettings`; accept at most 40 unique entries,
+  with 280 characters of text and an optional 120-character author. Normalize whitespace and
+  duplicates at the authenticated API boundary. Only a personal workspace may update the list.
+- UI boundary: extend the existing General settings form using current Threadwise tokens and
+  controls. Preserve keyboard access, responsive layout, explicit Save behavior, and deterministic
+  same-day rotation. Do not introduce a second settings system or a bot command in this slice.
+- Validation and release: add migration, schema/data/snapshot/route regressions, quote-selection
+  tests, settings interaction coverage, typecheck/lint/build, secret scans, and Prisma validation.
+  Update both contributor logs after validation, then commit/push and release the paired stack.
+- Validation evidence: focused quote/API/UI tests pass; backend typecheck, build, Prisma validation,
+  secret scan, 140 security checks, and the complete single-worker suite (909 passed, 6 skipped)
+  pass. Dashboard typecheck, lint, production build, secret scan, 52 security checks, all 125 tests,
+  and desktop/mobile browser QA pass. Both production and complete dependency audits report zero
+  vulnerabilities. One unrelated concurrent Windows file-courier timeout passed independently and
+  in the complete single-worker suite.
+- Interruption state: implementation and validation are complete. Commit, push, backend-first
+  migration/release, dashboard release, live health checks, and final documentation evidence remain.
+
 ## Active checkpoint — full guarded-stack production release completed (2026-08-18 SGT)
 
 - Authorization: the owner explicitly authorized releasing the complete currently guarded backend

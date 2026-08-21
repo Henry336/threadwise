@@ -6,6 +6,7 @@ import type { IdeaScore } from "../ai/types";
 import { storedIdeaBrief } from "./ideaBrief";
 import type { DashboardGroupCollaboration, DashboardTaskAssignee } from "./collaboration";
 import { calendarConnectionStatus } from "../services/googleCalendar";
+import { normalizeOverviewQuotes, type DashboardOverviewQuote } from "./overviewQuotes";
 
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const DASHBOARD_LIST_LIMIT = 50;
@@ -118,6 +119,7 @@ export type DashboardSnapshot = {
     directNudgesEnabled: boolean;
     calendarAutoSync: boolean;
     excelAutoSync: boolean;
+    overviewQuotes: DashboardOverviewQuote[];
   };
   activity: Array<{ day: string; captures: number; completed: number }>;
   integrations: Array<{
@@ -471,7 +473,8 @@ export async function getDashboardSnapshot(
       ocrLanguages: user.settings?.ocrLanguages ?? "eng",
       directNudgesEnabled: user.settings?.directNudgesEnabled ?? false,
       calendarAutoSync: user.settings?.calendarAutoSync ?? false,
-      excelAutoSync: user.settings?.excelAutoSync ?? false
+      excelAutoSync: user.settings?.excelAutoSync ?? false,
+      overviewQuotes: normalizeOverviewQuotes(user.settings?.overviewQuotes)
     },
     activity: [...activityByDate.values()],
     integrations: telegramId.startsWith("chat:") ? [] : [

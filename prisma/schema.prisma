@@ -1207,6 +1207,7 @@ model UserSettings {
   directNudgesEnabled      Boolean          @default(false)
   calendarAutoSync         Boolean          @default(false)
   excelAutoSync            Boolean          @default(false)
+  overviewQuotes           Json             @default("[]")
   voiceCleanupMode         VoiceCleanupMode @default(LIGHT)
   voiceTranscriptionModel  String           @default("gpt-4o-mini-transcribe")
   voiceLanguageHint        String?

@@ -6,6 +6,11 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-21 (Codex, release candidate):** Added a bounded personal Overview quote library to
+  `UserSettings` and the authenticated dashboard settings contract. Quote entries normalize
+  whitespace, reject duplicates, allow 280 text/120 optional-author characters, cap at 40, and can
+  only be updated from a personal workspace. A paired dashboard Settings manager and deterministic
+  daily rotation are validated; production release is the remaining step.
 - **2026-08-18 (Codex, deployed):** Completed the authorized guarded-stack release. Backend PR #17
   merged as `0699835d8ffe2132e8ce29dd03496d8fada71538`; Render `/health` reports HTTP 200 at
   `0699835d8ffe`. Gate 3A used a fresh encrypted logical backup, an exact 95-table/21,563-row
@@ -183,6 +188,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-21 (Codex):** Personal Overview quote persistence is implementation-complete on
+  `codex/personal-overview-quotes`. Added one additive JSONB migration, strict API normalization,
+  snapshot/export coverage, and personal-workspace enforcement. Backend passes 909 tests with
+  6 skips, typecheck/build/Prisma validation, 140 security checks, secret scan, and zero-finding
+  production/full dependency audits. Paired dashboard UI and release are pending commit/deploy.
 
 - **2026-08-17 (Codex):** Phase 7 architecture is complete on guarded backend/dashboard branches.
   Backend `77739bd` adds `docs/PUBLIC_STUDY_ARCHITECTURE.md`,

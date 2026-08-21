@@ -1,5 +1,6 @@
 import { IdeaStatus, ReminderMode, TaskStatus } from "@prisma/client";
 import { z } from "zod";
+import { OVERVIEW_QUOTE_AUTHOR_LIMIT, OVERVIEW_QUOTE_LIMIT, OVERVIEW_QUOTE_TEXT_LIMIT } from "./overviewQuotes";
 
 const trimmed = (maximum: number) => z.string().trim().min(1).max(maximum);
 const optionalNullableText = (maximum: number) => z.string().trim().max(maximum).nullable().optional();
@@ -8,6 +9,21 @@ const nullableDateTime = dateTime.nullable();
 const tags = z.array(trimmed(40)).max(20).transform((items) => [...new Set(items)]);
 const reminderIntervalMinutes = z.number().int().min(15).max(43_200);
 const reminderTimes = z.array(dateTime).max(20).transform((items) => [...new Set(items)]);
+const compactQuoteText = (maximum: number) => z.string()
+  .transform((value) => value.replace(/\s+/g, " ").trim())
+  .pipe(z.string().min(1).max(maximum));
+const overviewQuote = z.object({
+  text: compactQuoteText(OVERVIEW_QUOTE_TEXT_LIMIT),
+  author: compactQuoteText(OVERVIEW_QUOTE_AUTHOR_LIMIT).optional()
+}).strict();
+const overviewQuotes = z.array(overviewQuote).max(OVERVIEW_QUOTE_LIMIT).superRefine((items, context) => {
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    const key = `${item.text.toLocaleLowerCase("en")}\u0000${item.author?.toLocaleLowerCase("en") ?? ""}`;
+    if (seen.has(key)) context.addIssue({ code: "custom", path: [index], message: "Remove the duplicate quote." });
+    seen.add(key);
+  });
+});
 
 export const dashboardIdParamsSchema = z.object({ id: trimmed(128) }).strict();
 
@@ -155,7 +171,8 @@ export const settingsUpdateSchema = z.object({
   ocrLanguages: z.string().trim().regex(/^[a-z]{3}(?:\+[a-z]{3})*$/).max(40).optional(),
   directNudgesEnabled: z.boolean().optional(),
   calendarAutoSync: z.boolean().optional(),
-  excelAutoSync: z.boolean().optional()
+  excelAutoSync: z.boolean().optional(),
+  overviewQuotes: overviewQuotes.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
 export const searchQuerySchema = z.object({

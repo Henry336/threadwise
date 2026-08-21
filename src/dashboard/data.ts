@@ -32,6 +32,7 @@ import {
 } from "../services/undo";
 import { DashboardUserNotFoundError } from "./snapshot";
 import { storedIdeaBrief } from "./ideaBrief";
+import { normalizeOverviewQuotes, type DashboardOverviewQuote } from "./overviewQuotes";
 import type {
   ExpenseCreateInput,
   ExpenseUpdateInput,
@@ -229,6 +230,7 @@ export type DashboardSettings = {
   directNudgesEnabled: boolean;
   calendarAutoSync: boolean;
   excelAutoSync: boolean;
+  overviewQuotes: DashboardOverviewQuote[];
 };
 
 export type DashboardPage<T> = {
@@ -394,7 +396,8 @@ export function settingsView(settings: UserSettings): DashboardSettings {
     ocrLanguages: settings.ocrLanguages,
     directNudgesEnabled: settings.directNudgesEnabled,
     calendarAutoSync: settings.calendarAutoSync,
-    excelAutoSync: settings.excelAutoSync
+    excelAutoSync: settings.excelAutoSync,
+    overviewQuotes: normalizeOverviewQuotes(settings.overviewQuotes)
   };
 }
 

@@ -865,7 +865,9 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     await assertWorkspaceManager(scope, options.telegramBotToken);
-    return { settings: await actions.updateSettings(telegramId, settingsUpdateSchema.parse(request.body)) };
+    const input = settingsUpdateSchema.parse(request.body);
+    if (input.overviewQuotes !== undefined) assertPersonalWorkspace(scope);
+    return { settings: await actions.updateSettings(telegramId, input) };
   }, "update_settings"));
 
   server.post("/api/v1/dashboard/integrations/:provider/disconnect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
