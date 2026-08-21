@@ -30,8 +30,13 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   and desktop/mobile browser QA pass. Both production and complete dependency audits report zero
   vulnerabilities. One unrelated concurrent Windows file-courier timeout passed independently and
   in the complete single-worker suite.
-- Interruption state: implementation and validation are complete. Commit, push, backend-first
-  migration/release, dashboard release, live health checks, and final documentation evidence remain.
+- Release evidence: backend runtime commit `3860db813a34a23d0000bf32234f160c90a25984`
+  is live in Render deployment `dep-da43kkbbc2fs7395ht60`; public `/health` returns HTTP 200
+  with commit `3860db813a34`. Render's required pre-deploy migration command completed before the
+  deployment became live. Dashboard runtime commit
+  `fc2cf64` completed its Vercel production deployment successfully.
+- Interruption state: implementation, validation, backend-first release, and dashboard release are
+  complete. Only documentation-only release-record commits and final repository checks remain.
 
 ## Active checkpoint — full guarded-stack production release completed (2026-08-18 SGT)
 

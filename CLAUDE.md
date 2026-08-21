@@ -6,11 +6,12 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-08-21 (Codex, release candidate):** Added a bounded personal Overview quote library to
+- **2026-08-21 (Codex, deployed):** Added a bounded personal Overview quote library to
   `UserSettings` and the authenticated dashboard settings contract. Quote entries normalize
   whitespace, reject duplicates, allow 280 text/120 optional-author characters, cap at 40, and can
-  only be updated from a personal workspace. A paired dashboard Settings manager and deterministic
-  daily rotation are validated; production release is the remaining step.
+  only be updated from a personal workspace. Render deployment `dep-da43kkbbc2fs7395ht60` is live
+  at runtime commit `3860db813a34` after its required migration step; paired dashboard runtime
+  `fc2cf64` completed its Vercel production deployment.
 - **2026-08-18 (Codex, deployed):** Completed the authorized guarded-stack release. Backend PR #17
   merged as `0699835d8ffe2132e8ce29dd03496d8fada71538`; Render `/health` reports HTTP 200 at
   `0699835d8ffe`. Gate 3A used a fresh encrypted logical backup, an exact 95-table/21,563-row
@@ -193,7 +194,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   `codex/personal-overview-quotes`. Added one additive JSONB migration, strict API normalization,
   snapshot/export coverage, and personal-workspace enforcement. Backend passes 909 tests with
   6 skips, typecheck/build/Prisma validation, 140 security checks, secret scan, and zero-finding
-  production/full dependency audits. Paired dashboard UI and release are pending commit/deploy.
+  production/full dependency audits. Backend runtime `3860db8` and paired dashboard runtime
+  `fc2cf64` are deployed; only this documentation-only release record follows them.
 
 - **2026-08-17 (Codex):** Phase 7 architecture is complete on guarded backend/dashboard branches.
   Backend `77739bd` adds `docs/PUBLIC_STUDY_ARCHITECTURE.md`,
