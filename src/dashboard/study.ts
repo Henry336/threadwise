@@ -18,6 +18,7 @@ import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchCl
 import {
   addStudyModule,
   addStudyScheduleBlock,
+  academicWeekNumber,
   archiveStudyScheduleBlock,
   buildStudyDashboard,
   completeStudyItem,
@@ -39,6 +40,7 @@ import {
 } from "../services/study";
 import { buildStudyAttentionSnapshot } from "../services/studyAttention";
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
+import { assessStudyDeadline } from "../services/studyDeadlineTrust";
 import { importStudyNusmodsTimetable } from "../services/studyNusmods";
 import {
   archiveStudyResource,
@@ -304,6 +306,14 @@ export const studyScheduleUpdateSchema = z.object({
   travelBufferMinutes: z.number().int().min(0).max(90).optional(),
   reminderLeadMinutes: z.number().int().min(0).max(120).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one schedule change.");
+export const studyScheduleDeleteSchema = z.object({
+  scope: z.enum(["occurrence", "future", "series"]).default("series"),
+  weekNumber: z.number().int().min(1).max(80).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.scope !== "series" && value.weekNumber === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["weekNumber"], message: "Choose the academic week to remove." });
+  }
+});
 
 export class DashboardStudyAccessError extends Error {
   constructor() {
@@ -355,7 +365,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     prisma.studyItem.findMany({
       where: { workspaceId: workspace.id, module: { active: true }, status: { not: StudyItemStatus.SKIPPED } },
       include: {
-        module: { select: { id: true, code: true, name: true, color: true } },
+        module: { select: { id: true, code: true, name: true, color: true, canvasTermStartAt: true, canvasTermEndAt: true } },
         week: { select: { number: true } },
         canvasAssignment: {
           select: {
@@ -432,7 +442,10 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     },
     modules: modules.map((module) => ({ ...module, summary: summaryByModule.get(module.id) })),
     inactiveModules,
-    items,
+    items: items.map((item) => ({
+      ...item,
+      ...deadlineView(workspace, item),
+    })),
     resources: resources.map((resource) => studyResourcePreview(resourcePreviewById.get(resource.id) ?? resource)),
     mistakes,
     sessions: sessions.map((session) => ({
@@ -443,7 +456,15 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
       })),
     })),
     reviews,
-    scheduleBlocks,
+    scheduleBlocks: scheduleBlocks.map((block) => ({
+      ...block,
+      reminderReadiness: scheduleBlockReminderReadiness(workspace, block, origins, now),
+    })),
+    reminderDiagnostics: {
+      lastCheckedAt: workspace.lastReminderCheckAt,
+      status: workspace.lastReminderStatus ?? "NOT_CHECKED",
+      summary: workspace.lastReminderSummary,
+    },
     canvas: {
       configured: studyCanvasConfigured(),
       state: canvas,
@@ -596,6 +617,66 @@ export async function listDashboardStudyResources(workspace: StudyWorkspace, inp
 export async function getDashboardStudyResource(workspace: StudyWorkspace, resourceId: string) {
   const resource = await findStudyResource(workspace.id, resourceId);
   return { ...resource, noteMeta: await studyNoteMetadata(resource) };
+}
+
+function deadlineView(
+  workspace: StudyWorkspace,
+  item: {
+    source: string;
+    dueAt: Date | null;
+    module: { canvasTermStartAt: Date | null; canvasTermEndAt: Date | null };
+    canvasAssignment: { needsReview: boolean; status: string } | null;
+  },
+) {
+  const assessment = assessStudyDeadline(workspace, item);
+  return { deadlineStatus: assessment.status, deadlineIssue: assessment.reason };
+}
+
+function scheduleBlockReminderReadiness(
+  workspace: StudyWorkspace,
+  block: {
+    startWeek: number | null;
+    endWeek: number | null;
+    excludedWeeks: number[];
+    venueName: string | null;
+    destinationStopId: string | null;
+    defaultOriginId: string | null;
+  },
+  origins: Array<{ id: string; isDefault: boolean; active: boolean }>,
+  now: Date,
+) {
+  const reasons: string[] = [];
+  const weekNumber = academicWeekNumber(workspace, now);
+  const inRange = weekNumber > 0
+    && (!block.startWeek || weekNumber >= block.startWeek)
+    && (!block.endWeek || weekNumber <= block.endWeek)
+    && !block.excludedWeeks.includes(weekNumber);
+  if (!inRange) reasons.push("This block does not occur in the current academic week.");
+  if (!workspace.boundChatId) reasons.push("Study Mode is not bound to a Telegram chat.");
+  const travelRequested = Boolean(block.venueName || block.destinationStopId);
+  if (travelRequested && (!block.venueName || !block.destinationStopId)) {
+    reasons.push("Pick a recognized destination to arm live travel reminders.");
+  }
+  const hasOrigin = Boolean(
+    block.defaultOriginId
+    || workspace.activeOriginId
+    || origins.some((origin) => origin.active && origin.isDefault),
+  );
+  if (travelRequested && !hasOrigin) reasons.push("Choose a current or default travel origin.");
+  if (travelRequested && workspace.travelMutedUntil && workspace.travelMutedUntil > now) {
+    reasons.push("Travel reminders are muted for today.");
+  }
+  if (!travelRequested && !workspace.studyBlockRemindersEnabled) {
+    reasons.push("Study-block reminders are turned off.");
+  }
+  if (workspace.lastReminderStatus === "UNSAFE_CHAT") {
+    reasons.push("The last reminder check could not verify the private Study chat.");
+  }
+  return {
+    status: reasons.length === 0 ? "READY" : inRange ? "BLOCKED" : "OUT_OF_RANGE",
+    mode: travelRequested ? "TRAVEL" : "BLOCK",
+    reasons,
+  };
 }
 
 export async function createDashboardStudyResource(workspace: StudyWorkspace, input: z.infer<typeof studyResourceCreateSchema>) {
@@ -946,8 +1027,12 @@ export async function updateDashboardStudyScheduleBlock(
   return prisma.studyScheduleBlock.findFirstOrThrow({ where: { id: blockId, workspaceId: workspace.id, active: true } });
 }
 
-export async function archiveDashboardStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {
-  return archiveStudyScheduleBlock(workspace, blockId);
+export async function archiveDashboardStudyScheduleBlock(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: z.infer<typeof studyScheduleDeleteSchema>,
+) {
+  return archiveStudyScheduleBlock(workspace, blockId, input);
 }
 
 function studyWorkspaceView(workspace: StudyWorkspace) {

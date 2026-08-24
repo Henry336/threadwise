@@ -406,6 +406,9 @@ model StudyWorkspace {
   activeOriginId             String?
   activeOriginUntil          DateTime?
   travelMutedUntil           DateTime?
+  lastReminderCheckAt        DateTime?
+  lastReminderStatus         String?
+  lastReminderSummary        Json?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -441,24 +444,28 @@ model StudyWorkspace {
 }
 
 model StudyModule {
-  id               String            @id @default(uuid())
-  workspaceId      String
-  code             String
-  name             String
-  active           Boolean           @default(true)
-  displayOrder     Int               @default(0)
-  color            String?
-  workloadGroup    String?
-  canvasCourseId   String?
-  canvasCourseName String?
-  canvasLastSeenAt DateTime?
-  userArchivedAt   DateTime?
-  currentMastery   StudyTrafficLight @default(UNASSESSED)
-  masteryReason    String?
-  redSince         DateTime?
-  lastRedWarningAt DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                String            @id @default(uuid())
+  workspaceId       String
+  code              String
+  name              String
+  active            Boolean           @default(true)
+  displayOrder      Int               @default(0)
+  color             String?
+  workloadGroup     String?
+  canvasCourseId    String?
+  canvasCourseName  String?
+  canvasTermId      String?
+  canvasTermName    String?
+  canvasTermStartAt DateTime?
+  canvasTermEndAt   DateTime?
+  canvasLastSeenAt  DateTime?
+  userArchivedAt    DateTime?
+  currentMastery    StudyTrafficLight @default(UNASSESSED)
+  masteryReason     String?
+  redSince          DateTime?
+  lastRedWarningAt  DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   workspace             StudyWorkspace             @relation("StudyWorkspaceModules", fields: [workspaceId], references: [id], onDelete: Cascade)
   activeFor             StudyWorkspace[]           @relation("StudyWorkspaceActiveModule")
@@ -644,6 +651,7 @@ model StudyScheduleBlock {
   reminderLeadMinutes Int      @default(10)
   source              String   @default("MANUAL")
   sourceRef           String?
+  excludedWeeks       Int[]    @default([])
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

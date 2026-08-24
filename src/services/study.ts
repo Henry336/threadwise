@@ -7,6 +7,7 @@ import {
   StudyPriority,
   StudyTrafficLight,
   type StudyModule,
+  type StudyScheduleBlock,
   type StudyWorkspace,
 } from "@prisma/client";
 import type { Context } from "grammy";
@@ -14,6 +15,7 @@ import { DateTime } from "luxon";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
+import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 
 const DEFAULT_MODULES = [
   { code: "CS2100", name: "Computer Organisation", color: "#2C7A7B" },
@@ -861,7 +863,11 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
           ...(week ? [{ weekId: week.id }] : []),
         ],
       },
-      include: { week: true },
+      include: {
+        week: true,
+        module: { select: { canvasTermStartAt: true, canvasTermEndAt: true } },
+        canvasAssignment: { select: { needsReview: true, status: true } },
+      },
     }),
     weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
     listStudyMistakes(workspace.id, now),
@@ -875,16 +881,20 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
   const dashboardModules: StudyDashboardModule[] = modules.map((module) => {
     const moduleItems = items.filter((item) => item.moduleId === module.id);
     const openItems = moduleItems.filter((item) => item.status === StudyItemStatus.OPEN || item.status === StudyItemStatus.IN_PROGRESS);
+    const deadlineSafeOpenItems = openItems.map((item) => ({
+      ...item,
+      dueAt: hasTrustedStudyDeadline(workspace, item) ? item.dueAt : null,
+    }));
     const moduleSessions = sessions.filter((session) => session.moduleId === module.id);
     const moduleMistakes = mistakes.filter((mistake) => mistake.moduleId === module.id && mistake.revisitAt && mistake.revisitAt <= now);
-    const status = deriveModuleBacklogStatus(module, openItems, weekNumber, now);
+    const status = deriveModuleBacklogStatus(module, deadlineSafeOpenItems, weekNumber, now);
     return {
       id: module.id,
       code: module.code,
       name: module.name,
       status,
       open: openItems.length,
-      overdue: openItems.filter((item) => item.dueAt && item.dueAt < now).length,
+      overdue: deadlineSafeOpenItems.filter((item) => item.dueAt && item.dueAt < now).length,
       unprocessed: openItems.filter((item) => (
         item.type === StudyItemType.LECTURE
         || item.type === StudyItemType.TUTORIAL
@@ -892,7 +902,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
       )).length,
       plannedMinutes: moduleItems.filter((item) => item.weekId === week?.id).reduce((sum, item) => sum + (item.plannedMinutes ?? 0), 0),
       actualMinutes: moduleSessions.reduce((sum, session) => sum + (session.durationMinutes ?? 0), 0),
-      nearestDeadline: openItems.map((item) => item.dueAt).filter((value): value is Date => Boolean(value)).sort((a, b) => a.getTime() - b.getTime())[0],
+      nearestDeadline: deadlineSafeOpenItems.map((item) => item.dueAt).filter((value): value is Date => Boolean(value)).sort((a, b) => a.getTime() - b.getTime())[0],
       mistakesDue: moduleMistakes.length,
       timedPracticeMissing: isTimedPracticeMissing(
         module.code,
@@ -1079,11 +1089,40 @@ export async function updateStudyScheduleBlock(
   return updated;
 }
 
-export async function archiveStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {
-  const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id } });
+export type StudyScheduleDeleteScope = "occurrence" | "future" | "series";
+
+export function studyScheduleDeleteMutation(
+  block: Pick<StudyScheduleBlock, "active" | "startWeek" | "endWeek" | "excludedWeeks">,
+  input: { scope?: StudyScheduleDeleteScope; weekNumber?: number },
+) {
+  const scope = input.scope ?? "series";
+  const weekNumber = input.weekNumber;
+  if (scope === "series") return { active: false };
+  if (!weekNumber || !Number.isInteger(weekNumber) || weekNumber < 1 || weekNumber > 80) {
+    throw new StudyModeError("Choose the academic week to remove.", "invalid");
+  }
+  if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) {
+    throw new StudyModeError("That block does not occur in the selected week.", "invalid");
+  }
+  if (scope === "occurrence") {
+    return { excludedWeeks: [...new Set([...block.excludedWeeks, weekNumber])].sort((a, b) => a - b) };
+  }
+  return block.startWeek && weekNumber <= block.startWeek
+    ? { active: false }
+    : { endWeek: weekNumber - 1, excludedWeeks: block.excludedWeeks.filter((week) => week < weekNumber) };
+}
+
+export async function archiveStudyScheduleBlock(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: { scope?: StudyScheduleDeleteScope; weekNumber?: number } = {},
+) {
+  const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id, active: true } });
   if (!block) throw new StudyModeError("That schedule block was not found.", "not_found");
-  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data: { active: false } });
-  await auditStudy(workspace.ownerUserId, "study.schedule.archived", { workspaceId: workspace.id, blockId });
+  const scope = input.scope ?? "series";
+  const data = studyScheduleDeleteMutation(block, input);
+  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data });
+  await auditStudy(workspace.ownerUserId, "study.schedule.removed", { workspaceId: workspace.id, blockId, scope, weekNumber: input.weekNumber });
 }
 
 export async function createStudyExports(workspace: StudyWorkspace, now = new Date()): Promise<Array<{ fileName: string; content: string }>> {
@@ -1309,14 +1348,14 @@ function hasConsecutiveRedReviews(reviews: Array<{ moduleStatuses: Prisma.JsonVa
 
 function findNextScheduleBlock(
   workspace: StudyWorkspace,
-  blocks: Array<{ dayOfWeek: number; startTime: string; startWeek: number | null; endWeek: number | null; label: string; module: { code: string } | null }>,
+  blocks: Array<{ dayOfWeek: number; startTime: string; startWeek: number | null; endWeek: number | null; excludedWeeks: number[]; label: string; module: { code: string } | null }>,
   weekNumber: number,
   now: Date,
 ): { label: string; moduleCode?: string; startsAt: Date } | undefined {
   if (weekNumber < 1) return undefined;
   const localNow = DateTime.fromJSDate(now).setZone(workspace.timezone);
   const candidates = blocks.flatMap((block) => {
-    if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) return [];
+    if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek) || block.excludedWeeks.includes(weekNumber)) return [];
     const [hour, minute] = block.startTime.split(":").map(Number);
     if (!Number.isInteger(hour) || !Number.isInteger(minute)) return [];
     const daysAhead = (block.dayOfWeek - localNow.weekday + 7) % 7;

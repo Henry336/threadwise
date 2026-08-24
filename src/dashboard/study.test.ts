@@ -6,6 +6,7 @@ import {
   requireDashboardStudyWorkspace,
   studyModuleCreateSchema,
   studyScheduleCreateSchema,
+  studyScheduleDeleteSchema,
   studyScheduleUpdateSchema,
   studyResourcePreviewSelect,
 } from "./study";
@@ -119,6 +120,12 @@ describe("Study dashboard input contracts", () => {
       startWeek: 2,
       endWeek: 13,
     })).toMatchObject({ dayOfWeek: 5, startTime: "09:00", endWeek: 13 });
+  });
+
+  it("requires a week for partial recurring-block deletion", () => {
+    expect(studyScheduleDeleteSchema.parse({ scope: "occurrence", weekNumber: 3 })).toEqual({ scope: "occurrence", weekNumber: 3 });
+    expect(() => studyScheduleDeleteSchema.parse({ scope: "future" })).toThrow("Choose the academic week");
+    expect(studyScheduleDeleteSchema.parse({})).toEqual({ scope: "series" });
   });
 });
 

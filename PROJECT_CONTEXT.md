@@ -7,6 +7,69 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
+
+- Authorization/status: the owner authorized Phase 1 implementation on 2026-08-24 SGT. The
+  implementation and local validation are complete on guarded backend/dashboard branches named
+  `codex/phase1-reliability-foundation`; commit and remote push are the remaining release-preparation
+  steps.
+  Production data inspection must begin read-only; no deployment or production mutation is implied
+  by this authorization until implementation and validation evidence are complete.
+- Material implementation checkpoint (2026-08-25 SGT): additive schema and runtime work now records
+  Canvas term identity, filters clearly out-of-term courses, quarantines implausible Canvas deadlines,
+  and excludes quarantined dates from overdue totals, timetable lanes, weekly previews, and urgent
+  reminders while keeping the item visible in Work with a reason. Reminder passes persist their last
+  privacy/quiet/delivery result, and timetable blocks expose reason-coded readiness. Recurring blocks
+  now retain week exceptions and support occurrence, this-and-future, and whole-series deletion.
+  Personal and Group destructive actions now use a shared accessible Threadwise confirmation dialog;
+  Study's existing themed confirmation remains, and the final native dirty-editor confirmation was
+  migrated. Full local validation passes: backend Prisma validate/generate, typecheck, build, secret
+  scan, focused regressions, and the complete sequential suite (913 passed, 6 skipped); dashboard
+  typecheck, lint, isolated production build, secret scan, focused regressions, and all 127 tests.
+  The normal dashboard build directory was already held open by a running process, so validation used
+  an isolated `THREADWISE_NEXT_DIST_DIR` and removed it afterward without touching the live directory.
+- Rollback boundary: all database changes are additive (`StudyWorkspace` reminder diagnostics,
+  `StudyModule` Canvas term metadata, and `StudyScheduleBlock.excludedWeeks`). No production data or
+  deployment has been changed. Reverting the paired guarded branches restores prior behavior; the
+  additive columns can remain dormant without destructive rollback.
+- Product identity: Threadwise remains one umbrella product with three modes. Individual mode is
+  personal memory, tasks, notes, reminders, and captured media; Group mode is shared decisions,
+  responsibilities, reminders, and collective memory; Study mode is the specialized academic
+  experience for deadlines, learning, timetables, and travel. Study may later use a separately
+  branded Telegram bot while continuing to share Threadwise's backend and common primitives.
+- Shared product loop: Capture -> Understand -> Organize -> Retrieve -> Remind -> Act. Search must
+  retrieve structured meaning, chronology, provenance, relationships, and available actions rather
+  than duplicate Telegram's literal message search.
+- Phase 1 — restore trust and remove immediate friction: diagnose the false-overdue Canvas item and
+  all deadline/travel exclusions; identify courses by Canvas course ID, term, and academic year;
+  quarantine suspicious dates; add sync and reminder-delivery diagnostics; make Work the canonical
+  complete assignment view; replace every native confirm/alert with an accessible Threadwise dialog;
+  and support deleting one occurrence, this-and-future occurrences, or an entire recurring series.
+  Exit only when known false-overdue states are eliminated, exclusions are explainable, reminder
+  eligibility is visible, and no native confirmation window remains.
+- Phase 2 — complete the cross-mode experience: replace week-number inputs with general recurrence
+  controls and date exceptions; allow a custom label for the Other block type; add stable links and
+  focused views for exact tasks, notes, and resources in both Telegram and the dashboard; replace
+  repetitive due nudges with finite adaptive reminder ladders, aggregation, snooze/dismissal respect,
+  and per-task budgets; make travel reminders stateful and diagnosable; and add structured actionable
+  retrieval across Individual, Group, and Study modes. Exit only when recurrence edits are safe,
+  links always open the intended entity, reminder spam is removed, travel readiness is visible, and
+  retrieval provides clear value beyond Telegram search.
+- Phase 3 — validate and prepare commercialization: interview and pilot with 10–20 relevant users;
+  test Individual Plus (semantic retrieval, automation, integrations), Group Plus (permissions,
+  accountability, advanced coordination), and Study Plus (academic integrations, verified deadlines,
+  and learning intelligence); test willingness to pay and free/paid boundaries; decide whether Study
+  receives a separate bot/brand; and redesign the two-member Study reminder restriction before wider
+  group use. Exit only with evidence for a primary customer, paid problem, packaging, and launch
+  direction. The provisional student price hypothesis is USD 3–5 monthly or USD 30–40 annually and
+  must be validated rather than treated as a committed price.
+- Cross-phase continuity rule: update this checkpoint at the start of each approved phase, after
+  every material implementation or validation checkpoint, and before any interruption. Reliability
+  precedes feature expansion: confidently incorrect deadlines or silent reminder failures are the
+  first problems to resolve.
+- Exact next action after interruption: commit and push both guarded branches, record their immutable
+  commit IDs here, and wait for owner approval before any merge, database migration, or deployment.
+
 ## Active checkpoint — personal Overview quote library (2026-08-21 SGT)
 
 - Objective: let a user add and remove personal inspirational quotations from dashboard Settings;

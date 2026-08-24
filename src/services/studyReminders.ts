@@ -16,6 +16,7 @@ import { isWithinQuietHours, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek } from "./study";
 import { buildStudyWeeklyPreview } from "./studyAttention";
+import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { buildStudyDeparturePlan, isStudyTravelMuted } from "./studyTransit";
 
 type Candidate = {
@@ -57,6 +58,7 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
     const members = await bot.api.getChatMemberCount(workspace.boundChatId);
     if (members > 2) {
       result.unsafeChat = true;
+      await recordReminderHealth(workspace, "UNSAFE_CHAT", result, now);
       return result;
     }
   } catch (error) {
@@ -64,10 +66,12 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
     // membership cannot be verified.
     result.unsafeChat = true;
     logger.warn("Study reminder pass could not verify the private group's membership.", { error: String(error) });
+    await recordReminderHealth(workspace, "UNSAFE_CHAT", result, now);
     return result;
   }
   if (studyReminderGate(workspace, now, 0) === "quiet") {
     result.quiet = true;
+    await recordReminderHealth(workspace, "QUIET_HOURS", result, now);
     return result;
   }
   const candidates = await collectStudyReminderCandidates(workspace, now);
@@ -105,7 +109,26 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
       logger.error("Study reminder delivery failed.", { kind: candidate.kind, entityKey: candidate.entityKey, error: String(error) });
     }
   }
+  await recordReminderHealth(workspace, result.failed > 0 ? "DELIVERY_ERRORS" : "READY", result, now);
   return result;
+}
+
+async function recordReminderHealth(
+  workspace: Pick<StudyWorkspace, "id">,
+  status: "READY" | "QUIET_HOURS" | "UNSAFE_CHAT" | "DELIVERY_ERRORS",
+  result: StudyReminderRun,
+  now: Date,
+) {
+  await prisma.studyWorkspace.update({
+    where: { id: workspace.id },
+    data: {
+      lastReminderCheckAt: now,
+      lastReminderStatus: status,
+      lastReminderSummary: result as unknown as Prisma.InputJsonValue,
+    },
+  }).catch((error) => {
+    logger.warn("Could not persist Study reminder diagnostics.", { error: String(error), status });
+  });
 }
 
 export async function collectStudyReminderCandidates(workspace: StudyWorkspace, now = new Date()): Promise<Candidate[]> {
@@ -233,10 +256,11 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
       priority: { in: [StudyPriority.HIGH, StudyPriority.CRITICAL] },
       dueAt: { not: null, lte: new Date(now.getTime() + 24 * 60 * 60_000) },
     },
-    include: { module: true },
+    include: { module: true, canvasAssignment: { select: { needsReview: true, status: true } } },
     take: 15,
   });
   for (const item of items) {
+    if (!hasTrustedStudyDeadline(workspace, item)) continue;
     const overdue = Boolean(item.dueAt && item.dueAt < now);
     candidates.push({
       kind: overdue ? StudyReminderKind.ITEM_OVERDUE : StudyReminderKind.DEADLINE_APPROACHING,
@@ -256,6 +280,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
   });
   for (const block of blocks) {
       if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) continue;
+      if (block.excludedWeeks.includes(weekNumber)) continue;
       const clock = parseClock(block.startTime);
       if (!clock) continue;
       const starts = local.startOf("day").set(clock);

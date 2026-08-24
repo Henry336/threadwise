@@ -170,6 +170,7 @@ import {
   studyResourceQuerySchema,
   studyResourceUpdateSchema,
   studyScheduleCreateSchema,
+  studyScheduleDeleteSchema,
   studyScheduleUpdateSchema,
   studySearchQuerySchema,
   studySessionUpdateSchema,
@@ -625,7 +626,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.delete("/api/v1/dashboard/study/schedule/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    await archiveDashboardStudyScheduleBlock(workspace, id);
+    await archiveDashboardStudyScheduleBlock(workspace, id, studyScheduleDeleteSchema.parse(request.body ?? {}));
     return { archived: true };
   }, "study_archive_schedule"));
 
