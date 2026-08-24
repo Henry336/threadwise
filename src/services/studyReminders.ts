@@ -14,7 +14,8 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { isWithinQuietHours, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
-import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek } from "./study";
+import { studyDashboardItemUrl } from "../bot/links";
+import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek, studyScheduleOccursOnDate } from "./study";
 import { buildStudyWeeklyPreview } from "./studyAttention";
 import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { buildStudyDeparturePlan, isStudyTravelMuted } from "./studyTransit";
@@ -25,6 +26,7 @@ type Candidate = {
   scheduledFor: Date;
   text: string;
   keyboard?: InlineKeyboard;
+  travelStateId?: string;
 };
 
 export type StudyReminderRun = {
@@ -271,7 +273,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
         `${code(item.publicId)} · ${h(item.title)}`,
         item.dueAt ? `Due ${h(DateTime.fromJSDate(item.dueAt).setZone(workspace.timezone).toFormat("ccc, d LLL · h:mm a"))}` : "",
       ].filter(Boolean).join("\n"),
-      keyboard: new InlineKeyboard().text("Complete", `study:item:done:${item.id}`).text("Reschedule", `study:item:reschedule:${item.id}`).row().text("Dashboard", "study:dashboard"),
+      keyboard: new InlineKeyboard().text("Complete", `study:item:done:${item.id}`).text("Reschedule", `study:item:reschedule:${item.id}`).row().url("Open item ↗", studyDashboardItemUrl(workspace.id, "study-work", "study-item", item.id)),
     });
   }
   const blocks = await prisma.studyScheduleBlock.findMany({
@@ -279,8 +281,11 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
     include: { module: true },
   });
   for (const block of blocks) {
-      if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) continue;
-      if (block.excludedWeeks.includes(weekNumber)) continue;
+      const occurrenceDate = startsOnCalendarDate(local);
+      const usesCalendarRecurrence = Boolean(block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length);
+      if (usesCalendarRecurrence && !studyScheduleOccursOnDate(block, occurrenceDate)) continue;
+      if (!usesCalendarRecurrence && ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek))) continue;
+      if (!usesCalendarRecurrence && block.excludedWeeks.includes(weekNumber)) continue;
       const clock = parseClock(block.startTime);
       if (!clock) continue;
       const starts = local.startOf("day").set(clock);
@@ -289,8 +294,44 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
         // Consult Improved NextBus only close to departure. This keeps the
         // minute-level reminder pass light while still using current arrivals.
         if (local < starts.minus({ minutes: 150 }) || local > starts.plus({ minutes: 15 })) continue;
-        const plan = await buildStudyDeparturePlan(workspace, block.id, { startsAt: starts.toUTC().toJSDate() });
+        let plan: Awaited<ReturnType<typeof buildStudyDeparturePlan>>;
+        try {
+          plan = await buildStudyDeparturePlan(workspace, block.id, { startsAt: starts.toUTC().toJSDate() });
+        } catch (error) {
+          await prisma.studyTravelReminderState.upsert({
+            where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
+            update: { status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: error instanceof Error ? error.message.slice(0, 1_000) : "Travel route unavailable." },
+            create: { workspaceId: workspace.id, blockId: block.id, occurrenceDate, status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: error instanceof Error ? error.message.slice(0, 1_000) : "Travel route unavailable." },
+          });
+          continue;
+        }
         const leaveAt = DateTime.fromJSDate(plan.leaveAt).setZone(workspace.timezone);
+        const travelState = await prisma.studyTravelReminderState.upsert({
+          where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
+          update: {
+            status: "READY",
+            scheduledFor: starts.toUTC().toJSDate(),
+            leaveAt: plan.leaveAt,
+            originName: plan.journey.origin.name,
+            boardingStop: plan.journey.boardingStop.title,
+            services: plan.journey.services,
+            live: plan.live,
+            lastError: plan.fallbackReason ?? null,
+          },
+          create: {
+            workspaceId: workspace.id,
+            blockId: block.id,
+            occurrenceDate,
+            status: "READY",
+            scheduledFor: starts.toUTC().toJSDate(),
+            leaveAt: plan.leaveAt,
+            originName: plan.journey.origin.name,
+            boardingStop: plan.journey.boardingStop.title,
+            services: plan.journey.services,
+            live: plan.live,
+            lastError: plan.fallbackReason ?? null,
+          },
+        });
         if (local < leaveAt || local > starts.plus({ minutes: 15 })) continue;
         const service = plan.journey.services.length ? plan.journey.services.join(" → ") : "Use the usual route";
         candidates.push({
@@ -315,6 +356,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
             .text("Refresh", `study:travel:route:${block.id}`).text("Route details", `study:travel:details:${block.id}`).row()
             .text("Change origin", `study:travel:change:${block.id}`).row()
             .text("I’m here", `study:travel:arrived:${block.id}`).text("Mute today", "study:travel:mute"),
+          travelStateId: travelState.id,
         });
         continue;
       }
@@ -419,6 +461,9 @@ async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, de
 }
 
 async function markCandidateDelivered(candidate: Candidate, now: Date): Promise<void> {
+  if (candidate.travelStateId) {
+    await prisma.studyTravelReminderState.update({ where: { id: candidate.travelStateId }, data: { status: "SENT", sentAt: now } });
+  }
   if (candidate.kind === StudyReminderKind.MODULE_RED) {
     await prisma.studyModule.update({ where: { id: candidate.entityKey }, data: { lastRedWarningAt: now } });
   }
@@ -433,6 +478,11 @@ function parseClock(value: string): { hour: number; minute: number } | undefined
   const hour = Number(match[1]);
   const minute = Number(match[2]);
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? { hour, minute } : undefined;
+}
+
+function startsOnCalendarDate(value: DateTime): Date {
+  const key = value.toISODate();
+  return key ? new Date(`${key}T00:00:00.000Z`) : value.startOf("day").toUTC().toJSDate();
 }
 
 function isAtOrAfter(value: DateTime, clock: { hour: number; minute: number }): boolean {

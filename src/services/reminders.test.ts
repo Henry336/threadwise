@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -29,7 +29,7 @@ describe("reminder policy", () => {
     ).toBe(false);
   });
 
-  it("keeps a future scheduled reminder at the due-nudge start when interval changes", () => {
+  it("keeps a future scheduled reminder on the next meaningful milestone when settings change", () => {
     const now = new Date("2026-07-05T00:00:00.000Z");
     const dueAt = new Date("2026-07-05T02:00:00.000Z");
 
@@ -44,8 +44,8 @@ describe("reminder policy", () => {
         now,
         15,
         5
-      ).toISOString()
-    ).toBe("2026-07-05T01:55:00.000Z");
+      )?.toISOString()
+    ).toBe("2026-07-05T01:30:00.000Z");
   });
 
   it("keeps dated tasks nudging on the due-nudge cadence after delivery", () => {
@@ -55,11 +55,11 @@ describe("reminder policy", () => {
         dueAt: new Date("2026-07-05T17:29:00.000Z"),
         dueNudgeMinutes: 5,
         intervalMinutes: 180
-      }).toISOString()
+      })?.toISOString()
     ).toBe("2026-07-05T17:29:00.000Z");
   });
 
-  it("pulls overdue dated reminders onto the due-nudge cadence", () => {
+  it("does not restart automatic reminders after a deadline has passed", () => {
     const now = new Date("2026-07-05T00:00:00.000Z");
 
     expect(
@@ -73,11 +73,11 @@ describe("reminder policy", () => {
         now,
         15,
         5
-      ).toISOString()
-    ).toBe("2026-07-05T00:05:00.000Z");
+      )
+    ).toBeNull();
   });
 
-  it("keeps recurring reminders on the current occurrence until completion", () => {
+  it("ends a dated automatic cycle once the occurrence is overdue", () => {
     const result = nextTaskScheduleAfterDelivery({
       now: new Date("2026-07-05T11:01:00.000Z"),
       dueAt: new Date("2026-07-05T11:00:00.000Z"),
@@ -85,7 +85,7 @@ describe("reminder policy", () => {
       intervalMinutes: 180
     });
 
-    expect(result.nextReminderAt.toISOString()).toBe("2026-07-05T11:04:00.000Z");
+    expect(result.nextReminderAt).toBeNull();
   });
 
   it("makes important task reminders hard to miss", () => {
@@ -126,7 +126,30 @@ describe("reminder policy", () => {
       dueAt: new Date("2026-08-15T00:00:00.000Z"),
       dueNudgeMinutes: 5,
       intervalMinutes: 720,
-    }).toISOString()).toBe("2026-08-13T06:00:00.000Z");
+    })?.toISOString()).toBe("2026-08-14T00:00:00.000Z");
+  });
+
+  it("uses a finite deadline milestone ladder and respects the per-task budget", () => {
+    const dueAt = new Date("2026-08-20T12:00:00.000Z");
+    expect(dueReminderMilestones(dueAt).map((value) => value.toISOString())).toContain("2026-08-13T12:00:00.000Z");
+    expect(nextReminderAtAfterDelivery({
+      now: new Date("2026-08-13T12:00:00.000Z"),
+      dueAt,
+      dueNudgeMinutes: 5,
+      intervalMinutes: 15,
+      automaticReminderCount: 6,
+      automaticReminderBudget: 7,
+    })).toBeNull();
+  });
+
+  it("aggregates multiple due tasks into an actionable digest", () => {
+    const digest = formatReminderDigest([
+      { publicId: "TASK-1", title: "Submit report", dueAt: new Date("2026-08-20T12:00:00.000Z") },
+      { publicId: "TASK-2", title: "Confirm venue", dueAt: new Date("2026-08-21T12:00:00.000Z") },
+    ], "Asia/Singapore");
+    expect(digest).toContain("2 tasks need attention");
+    expect(digest).toContain("TASK-1");
+    expect(digest).toContain("TASK-2");
   });
 
   it("keeps undated group follow-ups on their configured cadence before three unanswered nudges", () => {

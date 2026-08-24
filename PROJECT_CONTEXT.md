@@ -9,10 +9,33 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 
+- Phase 2 authorization/status (2026-08-25 SGT): the owner explicitly authorized implementation and
+  push of Phase 2. Work is stacked from the pushed Phase 1 tips on paired guarded branches named
+  `codex/phase2-cross-mode-experience`. Phase 2 includes general recurrence and exceptions, custom
+  Other labels, stable focused entity links, finite adaptive reminder ladders with aggregation and
+  snooze/dismissal respect, stateful travel diagnostics, and structured actionable retrieval across
+  Individual, Group, and Study. No merge, database migration, or production deployment is implied by
+  this authorization.
+- Phase 2 validation checkpoint (2026-08-25 SGT): implementation is complete on the paired guarded
+  branches. The additive data model now supports calendar-date recurrence ranges, per-date exclusions,
+  custom labels for `Other`, finite per-task automatic-reminder budgets, dismissal state, and persisted
+  per-occurrence travel status. The Study timetable UI now offers Once/Every week date controls and
+  date-scoped deletion while retaining a read path for legacy week-based records. Reminder delivery now
+  uses deadline milestones, bounds undated cycles, aggregates due tasks in Digest mode, and exposes a
+  persistent dismiss action. Study item/resource links can target an exact dashboard entity; normal
+  search results now open the selected entity rather than only its collection. Dedicated authenticated
+  exact-entity endpoints hydrate older Individual/Group tasks, notes, ideas, images, and Study items or
+  resources even when they are outside the current paginated snapshot. Travel routing records
+  ready/failed/sent/arrived/muted states. Final local validation passes: Prisma format/generate/validate,
+  backend typecheck/build, 66 focused tests, the complete sequential backend suite (917 passed, 6
+  skipped), and a 400-file secret scan; dashboard typecheck/lint, all 127 tests, an isolated optimized
+  production build, and a 151-file secret scan. The live dashboard's locked `.next` directory was not
+  touched; the isolated validation output was removed and its automatic TypeScript config formatting
+  was reverted. No original/production state has been migrated or deployed.
 - Authorization/status: the owner authorized Phase 1 implementation on 2026-08-24 SGT. The
   implementation and local validation are complete on guarded backend/dashboard branches named
   `codex/phase1-reliability-foundation`. The backend implementation commit is `4489a43` and the
-  dashboard implementation commit is `d92d5a9`; remote push is the remaining release-preparation step.
+  dashboard implementation commit is `d92d5a9`; both branches are pushed and synchronized remotely.
   Production data inspection must begin read-only; no deployment or production mutation is implied
   by this authorization until implementation and validation evidence are complete.
 - Material implementation checkpoint (2026-08-25 SGT): additive schema and runtime work now records
@@ -67,8 +90,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   every material implementation or validation checkpoint, and before any interruption. Reliability
   precedes feature expansion: confidently incorrect deadlines or silent reminder failures are the
   first problems to resolve.
-- Exact next action after interruption: push both guarded branches and wait for owner approval before
-  any merge, database migration, or deployment.
+- Exact next action after interruption: review the final diffs, commit the validated Phase 2 backend
+  and dashboard changes, and push both `codex/phase2-cross-mode-experience` branches. Wait for owner
+  approval before any merge, database migration, or deployment.
 
 ## Active checkpoint — personal Overview quote library (2026-08-21 SGT)
 

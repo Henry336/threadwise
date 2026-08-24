@@ -12,6 +12,7 @@ import {
   type StudyWorkspace,
 } from "@prisma/client";
 import { z } from "zod";
+import { DateTime } from "luxon";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
@@ -36,6 +37,7 @@ import {
   archiveStudySession,
   updateStudyScheduleBlock,
   updateWeeklyPlan,
+  studyScheduleOccursOnDate,
   StudyModeError,
 } from "../services/study";
 import { buildStudyAttentionSnapshot } from "../services/studyAttention";
@@ -68,6 +70,7 @@ const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_INLINE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, "Choose a valid calendar date.");
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
 const id = z.string().uuid();
 const isoDate = z.string().datetime({ offset: true });
@@ -283,6 +286,9 @@ export const studyScheduleCreateSchema = z.object({
   endTime: clock,
   label: text(200),
   blockType: optionalText(80),
+  customTypeLabel: optionalText(80),
+  recurrenceStartDate: z.union([dateOnly, z.null()]).optional(),
+  recurrenceEndDate: z.union([dateOnly, z.null()]).optional(),
   startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: optionalText(200),
@@ -298,6 +304,9 @@ export const studyScheduleUpdateSchema = z.object({
   endTime: clock.optional(),
   label: text(200).optional(),
   blockType: text(80).optional(),
+  customTypeLabel: z.union([text(80), z.null()]).optional(),
+  recurrenceStartDate: z.union([dateOnly, z.null()]).optional(),
+  recurrenceEndDate: z.union([dateOnly, z.null()]).optional(),
   startWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   endWeek: z.union([z.number().int().min(1).max(80), z.null()]).optional(),
   destination: z.union([text(200), z.null()]).optional(),
@@ -309,9 +318,10 @@ export const studyScheduleUpdateSchema = z.object({
 export const studyScheduleDeleteSchema = z.object({
   scope: z.enum(["occurrence", "future", "series"]).default("series"),
   weekNumber: z.number().int().min(1).max(80).optional(),
+  occurrenceDate: dateOnly.optional(),
 }).strict().superRefine((value, context) => {
-  if (value.scope !== "series" && value.weekNumber === undefined) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["weekNumber"], message: "Choose the academic week to remove." });
+  if (value.scope !== "series" && value.weekNumber === undefined && value.occurrenceDate === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["occurrenceDate"], message: "Choose the occurrence to remove." });
   }
 });
 
@@ -409,7 +419,11 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
     }),
     prisma.studyScheduleBlock.findMany({
       where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
-      include: { module: { select: { id: true, code: true, name: true } }, defaultOrigin: { select: { id: true, name: true } } },
+      include: {
+        module: { select: { id: true, code: true, name: true } },
+        defaultOrigin: { select: { id: true, name: true } },
+        travelStates: { orderBy: { occurrenceDate: "desc" }, take: 1 },
+      },
       orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
     }),
     prisma.studyCanvasAssignment.findMany({
@@ -619,6 +633,11 @@ export async function getDashboardStudyResource(workspace: StudyWorkspace, resou
   return { ...resource, noteMeta: await studyNoteMetadata(resource) };
 }
 
+export async function getDashboardStudyItem(workspace: StudyWorkspace, itemId: string) {
+  const item = await findStudyItem(workspace.id, itemId);
+  return { ...item, ...deadlineView(workspace, item) };
+}
+
 function deadlineView(
   workspace: StudyWorkspace,
   item: {
@@ -638,6 +657,9 @@ function scheduleBlockReminderReadiness(
     startWeek: number | null;
     endWeek: number | null;
     excludedWeeks: number[];
+    recurrenceStartDate: Date | null;
+    recurrenceEndDate: Date | null;
+    excludedDates: Date[];
     venueName: string | null;
     destinationStopId: string | null;
     defaultOriginId: string | null;
@@ -647,10 +669,14 @@ function scheduleBlockReminderReadiness(
 ) {
   const reasons: string[] = [];
   const weekNumber = academicWeekNumber(workspace, now);
-  const inRange = weekNumber > 0
-    && (!block.startWeek || weekNumber >= block.startWeek)
-    && (!block.endWeek || weekNumber <= block.endWeek)
-    && !block.excludedWeeks.includes(weekNumber);
+  const localDate = DateTime.fromJSDate(now).setZone(workspace.timezone).toISODate();
+  const calendarDay = localDate ? new Date(`${localDate}T00:00:00.000Z`) : now;
+  const inRange = block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length
+    ? studyScheduleOccursOnDate(block, calendarDay)
+    : weekNumber > 0
+      && (!block.startWeek || weekNumber >= block.startWeek)
+      && (!block.endWeek || weekNumber <= block.endWeek)
+      && !block.excludedWeeks.includes(weekNumber);
   if (!inRange) reasons.push("This block does not occur in the current academic week.");
   if (!workspace.boundChatId) reasons.push("Study Mode is not bound to a Telegram chat.");
   const travelRequested = Boolean(block.venueName || block.destinationStopId);
@@ -1005,6 +1031,9 @@ export async function updateDashboardStudyScheduleBlock(
     endTime: input.endTime,
     label: input.label,
     blockType: input.blockType,
+    customTypeLabel: input.customTypeLabel,
+    recurrenceStartDate: input.recurrenceStartDate,
+    recurrenceEndDate: input.recurrenceEndDate,
     startWeek: input.startWeek,
     endWeek: input.endWeek,
     defaultOriginId: input.destination === null ? undefined : input.defaultOriginId,

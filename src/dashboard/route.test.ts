@@ -196,6 +196,24 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("hydrates an exact task reference outside the paginated snapshot", async () => {
+    const server = Fastify();
+    const task = { id: "task-older", publicId: "TASK-OLDER", title: "Older task", status: "OPEN" };
+    const getTask = vi.fn(async () => task);
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { getTask: getTask as never } });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard/tasks/TASK-OLDER",
+      headers: { authorization: `Bearer ${await validToken()}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ task });
+    expect(getTask).toHaveBeenCalledWith("123456789", "TASK-OLDER");
+    await server.close();
+  });
+
   it("rejects a replayed mutation before repeating its side effect", async () => {
     const server = Fastify();
     const createTask = vi.fn(async () => ({ id: "task-1" }));

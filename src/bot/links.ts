@@ -3,6 +3,7 @@ const DEFAULT_DASHBOARD_URL = "https://threadwise-dashboard.vercel.app";
 export const DASHBOARD_URL = normalizeDashboardUrl(process.env.DASHBOARD_URL);
 
 export type DashboardItemKind = "task" | "note" | "idea" | "image";
+export type StudyDashboardItemKind = "study-item" | "study-resource";
 
 export function dashboardViewUrl(view: string, item?: { kind: DashboardItemKind; id: string }): string {
   const target = new URL("/dashboard", DASHBOARD_URL);
@@ -19,6 +20,14 @@ export function groupDashboardUrl(workspaceId: string, view?: string): string {
 }
 
 export function groupDashboardItemUrl(workspaceId: string, view: string, kind: DashboardItemKind, id: string): string {
+  const target = new URL("/dashboard", DASHBOARD_URL);
+  target.searchParams.set("view", view);
+  target.searchParams.set("kind", kind);
+  target.searchParams.set("item", id);
+  return groupDashboardTargetUrl(workspaceId, `${target.pathname}${target.search}`);
+}
+
+export function studyDashboardItemUrl(workspaceId: string, view: string, kind: StudyDashboardItemKind, id: string): string {
   const target = new URL("/dashboard", DASHBOARD_URL);
   target.searchParams.set("view", view);
   target.searchParams.set("kind", kind);

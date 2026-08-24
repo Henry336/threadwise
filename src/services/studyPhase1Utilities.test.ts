@@ -128,6 +128,24 @@ describe("deterministic attention and reminder ordering", () => {
     expect(studyScheduleDeleteMutation(block, { scope: "future", weekNumber: 5 })).toEqual({ endWeek: 4, excludedWeeks: [2] });
     expect(studyScheduleDeleteMutation(block, { scope: "series" })).toEqual({ active: false });
   });
+
+  it("uses exact calendar dates for one-occurrence and future recurrence edits", () => {
+    const block = {
+      active: true,
+      startWeek: null,
+      endWeek: null,
+      excludedWeeks: [],
+      recurrenceStartDate: new Date("2026-08-03T00:00:00.000Z"),
+      recurrenceEndDate: new Date("2026-12-01T00:00:00.000Z"),
+      excludedDates: [new Date("2026-08-10T00:00:00.000Z")],
+    };
+    const occurrence = studyScheduleDeleteMutation(block, { scope: "occurrence", occurrenceDate: "2026-08-17" });
+    expect(occurrence).toEqual({ excludedDates: [new Date("2026-08-10T00:00:00.000Z"), new Date("2026-08-17T00:00:00.000Z")] });
+    expect(studyScheduleDeleteMutation(block, { scope: "future", occurrenceDate: "2026-08-17" })).toEqual({
+      recurrenceEndDate: new Date("2026-08-16T00:00:00.000Z"),
+      excludedDates: [new Date("2026-08-10T00:00:00.000Z")],
+    });
+  });
 });
 
 describe("Study resource presentation", () => {

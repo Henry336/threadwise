@@ -540,7 +540,16 @@ export async function listUpcomingStudyTravelBlocks(
       const starts = cursor.set(clock);
       if (starts <= localNow) continue;
       const weekNumber = academicWeekNumber(workspace, starts.toUTC().toJSDate());
-      if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) continue;
+      const dateKey = starts.toISODate();
+      const usesCalendarRecurrence = Boolean(block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length);
+      if (usesCalendarRecurrence) {
+        if (!dateKey
+          || (block.recurrenceStartDate && dateKey < block.recurrenceStartDate.toISOString().slice(0, 10))
+          || (block.recurrenceEndDate && dateKey > block.recurrenceEndDate.toISOString().slice(0, 10))
+          || block.excludedDates.some((date) => date.toISOString().slice(0, 10) === dateKey)) continue;
+      } else if ((block.startWeek && weekNumber < block.startWeek)
+        || (block.endWeek && weekNumber > block.endWeek)
+        || block.excludedWeeks.includes(weekNumber)) continue;
       results.push({ block, startsAt: starts.toUTC().toJSDate() });
     }
   }
@@ -617,11 +626,28 @@ export function computeStudyLeaveAt(startsAt: Date, totalMinutes: number | undef
 
 export async function muteStudyTravelForToday(workspace: StudyWorkspace, now = new Date()): Promise<Date> {
   const until = DateTime.fromJSDate(now).setZone(workspace.timezone).endOf("day").toUTC().toJSDate();
+  const localDate = DateTime.fromJSDate(now).setZone(workspace.timezone).toISODate();
+  const occurrenceDate = localDate ? new Date(`${localDate}T00:00:00.000Z`) : now;
   // The cast keeps local development usable when another running process has
   // Windows' generated Prisma client locked. Render regenerates from schema.
   await prisma.studyWorkspace.update({ where: { id: workspace.id }, data: { travelMutedUntil: until } as never });
+  await prisma.studyTravelReminderState.updateMany({
+    where: { workspaceId: workspace.id, occurrenceDate, status: { in: ["READY", "PENDING"] } },
+    data: { status: "MUTED", mutedAt: now },
+  });
   await auditOrigin(workspace, "study.travel.muted", workspace.id, { until: until.toISOString() });
   return until;
+}
+
+export async function markStudyTravelArrived(workspace: StudyWorkspace, blockId: string, now = new Date()): Promise<void> {
+  const localDate = DateTime.fromJSDate(now).setZone(workspace.timezone).toISODate();
+  const occurrenceDate = localDate ? new Date(`${localDate}T00:00:00.000Z`) : now;
+  await prisma.studyTravelReminderState.upsert({
+    where: { blockId_occurrenceDate: { blockId, occurrenceDate } },
+    update: { status: "ARRIVED", arrivedAt: now },
+    create: { workspaceId: workspace.id, blockId, occurrenceDate, status: "ARRIVED", arrivedAt: now },
+  });
+  await auditOrigin(workspace, "study.travel.arrived", blockId, { occurrenceDate: occurrenceDate.toISOString() });
 }
 
 export async function resumeStudyTravelReminders(workspace: StudyWorkspace): Promise<void> {

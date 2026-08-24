@@ -13,6 +13,7 @@ import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
+import { studyDashboardItemUrl } from "./links";
 import {
   StudyModeError,
   advanceStudyConversation,
@@ -72,6 +73,7 @@ import {
   isStudyTravelMuted,
   listUpcomingStudyTravelBlocks,
   listStudyOrigins,
+  markStudyTravelArrived,
   muteStudyTravelForToday,
   renameStudyOrigin,
   resumeStudyTravelReminders,
@@ -665,7 +667,7 @@ export async function handleExtendedStudyCallback(
   }
   if (parts[1] === "travel" && parts[2] === "arrived" && parts[3]) {
     await clearTemporaryStudyOrigin(workspace);
-    await prisma.auditLog.create({ data: { userId: workspace.ownerUserId, action: "study.travel.arrived", metadata: { workspaceId: workspace.id, blockId: parts[3] } } });
+    await markStudyTravelArrived(workspace, parts[3]);
     await editOrReplyHtml(ctx, `${bold("You’re here")}\nTravel reminder closed.`, { reply_markup: new InlineKeyboard().text("Travel", "study:travel") });
     return true;
   }
@@ -1457,6 +1459,7 @@ async function showResource(ctx: Context, workspace: StudyWorkspace, reference: 
     keyboard.row();
   }
   keyboard.text(resource.pinnedAt ? "Unpin" : "Pin", `study:res:${resource.id}:pin`).text("Archive", `study:res:${resource.id}:archive`).row()
+    .url("Open in dashboard ↗", studyDashboardItemUrl(workspace.id, "study-library", "study-resource", resource.id)).row()
     .text("Back", `study:resources:${resourceKindCode(resource.kind)}:1`);
   const mediaCaption = truncate([
     resource.title,

@@ -114,6 +114,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       where: {
         status: TaskStatus.OPEN,
         archivedAt: null,
+        remindersDismissedAt: null,
         nextReminderAt: { lte: now },
         OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }]
       },
@@ -144,8 +145,26 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       }
     }
 
+    const digestTaskIds = new Set<string>();
+    const digestTasksByUser = new Map<string, ReminderTask[]>();
+    for (const task of tasks) {
+      if (groupedUndatedTaskIds.has(task.id) || customReminderTaskIds.has(task.id) || !task.dueAt) continue;
+      if (task.user.settings?.reminderMode !== ReminderMode.DIGEST) continue;
+      const group = digestTasksByUser.get(task.userId) ?? [];
+      group.push(task);
+      digestTasksByUser.set(task.userId, group);
+    }
+    for (const group of digestTasksByUser.values()) {
+      if (group.length < 2) continue;
+      for (const batch of chunk(group, GROUP_UNDATED_BATCH_SIZE)) {
+        batch.forEach((task) => digestTaskIds.add(task.id));
+        await sendReminderDigestBatch(bot, batch, now, run);
+      }
+    }
+
     for (const task of tasks) {
       if (groupedUndatedTaskIds.has(task.id)) continue;
+      if (digestTaskIds.has(task.id)) continue;
       if (customReminderTaskIds.has(task.id)) continue;
       const settings = task.user.settings;
       if (!settings) {
@@ -208,7 +227,9 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
           now,
           dueAt: task.dueAt,
           dueNudgeMinutes: settings.dueNudgeMinutes,
-          intervalMinutes: settings.reminderIntervalMinutes
+          intervalMinutes: settings.reminderIntervalMinutes,
+          automaticReminderCount: task.automaticReminderCount,
+          automaticReminderBudget: task.automaticReminderBudget,
         });
 
         await prisma.$transaction([
@@ -225,6 +246,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
             data: {
               lastRemindedAt: now,
               reminderCount: { increment: 1 },
+              automaticReminderCount: { increment: 1 },
               reminderIntervalMinutes: settings.reminderIntervalMinutes,
               ...nextSchedule
             }
@@ -382,6 +404,82 @@ async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: Reminder
   return deliveredTaskIds;
 }
 
+async function sendReminderDigestBatch(
+  bot: Bot,
+  tasks: ReminderTask[],
+  now: Date,
+  run: ReminderDiagnostics,
+): Promise<void> {
+  const first = tasks[0];
+  const settings = first?.user.settings;
+  if (!first || !settings) return;
+  const taskIds = tasks.map((task) => task.id);
+  const bypassQuiet = tasks.some((task) => shouldUseDueNudgePolicy({
+    dueAt: task.dueAt,
+    nextReminderAt: task.nextReminderAt,
+    dueNudgeMinutes: settings.dueNudgeMinutes,
+    now,
+  }));
+  if (!bypassQuiet && isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })) {
+    run.deferredForQuietHours += 1;
+    await prisma.task.updateMany({
+      where: { id: { in: taskIds } },
+      data: { nextReminderAt: nextQuietEnd(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd }) },
+    });
+    return;
+  }
+  if (!bypassQuiet && await countReminderMessagesToday(first.userId, now, settings.timezone) >= settings.maxRemindersPerDay) {
+    run.cappedByDailyLimit += 1;
+    await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { nextReminderAt: nextIntervalReminderAt(now, 60) } });
+    return;
+  }
+  const chatId = (settings.reminderChatId ?? first.user.telegramId).replace(/^chat:/, "");
+  try {
+    const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatReminderDigest(tasks, settings.timezone), {
+      ...HTML_REPLY,
+      reply_markup: reminderDigestKeyboard(tasks),
+    });
+    const deliveredChatId = delivery.chatId;
+    const messageId = String(delivery.message.message_id);
+    await prisma.$transaction(tasks.flatMap((task) => [
+      prisma.reminderDelivery.create({ data: { userId: task.userId, taskId: task.id, chatId: deliveredChatId, messageId } }),
+      prisma.task.update({
+        where: { id: task.id },
+        data: {
+          lastRemindedAt: now,
+          reminderCount: { increment: 1 },
+          automaticReminderCount: { increment: 1 },
+          reminderIntervalMinutes: settings.reminderIntervalMinutes,
+          ...nextTaskScheduleAfterDelivery({
+            now,
+            dueAt: task.dueAt,
+            dueNudgeMinutes: settings.dueNudgeMinutes,
+            intervalMinutes: settings.reminderIntervalMinutes,
+            automaticReminderCount: task.automaticReminderCount,
+            automaticReminderBudget: task.automaticReminderBudget,
+          }),
+        },
+      }),
+    ]));
+    run.remindersSent += 1;
+    for (const task of tasks) {
+      try {
+        const direct = await sendDirectAssigneeNudges(bot, task);
+        run.directNudgesSent += direct.sent;
+        run.directNudgesSkipped += direct.skipped;
+        run.directNudgeFailures += direct.failed;
+      } catch (error) {
+        run.directNudgeFailures += Math.max(1, task.assignees.length);
+        logger.warn("Could not finish private assignee nudges after a reminder digest.", { taskId: task.id, error: String(error) });
+      }
+    }
+  } catch (error) {
+    run.failedDeliveries += 1;
+    logger.error("Failed to send reminder digest.", { userId: first.userId, taskIds, error: String(error) });
+    await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { nextReminderAt: nextIntervalReminderAt(now, 15) } });
+  }
+}
+
 async function sendGroupUndatedReminderBatch(
   bot: Bot,
   tasks: ReminderTask[],
@@ -451,6 +549,10 @@ async function sendGroupUndatedReminderBatch(
     await prisma.$transaction(tasks.flatMap((task) => {
       const nextCount = task.undatedNudgeCount + 1;
       const nextInterval = nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, nextCount);
+      const automaticCount = task.automaticReminderCount + 1;
+      const nextReminderAt = automaticCount >= Math.min(3, task.automaticReminderBudget)
+        ? null
+        : nextIntervalReminderAt(now, nextInterval);
       return [
         prisma.reminderDelivery.create({
           data: { userId: task.userId, taskId: task.id, chatId: deliveredChatId, messageId }
@@ -460,9 +562,10 @@ async function sendGroupUndatedReminderBatch(
           data: {
             lastRemindedAt: now,
             reminderCount: { increment: 1 },
+            automaticReminderCount: { increment: 1 },
             undatedNudgeCount: nextCount,
             reminderIntervalMinutes: settings.reminderIntervalMinutes,
-            nextReminderAt: nextIntervalReminderAt(now, nextInterval)
+            nextReminderAt,
           }
         })
       ];
@@ -690,6 +793,32 @@ export function formatGroupUndatedReminderDigest(tasks: Array<{
   ]);
 }
 
+export function formatReminderDigest(tasks: Array<{
+  publicId: string;
+  title: string;
+  dueAt?: Date | null;
+  timezone?: string | null;
+}>, fallbackTimezone: string): string {
+  return joinBlocks([
+    bold(`${tasks.length} tasks need attention`),
+    tasks.map((task, index) => [
+      `${index + 1}. ${bold(h(task.title))}`,
+      task.dueAt ? `Due ${h(formatDateTimeForUser(task.dueAt, task.timezone ?? fallbackTimezone))}` : undefined,
+      code(task.publicId),
+    ].filter(Boolean).join(" · ")).join("\n"),
+    "Open one task to complete, snooze, or dismiss its reminder cycle.",
+  ]);
+}
+
+function reminderDigestKeyboard(tasks: Array<{ id: string; publicId: string }>): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  tasks.forEach((task, index) => {
+    keyboard.text(`Open ${task.publicId}`, `task:view-full:${task.id}`);
+    if (index % 2 === 1 || index === tasks.length - 1) keyboard.row();
+  });
+  return keyboard;
+}
+
 function groupUndatedReminderKeyboard(tasks: Array<{ id: string; publicId: string }>): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   tasks.forEach((task, index) => {
@@ -779,13 +908,31 @@ export function nextReminderAtAfterDelivery(input: {
   dueAt?: Date | null;
   dueNudgeMinutes: number;
   intervalMinutes: number;
-}): Date {
+  automaticReminderCount?: number;
+  automaticReminderBudget?: number;
+}): Date | null {
+  const count = input.automaticReminderCount ?? 0;
+  const budget = input.automaticReminderBudget ?? 7;
+  if (count + 1 >= budget) return null;
   if (input.dueAt) {
-    const interval = escalatingReminderIntervalMinutes(input.dueAt, input.now, input.intervalMinutes, input.dueNudgeMinutes);
-    return nextIntervalReminderAt(input.now, interval);
+    return nextDueMilestone(input.dueAt, input.now, input.dueNudgeMinutes);
   }
-
+  if (count + 1 >= Math.min(3, budget)) return null;
   return nextIntervalReminderAt(input.now, input.intervalMinutes);
+}
+
+export function dueReminderMilestones(dueAt: Date, dueNudgeMinutes = 0): Date[] {
+  const offsets = new Set([7 * 24 * 60, 3 * 24 * 60, 24 * 60, 6 * 60, 2 * 60, 30, 0]);
+  if (dueNudgeMinutes > 0) offsets.add(dueNudgeMinutes);
+  return [...offsets]
+    .sort((left, right) => right - left)
+    .map((minutes) => new Date(dueAt.getTime() - minutes * 60_000));
+}
+
+function nextDueMilestone(dueAt: Date, now: Date, dueNudgeMinutes: number): Date | null {
+  if (now >= dueAt) return null;
+  const threshold = now.getTime() + 60_000;
+  return dueReminderMilestones(dueAt, dueNudgeMinutes).find((milestone) => milestone.getTime() > threshold) ?? dueAt;
 }
 
 export function escalatingReminderIntervalMinutes(
@@ -816,14 +963,9 @@ export function initialTaskReminderAt(input: {
   dueAt?: Date | null;
   dueNudgeMinutes: number;
   intervalMinutes: number;
-}): Date {
+}): Date | null {
   if (!input.dueAt) return nextIntervalReminderAt(input.now, input.intervalMinutes);
-  const cadence = nextIntervalReminderAt(
-    input.now,
-    escalatingReminderIntervalMinutes(input.dueAt, input.now, input.intervalMinutes, input.dueNudgeMinutes),
-  );
-  const finalNudge = nextDueReminderAt(input.dueAt, input.dueNudgeMinutes, input.now);
-  return cadence.getTime() < finalNudge.getTime() ? cadence : finalNudge;
+  return nextDueMilestone(input.dueAt, input.now, input.dueNudgeMinutes);
 }
 
 export function nextTaskScheduleAfterDelivery(input: {
@@ -831,7 +973,9 @@ export function nextTaskScheduleAfterDelivery(input: {
   dueAt?: Date | null;
   dueNudgeMinutes: number;
   intervalMinutes: number;
-}): { nextReminderAt: Date } {
+  automaticReminderCount?: number;
+  automaticReminderBudget?: number;
+}): { nextReminderAt: Date | null } {
   return {
     nextReminderAt: nextReminderAtAfterDelivery(input)
   };
@@ -842,27 +986,9 @@ export function nextReminderAfterSettingChange(task: {
   nextReminderAt?: Date | null;
   lastRemindedAt?: Date | null;
   reminderCount: number;
-}, now: Date, intervalMinutes: number, dueNudgeMinutes = 0): Date {
+}, now: Date, intervalMinutes: number, dueNudgeMinutes = 0): Date | null {
+  if (task.dueAt) return nextDueMilestone(task.dueAt, now, dueNudgeMinutes);
   const nextInterval = nextIntervalReminderAt(now, intervalMinutes);
-
-  if (shouldBypassReminderLimits(task) && task.dueAt && task.dueAt.getTime() > now.getTime()) {
-    return nextDueReminderAt(task.dueAt, dueNudgeMinutes, now);
-  }
-
-  if (task.dueAt && dueNudgeMinutes > 0 && task.dueAt.getTime() > now.getTime()) {
-    const dueNudge = nextDueReminderAt(task.dueAt, dueNudgeMinutes, now);
-    if (!task.nextReminderAt || task.nextReminderAt.getTime() > dueNudge.getTime()) {
-      return dueNudge;
-    }
-  }
-
-  if (task.dueAt && dueNudgeMinutes > 0 && now >= dueNudgeStartAt(task.dueAt, dueNudgeMinutes)) {
-    const nextDueNudge = nextIntervalReminderAt(now, dueNudgeMinutes);
-    if (!task.nextReminderAt || task.nextReminderAt.getTime() > nextDueNudge.getTime()) {
-      return nextDueNudge;
-    }
-  }
-
   if (!task.nextReminderAt || task.nextReminderAt.getTime() > nextInterval.getTime()) {
     return nextInterval;
   }
