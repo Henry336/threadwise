@@ -11,8 +11,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 - Authorization/status: the owner authorized Phase 1 implementation on 2026-08-24 SGT. The
   implementation and local validation are complete on guarded backend/dashboard branches named
-  `codex/phase1-reliability-foundation`; commit and remote push are the remaining release-preparation
-  steps.
+  `codex/phase1-reliability-foundation`. The backend implementation commit is `4489a43` and the
+  dashboard implementation commit is `d92d5a9`; remote push is the remaining release-preparation step.
   Production data inspection must begin read-only; no deployment or production mutation is implied
   by this authorization until implementation and validation evidence are complete.
 - Material implementation checkpoint (2026-08-25 SGT): additive schema and runtime work now records
@@ -67,8 +67,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   every material implementation or validation checkpoint, and before any interruption. Reliability
   precedes feature expansion: confidently incorrect deadlines or silent reminder failures are the
   first problems to resolve.
-- Exact next action after interruption: commit and push both guarded branches, record their immutable
-  commit IDs here, and wait for owner approval before any merge, database migration, or deployment.
+- Exact next action after interruption: push both guarded branches and wait for owner approval before
+  any merge, database migration, or deployment.
 
 ## Active checkpoint — personal Overview quote library (2026-08-21 SGT)
 
