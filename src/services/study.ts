@@ -7,6 +7,7 @@ import {
   StudyPriority,
   StudyTrafficLight,
   type StudyModule,
+  type StudyScheduleBlock,
   type StudyWorkspace,
 } from "@prisma/client";
 import type { Context } from "grammy";
@@ -14,6 +15,7 @@ import { DateTime } from "luxon";
 import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
+import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 
 const DEFAULT_MODULES = [
   { code: "CS2100", name: "Computer Organisation", color: "#2C7A7B" },
@@ -861,7 +863,11 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
           ...(week ? [{ weekId: week.id }] : []),
         ],
       },
-      include: { week: true },
+      include: {
+        week: true,
+        module: { select: { canvasTermStartAt: true, canvasTermEndAt: true } },
+        canvasAssignment: { select: { needsReview: true, status: true } },
+      },
     }),
     weekRange ? prisma.studySession.findMany({ where: { workspaceId: workspace.id, module: { active: true }, archivedAt: null, startedAt: { gte: weekRange.start, lte: weekRange.end }, endedAt: { not: null } } }) : Promise.resolve([]),
     listStudyMistakes(workspace.id, now),
@@ -875,16 +881,20 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
   const dashboardModules: StudyDashboardModule[] = modules.map((module) => {
     const moduleItems = items.filter((item) => item.moduleId === module.id);
     const openItems = moduleItems.filter((item) => item.status === StudyItemStatus.OPEN || item.status === StudyItemStatus.IN_PROGRESS);
+    const deadlineSafeOpenItems = openItems.map((item) => ({
+      ...item,
+      dueAt: hasTrustedStudyDeadline(workspace, item) ? item.dueAt : null,
+    }));
     const moduleSessions = sessions.filter((session) => session.moduleId === module.id);
     const moduleMistakes = mistakes.filter((mistake) => mistake.moduleId === module.id && mistake.revisitAt && mistake.revisitAt <= now);
-    const status = deriveModuleBacklogStatus(module, openItems, weekNumber, now);
+    const status = deriveModuleBacklogStatus(module, deadlineSafeOpenItems, weekNumber, now);
     return {
       id: module.id,
       code: module.code,
       name: module.name,
       status,
       open: openItems.length,
-      overdue: openItems.filter((item) => item.dueAt && item.dueAt < now).length,
+      overdue: deadlineSafeOpenItems.filter((item) => item.dueAt && item.dueAt < now).length,
       unprocessed: openItems.filter((item) => (
         item.type === StudyItemType.LECTURE
         || item.type === StudyItemType.TUTORIAL
@@ -892,7 +902,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
       )).length,
       plannedMinutes: moduleItems.filter((item) => item.weekId === week?.id).reduce((sum, item) => sum + (item.plannedMinutes ?? 0), 0),
       actualMinutes: moduleSessions.reduce((sum, session) => sum + (session.durationMinutes ?? 0), 0),
-      nearestDeadline: openItems.map((item) => item.dueAt).filter((value): value is Date => Boolean(value)).sort((a, b) => a.getTime() - b.getTime())[0],
+      nearestDeadline: deadlineSafeOpenItems.map((item) => item.dueAt).filter((value): value is Date => Boolean(value)).sort((a, b) => a.getTime() - b.getTime())[0],
       mistakesDue: moduleMistakes.length,
       timedPracticeMissing: isTimedPracticeMissing(
         module.code,
@@ -937,6 +947,37 @@ export async function upcomingStudyItems(workspaceId: string, now = new Date()) 
   });
 }
 
+function calendarDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const parsed = DateTime.fromISO(value, { zone: "utc" });
+  if (!parsed.isValid || value !== parsed.toISODate()) {
+    throw new StudyModeError("Choose a valid calendar date.", "invalid");
+  }
+  return parsed.startOf("day").toJSDate();
+}
+
+function optionalLabel(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const clean = value?.replace(/\s+/gu, " ").trim();
+  return clean ? clean.slice(0, 80) : null;
+}
+
+function uniqueCalendarDates(values: Date[]): Date[] {
+  return [...new Map(values.map((date) => [date.toISOString().slice(0, 10), date])).values()]
+    .sort((left, right) => left.getTime() - right.getTime());
+}
+
+export function studyScheduleOccursOnDate(
+  block: Partial<Pick<StudyScheduleBlock, "recurrenceStartDate" | "recurrenceEndDate" | "excludedDates">>,
+  occurrenceDate: Date,
+): boolean {
+  const key = occurrenceDate.toISOString().slice(0, 10);
+  if (block.recurrenceStartDate && key < block.recurrenceStartDate.toISOString().slice(0, 10)) return false;
+  if (block.recurrenceEndDate && key > block.recurrenceEndDate.toISOString().slice(0, 10)) return false;
+  return !(block.excludedDates ?? []).some((date) => date.toISOString().slice(0, 10) === key);
+}
+
 export async function listStudyScheduleBlocks(workspaceId: string) {
   return prisma.studyScheduleBlock.findMany({
     where: { workspaceId, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
@@ -954,6 +995,9 @@ export async function addStudyScheduleBlock(
     label: string;
     moduleId?: string | null;
     blockType?: string;
+    customTypeLabel?: string;
+    recurrenceStartDate?: string | null;
+    recurrenceEndDate?: string | null;
     startWeek?: number | null;
     endWeek?: number | null;
     venueId?: string;
@@ -975,6 +1019,11 @@ export async function addStudyScheduleBlock(
     const origin = await prisma.studyLocationOrigin.findFirst({ where: { id: input.defaultOriginId, workspaceId: workspace.id, active: true } });
     if (!origin) throw new StudyModeError("That travel origin was not found.", "not_found");
   }
+  const recurrenceStartDate = calendarDate(input.recurrenceStartDate);
+  const recurrenceEndDate = calendarDate(input.recurrenceEndDate);
+  if (recurrenceStartDate && recurrenceEndDate && recurrenceEndDate < recurrenceStartDate) {
+    throw new StudyModeError("The recurrence end date cannot be before its start date.", "invalid");
+  }
   const block = await prisma.studyScheduleBlock.create({
     data: {
       workspaceId: workspace.id,
@@ -984,6 +1033,9 @@ export async function addStudyScheduleBlock(
       endTime,
       label: requiredText(input.label, "Give the block a label.", 200),
       blockType: input.blockType ?? "study",
+      customTypeLabel: optionalLabel(input.customTypeLabel),
+      recurrenceStartDate,
+      recurrenceEndDate,
       startWeek: input.startWeek,
       endWeek: input.endWeek,
       venueId: input.venueId,
@@ -1008,6 +1060,9 @@ export async function updateStudyScheduleBlock(
     endTime?: string;
     label?: string;
     blockType?: string;
+    customTypeLabel?: string | null;
+    recurrenceStartDate?: string | null;
+    recurrenceEndDate?: string | null;
     startWeek?: number | null;
     endWeek?: number | null;
     venueId?: string | null;
@@ -1040,6 +1095,13 @@ export async function updateStudyScheduleBlock(
   if (effectiveStartWeek && effectiveEndWeek && effectiveEndWeek < effectiveStartWeek) {
     throw new StudyModeError("The final teaching week cannot be before the first week.", "invalid");
   }
+  const recurrenceStartDate = input.recurrenceStartDate === undefined ? undefined : calendarDate(input.recurrenceStartDate);
+  const recurrenceEndDate = input.recurrenceEndDate === undefined ? undefined : calendarDate(input.recurrenceEndDate);
+  const effectiveRecurrenceStart = recurrenceStartDate === undefined ? block.recurrenceStartDate : recurrenceStartDate;
+  const effectiveRecurrenceEnd = recurrenceEndDate === undefined ? block.recurrenceEndDate : recurrenceEndDate;
+  if (effectiveRecurrenceStart && effectiveRecurrenceEnd && effectiveRecurrenceEnd < effectiveRecurrenceStart) {
+    throw new StudyModeError("The recurrence end date cannot be before its start date.", "invalid");
+  }
   const travelBufferMinutes = input.travelBufferMinutes === undefined
     ? undefined
     : Math.min(90, Math.max(0, Math.round(input.travelBufferMinutes)));
@@ -1055,6 +1117,9 @@ export async function updateStudyScheduleBlock(
       endTime,
       label: input.label === undefined ? undefined : requiredText(input.label, "Give the block a label.", 200),
       blockType: input.blockType,
+      customTypeLabel: input.customTypeLabel === undefined ? undefined : optionalLabel(input.customTypeLabel),
+      recurrenceStartDate,
+      recurrenceEndDate,
       startWeek: input.startWeek,
       endWeek: input.endWeek,
       venueId: input.venueId,
@@ -1079,11 +1144,56 @@ export async function updateStudyScheduleBlock(
   return updated;
 }
 
-export async function archiveStudyScheduleBlock(workspace: StudyWorkspace, blockId: string) {
-  const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id } });
+export type StudyScheduleDeleteScope = "occurrence" | "future" | "series";
+
+export function studyScheduleDeleteMutation(
+  block: Pick<StudyScheduleBlock, "active" | "startWeek" | "endWeek" | "excludedWeeks"> & Partial<Pick<StudyScheduleBlock, "recurrenceStartDate" | "recurrenceEndDate" | "excludedDates">>,
+  input: { scope?: StudyScheduleDeleteScope; weekNumber?: number; occurrenceDate?: string },
+) {
+  const scope = input.scope ?? "series";
+  const weekNumber = input.weekNumber;
+  if (scope === "series") return { active: false };
+  const occurrenceDate = calendarDate(input.occurrenceDate);
+  if (occurrenceDate) {
+    if (!studyScheduleOccursOnDate(block, occurrenceDate)) {
+      throw new StudyModeError("That block does not occur on the selected date.", "invalid");
+    }
+    if (scope === "occurrence") {
+      const dates = [...(block.excludedDates ?? []), occurrenceDate];
+      return { excludedDates: uniqueCalendarDates(dates) };
+    }
+    return block.recurrenceStartDate && occurrenceDate <= block.recurrenceStartDate
+      ? { active: false }
+      : {
+          recurrenceEndDate: DateTime.fromJSDate(occurrenceDate, { zone: "utc" }).minus({ days: 1 }).startOf("day").toJSDate(),
+          excludedDates: (block.excludedDates ?? []).filter((date) => date < occurrenceDate),
+        };
+  }
+  if (!weekNumber || !Number.isInteger(weekNumber) || weekNumber < 1 || weekNumber > 80) {
+    throw new StudyModeError("Choose the academic week to remove.", "invalid");
+  }
+  if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) {
+    throw new StudyModeError("That block does not occur in the selected week.", "invalid");
+  }
+  if (scope === "occurrence") {
+    return { excludedWeeks: [...new Set([...block.excludedWeeks, weekNumber])].sort((a, b) => a - b) };
+  }
+  return block.startWeek && weekNumber <= block.startWeek
+    ? { active: false }
+    : { endWeek: weekNumber - 1, excludedWeeks: block.excludedWeeks.filter((week) => week < weekNumber) };
+}
+
+export async function archiveStudyScheduleBlock(
+  workspace: StudyWorkspace,
+  blockId: string,
+  input: { scope?: StudyScheduleDeleteScope; weekNumber?: number; occurrenceDate?: string } = {},
+) {
+  const block = await prisma.studyScheduleBlock.findFirst({ where: { id: blockId, workspaceId: workspace.id, active: true } });
   if (!block) throw new StudyModeError("That schedule block was not found.", "not_found");
-  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data: { active: false } });
-  await auditStudy(workspace.ownerUserId, "study.schedule.archived", { workspaceId: workspace.id, blockId });
+  const scope = input.scope ?? "series";
+  const data = studyScheduleDeleteMutation(block, input);
+  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data });
+  await auditStudy(workspace.ownerUserId, "study.schedule.removed", { workspaceId: workspace.id, blockId, scope, weekNumber: input.weekNumber });
 }
 
 export async function createStudyExports(workspace: StudyWorkspace, now = new Date()): Promise<Array<{ fileName: string; content: string }>> {
@@ -1309,20 +1419,50 @@ function hasConsecutiveRedReviews(reviews: Array<{ moduleStatuses: Prisma.JsonVa
 
 function findNextScheduleBlock(
   workspace: StudyWorkspace,
-  blocks: Array<{ dayOfWeek: number; startTime: string; startWeek: number | null; endWeek: number | null; label: string; module: { code: string } | null }>,
+  blocks: Array<{
+    dayOfWeek: number;
+    startTime: string;
+    startWeek: number | null;
+    endWeek: number | null;
+    excludedWeeks: number[];
+    recurrenceStartDate: Date | null;
+    recurrenceEndDate: Date | null;
+    excludedDates: Date[];
+    label: string;
+    module: { code: string } | null;
+  }>,
   weekNumber: number,
   now: Date,
 ): { label: string; moduleCode?: string; startsAt: Date } | undefined {
-  if (weekNumber < 1) return undefined;
+  void weekNumber;
   const localNow = DateTime.fromJSDate(now).setZone(workspace.timezone);
   const candidates = blocks.flatMap((block) => {
-    if ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek)) return [];
     const [hour, minute] = block.startTime.split(":").map(Number);
     if (!Number.isInteger(hour) || !Number.isInteger(minute)) return [];
     const daysAhead = (block.dayOfWeek - localNow.weekday + 7) % 7;
     let start = localNow.startOf("day").plus({ days: daysAhead }).set({ hour, minute, second: 0, millisecond: 0 });
     if (start <= localNow) start = start.plus({ weeks: 1 });
-    return [{ label: block.label, moduleCode: block.module?.code, startsAt: start.toUTC().toJSDate() }];
+    const usesCalendarRecurrence = Boolean(block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length);
+    for (let attempt = 0; attempt < 52; attempt += 1) {
+      const candidateDate = start.toISODate();
+      const calendarDay = candidateDate ? new Date(`${candidateDate}T00:00:00.000Z`) : start.toUTC().toJSDate();
+      if (usesCalendarRecurrence) {
+        if (studyScheduleOccursOnDate(block, calendarDay)) {
+          return [{ label: block.label, moduleCode: block.module?.code, startsAt: start.toUTC().toJSDate() }];
+        }
+        if (block.recurrenceEndDate && calendarDay > block.recurrenceEndDate) return [];
+      } else {
+        const candidateWeek = academicWeekNumber(workspace, start.toUTC().toJSDate());
+        if ((!block.startWeek || candidateWeek >= block.startWeek)
+          && (!block.endWeek || candidateWeek <= block.endWeek)
+          && !block.excludedWeeks.includes(candidateWeek)) {
+          return [{ label: block.label, moduleCode: block.module?.code, startsAt: start.toUTC().toJSDate() }];
+        }
+        if (block.endWeek && candidateWeek > block.endWeek) return [];
+      }
+      start = start.plus({ weeks: 1 });
+    }
+    return [];
   });
   return candidates.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())[0];
 }

@@ -9,7 +9,9 @@ import {
 } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { scoreStudyAttentionItem } from "./studyAttention";
-import { canvasMaterialKind, canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink, requireCanvasApiUrl, studyCanvasSyncIsDue } from "./studyCanvas";
+import { canvasCourseTermScope, canvasMaterialKind, canvasModuleCode, canvasPriority, isSubmitted, nextCanvasLink, requireCanvasApiUrl, studyCanvasSyncIsDue } from "./studyCanvas";
+import { assessStudyDeadline } from "./studyDeadlineTrust";
+import { studyScheduleDeleteMutation } from "./study";
 import { studyReminderPriority } from "./studyReminders";
 import { deriveStudyResourceTitle, paginateStudyText } from "./studyResources";
 
@@ -56,6 +58,12 @@ describe("Canvas mapping rules", () => {
     expect(studyCanvasSyncIsDue({ status: StudyCanvasSyncStatus.RUNNING, lastAttemptAt: new Date("2026-08-13T09:59:00.000Z"), nextSyncAt: new Date("2026-08-13T10:30:00.000Z") }, now)).toBe(false);
     expect(studyCanvasSyncIsDue({ status: StudyCanvasSyncStatus.RUNNING, lastAttemptAt: new Date("2026-08-13T09:50:00.000Z"), nextSyncAt: new Date("2026-08-13T10:30:00.000Z") }, now)).toBe(true);
   });
+
+  it("rejects courses from a different academic term", () => {
+    const workspace = { timezone: "Asia/Singapore", semesterStartDate: new Date("2026-08-09T16:00:00.000Z") };
+    expect(canvasCourseTermScope(workspace, { id: 1, term: { name: "AY2025/26", start_at: "2025-08-01", end_at: "2025-12-31" } })).toMatchObject({ status: "OUTSIDE" });
+    expect(canvasCourseTermScope(workspace, { id: 2, term: { name: "AY2026/27", start_at: "2026-08-01", end_at: "2026-12-31" } })).toEqual({ status: "CURRENT" });
+  });
 });
 
 describe("deterministic attention and reminder ordering", () => {
@@ -101,6 +109,42 @@ describe("deterministic attention and reminder ordering", () => {
     expect(studyReminderPriority(StudyReminderKind.DEADLINE_APPROACHING)).toBeLessThan(
       studyReminderPriority(StudyReminderKind.WEEKLY_REVIEW_INCOMPLETE),
     );
+  });
+
+  it("quarantines implausible Canvas deadlines instead of calling them overdue", () => {
+    const deadline = assessStudyDeadline(workspace, {
+      source: "CANVAS",
+      dueAt: new Date("2027-10-13T15:59:00.000Z"),
+      module: { canvasTermStartAt: new Date("2026-08-01T00:00:00.000Z"), canvasTermEndAt: new Date("2026-12-31T00:00:00.000Z") },
+      canvasAssignment: { status: "ACTIVE", needsReview: false },
+    });
+    expect(deadline.status).toBe("NEEDS_CONFIRMATION");
+    expect(deadline.reason).toContain("after this Canvas term");
+  });
+
+  it("derives idempotent recurring deletion mutations", () => {
+    const block = { active: true, startWeek: 1, endWeek: 13, excludedWeeks: [2] };
+    expect(studyScheduleDeleteMutation(block, { scope: "occurrence", weekNumber: 4 })).toEqual({ excludedWeeks: [2, 4] });
+    expect(studyScheduleDeleteMutation(block, { scope: "future", weekNumber: 5 })).toEqual({ endWeek: 4, excludedWeeks: [2] });
+    expect(studyScheduleDeleteMutation(block, { scope: "series" })).toEqual({ active: false });
+  });
+
+  it("uses exact calendar dates for one-occurrence and future recurrence edits", () => {
+    const block = {
+      active: true,
+      startWeek: null,
+      endWeek: null,
+      excludedWeeks: [],
+      recurrenceStartDate: new Date("2026-08-03T00:00:00.000Z"),
+      recurrenceEndDate: new Date("2026-12-01T00:00:00.000Z"),
+      excludedDates: [new Date("2026-08-10T00:00:00.000Z")],
+    };
+    const occurrence = studyScheduleDeleteMutation(block, { scope: "occurrence", occurrenceDate: "2026-08-17" });
+    expect(occurrence).toEqual({ excludedDates: [new Date("2026-08-10T00:00:00.000Z"), new Date("2026-08-17T00:00:00.000Z")] });
+    expect(studyScheduleDeleteMutation(block, { scope: "future", occurrenceDate: "2026-08-17" })).toEqual({
+      recurrenceEndDate: new Date("2026-08-16T00:00:00.000Z"),
+      excludedDates: [new Date("2026-08-10T00:00:00.000Z")],
+    });
   });
 });
 

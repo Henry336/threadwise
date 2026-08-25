@@ -2,7 +2,7 @@ import { InputFile, type Bot, type Context } from "grammy";
 import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
 import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
@@ -49,6 +49,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2], ctx.match[1] === "full"));
   bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2], ctx.match[1] === "remove"));
@@ -712,6 +713,24 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
     appendListOrigin(keyboard, user.id, "task");
     if (user.id === interactionUser.id) keyboard.row().text("↩️ Undo snooze", "undo:last");
   }
+  await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
+}
+
+async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefined) {
+  if (!taskId) return;
+  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
+  if (isGroupChat(ctx)) {
+    try {
+      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
+    } catch (error) {
+      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot dismiss reminders for that task.").slice(0, 180), show_alert: true });
+      return;
+    }
+  }
+  const task = await dismissTaskReminders(user.id, taskId);
+  await ctx.answerCallbackQuery({ text: "Reminders dismissed" });
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "Reminders dismissed for this task", false);
+  const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 

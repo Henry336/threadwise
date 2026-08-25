@@ -401,7 +401,7 @@ export function settingsView(settings: UserSettings): DashboardSettings {
   };
 }
 
-function nextReminder(dueAt: Date | null, interval: number, dueNudgeMinutes: number, now = new Date()): Date {
+function nextReminder(dueAt: Date | null, interval: number, dueNudgeMinutes: number, now = new Date()): Date | null {
   return initialTaskReminderAt({ now, dueAt, dueNudgeMinutes, intervalMinutes: interval });
 }
 
@@ -475,6 +475,11 @@ async function scopedTask(database: PrismaClient, userId: string, id: string) {
   });
   if (!task) throw new DashboardItemNotFoundError();
   return task;
+}
+
+export async function getDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<DashboardTask> {
+  const user = await userContext(telegramId, database);
+  return taskView(await scopedTask(database, user.id, id));
 }
 
 export async function updateDashboardTask(telegramId: string, id: string, input: TaskUpdateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
@@ -719,6 +724,11 @@ async function scopedNote(database: PrismaClient, userId: string, id: string) {
   return note;
 }
 
+export async function getDashboardNote(telegramId: string, id: string, database: PrismaClient = prisma): Promise<DashboardNote> {
+  const user = await userContext(telegramId, database);
+  return noteView(await scopedNote(database, user.id, id));
+}
+
 export async function updateDashboardNote(telegramId: string, id: string, input: NoteUpdateInput, database: PrismaClient = prisma): Promise<DashboardNote> {
   const user = await userContext(telegramId, database);
   const note = await scopedNote(database, user.id, id);
@@ -836,6 +846,11 @@ async function scopedIdea(database: PrismaClient, userId: string, id: string) {
   const idea = await database.idea.findFirst({ where: { userId, archivedAt: null, OR: itemReference(id) } });
   if (!idea) throw new DashboardItemNotFoundError();
   return idea;
+}
+
+export async function getDashboardIdea(telegramId: string, id: string, database: PrismaClient = prisma): Promise<DashboardIdea> {
+  const user = await userContext(telegramId, database);
+  return ideaView(await scopedIdea(database, user.id, id));
 }
 
 export async function updateDashboardIdea(telegramId: string, id: string, input: IdeaUpdateInput, database: PrismaClient = prisma): Promise<DashboardIdea> {
@@ -1030,6 +1045,11 @@ async function scopedImage(database: PrismaClient, userId: string, id: string) {
   const image = await database.storedImage.findFirst({ where: { userId, OR: itemReference(id) } });
   if (!image) throw new DashboardItemNotFoundError();
   return image;
+}
+
+export async function getDashboardImage(telegramId: string, id: string, database: PrismaClient = prisma): Promise<DashboardImage> {
+  const user = await userContext(telegramId, database);
+  return imageView(await scopedImage(database, user.id, id));
 }
 
 const imageSelect = {

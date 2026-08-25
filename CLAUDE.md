@@ -190,6 +190,26 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-25 (Codex):** Implemented Phase 1 reliability safeguards on
+  `codex/phase1-reliability-foundation`. Canvas sync now retains term identity, rejects clearly
+  out-of-semester courses, and quarantines implausible/missing Canvas deadlines instead of
+  presenting or reminding on them as overdue. Reminder passes persist reason-coded health;
+  schedule blocks expose delivery readiness; and recurring blocks support occurrence,
+  this-and-future, and whole-series removal via additive week exceptions. Added the additive
+  `20260824120000_phase1_study_reliability` migration and focused regressions. Prisma validation,
+  typecheck, build, secret scan, focused tests, and the complete single-worker suite (913 passed,
+  6 skipped) pass. Dashboard pairing and final push remain in progress.
+
+- **2026-08-25 (Codex):** Implemented Phase 1 reliability safeguards on
+  `codex/phase1-reliability-foundation`. Canvas sync now retains term identity, rejects clearly
+  out-of-semester courses, and quarantines implausible/missing Canvas deadlines instead of
+  presenting or reminding on them as overdue. Reminder passes persist reason-coded health;
+  schedule blocks expose delivery readiness; and recurring blocks support occurrence,
+  this-and-future, and whole-series removal via additive week exceptions. Added the additive
+  `20260824120000_phase1_study_reliability` migration and focused regressions. Prisma validation,
+  typecheck, build, secret scan, focused tests, and the complete single-worker suite (913 passed,
+  6 skipped) pass. Dashboard pairing and final push remain in progress.
+
 - **2026-08-21 (Codex):** Personal Overview quote persistence is implementation-complete on
   `codex/personal-overview-quotes`. Added one additive JSONB migration, strict API normalization,
   snapshot/export coverage, and personal-workspace enforcement. Backend passes 909 tests with

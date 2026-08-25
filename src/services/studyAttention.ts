@@ -9,11 +9,16 @@ import {
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { academicWeekNumber } from "./study";
+import { assessStudyDeadline } from "./studyDeadlineTrust";
 
 type AttentionInput = Pick<StudyItem,
   "id" | "publicId" | "title" | "status" | "priority" | "dueAt" | "plannedMinutes" | "mastery" | "createdAt" | "type"
 > & {
-  module: Pick<StudyModule, "id" | "code" | "name" | "currentMastery">;
+  source?: StudyItem["source"];
+  module: Pick<StudyModule, "id" | "code" | "name" | "currentMastery"> & {
+    canvasTermStartAt?: Date | null;
+    canvasTermEndAt?: Date | null;
+  };
   week?: { number: number } | null;
   canvasAssignment?: { needsReview: boolean; status: string } | null;
 };
@@ -29,6 +34,8 @@ export type StudyAttentionItem = {
   dueAt?: Date;
   plannedMinutes?: number;
   priority: StudyPriority;
+  deadlineStatus: "TRUSTED" | "NEEDS_CONFIRMATION" | "UNDATED";
+  deadlineIssue?: string;
 };
 
 export type StudyAttentionSnapshot = {
@@ -56,6 +63,7 @@ export async function buildStudyAttentionSnapshot(
   limit = 8,
 ): Promise<StudyAttentionSnapshot> {
   const rows = await attentionRows(workspace.id);
+  const trustedRows = rows.filter((item) => assessStudyDeadline(workspace, item).status === "TRUSTED");
   const items = rows
     .map((item) => scoreStudyAttentionItem(item, workspace, now))
     .sort(compareAttention)
@@ -71,9 +79,9 @@ export async function buildStudyAttentionSnapshot(
   return {
     generatedAt: now,
     items,
-    overdue: rows.filter((item) => item.dueAt && item.dueAt < now).length,
-    dueToday: rows.filter((item) => item.dueAt && item.dueAt >= now && item.dueAt <= endOfToday).length,
-    dueThisWeek: rows.filter((item) => item.dueAt && item.dueAt >= now && item.dueAt <= endOfWeek).length,
+    overdue: trustedRows.filter((item) => item.dueAt && item.dueAt < now).length,
+    dueToday: trustedRows.filter((item) => item.dueAt && item.dueAt >= now && item.dueAt <= endOfToday).length,
+    dueThisWeek: trustedRows.filter((item) => item.dueAt && item.dueAt >= now && item.dueAt <= endOfWeek).length,
     undated: rows.filter((item) => !item.dueAt).length,
     missingCanvas: rows.filter((item) => item.canvasAssignment?.needsReview).length,
     redModules: redModules.map((module) => module.code),
@@ -92,6 +100,7 @@ export async function buildStudyWeeklyPreview(workspace: StudyWorkspace, now = n
   const snapshot = await buildStudyAttentionSnapshot(workspace, now, 8);
   const rows = await attentionRows(workspace.id);
   const due = rows
+    .filter((item) => assessStudyDeadline(workspace, item).status === "TRUSTED")
     .filter((item) => item.dueAt && item.dueAt >= rangeStart && item.dueAt <= rangeEnd)
     .map((item) => scoreStudyAttentionItem(item, workspace, now))
     .sort((a, b) => (a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER));
@@ -109,7 +118,10 @@ export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<St
   const reasons: string[] = [];
   let score = 0;
   const localNow = DateTime.fromJSDate(now).setZone(workspace.timezone);
-  const due = item.dueAt ? DateTime.fromJSDate(item.dueAt).setZone(workspace.timezone) : undefined;
+  const deadline = assessStudyDeadline(workspace, item);
+  const due = deadline.status === "TRUSTED" && item.dueAt
+    ? DateTime.fromJSDate(item.dueAt).setZone(workspace.timezone)
+    : undefined;
   const hoursUntilDue = due?.diff(localNow, "hours").hours;
 
   if (hoursUntilDue !== undefined) {
@@ -129,7 +141,7 @@ export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<St
       score += 16;
       reasons.push("due within 2 weeks");
     }
-  } else {
+  } else if (deadline.status === "UNDATED") {
     const ageDays = localNow.diff(DateTime.fromJSDate(item.createdAt).setZone(workspace.timezone), "days").days;
     if (ageDays >= 14) {
       score += 28;
@@ -141,6 +153,9 @@ export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<St
       score += 5;
       reasons.push("no due date");
     }
+  } else {
+    score += 88;
+    reasons.push("deadline needs confirmation");
   }
 
   const priorityPoints: Record<StudyPriority, number> = {
@@ -190,15 +205,18 @@ export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<St
     moduleCode: item.module.code,
     score,
     reasons: [...new Set(reasons)].slice(0, 4),
-    recommendedAction: recommendedAction(item, hoursUntilDue),
+    recommendedAction: recommendedAction(item, hoursUntilDue, deadline.status),
     dueAt: item.dueAt ?? undefined,
     plannedMinutes: item.plannedMinutes ?? undefined,
     priority: item.priority,
+    deadlineStatus: deadline.status,
+    deadlineIssue: deadline.reason,
   };
 }
 
-function recommendedAction(item: AttentionInput, hoursUntilDue: number | undefined): string {
+function recommendedAction(item: AttentionInput, hoursUntilDue: number | undefined, deadlineStatus: "TRUSTED" | "NEEDS_CONFIRMATION" | "UNDATED"): string {
   const duration = item.plannedMinutes ? `${item.plannedMinutes}-minute` : "focused";
+  if (deadlineStatus === "NEEDS_CONFIRMATION") return "Confirm the Canvas course and deadline before acting on it.";
   if (hoursUntilDue !== undefined && hoursUntilDue < 0) return `Triage or finish this overdue item now.`;
   if (hoursUntilDue !== undefined && hoursUntilDue <= 24) return `Start a ${duration} block today.`;
   if (item.canvasAssignment?.needsReview) return "Confirm whether Canvas removed or replaced it.";
@@ -218,7 +236,7 @@ function attentionRows(workspaceId: string): Promise<AttentionInput[]> {
   return prisma.studyItem.findMany({
     where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
     include: {
-      module: { select: { id: true, code: true, name: true, currentMastery: true } },
+      module: { select: { id: true, code: true, name: true, currentMastery: true, canvasTermStartAt: true, canvasTermEndAt: true } },
       week: { select: { number: true } },
       canvasAssignment: { select: { needsReview: true, status: true } },
     },

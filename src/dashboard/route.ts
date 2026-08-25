@@ -29,7 +29,11 @@ import {
   deleteDashboardImage,
   disconnectDashboardIntegration,
   exportDashboardData,
+  getDashboardIdea,
+  getDashboardImage,
+  getDashboardNote,
   getDashboardSettings,
+  getDashboardTask,
   listDashboardExpenses,
   listDashboardIdeas,
   listDashboardImages,
@@ -139,6 +143,7 @@ import {
   createDashboardStudyScheduleBlock,
   deleteDashboardStudyOrigin,
   getDashboardStudyResource,
+  getDashboardStudyItem,
   getDashboardStudySnapshot,
   importDashboardStudyNusmods,
   listDashboardStudyResources,
@@ -170,6 +175,7 @@ import {
   studyResourceQuerySchema,
   studyResourceUpdateSchema,
   studyScheduleCreateSchema,
+  studyScheduleDeleteSchema,
   studyScheduleUpdateSchema,
   studySearchQuerySchema,
   studySessionUpdateSchema,
@@ -199,14 +205,17 @@ import {
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
+  getTask: typeof getDashboardTask;
   createTask: typeof createDashboardTask;
   updateTask: typeof updateDashboardTask;
   archiveTask: typeof archiveDashboardTask;
   listNotes: typeof listDashboardNotes;
+  getNote: typeof getDashboardNote;
   createNote: typeof createDashboardNote;
   updateNote: typeof updateDashboardNote;
   archiveNote: typeof archiveDashboardNote;
   listIdeas: typeof listDashboardIdeas;
+  getIdea: typeof getDashboardIdea;
   createIdea: typeof createDashboardIdea;
   updateIdea: typeof updateDashboardIdea;
   archiveIdea: typeof archiveDashboardIdea;
@@ -217,6 +226,7 @@ export type DashboardRouteActions = {
   updateExpense: typeof updateDashboardExpense;
   deleteExpense: typeof deleteDashboardExpense;
   listImages: typeof listDashboardImages;
+  getImage: typeof getDashboardImage;
   updateImage: typeof updateDashboardImage;
   deleteImage: typeof deleteDashboardImage;
   loadImageContent: typeof loadDashboardImageContent;
@@ -245,14 +255,17 @@ type DashboardRouteOptions = {
 
 const defaultActions: DashboardRouteActions = {
   listTasks: listDashboardTasks,
+  getTask: getDashboardTask,
   createTask: createDashboardTask,
   updateTask: updateDashboardTask,
   archiveTask: archiveDashboardTask,
   listNotes: listDashboardNotes,
+  getNote: getDashboardNote,
   createNote: createDashboardNote,
   updateNote: updateDashboardNote,
   archiveNote: archiveDashboardNote,
   listIdeas: listDashboardIdeas,
+  getIdea: getDashboardIdea,
   createIdea: createDashboardIdea,
   updateIdea: updateDashboardIdea,
   archiveIdea: archiveDashboardIdea,
@@ -263,6 +276,7 @@ const defaultActions: DashboardRouteActions = {
   updateExpense: updateDashboardExpense,
   deleteExpense: deleteDashboardExpense,
   listImages: listDashboardImages,
+  getImage: getDashboardImage,
   updateImage: updateDashboardImage,
   deleteImage: deleteDashboardImage,
   loadImageContent: loadDashboardImageContent,
@@ -456,6 +470,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { item: await createDashboardStudyItem(workspace, studyItemCreateSchema.parse(request.body)) };
   }, "study_create_item"));
 
+  server.get("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    return { item: await getDashboardStudyItem(workspace, id) };
+  }, "study_get_item"));
+
   server.patch("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
@@ -625,7 +645,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.delete("/api/v1/dashboard/study/schedule/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    await archiveDashboardStudyScheduleBlock(workspace, id);
+    await archiveDashboardStudyScheduleBlock(workspace, id, studyScheduleDeleteSchema.parse(request.body ?? {}));
     return { archived: true };
   }, "study_archive_schedule"));
 
@@ -715,6 +735,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { tasks: await actions.listTasks(telegramId, query) };
   }, "list_tasks"));
 
+  server.get("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { task: await actions.getTask(telegramId, id) };
+  }, "get_task"));
+
   server.post("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     const task = await actions.createTask(telegramId, taskCreateSchema.parse(request.body));
     await recordDashboardTaskMutation(scope, task, { kind: "created" }, options.telegramBotToken);
@@ -757,6 +782,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { notes: await actions.listNotes(telegramId, query) };
   }, "list_notes"));
 
+  server.get("/api/v1/dashboard/notes/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { note: await actions.getNote(telegramId, id) };
+  }, "get_note"));
+
   server.patch("/api/v1/dashboard/notes/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
     return { note: await actions.updateNote(telegramId, id, noteUpdateSchema.parse(request.body)) };
@@ -776,6 +806,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const query = ideaListQuerySchema.parse(request.query);
     return { ideas: await actions.listIdeas(telegramId, query) };
   }, "list_ideas"));
+
+  server.get("/api/v1/dashboard/ideas/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { idea: await actions.getIdea(telegramId, id) };
+  }, "get_idea"));
 
   server.patch("/api/v1/dashboard/ideas/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
@@ -826,6 +861,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.get("/api/v1/dashboard/images", async (request, reply) => run(request, reply, async (telegramId) => ({
     images: await actions.listImages(telegramId, imageListQuerySchema.parse(request.query))
   }), "list_images"));
+
+  server.get("/api/v1/dashboard/images/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { image: await actions.getImage(telegramId, id) };
+  }, "get_image"));
 
   server.get("/api/v1/dashboard/images/:id/content", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);

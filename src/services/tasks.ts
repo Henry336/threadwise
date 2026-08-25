@@ -40,6 +40,9 @@ export type TaskListItem = {
   snoozedUntil?: Date | null;
   lastRemindedAt?: Date | null;
   reminderCount: number;
+  automaticReminderCount?: number;
+  automaticReminderBudget?: number;
+  remindersDismissedAt?: Date | null;
   undatedNudgeCount?: number;
   completedAt?: Date | null;
   pinnedAt?: Date | null;
@@ -237,6 +240,8 @@ export async function completeTask(userId: string, reference: string) {
           nextReminderAt: nextDueAt,
           snoozedUntil: null,
           undatedNudgeCount: 0,
+          automaticReminderCount: 0,
+          remindersDismissedAt: null,
           calendarUrl: createGoogleCalendarUrl({
             title: task.title,
             details: task.description ?? task.sourceText,
@@ -287,7 +292,7 @@ export async function restoreCompletedTask(userId: string, reference: string) {
   return prisma.$transaction(async (tx) => {
     const changed = await tx.task.updateMany({
       where: { id: task.id, userId, status: TaskStatus.DONE },
-      data: { status: TaskStatus.OPEN, completedAt: null, nextReminderAt, snoozedUntil: null, undatedNudgeCount: 0 }
+      data: { status: TaskStatus.OPEN, completedAt: null, nextReminderAt, snoozedUntil: null, undatedNudgeCount: 0, automaticReminderCount: 0, remindersDismissedAt: null }
     });
     const current = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
     if (changed.count === 0) {
@@ -500,11 +505,25 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
         nextReminderAt,
         snoozedUntil: null,
         undatedNudgeCount: 0,
+        automaticReminderCount: 0,
+        remindersDismissedAt: null,
         recurrenceDayOfMonth: recurrenceDayOfMonth(dueAt ?? undefined, task.recurrenceRule ?? undefined, settings.timezone) ?? null
       }
     });
   });
   return refreshCalendarState(userId, updated);
+}
+
+export async function dismissTaskReminders(userId: string, reference: string) {
+  const task = await findTaskReference(userId, reference);
+  const dismissedAt = new Date();
+  return prisma.$transaction(async (tx) => {
+    await cancelPendingTaskReminderSchedules(tx, task.id);
+    return tx.task.update({
+      where: { id: task.id },
+      data: { nextReminderAt: null, snoozedUntil: null, remindersDismissedAt: dismissedAt },
+    });
+  });
 }
 
 export async function findTask(userId: string, publicOrUuid: string) {

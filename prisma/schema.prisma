@@ -406,6 +406,9 @@ model StudyWorkspace {
   activeOriginId             String?
   activeOriginUntil          DateTime?
   travelMutedUntil           DateTime?
+  lastReminderCheckAt        DateTime?
+  lastReminderStatus         String?
+  lastReminderSummary        Json?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -420,6 +423,7 @@ model StudyWorkspace {
   scheduleBlocks        StudyScheduleBlock[]
   conversation          StudyConversation?
   reminderDeliveries    StudyReminderDelivery[]
+  travelReminderStates  StudyTravelReminderState[]
   resources             StudyResource[]
   noteRevisions         StudyResourceRevision[]
   noteLinks             StudyNoteLink[]
@@ -441,24 +445,28 @@ model StudyWorkspace {
 }
 
 model StudyModule {
-  id               String            @id @default(uuid())
-  workspaceId      String
-  code             String
-  name             String
-  active           Boolean           @default(true)
-  displayOrder     Int               @default(0)
-  color            String?
-  workloadGroup    String?
-  canvasCourseId   String?
-  canvasCourseName String?
-  canvasLastSeenAt DateTime?
-  userArchivedAt   DateTime?
-  currentMastery   StudyTrafficLight @default(UNASSESSED)
-  masteryReason    String?
-  redSince         DateTime?
-  lastRedWarningAt DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                String            @id @default(uuid())
+  workspaceId       String
+  code              String
+  name              String
+  active            Boolean           @default(true)
+  displayOrder      Int               @default(0)
+  color             String?
+  workloadGroup     String?
+  canvasCourseId    String?
+  canvasCourseName  String?
+  canvasTermId      String?
+  canvasTermName    String?
+  canvasTermStartAt DateTime?
+  canvasTermEndAt   DateTime?
+  canvasLastSeenAt  DateTime?
+  userArchivedAt    DateTime?
+  currentMastery    StudyTrafficLight @default(UNASSESSED)
+  masteryReason     String?
+  redSince          DateTime?
+  lastRedWarningAt  DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   workspace             StudyWorkspace             @relation("StudyWorkspaceModules", fields: [workspaceId], references: [id], onDelete: Cascade)
   activeFor             StudyWorkspace[]           @relation("StudyWorkspaceActiveModule")
@@ -625,7 +633,7 @@ model WeeklyReview {
 }
 
 model StudyScheduleBlock {
-  id                  String   @id @default(uuid())
+  id                  String     @id @default(uuid())
   workspaceId         String
   moduleId            String?
   dayOfWeek           Int
@@ -635,22 +643,28 @@ model StudyScheduleBlock {
   endWeek             Int?
   label               String
   blockType           String
+  customTypeLabel     String?
   venueId             String?
   venueName           String?
   destinationStopId   String?
-  preparation         String[] @default([])
+  preparation         String[]   @default([])
   defaultOriginId     String?
-  travelBufferMinutes Int      @default(15)
-  reminderLeadMinutes Int      @default(10)
-  source              String   @default("MANUAL")
+  travelBufferMinutes Int        @default(15)
+  reminderLeadMinutes Int        @default(10)
+  source              String     @default("MANUAL")
   sourceRef           String?
-  active              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  recurrenceStartDate DateTime?
+  recurrenceEndDate   DateTime?
+  excludedDates       DateTime[] @default([])
+  excludedWeeks       Int[]      @default([])
+  active              Boolean    @default(true)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
-  workspace     StudyWorkspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  module        StudyModule?         @relation(fields: [moduleId], references: [id], onDelete: SetNull)
-  defaultOrigin StudyLocationOrigin? @relation(fields: [defaultOriginId], references: [id], onDelete: SetNull)
+  workspace     StudyWorkspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module        StudyModule?               @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  defaultOrigin StudyLocationOrigin?       @relation(fields: [defaultOriginId], references: [id], onDelete: SetNull)
+  travelStates  StudyTravelReminderState[]
 
   @@unique([workspaceId, source, sourceRef])
   @@index([workspaceId, active, dayOfWeek])
@@ -1014,6 +1028,32 @@ model StudyReminderDelivery {
   @@index([workspaceId, kind, scheduledFor])
 }
 
+model StudyTravelReminderState {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  blockId        String
+  occurrenceDate DateTime
+  status         String
+  scheduledFor   DateTime?
+  leaveAt        DateTime?
+  originName     String?
+  boardingStop   String?
+  services       String[]  @default([])
+  live           Boolean   @default(false)
+  lastError      String?
+  sentAt         DateTime?
+  arrivedAt      DateTime?
+  mutedAt        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace StudyWorkspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  block     StudyScheduleBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@unique([blockId, occurrenceDate])
+  @@index([workspaceId, status, occurrenceDate])
+}
+
 model GroupWorkspace {
   id                String   @id @default(uuid())
   ownerUserId       String   @unique
@@ -1271,6 +1311,9 @@ model Task {
   completedAt             DateTime?
   lastRemindedAt          DateTime?
   reminderCount           Int             @default(0)
+  automaticReminderCount  Int             @default(0)
+  automaticReminderBudget Int             @default(7)
+  remindersDismissedAt    DateTime?
   undatedNudgeCount       Int             @default(0)
   embedding               Json?
   calendarUrl             String?

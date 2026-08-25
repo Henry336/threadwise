@@ -40,6 +40,12 @@ type CanvasCourse = {
   name?: string;
   course_code?: string;
   workflow_state?: string;
+  term?: {
+    id?: number | string;
+    name?: string;
+    start_at?: string | null;
+    end_at?: string | null;
+  } | null;
 };
 
 type CanvasModule = {
@@ -90,6 +96,8 @@ type CanvasAssignment = {
 
 export type StudyCanvasSyncSummary = {
   courses: number;
+  coursesReturned: number;
+  coursesSkippedOutOfTerm: number;
   assignmentsSeen: number;
   imported: number;
   updated: number;
@@ -111,6 +119,10 @@ type CanvasCourseDiagnostic = {
   canvasCourseId: string;
   moduleCode: string;
   moduleActive: boolean;
+  termId?: string;
+  termName?: string;
+  termScope: "CURRENT" | "UNKNOWN" | "OUTSIDE";
+  skippedReason?: string;
   assignmentsReturned: number;
   imported: number;
   updated: number;
@@ -184,6 +196,8 @@ async function performStudyCanvasSync(
     })).filter((course) => course.workflow_state !== "deleted");
 
     const seenAssignmentIds = new Set<string>();
+    let coursesInScope = 0;
+    let coursesSkippedOutOfTerm = 0;
     let imported = 0;
     let updated = 0;
     let completed = 0;
@@ -198,6 +212,30 @@ async function performStudyCanvasSync(
     const courseDiagnostics: CanvasCourseDiagnostic[] = [];
 
     for (const course of courses) {
+      const termScope = canvasCourseTermScope(workspace, course);
+      if (termScope.status === "OUTSIDE") {
+        coursesSkippedOutOfTerm += 1;
+        courseDiagnostics.push({
+          canvasCourseId: String(course.id),
+          moduleCode: canvasModuleCode(course),
+          moduleActive: false,
+          termId: canvasTermId(course),
+          termName: course.term?.name,
+          termScope: termScope.status,
+          skippedReason: termScope.reason,
+          assignmentsReturned: 0,
+          imported: 0,
+          updated: 0,
+          ignoredSubmitted: 0,
+          ignoredInactive: 0,
+          skippedUnpublished: 0,
+          skippedDeleted: 0,
+          courseModulesSeen: 0,
+          materialsSeen: 0,
+        });
+        continue;
+      }
+      coursesInScope += 1;
       const module = await mapCanvasCourse(workspace, course, now);
       const assignments = await canvasGetPages<CanvasAssignment>(
         `courses/${encodeURIComponent(String(course.id))}/assignments`,
@@ -207,6 +245,9 @@ async function performStudyCanvasSync(
         canvasCourseId: String(course.id),
         moduleCode: module.code,
         moduleActive: module.active,
+        termId: canvasTermId(course),
+        termName: course.term?.name,
+        termScope: termScope.status,
         assignmentsReturned: assignments.length,
         imported: 0,
         updated: 0,
@@ -278,7 +319,9 @@ async function performStudyCanvasSync(
         nextSyncAt,
         lastError: null,
         lastSummary: {
-          courses: courses.length,
+          courses: coursesInScope,
+          coursesReturned: courses.length,
+          coursesSkippedOutOfTerm,
           assignmentsSeen: seenAssignmentIds.size,
           imported,
           updated,
@@ -303,7 +346,9 @@ async function performStudyCanvasSync(
         action: "study.canvas.synced",
         metadata: {
           workspaceId: workspace.id,
-          courses: courses.length,
+          courses: coursesInScope,
+          coursesReturned: courses.length,
+          coursesSkippedOutOfTerm,
           assignmentsSeen: seenAssignmentIds.size,
           imported,
           updated,
@@ -322,7 +367,9 @@ async function performStudyCanvasSync(
       },
     });
     return {
-      courses: courses.length,
+      courses: coursesInScope,
+      coursesReturned: courses.length,
+      coursesSkippedOutOfTerm,
       assignmentsSeen: seenAssignmentIds.size,
       imported,
       updated,
@@ -416,22 +463,72 @@ export function canvasPriority(dueAt: Date | undefined, now = new Date()): Study
   return StudyPriority.NORMAL;
 }
 
+export function canvasCourseTermScope(
+  workspace: Pick<StudyWorkspace, "semesterStartDate" | "timezone">,
+  course: CanvasCourse,
+): { status: "CURRENT" | "UNKNOWN" | "OUTSIDE"; reason?: string } {
+  if (!workspace.semesterStartDate) return { status: "UNKNOWN", reason: "The Study semester start is not configured." };
+  const semesterStart = DateTime.fromJSDate(workspace.semesterStartDate).setZone(workspace.timezone).startOf("day");
+  const earliest = semesterStart.minus({ days: 21 });
+  const latest = semesterStart.plus({ weeks: 26 }).endOf("day");
+  const termStartDate = canvasDate(course.term?.start_at);
+  const termEndDate = canvasDate(course.term?.end_at);
+  const termStart = termStartDate ? DateTime.fromJSDate(termStartDate).setZone(workspace.timezone) : undefined;
+  const termEnd = termEndDate ? DateTime.fromJSDate(termEndDate).setZone(workspace.timezone) : undefined;
+  if ((termEnd && termEnd < earliest) || (termStart && termStart > latest)) {
+    return { status: "OUTSIDE", reason: "Canvas reports a term outside the configured Study semester." };
+  }
+  if (termStart || termEnd) return { status: "CURRENT" };
+
+  const labels = [course.term?.name, course.course_code, course.name].filter(Boolean).join(" ");
+  const mentionedYears = [...labels.matchAll(/\b(20\d{2})\b/g)].map((match) => Number(match[1]));
+  if (mentionedYears.length > 0) {
+    const acceptedYears = new Set([semesterStart.year, semesterStart.year + 1]);
+    if (!mentionedYears.some((year) => acceptedYears.has(year))) {
+      return { status: "OUTSIDE", reason: "The Canvas course name identifies a different academic year." };
+    }
+    return { status: "CURRENT" };
+  }
+  return { status: "UNKNOWN", reason: "Canvas did not provide dated term metadata." };
+}
+
+function canvasTermId(course: CanvasCourse): string | undefined {
+  return course.term?.id === undefined || course.term?.id === null ? undefined : String(course.term.id);
+}
+
+function canvasTermFields(course: CanvasCourse) {
+  return {
+    canvasTermId: canvasTermId(course),
+    canvasTermName: course.term?.name?.trim().slice(0, 240),
+    canvasTermStartAt: canvasDate(course.term?.start_at),
+    canvasTermEndAt: canvasDate(course.term?.end_at),
+  };
+}
+
 export async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, now: Date): Promise<StudyModule> {
   const canvasCourseId = String(course.id);
   const code = canvasModuleCode(course);
   const canvasCourseName = (course.name ?? course.course_code ?? code).trim().slice(0, 240);
-  const existing = await prisma.studyModule.findFirst({
-    where: {
-      workspaceId: workspace.id,
-      OR: [{ canvasCourseId }, { code }],
-    },
-  });
+  const exact = await prisma.studyModule.findFirst({ where: { workspaceId: workspace.id, canvasCourseId } });
+  const existing = exact ?? await prisma.studyModule.findFirst({ where: { workspaceId: workspace.id, code } });
   if (existing) {
+    if (existing.canvasCourseId && existing.canvasCourseId !== canvasCourseId) {
+      await prisma.studyCanvasAssignment.updateMany({
+        where: {
+          workspaceId: workspace.id,
+          moduleId: existing.id,
+          canvasCourseId: { not: canvasCourseId },
+          status: StudyCanvasAssignmentStatus.ACTIVE,
+        },
+        data: { status: StudyCanvasAssignmentStatus.MISSING, needsReview: true, missingSince: now },
+      });
+    }
     return prisma.studyModule.update({
       where: { id: existing.id },
       data: {
         canvasCourseId,
         canvasCourseName,
+        ...canvasTermFields(course),
         canvasLastSeenAt: now,
       },
     });
@@ -444,6 +541,7 @@ export async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasC
       name: canvasCourseName,
       canvasCourseId,
       canvasCourseName,
+      ...canvasTermFields(course),
       canvasLastSeenAt: now,
       // Canvas discovery is source state, not a user visibility decision.
       // The owner explicitly activates courses that belong to this semester.

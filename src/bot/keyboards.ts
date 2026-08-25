@@ -380,7 +380,10 @@ export function groupTaskActionsKeyboard(
 }
 
 export function reminderActionsKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
-  return taskActionsKeyboard(task, true, includeCollaboration, true);
+  const taskId = typeof task === "string" ? task : task.id;
+  return taskActionsKeyboard(task, true, includeCollaboration, true)
+    .row()
+    .text("Dismiss reminders", `task:dismiss-reminders:${taskId}`);
 }
 
 export function taskCreatedKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
