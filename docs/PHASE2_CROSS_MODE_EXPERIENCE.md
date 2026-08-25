@@ -1,6 +1,11 @@
 # Phase 2 — cross-mode experience
 
-Status: implemented on guarded branches; not merged, migrated, or deployed.
+Status: released to production on 2026-08-25 SGT.
+
+Production evidence: backend merge `de7563d6af66449b69886661ad0ead7558002c66` is live in Render
+deployment `dep-da6h8grl550s73bkmt00`, and `/health` returned HTTP 200 with that exact release.
+Dashboard merge `539efa2b96a7c019530e12c69c366f85930351ce` completed its Vercel production deployment; its
+post-merge validation and browser checks passed.
 
 ## Product behavior
 

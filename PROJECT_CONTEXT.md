@@ -16,6 +16,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   snooze/dismissal respect, stateful travel diagnostics, and structured actionable retrieval across
   Individual, Group, and Study. No merge, database migration, or production deployment is implied by
   this authorization.
+- Phase 1+2 production release checkpoint (2026-08-25 SGT): backend PR `#18` merged as
+  `de7563d6af66449b69886661ad0ead7558002c66`. Render deployment
+  `dep-da6h8grl550s73bkmt00` reached `live`; the configured migration-before-start path completed and
+  public `/health` returned HTTP 200 with exact commit `de7563d6af66`. Dashboard PR `#3` merged as
+  `539efa2b96a7c019530e12c69c366f85930351ce`; Vercel reported the production deployment successful,
+  and the post-merge `validate` and `browser` checks both completed successfully. This releases the
+  complete Phase 1 reliability foundation and Phase 2 cross-mode experience. Rollback remains
+  backend-first: restore the prior Render commit before reverting the paired dashboard if a live
+  regression is discovered.
 - Phase 2 validation checkpoint (2026-08-25 SGT): implementation is complete on the paired guarded
   branches. The additive data model now supports calendar-date recurrence ranges, per-date exclusions,
   custom labels for `Other`, finite per-task automatic-reminder budgets, dismissal state, and persisted
@@ -90,9 +99,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   every material implementation or validation checkpoint, and before any interruption. Reliability
   precedes feature expansion: confidently incorrect deadlines or silent reminder failures are the
   first problems to resolve.
-- Exact next action after interruption: review the final diffs, commit the validated Phase 2 backend
-  and dashboard changes, and push both `codex/phase2-cross-mode-experience` branches. Wait for owner
-  approval before any merge, database migration, or deployment.
+- Exact next action after interruption: wait for the owner's live product review of recurrence,
+  exact links, reminder dismissal/digests, and Study travel diagnostics. Do not begin Phase 3
+  commercialization experiments or another production mutation without explicit approval.
 
 ## Active checkpoint — personal Overview quote library (2026-08-21 SGT)
 
