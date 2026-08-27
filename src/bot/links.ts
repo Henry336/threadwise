@@ -19,6 +19,13 @@ export function groupDashboardUrl(workspaceId: string, view?: string): string {
   return groupDashboardTargetUrl(workspaceId, view ? `/dashboard?view=${encodeURIComponent(view)}` : "/dashboard");
 }
 
+export function todayDraftDashboardUrl(draftId: string, workspace?: { id: string; study: boolean }): string {
+  const target = new URL("/dashboard", DASHBOARD_URL);
+  target.searchParams.set("view", workspace?.study ? "study-overview" : "today");
+  target.searchParams.set("draft", draftId);
+  return workspace ? groupDashboardTargetUrl(workspace.id, `${target.pathname}${target.search}`) : target.toString();
+}
+
 export function groupDashboardItemUrl(workspaceId: string, view: string, kind: DashboardItemKind, id: string): string {
   const target = new URL("/dashboard", DASHBOARD_URL);
   target.searchParams.set("view", view);

@@ -87,6 +87,7 @@ import {
   taskCaptureDraftCreateSchema,
   taskCaptureDraftItemUpdateSchema,
   todayAgendaQuerySchema,
+  todayAgendaPlanSchema,
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
@@ -218,6 +219,7 @@ import {
   getDashboardTaskCaptureDraft,
   reviewDashboardTaskCaptureDraft,
   todayAgendaForDashboard,
+  planTodayAgendaEntryForDashboard,
   updateDashboardTaskCaptureDraftItem,
 } from "./today";
 
@@ -761,6 +763,13 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     return { agenda: await todayAgendaForDashboard(scope, todayAgendaQuerySchema.parse(request.query)) };
   }, "today_agenda"));
+
+  server.patch("/api/v1/dashboard/today/:id/plan", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    const input = todayAgendaPlanSchema.parse(request.body);
+    return { entry: await planTodayAgendaEntryForDashboard(scope, id, input.plannedFor) };
+  }, "plan_today_entry"));
 
   server.post("/api/v1/dashboard/task-drafts", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);

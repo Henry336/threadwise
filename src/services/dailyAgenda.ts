@@ -57,20 +57,78 @@ export async function getDailyAgenda(
   options: { localDate?: string; dueSoonDays?: number } = {},
   database: PrismaClient = prisma,
 ): Promise<DailyAgenda> {
-  const user = await database.user.findUnique({ where: { telegramId: scope.principalTelegramId }, include: { settings: true } });
-  if (!user?.settings) throw new DailyAgendaError("Personal settings are unavailable.", "not_found");
   const dueSoonDays = options.dueSoonDays ?? 3;
   if (!Number.isInteger(dueSoonDays) || dueSoonDays < 1 || dueSoonDays > 30) throw new DailyAgendaError("Choose a deadline window between 1 and 30 days.", "invalid");
 
   if (scope.scope === PlanningScope.GROUP) {
     if (!scope.groupWorkspaceId) throw new DailyAgendaError("Choose a group workspace.", "invalid");
-    return groupAgenda(scope, user.settings.timezone, options.localDate, dueSoonDays, database);
+    return groupAgenda(scope, options.localDate, dueSoonDays, database);
   }
   if (scope.scope === PlanningScope.STUDY) {
     if (!scope.studyWorkspaceId) throw new DailyAgendaError("Choose a Study workspace.", "invalid");
     return studyAgenda(scope, options.localDate, dueSoonDays, database);
   }
+  const user = await database.user.findUnique({ where: { telegramId: scope.principalTelegramId }, include: { settings: true } });
+  if (!user?.settings) throw new DailyAgendaError("Personal settings are unavailable.", "not_found");
   return personalAgenda(scope.principalTelegramId, user.id, user.settings.timezone, options.localDate, dueSoonDays, database);
+}
+
+export async function planDailyAgendaEntry(
+  scope: AgendaScope,
+  entryId: string,
+  plannedFor: string | null,
+  database: PrismaClient = prisma,
+): Promise<AgendaEntry> {
+  const agenda = await getDailyAgenda(scope, { dueSoonDays: 30 }, database);
+  const entries = [...agenda.today, ...agenda.carryover, ...agenda.dueSoon, ...agenda.overdue];
+  const entry = entries.find((candidate) => candidate.id === entryId);
+  if (!entry) throw new DailyAgendaError("That item is not available in this Today view.", "not_found");
+  const plannedDate = plannedFor === null ? null : parseLocalDate(plannedFor);
+  if (entry.mode === "STUDY") {
+    await database.$transaction(async (tx) => {
+      const [item, workspace] = await Promise.all([
+        tx.studyItem.findFirst({ where: { id: entry.id, workspaceId: entry.workspaceId } }),
+        tx.studyWorkspace.findFirst({ where: { id: entry.workspaceId, active: true } }),
+      ]);
+      if (!item || !workspace) throw new DailyAgendaError("That Study item is unavailable.", "not_found");
+      await tx.studyItem.update({
+        where: { id: item.id },
+        data: { plannedFor: plannedDate, firstPlannedFor: item.firstPlannedFor ?? plannedDate },
+      });
+      await tx.auditLog.create({ data: {
+        userId: workspace.ownerUserId,
+        action: "study.item.planned",
+        metadata: {
+          workspaceId: workspace.id,
+          itemId: item.id,
+          previousPlannedFor: item.plannedFor?.toISOString() ?? null,
+          plannedFor: plannedDate?.toISOString() ?? null,
+          source: "today",
+        },
+      } });
+    });
+  } else {
+    await database.$transaction(async (tx) => {
+      const task = await tx.task.findFirst({ where: { id: entry.id, archivedAt: null } });
+      if (!task) throw new DailyAgendaError("That task is unavailable.", "not_found");
+      await tx.task.update({
+        where: { id: task.id },
+        data: { plannedFor: plannedDate, firstPlannedFor: task.firstPlannedFor ?? plannedDate },
+      });
+      await tx.auditLog.create({ data: {
+        userId: task.userId,
+        action: "task.plan.updated",
+        metadata: {
+          taskId: task.id,
+          publicId: task.publicId,
+          previousPlannedFor: task.plannedFor?.toISOString() ?? null,
+          plannedFor: plannedDate?.toISOString() ?? null,
+          source: "today",
+        },
+      } });
+    });
+  }
+  return { ...entry, ...(plannedFor ? { plannedFor } : { plannedFor: undefined }), firstPlannedFor: entry.firstPlannedFor ?? plannedFor ?? undefined };
 }
 
 export async function claimDailyBriefDelivery(
@@ -174,7 +232,6 @@ async function personalAgenda(
 
 async function groupAgenda(
   scope: AgendaScope,
-  fallbackTimezone: string,
   requestedDate: string | undefined,
   dueSoonDays: number,
   database: PrismaClient,
@@ -188,10 +245,11 @@ async function groupAgenda(
   });
   if (!workspace) throw new DailyAgendaError("That group workspace is unavailable.", "forbidden");
   const tasks = await database.task.findMany({ where: { userId: workspace.ownerUserId, status: TaskStatus.OPEN, archivedAt: null } });
+  const ownerSettings = workspace.timezone ? undefined : await database.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
   return groupAgendaEntries(
     tasks.map((task) => taskEntry(task, "GROUP", workspace.id, workspace.title)),
     PlanningScope.GROUP,
-    workspace.timezone || fallbackTimezone,
+    workspace.timezone || ownerSettings?.timezone || "UTC",
     requestedDate,
     dueSoonDays,
   );

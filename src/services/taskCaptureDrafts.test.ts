@@ -58,6 +58,28 @@ describe("task capture drafts", () => {
     }));
   });
 
+  it("requires a module before a new Study draft can be committed", async () => {
+    const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "draft-study", ...data, items: [] }));
+    const database = {
+      $transaction: vi.fn(async (work: (tx: unknown) => unknown) => work({ taskCaptureDraft: { updateMany: vi.fn(), create } })),
+    } as never;
+    await createTaskCaptureDraft({
+      ownerUserId: "user-1",
+      principalTelegramId: "123456789",
+      scope: PlanningScope.STUDY,
+      timezone: "Asia/Singapore",
+      studyWorkspaceId: "study-1",
+    }, "Prepare tutorial tomorrow", {}, database);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        items: { create: [expect.objectContaining({
+          warnings: ["STUDY_MODULE_REQUIRED"],
+          status: TaskCaptureDraftItemStatus.NEEDS_REVIEW,
+        })] },
+      }),
+    }));
+  });
+
   it("refuses an all-or-nothing commit while any included item needs review", async () => {
     const draft = {
       id: "draft-1",

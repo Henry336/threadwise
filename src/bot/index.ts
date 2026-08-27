@@ -23,6 +23,7 @@ import { registerStudyMode } from "./study";
 import { shouldHandleStudyUpdate } from "../services/study";
 import { handleTelegramGroupMigrationUpdate } from "../services/telegramChatMigrations";
 import { hasOpenGroupImageUploadBatch } from "../services/imageUploadBatches";
+import { registerTodayInteractions } from "./today";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -94,6 +95,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await next();
   });
 
+  registerTodayInteractions(bot);
   registerNoteSessions(bot);
   registerStudyMode(bot);
   registerCommands(bot, ai);

@@ -190,6 +190,14 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-28 (Codex):** Implemented Phase 2 Today interactions on guarded branch
+  `codex/phase2-today-interactions`, stacked on the pushed Phase 1 foundation. Telegram now supports
+  owner-gated cross-mode batch review, Add more, focused edits, atomic save, `/today`, and audited
+  carryover re-planning without AI or implicit reminders. Paired dashboard work supplies the shared
+  Personal/Group/Study Today planner and exact draft editor. Backend typecheck/build, 934 tests with
+  6 skips, focused regressions, and secret scan pass. No migration, merge, deployment, scheduler, or
+  production enablement was performed; scheduled briefs and Note refinements remain Phase 3.
+
 - **2026-08-28 (Codex):** Implemented the guarded Phase 1 Today foundation on
   `codex/phase1-today-foundation` at implementation commit `bb2dacd`: additive planned dates
   independent of deadlines, durable

@@ -198,6 +198,10 @@ export const todayAgendaQuerySchema = z.object({
   dueSoonDays: z.coerce.number().int().min(1).max(30).default(3),
 }).strict();
 
+export const todayAgendaPlanSchema = z.object({
+  plannedFor: dateOnly.nullable(),
+}).strict();
+
 export const taskCaptureDraftCreateSchema = z.object({
   text: trimmed(20_000),
   moduleId: z.string().uuid().optional(),

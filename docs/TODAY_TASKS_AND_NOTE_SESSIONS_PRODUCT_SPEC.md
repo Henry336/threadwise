@@ -1,15 +1,17 @@
 # Today planning, carryover, briefings, and Note sessions
 
-Status: accepted product direction; **Phase 1 backend foundation implemented on a guarded branch**.
+Status: accepted product direction; **Phase 2 interaction layer implemented on guarded branches**.
 
 Recorded: 28 August 2026 SGT.
 
 This specification captures the owner's agreed direction for making Threadwise a calmer external
 working memory across Individual, Group, and Study. Phase 1 now supplies additive planned dates,
 durable cross-mode drafts, agenda composition, brief preferences/delivery idempotency, and owner-gated
-API contracts. The Telegram dialogue, dashboard Today surface, scheduled delivery, carryover prompts,
-and Note-session refinements below remain behavioural targets; nothing here implies production
-migration, deployment, or enablement.
+API contracts. Phase 2 adds owner-gated Telegram batch review, focused corrections, atomic saving,
+`/today`, carryover re-planning, exact draft links, and one responsive dashboard Today planner shared
+by Individual, Group, and Study. Scheduled delivery, proactive expired-card replacement, richer
+carryover prompts, and Note-session refinements remain Phase 3 targets; nothing here implies
+production migration, deployment, or enablement.
 
 ## Product promise
 

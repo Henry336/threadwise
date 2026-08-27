@@ -69,7 +69,7 @@ export async function createTaskCaptureDraft(
 ): Promise<TaskCaptureDraftRecord> {
   validateScope(scope);
   const now = options.now ?? new Date();
-  const parsed = parseDraftItems(sourceText, scope.timezone, now, options.moduleId, options.studyItemType);
+  const parsed = parseDraftItems(sourceText, scope.timezone, now, options.moduleId, options.studyItemType, scope.scope);
   if (!parsed.length) throw new TaskCaptureDraftError("Add at least one task.", "invalid");
 
   return database.$transaction(async (tx) => {
@@ -123,6 +123,54 @@ export async function getTaskCaptureDraft(
   return draft;
 }
 
+export async function findActiveTaskCaptureDraft(
+  scope: TaskCaptureScope,
+  database: PrismaClient = prisma,
+): Promise<TaskCaptureDraftRecord | undefined> {
+  validateScope(scope);
+  const draft = await database.taskCaptureDraft.findFirst({
+    where: {
+      principalTelegramId: scope.principalTelegramId,
+      status: { in: [...activeStatuses] },
+      ...(scope.scope === PlanningScope.PERSONAL ? { scope: PlanningScope.PERSONAL } : {}),
+      ...(scope.groupWorkspaceId ? { groupWorkspaceId: scope.groupWorkspaceId } : {}),
+      ...(scope.studyWorkspaceId ? { studyWorkspaceId: scope.studyWorkspaceId } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    include: draftInclude,
+  });
+  if (!draft) return undefined;
+  return getTaskCaptureDraft(draft.id, scope.principalTelegramId, database);
+}
+
+export async function collectTaskCaptureDraft(
+  draftId: string,
+  principalTelegramId: string,
+  database: PrismaClient = prisma,
+): Promise<TaskCaptureDraftRecord> {
+  const draft = await requireEditableDraft(draftId, principalTelegramId, database);
+  return database.taskCaptureDraft.update({
+    where: { id: draft.id },
+    data: { status: TaskCaptureDraftStatus.COLLECTING, expiresAt: new Date(Date.now() + TASK_CAPTURE_DRAFT_TTL_MS) },
+    include: draftInclude,
+  });
+}
+
+export async function rememberTaskCaptureDraftTelegramReview(
+  draftId: string,
+  principalTelegramId: string,
+  chatId: string,
+  messageId: number,
+  database: PrismaClient = prisma,
+): Promise<TaskCaptureDraftRecord> {
+  const draft = await requireEditableDraft(draftId, principalTelegramId, database);
+  return database.taskCaptureDraft.update({
+    where: { id: draft.id },
+    data: { telegramChatId: chatId, telegramReviewMessageId: messageId },
+    include: draftInclude,
+  });
+}
+
 export async function appendTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -132,7 +180,7 @@ export async function appendTaskCaptureDraft(
 ): Promise<TaskCaptureDraftRecord> {
   const draft = await requireEditableDraft(draftId, principalTelegramId, database);
   const now = options.now ?? new Date();
-  const parsed = parseDraftItems(sourceText, draft.timezone, now, options.moduleId, options.studyItemType);
+  const parsed = parseDraftItems(sourceText, draft.timezone, now, options.moduleId, options.studyItemType, draft.scope);
   if (!parsed.length) throw new TaskCaptureDraftError("Add at least one task.", "invalid");
   if (draft.items.length + parsed.length > TASK_CAPTURE_DRAFT_LIMIT) {
     throw new TaskCaptureDraftError(`A draft can contain at most ${TASK_CAPTURE_DRAFT_LIMIT} tasks.`, "invalid");
@@ -176,6 +224,11 @@ export async function updateTaskCaptureDraftItem(
   const title = patch.title?.trim();
   if (patch.title !== undefined && !title) throw new TaskCaptureDraftError("Give the task a title.", "invalid");
   const assignees = patch.assignees ? normalizeAssignees(patch.assignees) : undefined;
+  let warnings = patch.resolveWarnings ? [] : [...item.warnings];
+  if (!patch.resolveWarnings && patch.moduleId) warnings = warnings.filter((warning) => warning !== "STUDY_MODULE_REQUIRED");
+  if (!patch.resolveWarnings && (patch.plannedFor !== undefined || patch.dueAt !== undefined)) {
+    warnings = warnings.filter((warning) => warning !== "AMBIGUOUS_BARE_DATE");
+  }
   await database.taskCaptureDraftItem.update({
     where: { id: item.id },
     data: {
@@ -189,7 +242,10 @@ export async function updateTaskCaptureDraftItem(
       ...(patch.linkedTaskId !== undefined ? { linkedTaskId: patch.linkedTaskId } : {}),
       ...(patch.linkedStudyItemId !== undefined ? { linkedStudyItemId: patch.linkedStudyItemId } : {}),
       ...(patch.included !== undefined ? { included: patch.included } : {}),
-      ...(patch.resolveWarnings ? { warnings: [], status: TaskCaptureDraftItemStatus.READY } : {}),
+      ...(patch.resolveWarnings || patch.moduleId || patch.plannedFor !== undefined || patch.dueAt !== undefined ? {
+        warnings,
+        status: warnings.length ? TaskCaptureDraftItemStatus.NEEDS_REVIEW : TaskCaptureDraftItemStatus.READY,
+      } : {}),
     },
   });
   return database.taskCaptureDraft.update({
@@ -253,9 +309,12 @@ async function requireEditableDraft(draftId: string, principalTelegramId: string
   return draft;
 }
 
-function parseDraftItems(sourceText: string, timezone: string, now: Date, moduleId?: string, studyItemType?: StudyItemType) {
+function parseDraftItems(sourceText: string, timezone: string, now: Date, moduleId?: string, studyItemType?: StudyItemType, scope?: PlanningScope) {
   return splitTaskDraftText(sourceText).map((part, index) => {
     const intent = parseTaskTimingIntent(part, timezone, now);
+    const warnings = scope === PlanningScope.STUDY && !moduleId
+      ? [...intent.warnings, "STUDY_MODULE_REQUIRED"]
+      : intent.warnings;
     return {
       position: index + 1,
       title: intent.title,
@@ -264,8 +323,8 @@ function parseDraftItems(sourceText: string, timezone: string, now: Date, module
       dueAt: intent.dueAt,
       moduleId,
       studyItemType,
-      warnings: intent.warnings,
-      status: intent.warnings.length ? TaskCaptureDraftItemStatus.NEEDS_REVIEW : TaskCaptureDraftItemStatus.READY,
+      warnings,
+      status: warnings.length ? TaskCaptureDraftItemStatus.NEEDS_REVIEW : TaskCaptureDraftItemStatus.READY,
     };
   });
 }

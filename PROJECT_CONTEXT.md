@@ -9,9 +9,10 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
-- Authorization/status: the owner explicitly authorized Phase 1 implementation and push on
-  2026-08-28 SGT. The backend foundation is implemented and locally validated on guarded branch
-  `codex/phase1-today-foundation`; it is not merged, migrated, deployed, or enabled in production.
+- Authorization/status: the owner explicitly authorized Phase 2 implementation and push on
+  2026-08-28 SGT. The paired interaction layer is implemented and locally validated on guarded
+  backend/dashboard branches named `codex/phase2-today-interactions`, stacked on the pushed Phase 1
+  foundation. It is not merged, migrated, deployed, or enabled in production.
 - Product decision: do not add a parallel `Todo` entity. Reuse the existing actionable records and
   add an independent optional planned day. A task/work item is the action; planned day is when the
   user intends to work; deadline is when it must be finished; reminder is explicit permission to
@@ -43,19 +44,33 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Agenda/briefing foundation: deterministic Today, Carryover, due-soon, overdue, and unscheduled
   composition is available for all three scopes. Brief/debrief preferences default off, and an
   idempotent delivery ledger prevents duplicate daily sends when delivery is implemented later.
-- Exposure boundary: authenticated `/api/v1/dashboard/today` and `/task-drafts` contracts are
-  fail-closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`. Existing task and Study APIs accept the
-  separate planned day. Telegram controls, dashboard Today UI, schedulers, actual brief delivery,
-  carryover prompts, and Note-session refinements remain Phase 2+ work.
+- Phase 2 Telegram layer: the owner-gated bot now provides deterministic batch capture and a durable
+  review card with `Save N`, `Add more`, and `Edit details`; supports focused natural-language edits,
+  Study module resolution, atomic save, `/today` agenda viewing, and one-tap carryover re-planning.
+  These paths do not require AI and never create an implicit reminder.
+- Phase 2 dashboard layer: Personal, Group, and Study overview surfaces share one responsive Today
+  planner with Today, Carryover, and Deadline watch; a progressively disclosed atomic batch editor;
+  Study's branded searchable module picker; and audited `Do today` carryover actions. Exact Telegram
+  draft links open the corresponding dashboard review state. Existing users retain prior Today
+  fallback behaviour when the gated feature is unavailable.
+- Exposure boundary: authenticated `/api/v1/dashboard/today` and `/task-drafts` contracts and the new
+  Telegram interactions remain fail-closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`. Phase 3 still
+  owns scheduled morning/evening delivery, proactive expired-card replacement, richer carryover
+  prompts, and Note-session refinements. No background scheduler was enabled in Phase 2.
 - Phase 1 validation: Prisma format/generate/validate, TypeScript typecheck, production build,
   932 tests passed with 6 intentional skips, 148 focused security tests passed, tracked-secret scan
   passed, and `git diff --check` passed. Exact commit/push identifiers are recorded after publication.
 - Publication checkpoint: implementation commit `bb2dacd` is the guarded Phase 1 code/data-contract
   boundary on `codex/phase1-today-foundation`. The branch is intended for remote review only; it has
   not been merged, migrated, deployed, or enabled.
-- Exact next action after push: keep the feature flag unset in production. Begin the paired Telegram
-  and dashboard interaction layer only after separate Phase 2 authorization; do not run the migration
-  or deploy merely because this guarded branch exists.
+- Phase 2 validation: backend typecheck/build, 934 tests with 6 intentional skips, focused Today
+  regressions, and the tracked-secret scan pass. Dashboard typecheck/lint, 138 tests, optimized build,
+  five browser checks with one intentional mobile skip, and dependency installation with zero reported
+  vulnerabilities pass. The local 21st CLI was unavailable, so the UI was grounded in the tracked
+  `.21st` design system and existing Threadwise components rather than external catalogue output.
+- Exact next action after push: keep the owner gate unset in production. Review and merge both guarded
+  branches together before applying the Phase 1 migration or enabling the gate. Do not infer permission
+  to migrate, deploy, or start Phase 3 from the branch publication.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 
