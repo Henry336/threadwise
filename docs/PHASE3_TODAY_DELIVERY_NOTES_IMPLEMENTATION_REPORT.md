@@ -48,3 +48,17 @@ Publication boundary: backend commit `2ac4824` and dashboard commit `e1b0150` on
 - Optional Note cleanup must be a previewed derived copy and never overwrite exact source text.
 - Production migration, owner-gate configuration, deployment, and wider rollout require separate
   authorization after paired review and merge.
+
+## Follow-up acceptance gate
+
+After the implementation validation above, the owner required the complete recorded conversation to
+become an executable three-level acceptance suite. Parser tests must cover plan/deadline/reminder/
+ambiguity semantics. Service tests must cover atomic drafts, Carryover, delivery idempotency,
+authorization, and Study deduplication. Telegram/dashboard tests must cover dialogue, button budget,
+exact deep links, accessibility, and responsive behaviour.
+
+The mandatory edge matrix is midnight and timezone changes, DST gap/overlap, restart during `Add more`,
+duplicate Telegram updates and callback replay, one invalid batch item, no private bot relationship,
+Canvas matching with deadline preservation, quiet hours, disabled briefings, and cross-workspace draft
+or agenda access attempts. This follow-up gate must pass before merge or rollout; the earlier validation
+counts remain accurate but do not claim completion of this subsequently expanded matrix.

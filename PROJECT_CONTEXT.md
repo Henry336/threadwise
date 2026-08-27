@@ -84,12 +84,24 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   and in the complete single-worker suite. Dashboard typecheck/lint, 139 tests, isolated optimized
   build, 152-file secret scan, and browser smoke (5 passed, 1 intentional mobile skip) pass. The local
   21st CLI remained unavailable; the tracked design context and branded picker were used directly.
+- Owner-mandated acceptance expansion (recorded 2026-08-28 SGT): before merge or rollout, convert the
+  full behavioural transcript into executable parser, service, and Telegram/dashboard suites. The
+  mandatory edge matrix covers midnight and timezone changes; DST gap/overlap; process restart during
+  `Add more`; duplicate Telegram updates and callback replay; one invalid batch item; members without
+  a private bot relationship; Canvas matching with exact deadline preservation; quiet hours and
+  disabled briefing settings; and cross-workspace draft/agenda access attempts. Parser assertions must
+  separate plan/deadline/reminder/ambiguity; service assertions must cover atomicity, Carryover,
+  idempotency, authorization, and Study deduplication; surface assertions must cover visible dialogue,
+  the normal three-button budget, exact deep links, accessibility, and responsive behaviour. Treat the
+  current Phase 3 validation as implementation evidence, not completion of this newly added release
+  gate. Canonical detail is in the product specification's `Executable acceptance strategy` section.
 - Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
   commit `e1b0150` are the paired guarded review boundary on
   `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.
-- Exact next action after publication: keep the owner gate unset in production. Review and merge both
-  Phase 3 branches together. Only then, under separate authorization, apply the pending additive
-  migrations, configure the owner gate, and deploy the paired services.
+- Exact next action after publication: keep the owner gate unset in production. Implement and pass the
+  owner-mandated executable acceptance matrix, then review and merge both Phase 3 branches together.
+  Only afterward, under separate authorization, apply the pending additive migrations, configure the
+  owner gate, and deploy the paired services.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 

@@ -65,6 +65,58 @@ configured or when an existing, separately enabled deadline policy applies.
 - Note-session storage preserves exact paragraphs by default. Optional cleanup creates a preview or
   derived copy; it never silently overwrites the source.
 
+## Executable acceptance strategy
+
+The behavioural conversation below is the source of truth, but prose review is not sufficient. Before
+merge or rollout, every material outcome must be represented by a named automated test at the lowest
+useful layer, with end-to-end coverage reserved for visible cross-layer behaviour.
+
+### Level 1 — parser tests
+
+- Distinguish a planned day from a deadline and from an explicit reminder; never infer one from
+  another.
+- Preserve the no-day/Unscheduled path and return a focused ambiguity warning for a bare date that
+  cannot be classified safely.
+- Exercise local-day boundaries immediately before and after midnight, a runtime timezone change,
+  and at least one DST-observing IANA zone across both the spring-forward gap and fall-back overlap.
+
+### Level 2 — service tests
+
+- Prove batch approval is all-or-nothing, including one invalid item among otherwise valid items.
+- Prove an `Add more` draft survives a bot/process restart and resumes from durable state.
+- Prove Carryover is derived without duplication and retains both the original and current plan.
+- Prove morning/evening delivery is idempotent under repeated polling, duplicate Telegram updates,
+  and callback replay.
+- Prove disabled briefing settings and quiet hours produce no delivery, including quiet hours that
+  cross midnight.
+- Prove members without a private bot relationship do not receive private briefs or leaked private
+  content.
+- Prove Canvas matching plans the existing Study item, avoids a duplicate, and preserves the Canvas
+  deadline exactly.
+- Prove actor and workspace authorization rejects cross-workspace reads, edits, approvals, agenda
+  access, and carryover actions for drafts/items the principal does not own.
+
+### Level 3 — Telegram and dashboard tests
+
+- Replay the visible dialogue below and assert the one-message/one-decision rule and the normal
+  three-button budget: `Save N`, `Add more`, and `Edit details`.
+- Assert stale or replayed callbacks remain harmless and display an understandable expired/already
+  handled state rather than duplicating data.
+- Assert Telegram and dashboard deep links open the exact authorized draft, task, or note and fail
+  closed for another workspace or principal.
+- Assert briefing controls are accessible, remain private to Personal settings, default disabled,
+  use the branded time picker, and remain usable at mobile and laptop breakpoints.
+- Assert Today/Carryover/Deadline-watch cards and focused editors remain keyboard accessible and do
+  not overflow or hide required actions at supported responsive widths.
+
+### Required edge-case matrix
+
+The merge/release gate is incomplete until executable tests cover all of the following: midnight;
+timezone changes; DST gap and overlap; restart during `Add more`; duplicate update and callback replay;
+one invalid batch item; no private bot relationship; Canvas matching with deadline preservation;
+quiet hours; disabled briefings; and cross-workspace draft/agenda access attempts. Existing unrelated
+coverage does not count unless its assertions exercise this Phase 1–3 path directly.
+
 ## Behavioural acceptance run
 
 Assume it is Monday in Singapore and Individual mode is active unless a scenario says otherwise.
