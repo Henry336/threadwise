@@ -7,6 +7,53 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
+
+- Authorization/status: the owner explicitly authorized Phase 1 implementation and push on
+  2026-08-28 SGT. The backend foundation is implemented and locally validated on guarded branch
+  `codex/phase1-today-foundation`; it is not merged, migrated, deployed, or enabled in production.
+- Product decision: do not add a parallel `Todo` entity. Reuse the existing actionable records and
+  add an independent optional planned day. A task/work item is the action; planned day is when the
+  user intends to work; deadline is when it must be finished; reminder is explicit permission to
+  interrupt; note is retained information; and timetable block is reserved time.
+- Daily behaviour: ordinary natural-language task capture defaults to Today, while an explicit
+  no-day request becomes Unscheduled. Open work planned before today appears as derived Carryover
+  without duplication or silent date changes. Morning briefs compose Today, Carryover, and deadline
+  context; evening debriefs show completion, remaining work, and approaching deadlines. Briefings do
+  not create per-task reminders.
+- Telegram UX: normal draft review exposes at most `Save N`, `Add more`, and `Edit details`.
+  `Add more` enters an explicit short-lived batch capture; focused edit/ambiguity subflows reveal
+  secondary controls only when needed. Nothing is written until approval, and abandoned drafts
+  expire without partial records. Preserve `One message, one decision` and prevent button fatigue.
+- Cross-mode boundary: Individual gets the complete private Today experience; Group reuses planning
+  semantics with assignees while keeping personal briefs/carryover private and shared digests opt-in;
+  Study adds intended work days without overwriting Canvas/local deadlines and plans existing matching
+  work instead of duplicating it.
+- Note-session decision: refine the already durable private Note session rather than introduce a new
+  mode. Keep passive exact-paragraph capture, explicit Save/Cancel, inactivity auto-save, and no
+  generic `/stop` dependency. Optional cleanup must preview or derive a copy, never silently replace
+  the source; a group-wide passive capture is out of scope because it could absorb unrelated messages.
+- Complete behavioural acceptance transcript and implementation invariants:
+  [`docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md`](docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md).
+- Phase 1 implementation: additive `plannedFor`/`firstPlannedFor` calendar dates now exist on normal
+  tasks and Study work without changing `dueAt`; durable actor/workspace-scoped task drafts support
+  split capture, Add more, focused edits, expiry, ambiguity warnings, and all-or-nothing commit across
+  Personal, Group, and Study. New draft tasks create no implicit reminder. Existing task deadlines,
+  reminders, Canvas deadlines, and Note-session persistence remain untouched.
+- Agenda/briefing foundation: deterministic Today, Carryover, due-soon, overdue, and unscheduled
+  composition is available for all three scopes. Brief/debrief preferences default off, and an
+  idempotent delivery ledger prevents duplicate daily sends when delivery is implemented later.
+- Exposure boundary: authenticated `/api/v1/dashboard/today` and `/task-drafts` contracts are
+  fail-closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`. Existing task and Study APIs accept the
+  separate planned day. Telegram controls, dashboard Today UI, schedulers, actual brief delivery,
+  carryover prompts, and Note-session refinements remain Phase 2+ work.
+- Phase 1 validation: Prisma format/generate/validate, TypeScript typecheck, production build,
+  932 tests passed with 6 intentional skips, 148 focused security tests passed, tracked-secret scan
+  passed, and `git diff --check` passed. Exact commit/push identifiers are recorded after publication.
+- Exact next action after push: keep the feature flag unset in production. Begin the paired Telegram
+  and dashboard interaction layer only after separate Phase 2 authorization; do not run the migration
+  or deploy merely because this guarded branch exists.
+
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 
 - Phase 2 authorization/status (2026-08-25 SGT): the owner explicitly authorized implementation and

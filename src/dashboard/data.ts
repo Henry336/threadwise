@@ -135,6 +135,8 @@ export type DashboardTask = {
   title: string;
   description?: string;
   dueAt?: string;
+  plannedFor?: string;
+  firstPlannedFor?: string;
   status: TaskStatus;
   audience: TaskAudience;
   recurring: boolean;
@@ -231,6 +233,10 @@ export type DashboardSettings = {
   calendarAutoSync: boolean;
   excelAutoSync: boolean;
   overviewQuotes: DashboardOverviewQuote[];
+  morningBriefEnabled: boolean;
+  morningBriefTime: string;
+  eveningDebriefEnabled: boolean;
+  eveningDebriefTime: string;
 };
 
 export type DashboardPage<T> = {
@@ -267,7 +273,8 @@ function compactSummary(body: string): string {
 }
 
 function taskView(task: {
-  id: string; publicId: string; title: string; description: string | null; dueAt: Date | null; status: TaskStatus;
+  id: string; publicId: string; title: string; description: string | null; dueAt: Date | null;
+  plannedFor: Date | null; firstPlannedFor: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
   audience: TaskAudience;
   snoozedUntil: Date | null;
@@ -286,6 +293,8 @@ function taskView(task: {
     title: task.title,
     ...(task.description ? { description: task.description } : {}),
     ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
+    ...(task.plannedFor ? { plannedFor: task.plannedFor.toISOString().slice(0, 10) } : {}),
+    ...(task.firstPlannedFor ? { firstPlannedFor: task.firstPlannedFor.toISOString().slice(0, 10) } : {}),
     status: task.status,
     audience: task.audience,
     recurring: Boolean(task.recurrenceRule),
@@ -397,7 +406,11 @@ export function settingsView(settings: UserSettings): DashboardSettings {
     directNudgesEnabled: settings.directNudgesEnabled,
     calendarAutoSync: settings.calendarAutoSync,
     excelAutoSync: settings.excelAutoSync,
-    overviewQuotes: normalizeOverviewQuotes(settings.overviewQuotes)
+    overviewQuotes: normalizeOverviewQuotes(settings.overviewQuotes),
+    morningBriefEnabled: settings.morningBriefEnabled,
+    morningBriefTime: settings.morningBriefTime,
+    eveningDebriefEnabled: settings.eveningDebriefEnabled,
+    eveningDebriefTime: settings.eveningDebriefTime
   };
 }
 
@@ -436,6 +449,7 @@ export async function listDashboardTasks(
 export async function createDashboardTask(telegramId: string, input: TaskCreateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
   const user = await userContext(telegramId, database);
   const dueAt = input.dueAt === null || input.dueAt === undefined ? null : new Date(input.dueAt);
+  const plannedFor = input.plannedFor ? new Date(`${input.plannedFor}T00:00:00.000Z`) : null;
   const interval = input.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes;
   const reminderTimes = dashboardReminderTimes(input.reminderTimes ?? []);
   const task = await createWithPublicIdRetry(database, user.id, "TASK", async (tx, publicId) => {
@@ -447,6 +461,8 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
         description: input.description ?? null,
         sourceText: input.description ? `${input.title}\n${input.description}` : input.title,
         dueAt,
+        plannedFor,
+        firstPlannedFor: plannedFor,
         timezone: user.settings.timezone,
         reminderIntervalMinutes: interval,
         nextReminderAt: nextReminder(dueAt, interval, user.settings.dueNudgeMinutes),
@@ -490,6 +506,9 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const nextTitle = input.title ?? task.title;
   const nextDescription = "description" in input ? input.description ?? null : task.description;
   const nextDueAt = "dueAt" in input ? input.dueAt ? new Date(input.dueAt) : null : task.dueAt;
+  const nextPlannedFor = "plannedFor" in input
+    ? input.plannedFor ? new Date(`${input.plannedFor}T00:00:00.000Z`) : null
+    : task.plannedFor;
   const interval = "reminderIntervalMinutes" in input
     ? input.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes
     : task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes;
@@ -497,6 +516,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const titleChanged = input.title !== undefined && input.title !== task.title;
   const descriptionChanged = "description" in input && nextDescription !== task.description;
   const dueChanged = "dueAt" in input && nextDueAt?.getTime() !== task.dueAt?.getTime();
+  const plannedChanged = "plannedFor" in input && nextPlannedFor?.getTime() !== task.plannedFor?.getTime();
   const pinnedChanged = input.pinned !== undefined && input.pinned !== Boolean(task.pinnedAt);
   const nextSnoozedUntil = "snoozedUntil" in input ? input.snoozedUntil ? new Date(input.snoozedUntil) : null : task.snoozedUntil;
   const snoozeChanged = "snoozedUntil" in input && nextSnoozedUntil?.getTime() !== task.snoozedUntil?.getTime();
@@ -517,6 +537,10 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
       task.recurrenceRule ?? undefined,
       nextTimezone
     ) ?? null;
+  }
+  if (plannedChanged) {
+    data.plannedFor = nextPlannedFor;
+    if (!task.firstPlannedFor && nextPlannedFor) data.firstPlannedFor = nextPlannedFor;
   }
   if ("reminderIntervalMinutes" in input) data.reminderIntervalMinutes = input.reminderIntervalMinutes;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
@@ -583,13 +607,22 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
 
   if (Object.keys(data).length === 0 && !reminderTimesChanged) return taskView(task);
 
-  // Any deliberate task mutation counts as activity. Restart the undated
-  // group cadence so an old ignored-nudge streak cannot immediately slow a
-  // newly edited task to daily reminders.
-  data.undatedNudgeCount = 0;
+  // A planned-day edit is organizational metadata, not reminder activity.
+  // Only the pre-existing reminder-relevant mutations restart the undated
+  // cadence; planning alone leaves reminder state byte-for-byte unchanged.
+  if (
+    statusChanged
+    || titleChanged
+    || descriptionChanged
+    || dueChanged
+    || pinnedChanged
+    || snoozeChanged
+    || "reminderIntervalMinutes" in input
+    || reminderTimesChanged
+  ) {
+    data.undatedNudgeCount = 0;
+  }
   if (titleChanged || descriptionChanged) Object.assign(data, completeSearchableContentUpdate("Task", task, data as Record<string, unknown>));
-  if (Object.keys(data).length === 1 && reminderTimesChanged) data.updatedAt = new Date();
-
   const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
   const revisionWhere: Prisma.TaskWhereUniqueInput = {
     id: task.id,
@@ -637,6 +670,20 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
         return next;
         })
       : await database.$transaction(async (tx) => {
+        if (plannedChanged) {
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              action: "task.plan.updated",
+              metadata: {
+                taskId: task.id,
+                publicId: task.publicId,
+                previousPlannedFor: task.plannedFor?.toISOString() ?? null,
+                plannedFor: nextPlannedFor?.toISOString() ?? null
+              }
+            }
+          });
+        }
         const next = await tx.task.update({ where: revisionWhere, data });
         if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
         return next;

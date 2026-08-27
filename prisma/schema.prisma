@@ -59,6 +59,39 @@ enum CaptureKind {
   NOISE
 }
 
+enum PlanningScope {
+  PERSONAL
+  GROUP
+  STUDY
+}
+
+enum TaskCaptureDraftStatus {
+  COLLECTING
+  REVIEWING
+  COMMITTING
+  COMMITTED
+  CANCELED
+  EXPIRED
+}
+
+enum TaskCaptureDraftItemStatus {
+  READY
+  NEEDS_REVIEW
+}
+
+enum DailyBriefKind {
+  MORNING
+  EVENING
+  GROUP_DIGEST
+}
+
+enum DailyBriefDeliveryStatus {
+  PENDING
+  SENT
+  SKIPPED
+  FAILED
+}
+
 enum GroupMemberRole {
   OWNER
   ADMIN
@@ -380,6 +413,8 @@ model User {
   voiceTranscriptionJobs     VoiceTranscriptionJob[]
   pendingTaskImports         PendingTaskImport[]
   studyWorkspace             StudyWorkspace?
+  taskCaptureDrafts          TaskCaptureDraft[]
+  dailyBriefDeliveries       DailyBriefDelivery[]
 }
 
 model StudyWorkspace {
@@ -432,6 +467,7 @@ model StudyWorkspace {
   analysisJobs          GeminiStudyAnalysisJob[]
   noteEditSuggestions   StudyNoteEditSuggestion[]
   noteCaptureSession    StudyNoteCaptureSession?
+  taskCaptureDrafts     TaskCaptureDraft[]
   canvasSync            StudyCanvasSync?
   canvasAssignments     StudyCanvasAssignment[]
   canvasCourseModules   StudyCanvasCourseModule[]
@@ -527,6 +563,8 @@ model StudyItem {
   status          StudyItemStatus   @default(OPEN)
   priority        StudyPriority     @default(NORMAL)
   dueAt           DateTime?
+  plannedFor      DateTime?         @db.Date
+  firstPlannedFor DateTime?         @db.Date
   plannedMinutes  Int?
   actualMinutes   Int               @default(0)
   mastery         StudyTrafficLight @default(UNASSESSED)
@@ -545,6 +583,7 @@ model StudyItem {
 
   @@unique([workspaceId, publicId])
   @@index([workspaceId, status, dueAt])
+  @@index([workspaceId, status, plannedFor])
   @@index([moduleId, status, createdAt])
   @@index([weekId, status])
   @@index([workspaceId, mastery])
@@ -1063,6 +1102,7 @@ model GroupWorkspace {
   threadwiseTopicId Int?
   isActive          Boolean  @default(true)
   botStatus         String?
+  timezone          String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -1071,6 +1111,7 @@ model GroupWorkspace {
   activity           GroupActivity[]
   availabilityPolls  AvailabilityPoll[]
   pendingTaskImports PendingTaskImport[]
+  taskCaptureDrafts  TaskCaptureDraft[]
 
   @@index([isActive, updatedAt])
 }
@@ -1248,6 +1289,10 @@ model UserSettings {
   calendarAutoSync         Boolean          @default(false)
   excelAutoSync            Boolean          @default(false)
   overviewQuotes           Json             @default("[]")
+  morningBriefEnabled      Boolean          @default(false)
+  morningBriefTime         String           @default("08:00")
+  eveningDebriefEnabled    Boolean          @default(false)
+  eveningDebriefTime       String           @default("21:00")
   voiceCleanupMode         VoiceCleanupMode @default(LIGHT)
   voiceTranscriptionModel  String           @default("gpt-4o-mini-transcribe")
   voiceLanguageHint        String?
@@ -1304,6 +1349,8 @@ model Task {
   searchTokens            String[]        @default([])
   importSourceItemId      String?         @unique
   dueAt                   DateTime?
+  plannedFor              DateTime?       @db.Date
+  firstPlannedFor         DateTime?       @db.Date
   timezone                String?
   reminderIntervalMinutes Int?
   nextReminderAt          DateTime?
@@ -1342,6 +1389,7 @@ model Task {
   @@unique([userId, publicId])
   @@index([status, nextReminderAt])
   @@index([userId, createdAt])
+  @@index([userId, status, plannedFor])
   @@index([userId, assignedUsername])
   @@index([recurrenceRule, nextReminderAt])
   @@index([userId, pinnedAt])
@@ -1488,6 +1536,85 @@ model PendingCapture {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model TaskCaptureDraft {
+  id                      String                 @id @default(uuid())
+  ownerUserId             String
+  principalTelegramId     String
+  scope                   PlanningScope
+  groupWorkspaceId        String?
+  studyWorkspaceId        String?
+  sourceText              String
+  timezone                String
+  status                  TaskCaptureDraftStatus @default(COLLECTING)
+  telegramChatId          String?
+  telegramReviewMessageId Int?
+  expiresAt               DateTime
+  committedAt             DateTime?
+  canceledAt              DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  owner          User                   @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  groupWorkspace GroupWorkspace?        @relation(fields: [groupWorkspaceId], references: [id], onDelete: Cascade)
+  studyWorkspace StudyWorkspace?        @relation(fields: [studyWorkspaceId], references: [id], onDelete: Cascade)
+  items          TaskCaptureDraftItem[]
+
+  @@index([principalTelegramId, status, expiresAt])
+  @@index([ownerUserId, status, updatedAt])
+  @@index([groupWorkspaceId, status])
+  @@index([studyWorkspaceId, status])
+}
+
+model TaskCaptureDraftItem {
+  id                String                     @id @default(uuid())
+  draftId           String
+  position          Int
+  title             String
+  sourceText        String
+  plannedFor        DateTime?                  @db.Date
+  dueAt             DateTime?
+  moduleId          String?
+  studyItemType     StudyItemType?
+  assignees         Json                       @default("[]")
+  teamOwnerLabel    String?
+  linkedTaskId      String?
+  linkedStudyItemId String?
+  warnings          String[]
+  status            TaskCaptureDraftItemStatus @default(READY)
+  included          Boolean                    @default(true)
+  resultTaskId      String?
+  resultStudyItemId String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  draft TaskCaptureDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@unique([draftId, position])
+  @@index([draftId, included, status])
+}
+
+model DailyBriefDelivery {
+  id                  String                   @id @default(uuid())
+  userId              String
+  recipientTelegramId String
+  localDate           DateTime                 @db.Date
+  kind                DailyBriefKind
+  scope               PlanningScope
+  scopeKey            String
+  status              DailyBriefDeliveryStatus @default(PENDING)
+  contentHash         String?
+  deliveredAt         DateTime?
+  lastError           String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recipientTelegramId, localDate, kind, scopeKey])
+  @@index([status, localDate])
+  @@index([userId, localDate, kind])
 }
 
 model PendingNoteMerge {

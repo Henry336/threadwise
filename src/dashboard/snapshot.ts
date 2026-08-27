@@ -36,6 +36,8 @@ export type DashboardSnapshot = {
     title: string;
     description?: string;
     dueAt?: string;
+    plannedFor?: string;
+    firstPlannedFor?: string;
     status: "OPEN" | "DONE" | "CANCELED";
     audience: "UNASSIGNED" | "EVERYONE" | "ASSIGNEES";
     recurring?: boolean;
@@ -120,6 +122,10 @@ export type DashboardSnapshot = {
     calendarAutoSync: boolean;
     excelAutoSync: boolean;
     overviewQuotes: DashboardOverviewQuote[];
+    morningBriefEnabled: boolean;
+    morningBriefTime: string;
+    eveningDebriefEnabled: boolean;
+    eveningDebriefTime: string;
   };
   activity: Array<{ day: string; captures: number; completed: number }>;
   integrations: Array<{
@@ -207,6 +213,8 @@ export async function getDashboardSnapshot(
         title: true,
         description: true,
         dueAt: true,
+        plannedFor: true,
+        firstPlannedFor: true,
         status: true,
         audience: true,
         recurrenceRule: true,
@@ -378,6 +386,8 @@ export async function getDashboardSnapshot(
       title: task.title,
       ...(task.description ? { description: task.description } : {}),
       ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
+      ...(task.plannedFor ? { plannedFor: task.plannedFor.toISOString().slice(0, 10) } : {}),
+      ...(task.firstPlannedFor ? { firstPlannedFor: task.firstPlannedFor.toISOString().slice(0, 10) } : {}),
       status: task.status,
       audience: task.audience ?? "UNASSIGNED",
       ...(task.recurrenceRule ? { recurring: true } : {}),
@@ -474,7 +484,11 @@ export async function getDashboardSnapshot(
       directNudgesEnabled: user.settings?.directNudgesEnabled ?? false,
       calendarAutoSync: user.settings?.calendarAutoSync ?? false,
       excelAutoSync: user.settings?.excelAutoSync ?? false,
-      overviewQuotes: normalizeOverviewQuotes(user.settings?.overviewQuotes)
+      overviewQuotes: normalizeOverviewQuotes(user.settings?.overviewQuotes),
+      morningBriefEnabled: user.settings?.morningBriefEnabled ?? false,
+      morningBriefTime: user.settings?.morningBriefTime ?? "08:00",
+      eveningDebriefEnabled: user.settings?.eveningDebriefEnabled ?? false,
+      eveningDebriefTime: user.settings?.eveningDebriefTime ?? "21:00"
     },
     activity: [...activityByDate.values()],
     integrations: telegramId.startsWith("chat:") ? [] : [

@@ -83,6 +83,10 @@ import {
   availabilityFinalizeSchema,
   availabilityCloseSchema,
   availabilityCalendarSchema,
+  taskCaptureDraftAppendSchema,
+  taskCaptureDraftCreateSchema,
+  taskCaptureDraftItemUpdateSchema,
+  todayAgendaQuerySchema,
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
@@ -202,6 +206,20 @@ import {
   updateTaskImportItem,
   type TaskImportReview,
 } from "../services/taskImports";
+import { DailyAgendaError } from "../services/dailyAgenda";
+import { TaskCaptureDraftError } from "../services/taskCaptureDrafts";
+import {
+  TodayFoundationAccessError,
+  appendDashboardTaskCaptureDraft,
+  assertTodayFoundationAccess,
+  cancelDashboardTaskCaptureDraft,
+  commitDashboardTaskCaptureDraft,
+  createDashboardTaskCaptureDraft,
+  getDashboardTaskCaptureDraft,
+  reviewDashboardTaskCaptureDraft,
+  todayAgendaForDashboard,
+  updateDashboardTaskCaptureDraftItem,
+} from "./today";
 
 export type DashboardRouteActions = {
   listTasks: typeof listDashboardTasks;
@@ -251,6 +269,7 @@ type DashboardRouteOptions = {
   actions?: Partial<DashboardRouteActions>;
   requestReplayGuard?: typeof consumeDashboardMutationToken;
   requestRateLimiter?: typeof limitDashboardRequest;
+  todayFoundationOwnerTelegramId?: string;
 };
 
 const defaultActions: DashboardRouteActions = {
@@ -467,7 +486,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   server.post("/api/v1/dashboard/study/items", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
-    return { item: await createDashboardStudyItem(workspace, studyItemCreateSchema.parse(request.body)) };
+    const input = studyItemCreateSchema.parse(request.body);
+    if (input.plannedFor !== undefined) {
+      assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    }
+    return { item: await createDashboardStudyItem(workspace, input) };
   }, "study_create_item"));
 
   server.get("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
@@ -479,7 +502,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.patch("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);
     const { id } = studyIdParamsSchema.parse(request.params);
-    return { item: await updateDashboardStudyItem(workspace, id, studyItemUpdateSchema.parse(request.body)) };
+    const input = studyItemUpdateSchema.parse(request.body);
+    if (input.plannedFor !== undefined) {
+      assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    }
+    return { item: await updateDashboardStudyItem(workspace, id, input) };
   }, "study_update_item"));
 
   server.delete("/api/v1/dashboard/study/items/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
@@ -730,6 +757,64 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { preview };
   }, "capture_preview"));
 
+  server.get("/api/v1/dashboard/today", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    return { agenda: await todayAgendaForDashboard(scope, todayAgendaQuerySchema.parse(request.query)) };
+  }, "today_agenda"));
+
+  server.post("/api/v1/dashboard/task-drafts", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    return { draft: await createDashboardTaskCaptureDraft(scope, taskCaptureDraftCreateSchema.parse(request.body)) };
+  }, "create_task_draft"));
+
+  server.get("/api/v1/dashboard/task-drafts/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { draft: await getDashboardTaskCaptureDraft(scope, id) };
+  }, "get_task_draft"));
+
+  server.post("/api/v1/dashboard/task-drafts/:id/items", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { draft: await appendDashboardTaskCaptureDraft(scope, id, taskCaptureDraftAppendSchema.parse(request.body)) };
+  }, "append_task_draft"));
+
+  server.patch("/api/v1/dashboard/task-drafts/:id/items/:itemId", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const params = request.params as { id?: string; itemId?: string };
+    const id = dashboardIdParamsSchema.parse({ id: params.id }).id;
+    const itemId = dashboardIdParamsSchema.parse({ id: params.itemId }).id;
+    const input = taskCaptureDraftItemUpdateSchema.parse(request.body);
+    const { plannedFor, dueAt, ...changes } = input;
+    return {
+      draft: await updateDashboardTaskCaptureDraftItem(scope, id, itemId, {
+        ...changes,
+        ...(plannedFor !== undefined ? {
+          plannedFor: plannedFor === null ? null : new Date(`${plannedFor}T00:00:00.000Z`),
+        } : {}),
+        ...(dueAt !== undefined ? { dueAt: dueAt === null ? null : new Date(dueAt) } : {}),
+      }),
+    };
+  }, "update_task_draft_item"));
+
+  server.post("/api/v1/dashboard/task-drafts/:id/review", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { draft: await reviewDashboardTaskCaptureDraft(scope, id) };
+  }, "review_task_draft"));
+
+  server.post("/api/v1/dashboard/task-drafts/:id/commit", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { draft: await commitDashboardTaskCaptureDraft(scope, id) };
+  }, "commit_task_draft"));
+
+  server.delete("/api/v1/dashboard/task-drafts/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    return { draft: await cancelDashboardTaskCaptureDraft(scope, id) };
+  }, "cancel_task_draft"));
+
   server.get("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = taskListQuerySchema.parse(request.query);
     return { tasks: await actions.listTasks(telegramId, query) };
@@ -741,7 +826,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   }, "get_task"));
 
   server.post("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId, scope) => {
-    const task = await actions.createTask(telegramId, taskCreateSchema.parse(request.body));
+    const input = taskCreateSchema.parse(request.body);
+    if (input.plannedFor !== undefined) {
+      assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    }
+    const task = await actions.createTask(telegramId, input);
     await recordDashboardTaskMutation(scope, task, { kind: "created" }, options.telegramBotToken);
     return { task };
   }, "create_task"));
@@ -749,6 +838,9 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.patch("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
     const input = taskUpdateSchema.parse(request.body);
+    if (input.plannedFor !== undefined) {
+      assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    }
     const completionOnly = input.status === "DONE" && Object.keys(input).every((key) => key === "status");
     await assertDashboardTaskMutation(scope, id, completionOnly ? "complete" : "manage", options.telegramBotToken);
     const task = await actions.updateTask(telegramId, id, input);
@@ -907,6 +999,14 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     await assertWorkspaceManager(scope, options.telegramBotToken);
     const input = settingsUpdateSchema.parse(request.body);
     if (input.overviewQuotes !== undefined) assertPersonalWorkspace(scope);
+    if (
+      input.morningBriefEnabled !== undefined
+      || input.morningBriefTime !== undefined
+      || input.eveningDebriefEnabled !== undefined
+      || input.eveningDebriefTime !== undefined
+    ) {
+      assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    }
     return { settings: await actions.updateSettings(telegramId, input) };
   }, "update_settings"));
 
@@ -1051,6 +1151,21 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
   }
   if (error instanceof DashboardStudyAccessError) {
     return reply.code(404).send({ error: "not_found" });
+  }
+  if (error instanceof TodayFoundationAccessError) {
+    return reply.code(404).send({ error: "not_found" });
+  }
+  if (error instanceof TaskCaptureDraftError) {
+    const status = error.code === "not_found" || error.code === "forbidden" ? 404
+      : error.code === "conflict" || error.code === "expired" ? 409
+        : 400;
+    return reply.code(status).send({ error: `task_draft_${error.code}`, message: error.message });
+  }
+  if (error instanceof DailyAgendaError) {
+    const status = error.code === "not_found" || error.code === "forbidden" ? 404
+      : error.code === "conflict" ? 409
+        : 400;
+    return reply.code(status).send({ error: `today_${error.code}`, message: error.message });
   }
   if (error instanceof StudyModeError) {
     const status = error.code === "not_found" ? 404

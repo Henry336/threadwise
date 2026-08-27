@@ -233,6 +233,68 @@ describe("dashboard data security", () => {
     });
   });
 
+  it("changes a planned day without touching deadline or reminder state", async () => {
+    const task = {
+      id: "task-1",
+      userId: "user-1",
+      publicId: "TASK-1",
+      title: "Prepare tutorial",
+      description: null,
+      sourceText: "Prepare tutorial",
+      status: TaskStatus.OPEN,
+      audience: "UNASSIGNED" as const,
+      dueAt: new Date("2026-09-04T10:00:00.000Z"),
+      plannedFor: null,
+      firstPlannedFor: null,
+      timezone: "Asia/Singapore",
+      reminderIntervalMinutes: 180,
+      nextReminderAt: new Date("2026-09-04T09:30:00.000Z"),
+      snoozedUntil: null,
+      recurrenceRule: null,
+      recurrenceDayOfMonth: null,
+      undatedNudgeCount: 7,
+      pinnedAt: null,
+      calendarUrl: null,
+      calendarEventId: null,
+      calendarEventUrl: null,
+      calendarSyncedAt: null,
+      teamOwnerLabel: null,
+      assignees: [],
+      reminderSchedules: [],
+      archivedAt: null,
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-30T00:00:00.000Z"),
+    };
+    const taskUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...task, ...data, updatedAt: new Date() }));
+    const auditCreate = vi.fn(async () => ({}));
+    const tx = { task: { update: taskUpdate }, auditLog: { create: auditCreate } };
+    const database = {
+      user: { findUnique: userFindUnique() },
+      task: { findFirst: vi.fn(async () => task) },
+      $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => work(tx)),
+    } as unknown as PrismaClient;
+
+    const updated = await updateDashboardTask("123456789", "TASK-1", { plannedFor: "2026-08-31" }, database);
+
+    const data = taskUpdate.mock.calls[0]?.[0].data;
+    expect(data).toMatchObject({
+      plannedFor: new Date("2026-08-31T00:00:00.000Z"),
+      firstPlannedFor: new Date("2026-08-31T00:00:00.000Z"),
+    });
+    expect(data).not.toHaveProperty("dueAt");
+    expect(data).not.toHaveProperty("nextReminderAt");
+    expect(data).not.toHaveProperty("undatedNudgeCount");
+    expect(updated).toMatchObject({
+      plannedFor: "2026-08-31",
+      firstPlannedFor: "2026-08-31",
+      dueAt: "2026-09-04T10:00:00.000Z",
+      nextReminderAt: "2026-09-04T09:30:00.000Z",
+    });
+    expect(auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: "task.plan.updated", userId: "user-1" }),
+    }));
+  });
+
   it("scopes Telegram image lookup to the authenticated user and returns only safe raster bytes", async () => {
     const imageFindFirst = vi.fn(async () => storedImage());
     const database = {

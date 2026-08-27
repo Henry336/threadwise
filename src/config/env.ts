@@ -70,6 +70,7 @@ const envSchema = z.object({
   VOICE_TRANSCRIPTION_LEASE_SECONDS: z.coerce.number().int().min(60).max(3_600).default(300),
   STUDY_OWNER_TELEGRAM_ID: optional(z.string().regex(/^\d+$/)),
   STUDY_ALLOWED_CHAT_ID: optional(z.string().regex(/^-\d+$/)),
+  TODAY_FOUNDATION_OWNER_TELEGRAM_ID: optional(z.string().regex(/^\d+$/)),
   CANVAS_ACCESS_TOKEN: optional(z.string().min(16)),
   CANVAS_BASE_URL: z.string().url().default("https://canvas.nus.edu.sg/api/v1"),
   STUDY_CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1_440).default(30),

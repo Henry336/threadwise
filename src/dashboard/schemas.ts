@@ -1,4 +1,4 @@
-import { IdeaStatus, ReminderMode, TaskStatus } from "@prisma/client";
+import { IdeaStatus, ReminderMode, StudyItemType, TaskStatus } from "@prisma/client";
 import { z } from "zod";
 import { OVERVIEW_QUOTE_AUTHOR_LIMIT, OVERVIEW_QUOTE_LIMIT, OVERVIEW_QUOTE_TEXT_LIMIT } from "./overviewQuotes";
 
@@ -6,6 +6,12 @@ const trimmed = (maximum: number) => z.string().trim().min(1).max(maximum);
 const optionalNullableText = (maximum: number) => z.string().trim().max(maximum).nullable().optional();
 const dateTime = z.string().datetime({ offset: true });
 const nullableDateTime = dateTime.nullable();
+const dateOnly = z.string()
+  .regex(/^20\d{2}-\d{2}-\d{2}$/, "Use a date such as 2026-08-31.")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Choose a valid calendar date.");
 const tags = z.array(trimmed(40)).max(20).transform((items) => [...new Set(items)]);
 const reminderIntervalMinutes = z.number().int().min(15).max(43_200);
 const reminderTimes = z.array(dateTime).max(20).transform((items) => [...new Set(items)]);
@@ -46,6 +52,7 @@ export const taskCreateSchema = z.object({
   title: trimmed(500),
   description: optionalNullableText(5_000),
   dueAt: nullableDateTime.optional(),
+  plannedFor: dateOnly.nullable().optional(),
   reminderIntervalMinutes: reminderIntervalMinutes.optional(),
   reminderTimes: reminderTimes.optional()
 }).strict();
@@ -54,6 +61,7 @@ export const taskUpdateSchema = z.object({
   title: trimmed(500).optional(),
   description: optionalNullableText(5_000),
   dueAt: nullableDateTime.optional(),
+  plannedFor: dateOnly.nullable().optional(),
   reminderIntervalMinutes: reminderIntervalMinutes.nullable().optional(),
   reminderTimes: reminderTimes.optional(),
   snoozedUntil: nullableDateTime.optional(),
@@ -172,7 +180,44 @@ export const settingsUpdateSchema = z.object({
   directNudgesEnabled: z.boolean().optional(),
   calendarAutoSync: z.boolean().optional(),
   excelAutoSync: z.boolean().optional(),
-  overviewQuotes: overviewQuotes.optional()
+  overviewQuotes: overviewQuotes.optional(),
+  morningBriefEnabled: z.boolean().optional(),
+  morningBriefTime: clock.optional(),
+  eveningDebriefEnabled: z.boolean().optional(),
+  eveningDebriefTime: clock.optional()
+}).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
+
+const taskCaptureAssigneeSchema = z.object({
+  telegramId: z.string().regex(/^[1-9]\d{0,19}$/).optional(),
+  username: z.string().trim().regex(/^[A-Za-z0-9_]{3,32}$/).optional(),
+  displayName: z.string().trim().min(1).max(120).optional(),
+}).strict().refine((value) => Boolean(value.telegramId || value.username || value.displayName), "An assignee identity is required.");
+
+export const todayAgendaQuerySchema = z.object({
+  localDate: dateOnly.optional(),
+  dueSoonDays: z.coerce.number().int().min(1).max(30).default(3),
+}).strict();
+
+export const taskCaptureDraftCreateSchema = z.object({
+  text: trimmed(20_000),
+  moduleId: z.string().uuid().optional(),
+  studyItemType: z.nativeEnum(StudyItemType).optional(),
+}).strict();
+
+export const taskCaptureDraftAppendSchema = taskCaptureDraftCreateSchema;
+
+export const taskCaptureDraftItemUpdateSchema = z.object({
+  title: trimmed(500).optional(),
+  plannedFor: dateOnly.nullable().optional(),
+  dueAt: nullableDateTime.optional(),
+  moduleId: z.string().uuid().nullable().optional(),
+  studyItemType: z.nativeEnum(StudyItemType).nullable().optional(),
+  assignees: z.array(taskCaptureAssigneeSchema).max(20).optional(),
+  teamOwnerLabel: optionalNullableText(120),
+  linkedTaskId: z.string().uuid().nullable().optional(),
+  linkedStudyItemId: z.string().uuid().nullable().optional(),
+  included: z.boolean().optional(),
+  resolveWarnings: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
 
 export const searchQuerySchema = z.object({

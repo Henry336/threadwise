@@ -190,6 +190,23 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-28 (Codex):** Implemented the guarded Phase 1 Today foundation on
+  `codex/phase1-today-foundation`: additive planned dates independent of deadlines, durable
+  all-or-nothing task drafts with Add more/expiry/ambiguity handling across Personal, Group, and
+  Study, derived daily agendas, disabled-by-default brief preferences, and an idempotent delivery
+  ledger. New draft tasks do not create implicit reminders. Owner-only dashboard contracts fail
+  closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`; Telegram/dashboard presentation and actual
+  brief delivery remain future phases. Prisma, typecheck, build, 932 tests (6 skipped), 148 security
+  tests, secret scan, and diff checks pass. No migration or deployment was run.
+
+- **2026-08-28 (Codex, documentation only):** Recorded the accepted, unimplemented Today-planning
+  direction in `PROJECT_CONTEXT.md` and `docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md`. The
+  specification separates planned days, deadlines, reminders, notes, and timetable blocks; defines
+  derived carryover, bounded morning/evening digests, progressive `Save / Add more / Edit` task-draft
+  capture, cross-mode privacy, Study deadline preservation, and private exact Note sessions; and
+  preserves the complete proposed Telegram acceptance dialogue. No runtime, schema, database,
+  dashboard, deployment, or production state changed.
+
 - **2026-08-25 (Codex):** Implemented Phase 1 reliability safeguards on
   `codex/phase1-reliability-foundation`. Canvas sync now retains term identity, rejects clearly
   out-of-semester courses, and quarantines implausible/missing Canvas deadlines instead of

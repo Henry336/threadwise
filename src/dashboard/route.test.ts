@@ -53,7 +53,11 @@ describe("dashboard API routes", () => {
       directNudgesEnabled: false,
       calendarAutoSync: false,
       excelAutoSync: false,
-      overviewQuotes: []
+      overviewQuotes: [],
+      morningBriefEnabled: false,
+      morningBriefTime: "08:00",
+      eveningDebriefEnabled: false,
+      eveningDebriefTime: "21:00"
     },
     activity: [],
     integrations: []
@@ -116,6 +120,58 @@ describe("dashboard API routes", () => {
     expect(response.headers["www-authenticate"]).toContain("invalid_token");
     expect(loadSnapshot).not.toHaveBeenCalled();
     await server.close();
+  });
+
+  it("keeps the Phase 1 Today API hidden from every non-owner principal", async () => {
+    const server = Fastify();
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      todayFoundationOwnerTelegramId: "999999999",
+    });
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard/today",
+      headers: { authorization: `Bearer ${await validToken()}` },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "not_found" });
+    await server.close();
+  });
+
+  it("gates planned-day task mutations until the owner foundation is enabled", async () => {
+    const createTask = vi.fn(async () => ({ id: "task-1" }));
+    const blockedServer = Fastify();
+    registerDashboardRoute(blockedServer, {
+      publicKey: publicKeyPem,
+      todayFoundationOwnerTelegramId: "999999999",
+      actions: { createTask: createTask as never },
+    });
+    const request = {
+      method: "POST" as const,
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: { title: "Plan me", plannedFor: "2026-08-31" },
+    };
+    const blocked = await blockedServer.inject(request);
+    expect(blocked.statusCode).toBe(404);
+    expect(createTask).not.toHaveBeenCalled();
+    await blockedServer.close();
+
+    const ownerServer = Fastify();
+    registerDashboardRoute(ownerServer, {
+      publicKey: publicKeyPem,
+      todayFoundationOwnerTelegramId: "123456789",
+      actions: { createTask: createTask as never },
+    });
+    const accepted = await ownerServer.inject({
+      ...request,
+      headers: { authorization: `Bearer ${await validToken()}` },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(createTask).toHaveBeenCalledWith("123456789", { title: "Plan me", plannedFor: "2026-08-31" });
+    await ownerServer.close();
   });
 
   it("fails closed when the dashboard public key is not configured", async () => {

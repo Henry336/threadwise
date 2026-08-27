@@ -123,6 +123,7 @@ export const studyItemCreateSchema = z.object({
   notes: optionalText(8_000),
   priority: z.nativeEnum(StudyPriority).optional(),
   dueAt: isoDate.optional(),
+  plannedFor: dateOnly.nullable().optional(),
   plannedMinutes: z.number().int().min(1).max(1_440).optional(),
   weekNumber: z.number().int().min(1).max(80).optional(),
 }).strict();
@@ -135,6 +136,7 @@ export const studyItemUpdateSchema = z.object({
   status: z.nativeEnum(StudyItemStatus).optional(),
   priority: z.nativeEnum(StudyPriority).optional(),
   dueAt: isoDate.nullable().optional(),
+  plannedFor: dateOnly.nullable().optional(),
   plannedMinutes: z.number().int().min(1).max(1_440).nullable().optional(),
   mastery: z.nativeEnum(StudyTrafficLight).optional(),
   masteryReason: nullableText(1_000),
@@ -532,10 +534,11 @@ export async function updateDashboardStudyModule(workspace: StudyWorkspace, modu
 }
 
 export async function createDashboardStudyItem(workspace: StudyWorkspace, input: z.infer<typeof studyItemCreateSchema>) {
-  const { dueAt, ...values } = input;
+  const { dueAt, plannedFor, ...values } = input;
   return createStudyItem(workspace, {
     ...values,
     ...(dueAt ? { dueAt: new Date(dueAt) } : {}),
+    ...(plannedFor ? { plannedFor: new Date(`${plannedFor}T00:00:00.000Z`), firstPlannedFor: new Date(`${plannedFor}T00:00:00.000Z`) } : {}),
   });
 }
 
@@ -544,6 +547,11 @@ export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
   const now = new Date();
   const dueAt = input.dueAt === undefined ? undefined : input.dueAt === null ? null : new Date(input.dueAt);
+  const plannedFor = input.plannedFor === undefined
+    ? undefined
+    : input.plannedFor === null
+      ? null
+      : new Date(`${input.plannedFor}T00:00:00.000Z`);
   const data: Prisma.StudyItemUncheckedUpdateInput = {
     ...(input.moduleId ? { moduleId: input.moduleId } : {}),
     ...(input.type ? { type: input.type } : {}),
@@ -551,6 +559,10 @@ export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId
     ...(input.notes !== undefined ? { notes: input.notes || null } : {}),
     ...(input.priority ? { priority: input.priority } : {}),
     ...(input.dueAt !== undefined ? { dueAt, dueAtOverridden: Boolean(current.canvasAssignment) } : {}),
+    ...(input.plannedFor !== undefined ? {
+      plannedFor,
+      ...(!current.firstPlannedFor && plannedFor ? { firstPlannedFor: plannedFor } : {}),
+    } : {}),
     ...(input.plannedMinutes !== undefined ? { plannedMinutes: input.plannedMinutes } : {}),
     ...(input.mastery ? { mastery: input.mastery } : {}),
     ...(input.masteryReason !== undefined ? { masteryReason: input.masteryReason || null } : {}),
