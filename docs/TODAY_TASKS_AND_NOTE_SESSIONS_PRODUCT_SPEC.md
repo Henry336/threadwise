@@ -576,7 +576,7 @@ Expected: no task, reminder, or partial batch is created.
 - Straightforward capture, planning, briefing, and reminder behaviour remains deterministic and fully
   usable without a paid AI provider.
 
-## Decisions finalized for Phase 1
+## Decisions finalized across Phases 1–3
 
 - Morning and evening preferences default disabled; stored defaults are 08:00 and 21:00 local time.
   A later client must obtain explicit consent before enabling either delivery.

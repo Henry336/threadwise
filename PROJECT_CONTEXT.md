@@ -84,9 +84,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   and in the complete single-worker suite. Dashboard typecheck/lint, 139 tests, isolated optimized
   build, 152-file secret scan, and browser smoke (5 passed, 1 intentional mobile skip) pass. The local
   21st CLI remained unavailable; the tracked design context and branded picker were used directly.
-- Exact next action after push: keep the owner gate unset in production. Review and merge both Phase 3
-  branches together; they contain the stacked Phase 1–3 work. Only then, under separate authorization,
-  apply the pending additive migrations, configure the owner gate, and deploy the paired services.
+- Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
+  commit `e1b0150` are the paired guarded review boundary on
+  `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.
+- Exact next action after publication: keep the owner gate unset in production. Review and merge both
+  Phase 3 branches together. Only then, under separate authorization, apply the pending additive
+  migrations, configure the owner gate, and deploy the paired services.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 
