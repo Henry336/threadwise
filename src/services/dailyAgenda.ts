@@ -181,6 +181,43 @@ export async function finishDailyBriefDelivery(
   });
 }
 
+export async function countDailyAgendaCompletions(
+  principalTelegramId: string,
+  timezone: string,
+  localDate: string,
+  database: PrismaClient = prisma,
+): Promise<number> {
+  const user = await database.user.findUnique({ where: { telegramId: principalTelegramId }, select: { id: true } });
+  if (!user) return 0;
+  const day = DateTime.fromISO(localDate, { zone: timezone }).startOf("day");
+  if (!day.isValid) throw new DailyAgendaError("Choose a valid local date.", "invalid");
+  const completedAt = { gte: day.toUTC().toJSDate(), lt: day.plus({ days: 1 }).toUTC().toJSDate() };
+  const memberships = await database.groupMembership.findMany({
+    where: { telegramId: principalTelegramId, status: GroupMemberStatus.ACTIVE, workspace: { isActive: true } },
+    select: { workspace: { select: { ownerUserId: true } } },
+  });
+  const groupOwners = memberships.map((membership) => membership.workspace.ownerUserId);
+  const studyWorkspace = await database.studyWorkspace.findFirst({
+    where: { ownerTelegramId: principalTelegramId, active: true },
+    select: { id: true },
+  });
+  const [personal, assigned, study] = await Promise.all([
+    database.task.count({ where: { userId: user.id, completedAt } }),
+    groupOwners.length ? database.task.count({
+      where: {
+        userId: { in: groupOwners },
+        completedAt,
+        OR: [
+          { assignedTelegramId: principalTelegramId },
+          { assignees: { some: { telegramId: principalTelegramId } } },
+        ],
+      },
+    }) : Promise.resolve(0),
+    studyWorkspace ? database.studyItem.count({ where: { workspaceId: studyWorkspace.id, completedAt } }) : Promise.resolve(0),
+  ]);
+  return personal + assigned + study;
+}
+
 async function personalAgenda(
   principalTelegramId: string,
   userId: string,

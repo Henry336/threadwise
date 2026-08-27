@@ -190,6 +190,15 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-08-28 (Codex):** Implemented Phase 3 Today delivery and private Note refinements on guarded
+  branch `codex/phase3-today-delivery-notes`. Owner-gated morning/evening loops now send bounded,
+  idempotent, quiet-hours-aware private digests spanning Personal, assigned Group, and Study work;
+  empty digests skip silently. Carryover uses a two-step audited decision, expired drafts replace
+  their original card, and private Note sessions use one persistent paragraph counter with one-hour
+  auto-save. Added one additive status-message migration and corrected server forwarding of the Today
+  owner gate. Prisma/typecheck/build, 940 tests (6 skipped), and secret scan pass. No migration,
+  merge, deployment, or production enablement occurred.
+
 - **2026-08-28 (Codex):** Implemented Phase 2 Today interactions on guarded branch
   `codex/phase2-today-interactions`, stacked on the pushed Phase 1 foundation. Telegram now supports
   owner-gated cross-mode batch review, Add more, focused edits, atomic save, `/today`, and audited

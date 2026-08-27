@@ -1,6 +1,6 @@
 # Today planning, carryover, briefings, and Note sessions
 
-Status: accepted product direction; **Phase 2 interaction layer implemented on guarded branches**.
+Status: accepted product direction; **Phase 3 delivery and Note refinements implemented on guarded branches**.
 
 Recorded: 28 August 2026 SGT.
 
@@ -9,8 +9,9 @@ working memory across Individual, Group, and Study. Phase 1 now supplies additiv
 durable cross-mode drafts, agenda composition, brief preferences/delivery idempotency, and owner-gated
 API contracts. Phase 2 adds owner-gated Telegram batch review, focused corrections, atomic saving,
 `/today`, carryover re-planning, exact draft links, and one responsive dashboard Today planner shared
-by Individual, Group, and Study. Scheduled delivery, proactive expired-card replacement, richer
-carryover prompts, and Note-session refinements remain Phase 3 targets; nothing here implies
+by Individual, Group, and Study. Phase 3 adds opt-in private scheduled delivery, proactive expired-card
+replacement, two-step carryover prompts, dashboard briefing consent, and a persistent one-hour private
+Note session. Shared group digests and optional cleanup copies remain future work; nothing here implies
 production migration, deployment, or enablement.
 
 ## Product promise
@@ -433,7 +434,7 @@ Send as many text messages as you need.
 Each message becomes one paragraph.
 
 I will stay quiet while you write.
-The note auto-saves after 30 minutes of inactivity.
+The note auto-saves after 1 hour of inactivity.
 
 [Save & finish] [Cancel session]
 ```
@@ -580,9 +581,14 @@ Expected: no task, reminder, or partial batch is created.
 - Morning and evening preferences default disabled; stored defaults are 08:00 and 21:00 local time.
   A later client must obtain explicit consent before enabling either delivery.
 - Batch-draft inactivity duration is 10 minutes, refreshed by explicit Add more/review/edit activity.
+- Private Note-session inactivity is one hour. A single persistent status card shows its paragraph
+  count and becomes the final Save, Cancel, or auto-save state.
+- Carryover appears immediately. A two-step decision is always available, and work carried for three
+  days receives stronger re-planning copy without more frequent notifications.
 
 ## Decisions still open for later phases
 
-- Carryover decision threshold. Recommended: display immediately, then request an explicit re-plan
-  after three carried days rather than increasing notification frequency.
-- Whether Note-session inactivity remains fixed at 30 minutes or offers a 30/60-minute setting.
+- Whether shared Group digests should receive their own explicit workspace opt-in after private briefs
+  have been tested with real users.
+- Whether Note cleanup is valuable enough to justify a previewed derived-copy flow. Exact source text
+  must remain untouched either way.

@@ -20,6 +20,8 @@ import { startImageUploadBatchLoop } from "./services/imageUploadBatches";
 import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
 import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bot/commandMenus";
+import { startDailyBriefLoop } from "./bot/dailyBriefs";
+import { startTaskDraftExpiryLoop } from "./bot/todayExpiry";
 
 async function main() {
   const ai = createAiProvider();
@@ -35,6 +37,8 @@ async function main() {
   const beaconCleanupLoop = beaconBot ? startBeaconCleanupLoop() : undefined;
   const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
   const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);
+  const dailyBriefLoop = startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
+  const taskDraftExpiryLoop = startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
   const codexDeliveryLoop = startCodexDeliveryLoop(bot);
   const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
   const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
@@ -50,6 +54,8 @@ async function main() {
     logger.info("Shutting down Threadwise.", { signal });
     clearInterval(reminderLoop);
     clearInterval(noteCaptureLoop);
+    if (dailyBriefLoop) clearInterval(dailyBriefLoop);
+    if (taskDraftExpiryLoop) clearInterval(taskDraftExpiryLoop);
     if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
     if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
     if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);

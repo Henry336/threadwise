@@ -171,6 +171,44 @@ export async function rememberTaskCaptureDraftTelegramReview(
   });
 }
 
+export type ExpiredTaskCaptureDraftCard = {
+  id: string;
+  telegramChatId: string;
+  telegramReviewMessageId: number;
+};
+
+export async function expireTaskCaptureDrafts(
+  principalTelegramId: string,
+  now: Date = new Date(),
+  database: PrismaClient = prisma,
+): Promise<ExpiredTaskCaptureDraftCard[]> {
+  const candidates = await database.taskCaptureDraft.findMany({
+    where: {
+      principalTelegramId,
+      status: { in: [...activeStatuses] },
+      expiresAt: { lte: now },
+    },
+    select: { id: true, telegramChatId: true, telegramReviewMessageId: true },
+    orderBy: { expiresAt: "asc" },
+    take: 50,
+  });
+  const expired: ExpiredTaskCaptureDraftCard[] = [];
+  for (const candidate of candidates) {
+    const claimed = await database.taskCaptureDraft.updateMany({
+      where: { id: candidate.id, status: { in: [...activeStatuses] }, expiresAt: { lte: now } },
+      data: { status: TaskCaptureDraftStatus.EXPIRED },
+    });
+    if (claimed.count && candidate.telegramChatId && candidate.telegramReviewMessageId) {
+      expired.push({
+        id: candidate.id,
+        telegramChatId: candidate.telegramChatId,
+        telegramReviewMessageId: candidate.telegramReviewMessageId,
+      });
+    }
+  }
+  return expired;
+}
+
 export async function appendTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,

@@ -124,7 +124,8 @@ export async function startServer(
   registerDashboardRoute(server, {
     publicKey: options.dashboardPublicKey,
     telegramBotToken: options.telegramBotToken,
-    ai
+    ai,
+    todayFoundationOwnerTelegramId: env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID,
   });
 
   server.get("/admin/ai/status", async (request, reply) => {

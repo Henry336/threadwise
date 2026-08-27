@@ -1,6 +1,6 @@
 import { PlanningScope } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
-import { groupAgendaEntries, planDailyAgendaEntry, type AgendaEntry } from "./dailyAgenda";
+import { countDailyAgendaCompletions, groupAgendaEntries, planDailyAgendaEntry, type AgendaEntry } from "./dailyAgenda";
 
 const entry = (overrides: Partial<AgendaEntry> & Pick<AgendaEntry, "id" | "title">): AgendaEntry => ({
   publicId: `TASK-${overrides.id}`,
@@ -10,6 +10,26 @@ const entry = (overrides: Partial<AgendaEntry> & Pick<AgendaEntry, "id" | "title
 });
 
 describe("daily agenda grouping", () => {
+  it("counts completed Personal, assigned Group, and Study work in the user's local day", async () => {
+    const taskCount = vi.fn()
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1);
+    const studyCount = vi.fn(async () => 3);
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ id: "user-1" })) },
+      groupMembership: { findMany: vi.fn(async () => [{ workspace: { ownerUserId: "group-owner" } }]) },
+      studyWorkspace: { findFirst: vi.fn(async () => ({ id: "study-1" })) },
+      task: { count: taskCount },
+      studyItem: { count: studyCount },
+    } as never;
+    await expect(countDailyAgendaCompletions("123", "Asia/Singapore", "2026-08-31", database)).resolves.toBe(6);
+    expect(taskCount).toHaveBeenNthCalledWith(1, { where: { userId: "user-1", completedAt: {
+      gte: new Date("2026-08-30T16:00:00.000Z"),
+      lt: new Date("2026-08-31T16:00:00.000Z"),
+    } } });
+    expect(studyCount).toHaveBeenCalledWith({ where: expect.objectContaining({ workspaceId: "study-1" }) });
+  });
+
   it("derives Today and carryover without duplicating or moving tasks", () => {
     const agenda = groupAgendaEntries([
       entry({ id: "1", title: "Today", plannedFor: "2026-08-31" }),

@@ -5,7 +5,7 @@ import { logger } from "../logger";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo } from "./undo";
 
-export const NOTE_CAPTURE_IDLE_MS = 30 * 60_000;
+export const NOTE_CAPTURE_IDLE_MS = 60 * 60_000;
 export const NOTE_CAPTURE_POLL_MS = 60_000;
 
 type SessionWithSegments = Prisma.NoteCaptureSessionGetPayload<{
@@ -14,12 +14,19 @@ type SessionWithSegments = Prisma.NoteCaptureSessionGetPayload<{
 
 export type FinalizedNoteCapture = {
   chatId: string;
+  statusMessageId?: number;
   paragraphCount: number;
   note?: {
     id: string;
     publicId: string;
     title: string;
   };
+};
+
+export type CanceledNoteCapture = {
+  chatId?: string;
+  statusMessageId?: number;
+  paragraphCount: number;
 };
 
 export async function startNoteCaptureSession(userId: string, telegramChatId: string) {
@@ -51,6 +58,17 @@ export async function noteCaptureSessionForTelegramUser(telegramId: string) {
   return prisma.noteCaptureSession.findFirst({
     where: { user: { telegramId } },
     include: { _count: { select: { segments: true } } }
+  });
+}
+
+export async function rememberNoteCaptureStatusMessage(
+  userId: string,
+  telegramStatusMessageId: number,
+) {
+  return prisma.noteCaptureSession.update({
+    where: { userId },
+    data: { telegramStatusMessageId },
+    include: { _count: { select: { segments: true } } },
   });
 }
 
@@ -86,14 +104,18 @@ export async function appendNoteCaptureParagraph(
   }
 }
 
-export async function cancelNoteCaptureSession(userId: string): Promise<number> {
+export async function cancelNoteCaptureSession(userId: string): Promise<CanceledNoteCapture> {
   const session = await prisma.noteCaptureSession.findUnique({
     where: { userId },
     include: { _count: { select: { segments: true } } }
   });
-  if (!session) return 0;
+  if (!session) return { paragraphCount: 0 };
   await prisma.noteCaptureSession.delete({ where: { id: session.id } });
-  return session._count.segments;
+  return {
+    chatId: session.telegramChatId,
+    ...(session.telegramStatusMessageId ? { statusMessageId: session.telegramStatusMessageId } : {}),
+    paragraphCount: session._count.segments,
+  };
 }
 
 export async function finalizeNoteCaptureSession(userId: string): Promise<FinalizedNoteCapture | undefined> {
@@ -183,6 +205,7 @@ async function finalizeLoadedSession(session: SessionWithSegments): Promise<Fina
 
   return {
     chatId: session.telegramChatId,
+    ...(session.telegramStatusMessageId ? { statusMessageId: session.telegramStatusMessageId } : {}),
     paragraphCount,
     note: note ? { id: note.id, publicId: note.publicId, title: note.title } : undefined
   };
@@ -192,24 +215,19 @@ async function autoSaveExpiredSessions(bot: Bot): Promise<void> {
   try {
     const results = await finalizeExpiredNoteCaptureSessions();
     for (const result of results) {
-      const message = await bot.api.sendMessage(
-        result.chatId,
-        result.note
-          ? `Auto-saved · ${result.paragraphCount} ${result.paragraphCount === 1 ? "paragraph" : "paragraphs"}`
-          : "Empty note session closed.",
-        {
-          reply_markup: {
-            keyboard: [[{ text: "☰ Menu" }, { text: "🌐 Dashboard" }]],
-            resize_keyboard: true,
-            is_persistent: true,
-            input_field_placeholder: "Tell Threadwise what you need…"
-          }
-        }
-      );
-      const removal = setTimeout(() => {
-        void bot.api.deleteMessage(result.chatId, message.message_id).catch(() => undefined);
-      }, 3_500);
-      removal.unref?.();
+      const text = result.note
+        ? `Auto-saved · ${result.paragraphCount} ${result.paragraphCount === 1 ? "paragraph" : "paragraphs"}\n\nStored exactly as written.`
+        : "Empty note session closed.";
+      const replyMarkup = result.note
+        ? { inline_keyboard: [[{ text: "Open note", callback_data: `item:note:open:${result.note.id}:1` }]] }
+        : undefined;
+      if (result.statusMessageId) {
+        try {
+          await bot.api.editMessageText(result.chatId, result.statusMessageId, text, { reply_markup: replyMarkup });
+          continue;
+        } catch { /* The original status card may no longer be editable. */ }
+      }
+      await bot.api.sendMessage(result.chatId, text, { reply_markup: replyMarkup });
     }
   } catch (error) {
     logger.error("Could not auto-save expired note capture sessions.", { error: String(error) });

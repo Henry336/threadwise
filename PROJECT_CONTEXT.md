@@ -9,6 +9,11 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
+- Phase 3 authorization/status: the owner explicitly authorized implementation and push on
+  2026-08-28 SGT. The paired implementation is complete and locally validated on guarded branches
+  named `codex/phase3-today-delivery-notes`, stacked on the pushed Phase 2 tips. Shared group digests,
+  AI rewriting, production migration, merge, deployment, and production enablement remain outside
+  this authorization.
 - Authorization/status: the owner explicitly authorized Phase 2 implementation and push on
   2026-08-28 SGT. The paired interaction layer is implemented and locally validated on guarded
   backend/dashboard branches named `codex/phase2-today-interactions`, stacked on the pushed Phase 1
@@ -31,9 +36,11 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   Study adds intended work days without overwriting Canvas/local deadlines and plans existing matching
   work instead of duplicating it.
 - Note-session decision: refine the already durable private Note session rather than introduce a new
-  mode. Keep passive exact-paragraph capture, explicit Save/Cancel, inactivity auto-save, and no
-  generic `/stop` dependency. Optional cleanup must preview or derive a copy, never silently replace
-  the source; a group-wide passive capture is out of scope because it could absorb unrelated messages.
+  mode. Keep passive exact-paragraph capture, explicit Save/Cancel, one-hour inactivity auto-save, and
+  no generic `/stop` dependency. One persistent Telegram status card now shows the paragraph count and
+  becomes the final saved/canceled state. Optional cleanup must preview or derive a copy, never silently
+  replace the source; a group-wide passive capture remains out of scope because it could absorb
+  unrelated messages.
 - Complete behavioural acceptance transcript and implementation invariants:
   [`docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md`](docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md).
 - Phase 1 implementation: additive `plannedFor`/`firstPlannedFor` calendar dates now exist on normal
@@ -42,8 +49,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   Personal, Group, and Study. New draft tasks create no implicit reminder. Existing task deadlines,
   reminders, Canvas deadlines, and Note-session persistence remain untouched.
 - Agenda/briefing foundation: deterministic Today, Carryover, due-soon, overdue, and unscheduled
-  composition is available for all three scopes. Brief/debrief preferences default off, and an
-  idempotent delivery ledger prevents duplicate daily sends when delivery is implemented later.
+  composition is available for all three scopes. Brief/debrief preferences default off, and the
+  idempotent delivery ledger now backs the Phase 3 private delivery loop.
 - Phase 2 Telegram layer: the owner-gated bot now provides deterministic batch capture and a durable
   review card with `Save N`, `Add more`, and `Edit details`; supports focused natural-language edits,
   Study module resolution, atomic save, `/today` agenda viewing, and one-tap carryover re-planning.
@@ -54,9 +61,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   draft links open the corresponding dashboard review state. Existing users retain prior Today
   fallback behaviour when the gated feature is unavailable.
 - Exposure boundary: authenticated `/api/v1/dashboard/today` and `/task-drafts` contracts and the new
-  Telegram interactions remain fail-closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`. Phase 3 still
-  owns scheduled morning/evening delivery, proactive expired-card replacement, richer carryover
-  prompts, and Note-session refinements. No background scheduler was enabled in Phase 2.
+  Telegram interactions remain fail-closed behind `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`. Phase 3 adds
+  opt-in private morning/evening delivery across Personal, assigned Group, and Study work; bounded
+  quiet-hours-aware digests; completion counts; two-step Carryover re-planning with a stronger prompt
+  after three days; proactive expired-card replacement; and the persistent one-hour Note session.
+  Personal Reminder settings are the sole briefing-consent surface. The server now forwards the owner
+  gate into dashboard routes, correcting the missing Phase 2 runtime wiring.
 - Phase 1 validation: Prisma format/generate/validate, TypeScript typecheck, production build,
   932 tests passed with 6 intentional skips, 148 focused security tests passed, tracked-secret scan
   passed, and `git diff --check` passed. Exact commit/push identifiers are recorded after publication.
@@ -68,9 +78,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   five browser checks with one intentional mobile skip, and dependency installation with zero reported
   vulnerabilities pass. The local 21st CLI was unavailable, so the UI was grounded in the tracked
   `.21st` design system and existing Threadwise components rather than external catalogue output.
-- Exact next action after push: keep the owner gate unset in production. Review and merge both guarded
-  branches together before applying the Phase 1 migration or enabling the gate. Do not infer permission
-  to migrate, deploy, or start Phase 3 from the branch publication.
+- Phase 3 validation: Prisma format/generate/validate, backend typecheck/build, 940 tests with 6
+  intentional skips, focused delivery/expiry/Note regressions, and a 416-file tracked-secret scan pass.
+  One known parallel Windows temp-directory test timed out after 939 passes, then passed independently
+  and in the complete single-worker suite. Dashboard typecheck/lint, 139 tests, isolated optimized
+  build, 152-file secret scan, and browser smoke (5 passed, 1 intentional mobile skip) pass. The local
+  21st CLI remained unavailable; the tracked design context and branded picker were used directly.
+- Exact next action after push: keep the owner gate unset in production. Review and merge both Phase 3
+  branches together; they contain the stacked Phase 1–3 work. Only then, under separate authorization,
+  apply the pending additive migrations, configure the owner gate, and deploy the paired services.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 

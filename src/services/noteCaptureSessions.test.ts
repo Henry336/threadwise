@@ -43,12 +43,28 @@ vi.mock("./publicIds", () => ({ nextPublicId: mocks.nextPublicId }));
 vi.mock("./undo", () => ({ recordCreateUndo: mocks.recordCreateUndo }));
 
 import {
+  NOTE_CAPTURE_IDLE_MS,
   appendNoteCaptureParagraph,
   deriveCapturedNoteTitle,
   finalizeNoteCaptureSession,
+  rememberNoteCaptureStatusMessage,
 } from "./noteCaptureSessions";
 
 describe("durable note capture sessions", () => {
+  it("uses a one-hour inactivity window", () => {
+    expect(NOTE_CAPTURE_IDLE_MS).toBe(60 * 60_000);
+  });
+
+  it("remembers one persistent Telegram status card", async () => {
+    mocks.sessionUpdate.mockResolvedValue({ id: "session-1", telegramStatusMessageId: 88, _count: { segments: 0 } });
+    await rememberNoteCaptureStatusMessage("user-1", 88);
+    expect(mocks.sessionUpdate).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { telegramStatusMessageId: 88 },
+      include: { _count: { select: { segments: true } } },
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.transaction.mockImplementation(async (operation: unknown) => {

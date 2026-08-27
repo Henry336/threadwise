@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   commitTaskCaptureDraft,
   createTaskCaptureDraft,
+  expireTaskCaptureDrafts,
   getTaskCaptureDraft,
 } from "./taskCaptureDrafts";
 
@@ -14,6 +15,20 @@ const scope = {
 };
 
 describe("task capture drafts", () => {
+  it("claims expired owner drafts once before their Telegram cards are replaced", async () => {
+    const findMany = vi.fn(async () => [{ id: "draft-expired", telegramChatId: "123", telegramReviewMessageId: 77 }]);
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const expired = await expireTaskCaptureDrafts("123456789", new Date("2026-08-31T02:00:00.000Z"), {
+      taskCaptureDraft: { findMany, updateMany },
+    } as never);
+    expect(expired).toEqual([{ id: "draft-expired", telegramChatId: "123", telegramReviewMessageId: 77 }]);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      principalTelegramId: "123456789",
+      status: { in: [TaskCaptureDraftStatus.COLLECTING, TaskCaptureDraftStatus.REVIEWING] },
+    }) }));
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: TaskCaptureDraftStatus.EXPIRED } }));
+  });
+
   it("persists a multi-task review as one durable owner-scoped draft", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "draft-1", ...data, items: [] }));

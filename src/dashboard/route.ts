@@ -1014,6 +1014,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       || input.eveningDebriefEnabled !== undefined
       || input.eveningDebriefTime !== undefined
     ) {
+      assertPersonalWorkspace(scope);
       assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     }
     return { settings: await actions.updateSettings(telegramId, input) };

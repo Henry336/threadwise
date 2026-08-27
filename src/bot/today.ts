@@ -76,6 +76,47 @@ export function registerTodayInteractions(bot: Bot): void {
     await handleToday(ctx);
   });
 
+  bot.callbackQuery(/^td:carry-prompt:([0-9a-f-]+)$/i, async (ctx) => {
+    if (!todayOwner(ctx)) return ctx.answerCallbackQuery({ text: "This plan is private.", show_alert: true });
+    const scope = await resolveScope(ctx);
+    const agenda = await getDailyAgenda({
+      principalTelegramId: scope.capture.principalTelegramId,
+      scope: scope.capture.scope,
+      groupWorkspaceId: scope.capture.groupWorkspaceId,
+      studyWorkspaceId: scope.capture.studyWorkspaceId,
+    });
+    const entry = agenda.carryover.find((candidate) => candidate.id === ctx.match[1]);
+    if (!entry) return ctx.answerCallbackQuery({ text: "That task is no longer in Carryover.", show_alert: true });
+    await ctx.answerCallbackQuery().catch(() => undefined);
+    await editDraftMessage(ctx, formatCarryoverPrompt(entry, agenda), new InlineKeyboard()
+      .text("Do today", `td:carry:${entry.id}`).row()
+      .url("Choose another day", todayUrl(scope)));
+  });
+
+  bot.callbackQuery(/^td:private-carry-prompt:([0-9a-f-]+)$/i, async (ctx) => {
+    if (!todayOwner(ctx) || !ctx.from) return ctx.answerCallbackQuery({ text: "This plan is private.", show_alert: true });
+    const agenda = await getDailyAgenda({ principalTelegramId: String(ctx.from.id), scope: PlanningScope.PERSONAL });
+    const entry = agenda.carryover.find((candidate) => candidate.id === ctx.match[1]);
+    if (!entry) return ctx.answerCallbackQuery({ text: "That task is no longer in Carryover.", show_alert: true });
+    await ctx.answerCallbackQuery().catch(() => undefined);
+    await editDraftMessage(ctx, formatCarryoverPrompt(entry, agenda), new InlineKeyboard()
+      .text("Do today", `td:private-carry:${entry.id}`).row()
+      .url("Choose another day", dashboardViewUrl("today")));
+  });
+
+  bot.callbackQuery(/^td:private-carry:([0-9a-f-]+)$/i, async (ctx) => {
+    if (!todayOwner(ctx) || !ctx.from) return ctx.answerCallbackQuery({ text: "This plan is private.", show_alert: true });
+    const principalTelegramId = String(ctx.from.id);
+    const agenda = await getDailyAgenda({ principalTelegramId, scope: PlanningScope.PERSONAL });
+    const entry = await planDailyAgendaEntry(
+      { principalTelegramId, scope: PlanningScope.PERSONAL },
+      ctx.match[1] ?? "",
+      agenda.localDate,
+    );
+    await ctx.answerCallbackQuery({ text: "Moved to Today" });
+    await editDraftMessage(ctx, `${bold("Moved to Today")}\n${h(entry.title)}\n\nIts deadline and original plan remain unchanged.`, new InlineKeyboard().text("View Today", "td:today"));
+  });
+
   bot.callbackQuery(/^td:carry:([0-9a-f-]+)$/i, async (ctx) => {
     if (!todayOwner(ctx)) return ctx.answerCallbackQuery({ text: "This plan is private.", show_alert: true });
     const scope = await resolveScope(ctx);
@@ -127,14 +168,33 @@ async function handleToday(ctx: Context): Promise<void> {
       studyWorkspaceId: scope.capture.studyWorkspaceId,
     });
     const keyboard = new InlineKeyboard();
-    if (agenda.carryover[0]) keyboard.text("Do first carryover today", `td:carry:${agenda.carryover[0].id}`).row();
-    keyboard.url("Open Today", scope.dashboardWorkspace
-      ? groupDashboardUrl(scope.dashboardWorkspace.id, scope.dashboardWorkspace.study ? "study-overview" : "today")
-      : dashboardViewUrl("today"));
+    if (agenda.carryover[0]) keyboard.text("Plan carryover", `td:carry-prompt:${agenda.carryover[0].id}`).row();
+    keyboard.url("Open Today", todayUrl(scope));
     await replyHtml(ctx, formatAgenda(agenda), { reply_markup: keyboard });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't open Today right now."));
   }
+}
+
+function todayUrl(scope: BotTodayScope): string {
+  return scope.dashboardWorkspace
+    ? groupDashboardUrl(scope.dashboardWorkspace.id, scope.dashboardWorkspace.study ? "study-overview" : "today")
+    : dashboardViewUrl("today");
+}
+
+function formatCarryoverPrompt(entry: AgendaEntry, agenda: DailyAgenda): string {
+  const firstPlan = entry.firstPlannedFor ?? entry.plannedFor;
+  const carriedDays = firstPlan
+    ? Math.max(1, Math.floor(DateTime.fromISO(agenda.localDate).diff(DateTime.fromISO(firstPlan), "days").days))
+    : 1;
+  return [
+    bold(entry.title),
+    "",
+    `Originally planned ${h(firstPlan ? DateTime.fromISO(firstPlan).toFormat("cccc, d LLL") : "earlier")}`,
+    `Carried for ${carriedDays} day${carriedDays === 1 ? "" : "s"}.`,
+    "",
+    carriedDays >= 3 ? "Choose a fresh day so this does not quietly linger." : "Do you want to work on it today?",
+  ].join("\n");
 }
 
 async function beginDraft(ctx: Context, text: string, resolved?: BotTodayScope): Promise<void> {
