@@ -50,6 +50,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Phase 1 validation: Prisma format/generate/validate, TypeScript typecheck, production build,
   932 tests passed with 6 intentional skips, 148 focused security tests passed, tracked-secret scan
   passed, and `git diff --check` passed. Exact commit/push identifiers are recorded after publication.
+- Publication checkpoint: implementation commit `bb2dacd` is the guarded Phase 1 code/data-contract
+  boundary on `codex/phase1-today-foundation`. The branch is intended for remote review only; it has
+  not been merged, migrated, deployed, or enabled.
 - Exact next action after push: keep the feature flag unset in production. Begin the paired Telegram
   and dashboard interaction layer only after separate Phase 2 authorization; do not run the migration
   or deploy merely because this guarded branch exists.

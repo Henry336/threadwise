@@ -191,7 +191,8 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 ## Working log
 
 - **2026-08-28 (Codex):** Implemented the guarded Phase 1 Today foundation on
-  `codex/phase1-today-foundation`: additive planned dates independent of deadlines, durable
+  `codex/phase1-today-foundation` at implementation commit `bb2dacd`: additive planned dates
+  independent of deadlines, durable
   all-or-nothing task drafts with Add more/expiry/ambiguity handling across Personal, Group, and
   Study, derived daily agendas, disabled-by-default brief preferences, and an idempotent delivery
   ledger. New draft tasks do not create implicit reminders. Owner-only dashboard contracts fail
