@@ -36,3 +36,8 @@ Status: implemented and validated on paired guarded branches; not merged or depl
 
 Scheduled morning/evening deliveries, proactive expiry-card replacement, richer carryover prompting,
 and private Note-session refinements remain out of scope. They require separate authorization.
+
+Subsequent status (28 August 2026 SGT): those items were separately authorized and implemented on the
+paired guarded `codex/phase3-today-delivery-notes` branches. See
+[`PHASE3_TODAY_DELIVERY_NOTES_IMPLEMENTATION_REPORT.md`](PHASE3_TODAY_DELIVERY_NOTES_IMPLEMENTATION_REPORT.md).
+They remain unmerged and undeployed.

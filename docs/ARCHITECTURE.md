@@ -71,7 +71,23 @@ Telegram cannot attach a `web_app` inline button to a normal group message, so F
 
 Shared group control panels use Telegram Bot API receiver-bound ephemeral delivery (`src/bot/ephemeral.ts`). The group keeps one public anchor, but each member receives their own private menu surface. Callback data is still bound to the acting Telegram identity. Shared task, reminder, and scheduling cards remain public because they represent group state.
 
-Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSession` records the owner and expiry; each incoming message is appended immediately as an ordered `NoteCaptureSegment`. While active, ordinary classification pauses and the reply keyboard contains Save note and Cancel. Save joins exact segments with blank lines; the background sweep auto-saves non-empty inactive sessions after roughly 30 minutes and discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence, then safe character boundaries while leaving the stored note unchanged.
+Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSession` records the owner,
+expiry, and persistent Telegram status-message id; each incoming message is appended immediately as an
+ordered `NoteCaptureSegment`. While active, ordinary classification pauses and one edited status card
+shows the exact paragraph count with Save & finish and Cancel actions. Save joins exact segments with
+blank lines; the background sweep auto-saves non-empty sessions after one hour of inactivity and
+discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence,
+then safe character boundaries while leaving the stored note unchanged. This paragraph describes the
+guarded Phase 3 branch and is not yet the production runtime.
+
+Today planning reuses existing actionable records instead of introducing a second to-do model.
+`plannedFor` is an optional local calendar date independent of `dueAt` and reminder schedules;
+`firstPlannedFor` preserves the original plan for derived Carryover. Durable actor/workspace-scoped
+drafts hold parsed rows until one atomic approval. The agenda service composes Personal, assigned Group,
+and Study projections while retaining their authorization boundaries. Morning and evening delivery is
+private, independently opt-in, quiet-hours-aware, empty-state suppressing, and claimed through a
+per-user/local-date/kind delivery ledger. All new Telegram and dashboard paths remain fail-closed behind
+`TODAY_FOUNDATION_OWNER_TELEGRAM_ID` until the paired guarded stack is deliberately released.
 
 Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
 

@@ -703,3 +703,31 @@ This is the durable record of Threadwise's product decisions: the friction that 
 
 **Follow-up:** What still needs production observation or a later decision.
 ```
+
+### 2026-08-28 — Turn task capture into a calm daily planning loop
+
+**Friction discovered:** Tasks, deadlines, reminders, timetable blocks, and saved notes could blur
+together. Multi-item capture required too much repeated interaction, overdue work could linger without
+an explicit planning decision, and frequent reminders risked becoming noise across Individual, Group,
+and Study.
+
+**Decision:** Keep one actionable-record model and add an independent planned day. Treat Carryover as
+a derived view, not a copied task. Keep private daily summaries separate from reminders, opt-in, and
+quiet-hours-aware. Reuse the durable private Note session with one persistent status card rather than
+adding another global bot mode.
+
+**Implemented:** Phase 1 added planned dates, durable atomic drafts, agenda composition, and fail-closed
+contracts. Phase 2 added Telegram batch review, `/today`, focused Carryover planning, exact links, and
+one shared responsive dashboard planner. Phase 3 added private idempotent brief delivery, stronger
+three-day Carryover copy, proactive expired-card replacement, Personal briefing settings, and one-hour
+Note-session auto-save.
+
+**Outcome/evidence:** The guarded backend passed 940 tests with 6 intentional skips plus Prisma,
+typecheck, build, focused regressions, and secret scanning. The dashboard passed 139 tests, typecheck,
+lint, an optimized build, secret scanning, and browser smoke. The paired branches are pushed but not
+merged or deployed.
+
+**Follow-up:** Complete the newly required executable acceptance matrix covering timezone/DST edges,
+restart and replay behavior, invalid atomic batches, private-chat absence, Canvas deadline preservation,
+quiet/disabled delivery, authorization, deep links, accessibility, and responsive behavior before
+merge or rollout.

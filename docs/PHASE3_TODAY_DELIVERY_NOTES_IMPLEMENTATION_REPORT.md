@@ -6,6 +6,8 @@ Status: implemented and validated on paired guarded branches; not merged, migrat
 Publication boundary: backend commit `2ac4824` and dashboard commit `e1b0150` on paired branch
 `codex/phase3-today-delivery-notes`.
 
+Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_UPDATE.md).
+
 ## Delivered
 
 - One owner-gated scheduler composes the user's Personal, assigned Group, and Study work into a

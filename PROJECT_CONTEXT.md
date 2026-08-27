@@ -43,6 +43,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   unrelated messages.
 - Complete behavioural acceptance transcript and implementation invariants:
   [`docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md`](docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md).
+- Owner-facing morning update:
+  [`docs/PHASE1_3_TODAY_MORNING_UPDATE.md`](docs/PHASE1_3_TODAY_MORNING_UPDATE.md). Keep it short and
+  update it if implementation, validation, merge, migration, gate, or deployment status changes.
 - Phase 1 implementation: additive `plannedFor`/`firstPlannedFor` calendar dates now exist on normal
   tasks and Study work without changing `dueAt`; durable actor/workspace-scoped task drafts support
   split capture, Add more, focused edits, expiry, ambiguity warnings, and all-or-nothing commit across
@@ -95,6 +98,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   the normal three-button budget, exact deep links, accessibility, and responsive behaviour. Treat the
   current Phase 3 validation as implementation evidence, not completion of this newly added release
   gate. Canonical detail is in the product specification's `Executable acceptance strategy` section.
+- Documentation reconciliation (2026-08-28 SGT): added the owner-facing Phase 1–3 morning update and
+  synchronized the backend README, architecture, changelog, product journal, implementation report,
+  product specification, contributor handoff, and this ledger. The paired dashboard README, product
+  definition, architecture, changelog, contributor handoff, and tracked `.21st` decisions are also
+  aligned. Historical audit/runbook documents retain their original dates and scope rather than being
+  rewritten as current behavior.
 - Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
   commit `e1b0150` are the paired guarded review boundary on
   `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.

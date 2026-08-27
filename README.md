@@ -6,7 +6,7 @@ Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, 
 
 Current backend release: **v0.32.0**
 
-Documentation verified against the backend and dashboard repositories: **2026-08-10**
+Documentation verified against the guarded backend and dashboard branches: **2026-08-28**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -17,6 +17,12 @@ Portfolio case study: [CASE_STUDY.md](CASE_STUDY.md)
 Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE.md)
 
 Product decisions, observed friction, and implementation rationale: [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md)
+
+Latest guarded-work summary: [docs/PHASE1_3_TODAY_MORNING_UPDATE.md](docs/PHASE1_3_TODAY_MORNING_UPDATE.md)
+
+The Today-planning Phase 1–3 stack is implemented and pushed on guarded branches but is not yet
+merged, migrated, enabled, or deployed. The current production release remains the version shown
+above.
 
 Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)
 
@@ -58,13 +64,16 @@ small Telegram edit/reply or authenticated dashboard response
 - Develops an individual idea through the official local Gemini CLI with owner-only Telegram buttons for Develop, Challenge, Next steps, and Task plan. Gemini runs read-only on the laptop worker; suggested tasks are not saved automatically.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
 - Transcribes Telegram voice messages into normal Notes with an exact preserved raw transcript, conservative light cleanup or verbatim mode, restart-safe processing, paginated raw-text viewing, and Open/Edit/Undo/Keep verbatim controls. Supported audio files can be enabled separately.
-- Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph, Threadwise stays silent, and Save note combines them into one durable note. Inactive sessions auto-save after about 30 minutes; `/save_note` and `/cancel_note` are fallbacks for a hidden keyboard.
+- Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph while one persistent status card shows the count. Save & finish or Cancel ends the session, and inactivity auto-saves after one hour. This one-hour card behavior is part of the guarded Phase 3 stack and is not live yet.
 - Retrieves saved notes with `/note 1`, `/note NOTE-1`, or natural text like `show note 1`; `/notes` displays three readable previews per mobile page, while `/notes <query>` searches notes.
 - Paginates long note details inside one edited Telegram card instead of truncating the saved body or posting another message for every page.
 - Lists saved ideas three readable previews per page with `/ideas` and opens one with `/ideas <1 or IDEA-1>`.
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
+- On the guarded Today stack, captures several tasks into one durable draft, defaults ordinary work
+  to Today without inventing a deadline or reminder, supports `Add more` before atomic approval, and
+  composes private Today/Carryover/deadline views across Individual, assigned Group, and Study work.
 - Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. A Telegram album settles into one durable review card: save all images once or apply one shared caption to every image. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.
 - Searches saved images by caption, locally extracted OCR text, or filename with `/images <query>`, `/search images <query>`, and natural requests such as `find images captioned passport`.
 - Opens saved images with edit-caption and confirmed-delete controls. Deletion removes Threadwise's reusable file reference and search metadata, not the original Telegram message.

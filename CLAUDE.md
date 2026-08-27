@@ -6,6 +6,11 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-28 (Codex, guarded):** Reconciled the Phase 1–3 Today-planning documentation and added
+  `docs/PHASE1_3_TODAY_MORNING_UPDATE.md`. Canonical docs now distinguish implemented/tested guarded
+  behavior from production and record the expanded executable acceptance matrix as a pre-merge gate.
+  No runtime, migration, configuration, merge, or deployment changed in this documentation pass.
+
 - **2026-08-21 (Codex, deployed):** Added a bounded personal Overview quote library to
   `UserSettings` and the authenticated dashboard settings contract. Quote entries normalize
   whitespace, reject duplicates, allow 280 text/120 optional-author characters, cap at 40, and can

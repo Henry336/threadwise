@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Guarded Today planning, delivery, and Note sessions (Phases 1–3)
+- Added optional planned days without conflating them with deadlines or reminders, durable atomic task
+  drafts, derived Carryover, and cross-mode agenda composition for Individual, assigned Group, and
+  Study work.
+- Added Telegram batch review with `Save N`, `Add more`, and focused editing; `/today`; two-step
+  Carryover planning; exact dashboard draft links; and proactive inert replacement for expired cards.
+- Added one responsive dashboard Today planner across all three modes plus private opt-in morning and
+  evening briefing controls in Personal Reminder settings.
+- Added bounded, timezone/quiet-hours-aware, idempotent private delivery and one persistent Note-session
+  status card with exact paragraph counts and one-hour inactivity auto-save.
+- Passed the Phase 3 implementation gate (940 backend tests plus 6 intentional skips; 139 dashboard
+  tests; typecheck, lint/build, Prisma, secret scans, and browser smoke). A subsequently expanded
+  parser/service/surface acceptance matrix is now required before merge or rollout.
+- Kept the paired stack guarded and fail-closed. No merge, migration, environment enablement, or
+  production deployment is included in this entry.
+
 ### Threadwise-native Markdown Study notes
 - Upgraded Study notes without creating a second note store: `StudyResource.body` remains the canonical Markdown source shared by Telegram, dashboard search, sessions, and AI evidence.
 - Added bounded encrypted note revisions, optimistic edit-conflict protection, `[[wiki link]]` resolution, backlinks, and additive relational persistence. Code examples do not create accidental note links.
