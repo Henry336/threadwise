@@ -7,7 +7,9 @@ import { logger } from "../logger";
 
 const personalCommands: BotCommand[] = [
   { command: "menu", description: "Open Threadwise" },
-  { command: "task", description: "Save or open a task" },
+  { command: "today", description: "View today's plan" },
+  { command: "todo", description: "Add tasks to Today" },
+  { command: "task", description: "Open a saved task" },
   { command: "note", description: "Save a note" },
   { command: "idea", description: "Save an idea" },
   { command: "search", description: "Search your captures" },
@@ -18,8 +20,9 @@ const personalCommands: BotCommand[] = [
 
 const groupCommands: BotCommand[] = [
   { command: "menu", description: "Open group Threadwise" },
+  { command: "today", description: "View shared work for today" },
   { command: "tasks", description: "View shared tasks" },
-  { command: "todo", description: "Import a TODO list" },
+  { command: "todo", description: "Add shared tasks" },
   { command: "search", description: "Search shared captures" },
   { command: "dashboard", description: "Open the group dashboard" },
   { command: "help", description: "Get group help" },
@@ -27,6 +30,8 @@ const groupCommands: BotCommand[] = [
 
 const studyCommands: BotCommand[] = [
   { command: "study", description: "Open Study Mode" },
+  { command: "today", description: "View today's study plan" },
+  { command: "todo", description: "Add study tasks" },
   { command: "attention", description: "Show what needs attention" },
   { command: "upcoming", description: "Show upcoming work" },
   { command: "modules", description: "Open modules" },

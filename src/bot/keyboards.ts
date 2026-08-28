@@ -312,7 +312,7 @@ export function menuInputCancelKeyboard(backAction: string): InlineKeyboard {
 
 export function helpTopicsKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("⏰ Reminders", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
+    .text("✅ Today & tasks", "menu:reminders").text("📝 Notes", "menu:notes-help").row()
     .text("💡 Ideas", "menu:ideas-help").text("🖼️ Images", "menu:images-help").row()
     .text("🔎 Search", "menu:search").text("⚙️ Settings", "menu:settings").row()
     .text("🔐 Privacy", "menu:privacy").webApp("🌐 Dashboard", DASHBOARD_URL).row()

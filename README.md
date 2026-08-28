@@ -70,9 +70,11 @@ small Telegram edit/reply or authenticated dashboard response
 - Merges related notes with `/merge notes 1 2 3`, showing a preview first and allowing retries before confirmation.
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
-- On the owner-gated Today stack, captures several tasks into one durable draft, defaults ordinary work
-  to Today without inventing a deadline or reminder, supports `Add more` before atomic approval, and
-  composes private Today/Carryover/deadline views across Individual, assigned Group, and Study work.
+- On the owner-gated Today stack, `/today` visibly offers `＋ Add tasks`; the Telegram reply composer
+  accepts one task or comma/newline-separated tasks. `/todo Buy groceries, prepare tutorial` is the
+  direct equivalent. Both create one durable review draft, default ordinary work to Today without
+  inventing a deadline or reminder, support `Add more` before atomic approval, and compose private
+  Today/Carryover/deadline views across Individual, assigned Group, and Study work.
 - Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. A Telegram album settles into one durable review card: save all images once or apply one shared caption to every image. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.
 - Searches saved images by caption, locally extracted OCR text, or filename with `/images <query>`, `/search images <query>`, and natural requests such as `find images captioned passport`.
 - Opens saved images with edit-caption and confirmed-delete controls. Deletion removes Threadwise's reusable file reference and search metadata, not the original Telegram message.

@@ -445,6 +445,7 @@ describe("bot formatters", () => {
 
     expect(message).toContain("<b>Threadwise help</b>");
     expect(message).toContain("<b>Capture</b>");
+    expect(message).toContain("<code>/todo Buy groceries, prepare tutorial</code>");
     expect(message).toContain("<b>Coordinate</b>");
     expect(message).toContain("<b>Recall</b>");
     expect(message).toContain("things people can find, remember, and finish");

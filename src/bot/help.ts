@@ -23,6 +23,8 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/start", description: "Open the main menu and install private-chat shortcuts.", example: "/start" },
   { command: "/menu", description: "Bring a fresh control card to the bottom of the chat.", example: "/menu" },
   { command: "/add", description: "Add a task and keep it on your radar until done.", example: "/add pay invoice tomorrow at 9am" },
+  { command: "/today", description: "View Today, Carryover, and deadlines approaching.", example: "/today" },
+  { command: "/todo", description: "Add one or several tasks to Today, with review before saving.", example: "/todo buy groceries, prepare tutorial" },
   { command: "/remind", description: "Schedule a reminder for a specific time.", example: "/remind tomorrow at 9am | submit the form" },
   { command: "/tasks", description: "List open tasks with active numbers and buttons.", example: "/tasks" },
   { command: "/task", description: "Show one task's details and reminder status.", example: "/task 1" },
@@ -84,7 +86,7 @@ const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "reminders",
     title: "⏰ Reminders And Tasks",
-    description: "Create, move, finish, snooze, cancel, or repeat reminders daily, weekly, monthly, or yearly.",
+    description: "Add tasks to Today, then view, move, finish, snooze, cancel, or remind yourself about them.",
     natural: [
       "add pay invoice tomorrow at 9am",
       "remind me to check the washer after 5 mins",
@@ -109,7 +111,7 @@ const HELP_SECTIONS: HelpSection[] = [
       "add task 2 to my calendar",
       "cancel task 3"
     ],
-    commands: ["/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @alex and @sam", "/unassign 2 @alex", "/settings dm on", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar", "/cancel 1 2 3"]
+    commands: ["/todo buy groceries, prepare tutorial", "/today", "/add pay invoice tomorrow at 9am", "/remind 7pm every day | have dinner", "/remind every Friday at 7pm | take out the trash", "/assign 2 @alex and @sam", "/unassign 2 @alex", "/settings dm on", "/task 2", "/done 1 2 3", "/snooze 1 1h", "/reschedule 2 Friday", "/important 2", "/calendar", "/cancel 1 2 3"]
   },
   {
     topic: "notes",
@@ -381,7 +383,7 @@ export function formatHelpGuide(): string {
     "Threadwise turns Telegram messages into things people can find, remember, and finish.",
     "",
     bold("Capture"),
-    "Tasks, notes, ideas, and searchable images.",
+    `Tasks, notes, ideas, and searchable images. Add Today tasks with ${code("/todo Buy groceries, prepare tutorial")}.`,
     bold("Coordinate"),
     "Reminders, assignees, and shared group work.",
     bold("Recall"),

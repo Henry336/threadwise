@@ -1,7 +1,8 @@
 import { PlanningScope, TaskCaptureDraftItemStatus, TaskCaptureDraftStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import type { TaskCaptureDraftRecord } from "../services/taskCaptureDrafts";
-import { formatAgenda, formatCarryoverPrompt, formatDraftReview, formatSavedDraft, reviewKeyboard } from "./today";
+import type { Context } from "grammy";
+import { formatAgenda, formatCarryoverPrompt, formatDraftReview, formatSavedDraft, formatTodayCapturePrompt, isTodayCaptureReply, reviewKeyboard } from "./today";
 
 const draft = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -75,6 +76,17 @@ describe("Today Telegram acceptance dialogue", () => {
     expect(card).toContain("Today's To-Do List");
     expect(card).toContain("Carryover");
     expect(card).toContain("Deadline watch");
+    expect(card).toContain("＋ Add tasks");
+    expect(card).toContain("/todo Buy groceries, prepare tutorial");
     expect(formatCarryoverPrompt(agenda.carryover[0]!, agenda)).toContain("Choose a fresh day");
+  });
+
+  it("makes the Add tasks force-reply prompt self-explanatory", () => {
+    const prompt = formatTodayCapturePrompt();
+    expect(prompt).toContain("Add tasks to Today");
+    expect(prompt).toContain("commas or new lines");
+    expect(prompt).toContain("review the list before anything is saved");
+    expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Add tasks to Today" } } } as Context)).toBe(true);
+    expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Something else" } } } as Context)).toBe(false);
   });
 });

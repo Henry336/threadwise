@@ -32,14 +32,19 @@ describe("Telegram command discovery", () => {
 
     expect(setMyCommands).toHaveBeenCalledTimes(3);
     expect(setMyCommands).toHaveBeenNthCalledWith(1, expect.arrayContaining([
+      expect.objectContaining({ command: "today" }),
+      expect.objectContaining({ command: "todo", description: "Add tasks to Today" }),
       expect.objectContaining({ command: "task" }),
       expect.objectContaining({ command: "dashboard" }),
     ]), { scope: { type: "all_private_chats" } });
     expect(setMyCommands).toHaveBeenNthCalledWith(2, expect.arrayContaining([
+      expect.objectContaining({ command: "today" }),
       expect.objectContaining({ command: "todo" }),
       expect.objectContaining({ command: "tasks" }),
     ]), { scope: { type: "all_group_chats" } });
     expect(setMyCommands).toHaveBeenNthCalledWith(3, expect.arrayContaining([
+      expect.objectContaining({ command: "today" }),
+      expect.objectContaining({ command: "todo" }),
       expect.objectContaining({ command: "travel" }),
       expect.objectContaining({ command: "timetable" }),
     ]), { scope: { type: "chat", chat_id: "-5507412311" } });

@@ -76,6 +76,18 @@ export function registerTodayInteractions(bot: Bot): void {
     await handleToday(ctx);
   });
 
+  bot.callbackQuery("td:capture", async (ctx) => {
+    if (!todayOwner(ctx)) return ctx.answerCallbackQuery({ text: "This planner is private.", show_alert: true });
+    await ctx.answerCallbackQuery().catch(() => undefined);
+    await replyHtml(ctx, formatTodayCapturePrompt(), {
+      reply_markup: {
+        force_reply: true,
+        selective: true,
+        input_field_placeholder: "Buy groceries, prepare tutorial…",
+      },
+    });
+  });
+
   bot.callbackQuery(/^td:carry-prompt:([0-9a-f-]+)$/i, async (ctx) => {
     if (!todayOwner(ctx)) return ctx.answerCallbackQuery({ text: "This plan is private.", show_alert: true });
     const scope = await resolveScope(ctx);
@@ -144,6 +156,20 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
         await updateCollectingCard(ctx, draft);
         return;
       }
+      if (isTodayCaptureReply(ctx)) {
+        if (active) {
+          const moduleId = moduleForText(scope.modules, ctx.message.text)?.id;
+          const appended = await appendTaskCaptureDraft(active.id, scope.capture.principalTelegramId, ctx.message.text, {
+            moduleId,
+            studyItemType: scope.capture.scope === PlanningScope.STUDY ? StudyItemType.REVISION : undefined,
+          });
+          const draft = await reviewTaskCaptureDraft(appended.id, scope.capture.principalTelegramId);
+          await showDraftReview(ctx, draft, scope);
+          return;
+        }
+        await beginDraft(ctx, ctx.message.text, scope);
+        return;
+      }
       if (active?.status === "REVIEWING" && await applyNaturalDraftEdit(active, scope, ctx.message.text)) {
         const draft = await reviewTaskCaptureDraft(active.id, scope.capture.principalTelegramId);
         await showDraftReview(ctx, draft, scope);
@@ -169,7 +195,7 @@ async function handleToday(ctx: Context): Promise<void> {
     });
     const keyboard = new InlineKeyboard();
     if (agenda.carryover[0]) keyboard.text("Plan carryover", `td:carry-prompt:${agenda.carryover[0].id}`).row();
-    keyboard.url("Open Today", todayUrl(scope));
+    keyboard.text("＋ Add tasks", "td:capture").url("Open Today", todayUrl(scope));
     await replyHtml(ctx, formatAgenda(agenda), { reply_markup: keyboard });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't open Today right now."));
@@ -285,7 +311,24 @@ export function formatAgenda(agenda: DailyAgenda): string {
     ...(deadlineRows.length ? deadlineRows : ["Nothing due in the next 3 days."]),
     agenda.unscheduledCount ? `
 ${agenda.unscheduledCount} unscheduled task${agenda.unscheduledCount === 1 ? "" : "s"} remain in All Tasks.` : undefined,
+    `\nAdd tasks: tap ${bold("＋ Add tasks")} or send ${code("/todo Buy groceries, prepare tutorial")}.`,
   ].filter(Boolean).join("\n");
+}
+
+export function formatTodayCapturePrompt(): string {
+  return [
+    bold("Add tasks to Today"),
+    "Send one task, or separate several with commas or new lines.",
+    "",
+    `Example: ${code("Start CS2103T increments, prepare CS2102 tutorial, buy groceries")}`,
+    "",
+    "You will review the list before anything is saved.",
+  ].join("\n");
+}
+
+export function isTodayCaptureReply(ctx: Context): boolean {
+  const replied = ctx.message?.reply_to_message;
+  return Boolean(replied && "text" in replied && replied.text?.startsWith("Add tasks to Today"));
 }
 
 async function applyNaturalDraftEdit(draft: TaskCaptureDraftRecord, scope: BotTodayScope, text: string): Promise<boolean> {

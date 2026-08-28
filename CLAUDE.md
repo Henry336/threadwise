@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-28 (Codex):** Made Today task capture self-explanatory in Telegram. `/today` now pairs
+  `＋ Add tasks` with `Open Today`; the add action opens a force-reply composer that accepts one task or
+  comma/newline-separated batches and returns the existing atomic review card. `/today` and `/todo`
+  are discoverable in Personal, Group, and Study command menus, and Help calls the area `Today & tasks`.
+  The complete suite passes with 962 tests and 6 intentional skips; focused formatter/command/
+  interaction tests, typecheck, production build, tracked-secret scan, and diff checks are green.
+
 - **2026-08-28 (Codex, deployed):** Completed the expanded Phase 1–3 executable acceptance
   gate. Backend now passes 961 tests with 6 intentional skips; dashboard passes 139 tests and the
   release-artifact browser suite passes 7 with 1 intentional mobile skip. The suite covers timezone/

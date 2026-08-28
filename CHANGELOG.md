@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Clear Telegram entry point for Today tasks
+- Added a visible `＋ Add tasks` action to `/today`. It opens Telegram's reply composer with a compact
+  batch example, accepts one task or comma/newline-separated tasks, and still requires review before
+  anything is saved.
+- Made the same workflow discoverable as `/todo` and `/today` in Personal, Group, and Study command
+  menus, changed the vague Help topic to `Today & tasks`, and added the concise `/todo` example to the
+  Today card and help copy without expanding the normal three-action review card.
+
 ### Today planning, delivery, and Note sessions (Phases 1–3; released 2026-08-28)
 - Added optional planned days without conflating them with deadlines or reminders, durable atomic task
   drafts, derived Carryover, and cross-mode agenda composition for Individual, assigned Group, and
