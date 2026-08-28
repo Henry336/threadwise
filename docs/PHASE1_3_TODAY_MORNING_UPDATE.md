@@ -1,7 +1,7 @@
 # Morning update — Today planning Phases 1–3
 
 Date: 28 August 2026 SGT  
-Status: implemented, tested, documented, and pushed on guarded branches; **not live yet**.
+Status: implemented, expanded acceptance gate passed, and production release authorized; **release in progress**.
 
 ## What changed
 
@@ -19,19 +19,18 @@ Status: implemented, tested, documented, and pushed on guarded branches; **not l
 
 ## Test position
 
-- Backend: 940 tests passed, 6 intentional skips; Prisma validation, typecheck, build, focused Phase 3
-  regressions, and secret scan passed.
+- Backend: 961 tests passed, 6 intentional skips; Prisma validation, typecheck, build, focused Phase 3
+  and expanded acceptance regressions, and secret scan passed.
 - Dashboard: 139 tests passed; typecheck, lint, optimized build, secret scan, and browser smoke passed
-  (5 passed, 1 intentional mobile skip).
-- A stricter acceptance matrix was added afterward. Before merge or rollout, it must add executable
-  coverage for midnight/timezone/DST boundaries, restart during `Add more`, update/callback replay,
-  invalid batch rows, private-chat absence, Canvas deduplication/deadline preservation, quiet hours,
-  disabled briefs, and cross-workspace access attempts.
+  (7 passed, 1 intentional mobile command-palette skip).
+- The expanded matrix is executable and green for midnight/timezone/DST boundaries, restart during
+  `Add more`, update/callback replay, invalid batch rows, private-chat absence, Canvas deduplication/
+  deadline preservation, quiet hours, disabled briefs, and cross-workspace access attempts.
 
 ## What happens next
 
-1. Implement and pass the expanded parser, service, and Telegram/dashboard acceptance suite.
-2. Review and merge the paired `codex/phase3-today-delivery-notes` branches together.
-3. Under separate authorization, apply additive migrations, configure the owner gate, and deploy.
+1. Review and merge the paired `codex/phase3-today-delivery-notes` branches together.
+2. Apply the authorized additive migrations and configure the owner gate without recording its value.
+3. Deploy backend before dashboard and verify live health, release identity, and owner-only scope.
 
 Until those steps finish, production behavior is unchanged.

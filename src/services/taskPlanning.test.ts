@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarDateKey, parseTaskTimingIntent, splitTaskDraftText } from "./taskPlanning";
+import { calendarDateKey, parseTaskTimingIntent, splitTaskDraftText, todayCalendarDate } from "./taskPlanning";
 
 const NOW = new Date("2026-08-31T01:00:00.000Z");
 const ZONE = "Asia/Singapore";
@@ -42,6 +42,21 @@ describe("task planning intent", () => {
     expect(parsed.plannedFor).toBeUndefined();
     expect(parsed.dueAt).toBeUndefined();
     expect(parsed.warnings).toContain("REMINDER_REQUIRES_CONFIRMATION");
+  });
+
+  it("uses the active timezone when the same instant crosses a local midnight", () => {
+    const instant = new Date("2026-08-31T16:30:00.000Z");
+    expect(calendarDateKey(todayCalendarDate("Asia/Singapore", instant))).toBe("2026-09-01");
+    expect(calendarDateKey(todayCalendarDate("America/New_York", instant))).toBe("2026-08-31");
+    expect(calendarDateKey(parseTaskTimingIntent("Prepare tutorial", "Asia/Singapore", instant).plannedFor!)).toBe("2026-09-01");
+    expect(calendarDateKey(parseTaskTimingIntent("Prepare tutorial", "America/New_York", instant).plannedFor!)).toBe("2026-08-31");
+  });
+
+  it("keeps calendar dates stable through DST gaps and repeated hours", () => {
+    expect(calendarDateKey(todayCalendarDate("America/New_York", new Date("2026-03-08T06:59:00.000Z")))).toBe("2026-03-08");
+    expect(calendarDateKey(todayCalendarDate("America/New_York", new Date("2026-03-08T07:01:00.000Z")))).toBe("2026-03-08");
+    expect(calendarDateKey(todayCalendarDate("America/New_York", new Date("2026-11-01T05:30:00.000Z")))).toBe("2026-11-01");
+    expect(calendarDateKey(todayCalendarDate("America/New_York", new Date("2026-11-01T06:30:00.000Z")))).toBe("2026-11-01");
   });
 });
 

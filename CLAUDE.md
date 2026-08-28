@@ -6,6 +6,14 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-28 (Codex, release authorized):** Completed the expanded Phase 1–3 executable acceptance
+  gate. Backend now passes 961 tests with 6 intentional skips; dashboard passes 139 tests and the
+  release-artifact browser suite passes 7 with 1 intentional mobile skip. The suite covers timezone/
+  DST, restart/replay, batch atomicity, authorization, private-chat eligibility, Canvas deadline
+  preservation, exact links, accessibility, and responsiveness. It also drove two fixes: private-chat
+  identity repair and exact Canvas Study planning without duplication. Paired merge, additive
+  migrations, owner-gate configuration, and deployment are explicitly authorized and in progress.
+
 - **2026-08-28 (Codex, guarded):** Reconciled the Phase 1–3 Today-planning documentation and added
   `docs/PHASE1_3_TODAY_MORNING_UPDATE.md`. Canonical docs now distinguish implemented/tested guarded
   behavior from production and record the expanded executable acceptance matrix as a pre-merge gate.

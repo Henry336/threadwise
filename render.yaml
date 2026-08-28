@@ -78,6 +78,8 @@ services:
         sync: false
       - key: STUDY_OWNER_TELEGRAM_ID
         sync: false
+      - key: TODAY_FOUNDATION_OWNER_TELEGRAM_ID
+        sync: false
       - key: STUDY_ALLOWED_CHAT_ID
         sync: false
       - key: CANVAS_ACCESS_TOKEN

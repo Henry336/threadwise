@@ -12,11 +12,12 @@
   evening briefing controls in Personal Reminder settings.
 - Added bounded, timezone/quiet-hours-aware, idempotent private delivery and one persistent Note-session
   status card with exact paragraph counts and one-hour inactivity auto-save.
-- Passed the Phase 3 implementation gate (940 backend tests plus 6 intentional skips; 139 dashboard
-  tests; typecheck, lint/build, Prisma, secret scans, and browser smoke). A subsequently expanded
-  parser/service/surface acceptance matrix is now required before merge or rollout.
-- Kept the paired stack guarded and fail-closed. No merge, migration, environment enablement, or
-  production deployment is included in this entry.
+- Passed the expanded parser/service/Telegram/dashboard gate (961 backend tests plus 6 intentional
+  skips; 139 dashboard tests; 7 browser passes plus 1 intentional mobile skip; typecheck, lint/build,
+  Prisma, and secret scans), including timezone/DST, restart/replay, atomicity, authorization, private
+  relationship, Canvas deadline preservation, exact links, accessibility, and responsive behaviour.
+- Repaired missing private delivery-chat identity on a user's next private interaction and planned
+  exact matching Canvas Study work in place rather than duplicating or replacing its deadline.
 
 ### Threadwise-native Markdown Study notes
 - Upgraded Study notes without creating a second note store: `StudyResource.body` remains the canonical Markdown source shared by Telegram, dashboard search, sessions, and AI evidence.

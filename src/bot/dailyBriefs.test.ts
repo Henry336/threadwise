@@ -41,7 +41,7 @@ describe("private daily brief delivery", () => {
   it("delivers one bounded cross-mode morning brief with a private carryover decision", async () => {
     const sendMessage = vi.fn(async () => ({ message_id: 1 }));
     const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: null, timezone: "Asia/Singapore",
+      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "Asia/Singapore",
       quietHoursStart: "22:00", quietHoursEnd: "08:00",
       morningBriefEnabled: true, morningBriefTime: "08:00",
       eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
@@ -60,7 +60,7 @@ describe("private daily brief delivery", () => {
   it("does not interrupt during quiet hours", async () => {
     const sendMessage = vi.fn();
     const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: null, timezone: "Asia/Singapore",
+      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "Asia/Singapore",
       quietHoursStart: "22:00", quietHoursEnd: "08:00",
       morningBriefEnabled: true, morningBriefTime: "07:00",
       eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
@@ -73,5 +73,52 @@ describe("private daily brief delivery", () => {
 
   it("skips a completely empty morning instead of sending noise", () => {
     expect(formatMorningBrief({ ...agenda, today: [], carryover: [], dueSoon: [] })).toBeUndefined();
+  });
+
+  it("does not send when the owner has no established private bot chat", async () => {
+    const sendMessage = vi.fn();
+    const database = { userSettings: { findMany: vi.fn(async () => [{
+      user: { id: "user-1", telegramId: "123" }, reminderChatId: null, timezone: "Asia/Singapore",
+      quietHoursStart: null, quietHoursEnd: null,
+      morningBriefEnabled: true, morningBriefTime: "08:00",
+      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
+    }]) } } as never;
+    await expect(runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-08-31T00:05:00.000Z"), database))
+      .resolves.toEqual({ checked: 0, sent: 0, skipped: 0, failed: 0 });
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not select an owner whose briefings are disabled", async () => {
+    const findMany = vi.fn(async () => []);
+    const sendMessage = vi.fn();
+    await expect(runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-08-31T00:05:00.000Z"), {
+      userSettings: { findMany },
+    } as never)).resolves.toEqual({ checked: 0, sent: 0, skipped: 0, failed: 0 });
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [{ morningBriefEnabled: true }, { eveningDebriefEnabled: true }] }),
+    }));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("claims a local-day brief once across repeated polling and a DST overlap", async () => {
+    const sendMessage = vi.fn(async () => ({ message_id: 1 }));
+    const database = { userSettings: { findMany: vi.fn(async () => [{
+      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "America/New_York",
+      quietHoursStart: null, quietHoursEnd: null,
+      morningBriefEnabled: true, morningBriefTime: "01:00",
+      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
+    }]) } } as never;
+    mocks.claim
+      .mockResolvedValueOnce({ claimed: true, delivery: { id: "delivery-1", status: DailyBriefDeliveryStatus.PENDING } })
+      .mockResolvedValueOnce({ claimed: false, delivery: { id: "delivery-1", status: DailyBriefDeliveryStatus.SENT } });
+
+    await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-11-01T05:05:00.000Z"), database);
+    await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-11-01T06:05:00.000Z"), database);
+
+    expect(mocks.claim).toHaveBeenCalledTimes(2);
+    expect(mocks.claim).toHaveBeenNthCalledWith(1, expect.objectContaining({ localDate: new Date("2026-11-01T04:00:00.000Z") }), database);
+    expect(mocks.claim).toHaveBeenNthCalledWith(2, expect.objectContaining({ localDate: new Date("2026-11-01T04:00:00.000Z") }), database);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,7 @@
 # Phase 3 Today delivery and Note-session implementation report
 
 Date: 28 August 2026 SGT  
-Status: implemented and validated on paired guarded branches; not merged, migrated, or deployed.
+Status: implemented; expanded acceptance gate passed; paired merge and authorized release in progress.
 
 Publication boundary: backend commit `2ac4824` and dashboard commit `e1b0150` on paired branch
 `codex/phase3-today-delivery-notes`.
@@ -35,12 +35,11 @@ Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_
 
 ## Validation
 
-- Backend: Prisma format/generate/validate, TypeScript typecheck, production build, 940 tests passed
-  with 6 intentional skips, focused Phase 3 regressions, and a 416-file secret scan.
-- A known Windows parallel temp-directory test timed out once after 939 other passes; that test passed
-  independently and all 946 tests passed in a single-worker run.
-- Dashboard: TypeScript typecheck, lint, 139 tests, isolated optimized build, 152-file secret scan,
-  and browser smoke with 5 passes and 1 intentional mobile skip.
+- Backend: Prisma format/generate/validate, TypeScript typecheck, production build, 961 tests passed
+  with 6 intentional skips, focused Phase 3 and expanded acceptance regressions, and a tracked-file
+  secret scan.
+- Dashboard: TypeScript typecheck, lint, 139 tests, isolated optimized build, tracked-file secret scan,
+  and release-artifact browser smoke with 7 passes and 1 intentional mobile skip.
 - The 21st CLI was unavailable. The implementation reused the tracked `.21st` design decisions,
   Threadwise switches, fields, tokens, responsive rules, and branded accessible time picker.
 
@@ -51,7 +50,7 @@ Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_
 - Production migration, owner-gate configuration, deployment, and wider rollout require separate
   authorization after paired review and merge.
 
-## Follow-up acceptance gate
+## Expanded acceptance gate — passed
 
 After the implementation validation above, the owner required the complete recorded conversation to
 become an executable three-level acceptance suite. Parser tests must cover plan/deadline/reminder/
@@ -62,5 +61,6 @@ exact deep links, accessibility, and responsive behaviour.
 The mandatory edge matrix is midnight and timezone changes, DST gap/overlap, restart during `Add more`,
 duplicate Telegram updates and callback replay, one invalid batch item, no private bot relationship,
 Canvas matching with deadline preservation, quiet hours, disabled briefings, and cross-workspace draft
-or agenda access attempts. This follow-up gate must pass before merge or rollout; the earlier validation
-counts remain accurate but do not claim completion of this subsequently expanded matrix.
+or agenda access attempts. All required categories now have executable coverage. The expansion also
+corrected private delivery-chat repair for existing users and exact Canvas Study planning while
+preserving the provider deadline.

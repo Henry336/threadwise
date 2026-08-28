@@ -182,7 +182,7 @@ function todayUrl(scope: BotTodayScope): string {
     : dashboardViewUrl("today");
 }
 
-function formatCarryoverPrompt(entry: AgendaEntry, agenda: DailyAgenda): string {
+export function formatCarryoverPrompt(entry: AgendaEntry, agenda: DailyAgenda): string {
   const firstPlan = entry.firstPlannedFor ?? entry.plannedFor;
   const carriedDays = firstPlan
     ? Math.max(1, Math.floor(DateTime.fromISO(agenda.localDate).diff(DateTime.fromISO(firstPlan), "days").days))
@@ -225,7 +225,7 @@ async function updateCollectingCard(ctx: Context, draft: TaskCaptureDraftRecord)
   await replyHtml(ctx, formatCollectingDraft(draft), { reply_markup: markup });
 }
 
-function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
+export function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
   const included = draft.items.filter((item) => item.included);
   const needsReview = included.some((item) => item.status === "NEEDS_REVIEW" || item.warnings.length);
   const keyboard = new InlineKeyboard();
@@ -236,7 +236,7 @@ function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
   return keyboard;
 }
 
-function formatDraftReview(draft: TaskCaptureDraftRecord, modules: StudyModule[]): string {
+export function formatDraftReview(draft: TaskCaptureDraftRecord, modules: StudyModule[]): string {
   const included = draft.items.filter((item) => item.included);
   const heading = included.length === 1 ? "Add this task?" : `Add ${included.length} tasks?`;
   const moduleById = new Map(modules.map((module) => [module.id, module.code]));
@@ -255,7 +255,7 @@ function formatDraftReview(draft: TaskCaptureDraftRecord, modules: StudyModule[]
 ${remaining} more task${remaining === 1 ? "" : "s"} are waiting in the detailed editor.` : undefined, "", "Nothing is saved until you approve the list."].filter(Boolean).join("\n");
 }
 
-function formatCollectingDraft(draft: TaskCaptureDraftRecord): string {
+export function formatCollectingDraft(draft: TaskCaptureDraftRecord): string {
   return [bold(`Adding to this list · ${draft.items.filter((item) => item.included).length} tasks waiting`), "", "Send more tasks in one or several messages.", "Nothing will be saved until you review and approve it."].join("\n");
 }
 
@@ -263,7 +263,7 @@ function formatDraftEditHelp(draft: TaskCaptureDraftRecord): string {
   return [bold("What should I change?"), "", "Reply naturally, for example:", `• Move task 3 to Saturday`, `• Give task 2 a Friday deadline`, `• Remove task 4`, "", `The detailed editor also supports titles, exact dates, Study modules, and inclusion.`].join("\n");
 }
 
-function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
+export function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
   const included = draft.items.filter((item) => item.included);
   const today = DateTime.now().setZone(draft.timezone).toISODate();
   const todayCount = included.filter((item) => item.plannedFor?.toISOString().slice(0, 10) === today).length;
@@ -272,7 +272,7 @@ function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
   return [bold(`Saved ${included.length} task${included.length === 1 ? "" : "s"}`), "", `Today: ${todayCount}`, `Other planned days: ${scheduled}`, `Deadlines added: ${deadlines}`, "", "No reminders were created."].join("\n");
 }
 
-function formatAgenda(agenda: DailyAgenda): string {
+export function formatAgenda(agenda: DailyAgenda): string {
   const section = (title: string, entries: AgendaEntry[], empty: string) => [bold(title), ...(entries.length ? entries.slice(0, 10).map((entry) => `□ ${h(entry.title)}${entry.moduleCode ? ` · ${code(entry.moduleCode)}` : ""}`) : [h(empty)])].join("\n");
   const deadlineRows = agenda.dueSoon.slice(0, 8).map((entry) => `• ${h(entry.title)}
   Due ${h(DateTime.fromISO(entry.dueAt!).setZone(agenda.timezone).toFormat("ccc, d LLL · h:mm a"))}`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardViewUrl, groupDashboardItemUrl, groupTaskImportReviewUrl } from "./links";
+import { dashboardViewUrl, groupDashboardItemUrl, groupTaskImportReviewUrl, todayDraftDashboardUrl } from "./links";
 
 describe("dashboard deep links", () => {
   it("opens an exact personal item", () => {
@@ -20,5 +20,11 @@ describe("dashboard deep links", () => {
     const url = groupTaskImportReviewUrl("workspace-1", "import-1");
     expect(url).toContain("workspace=workspace-1");
     expect(url).toContain("import%3Dimport-1");
+  });
+
+  it("selects the authorized workspace before opening an exact Today draft", () => {
+    const url = todayDraftDashboardUrl("draft-row-id", { id: "workspace-1", study: true });
+    expect(new URL(url).searchParams.get("workspace")).toBe("workspace-1");
+    expect(new URL(url).searchParams.get("next")).toBe("/dashboard?view=study-overview&draft=draft-row-id");
   });
 });

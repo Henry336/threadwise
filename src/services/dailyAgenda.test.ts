@@ -1,6 +1,6 @@
-import { PlanningScope } from "@prisma/client";
+import { DailyBriefKind, PlanningScope, Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
-import { countDailyAgendaCompletions, groupAgendaEntries, planDailyAgendaEntry, type AgendaEntry } from "./dailyAgenda";
+import { claimDailyBriefDelivery, countDailyAgendaCompletions, groupAgendaEntries, planDailyAgendaEntry, type AgendaEntry } from "./dailyAgenda";
 
 const entry = (overrides: Partial<AgendaEntry> & Pick<AgendaEntry, "id" | "title">): AgendaEntry => ({
   publicId: `TASK-${overrides.id}`,
@@ -28,6 +28,22 @@ describe("daily agenda grouping", () => {
       lt: new Date("2026-08-31T16:00:00.000Z"),
     } } });
     expect(studyCount).toHaveBeenCalledWith({ where: expect.objectContaining({ workspaceId: "study-1" }) });
+  });
+
+  it("uses the real 25-hour UTC window for a DST fall-back day", async () => {
+    const taskCount = vi.fn(async () => 0);
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ id: "user-1" })) },
+      groupMembership: { findMany: vi.fn(async () => []) },
+      studyWorkspace: { findFirst: vi.fn(async () => null) },
+      task: { count: taskCount },
+      studyItem: { count: vi.fn() },
+    } as never;
+    await expect(countDailyAgendaCompletions("123", "America/New_York", "2026-11-01", database)).resolves.toBe(0);
+    expect(taskCount).toHaveBeenCalledWith({ where: { userId: "user-1", completedAt: {
+      gte: new Date("2026-11-01T04:00:00.000Z"),
+      lt: new Date("2026-11-02T05:00:00.000Z"),
+    } } });
   });
 
   it("derives Today and carryover without duplicating or moving tasks", () => {
@@ -81,5 +97,51 @@ describe("daily agenda grouping", () => {
       action: "task.plan.updated",
       metadata: expect.objectContaining({ source: "today", previousPlannedFor: "2026-08-29T00:00:00.000Z" }),
     }) });
+  });
+
+  it("treats a duplicate daily delivery claim as an idempotent replay", async () => {
+    const existing = { id: "delivery-1", status: "SENT" };
+    const create = vi.fn(async () => {
+      throw new Prisma.PrismaClientKnownRequestError("duplicate", { code: "P2002", clientVersion: "test" });
+    });
+    const findUniqueOrThrow = vi.fn(async () => existing);
+    const input = {
+      userId: "user-1",
+      recipientTelegramId: "123",
+      localDate: new Date("2026-08-30T16:00:00.000Z"),
+      kind: DailyBriefKind.MORNING,
+      scope: PlanningScope.PERSONAL,
+      scopeKey: "private-cross-mode",
+    };
+    await expect(claimDailyBriefDelivery(input, {
+      dailyBriefDelivery: { create, findUniqueOrThrow },
+    } as never)).resolves.toEqual({ claimed: false, delivery: existing });
+    expect(findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { recipientTelegramId_localDate_kind_scopeKey: {
+        recipientTelegramId: "123",
+        localDate: input.localDate,
+        kind: DailyBriefKind.MORNING,
+        scopeKey: "private-cross-mode",
+      } },
+      select: { id: true, status: true },
+    });
+  });
+
+  it("cannot plan an item that is outside the authorized agenda scope", async () => {
+    const transaction = vi.fn();
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ id: "user-1", settings: { timezone: "Asia/Singapore" } })) },
+      groupMembership: { findMany: vi.fn(async () => []) },
+      task: { findMany: vi.fn(async () => []) },
+      studyWorkspace: { findFirst: vi.fn(async () => null) },
+      $transaction: transaction,
+    } as never;
+    await expect(planDailyAgendaEntry(
+      { principalTelegramId: "123", scope: PlanningScope.PERSONAL },
+      "task-from-another-workspace",
+      "2026-08-31",
+      database,
+    )).rejects.toEqual(expect.objectContaining({ code: "not_found" }));
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

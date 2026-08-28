@@ -2,6 +2,7 @@ import {
   PlanningScope,
   Prisma,
   type PrismaClient,
+  StudyItemSource,
   StudyItemStatus,
   StudyItemType,
   StudyPriority,
@@ -83,6 +84,9 @@ export async function createTaskCaptureDraft(
       },
       data: { status: TaskCaptureDraftStatus.CANCELED, canceledAt: now },
     });
+    const prepared = scope.scope === PlanningScope.STUDY
+      ? await linkMatchingStudyItems(tx, scope, parsed)
+      : parsed;
     return tx.taskCaptureDraft.create({
       data: {
         ownerUserId: scope.ownerUserId,
@@ -96,11 +100,47 @@ export async function createTaskCaptureDraft(
         telegramChatId: options.telegramChatId,
         telegramReviewMessageId: options.telegramReviewMessageId,
         expiresAt: new Date(now.getTime() + TASK_CAPTURE_DRAFT_TTL_MS),
-        items: { create: parsed },
+        items: { create: prepared },
       },
       include: draftInclude,
     });
   });
+}
+
+async function linkMatchingStudyItems(
+  tx: Prisma.TransactionClient,
+  scope: TaskCaptureScope,
+  items: ReturnType<typeof parseDraftItems>,
+) {
+  if (!scope.studyWorkspaceId) return items;
+  const moduleIds = [...new Set(items.map((item) => item.moduleId).filter((value): value is string => Boolean(value)))];
+  if (!moduleIds.length) return items;
+  const existing = await tx.studyItem.findMany({
+    where: {
+      workspaceId: scope.studyWorkspaceId,
+      moduleId: { in: moduleIds },
+      source: StudyItemSource.CANVAS,
+      status: StudyItemStatus.OPEN,
+    },
+    select: { id: true, moduleId: true, title: true, dueAt: true },
+  });
+  return items.map((item) => {
+    if (!item.moduleId) return item;
+    const itemTitles = new Set([normalizedStudyTitle(item.title), normalizedStudyTitle(item.sourceText)]);
+    const matches = existing.filter((candidate) => candidate.moduleId === item.moduleId
+      && itemTitles.has(normalizedStudyTitle(candidate.title)));
+    if (matches.length !== 1) return item;
+    return {
+      ...item,
+      linkedStudyItemId: matches[0]!.id,
+      // Canvas remains authoritative for its deadline. The draft only adds a plan.
+      dueAt: matches[0]!.dueAt ?? undefined,
+    };
+  });
+}
+
+function normalizedStudyTitle(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
 }
 
 export async function getTaskCaptureDraft(

@@ -52,7 +52,7 @@ export async function ensureUser(ctx: Context) {
       where: { id: user.id },
       include: { settings: true }
     });
-  } else if (identity.isGroup && user.settings.reminderChatId !== identity.reminderChatId) {
+  } else if (user.settings.reminderChatId !== identity.reminderChatId) {
     await prisma.userSettings.update({
       where: { userId: user.id },
       data: { reminderChatId: identity.reminderChatId }

@@ -9,11 +9,11 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
-- Phase 3 authorization/status: the owner explicitly authorized implementation and push on
-  2026-08-28 SGT. The paired implementation is complete and locally validated on guarded branches
-  named `codex/phase3-today-delivery-notes`, stacked on the pushed Phase 2 tips. Shared group digests,
-  AI rewriting, production migration, merge, deployment, and production enablement remain outside
-  this authorization.
+- Phase 3 release authorization/status: the owner explicitly authorized the expanded acceptance
+  implementation, paired merge, additive production migrations, owner-gate configuration, and paired
+  deployment on 2026-08-28 SGT. The implementation and acceptance changes are complete on paired
+  `codex/phase3-today-delivery-notes` branches; merge and production release are the active operation.
+  Shared Group digests and AI Note rewriting remain outside this release.
 - Authorization/status: the owner explicitly authorized Phase 2 implementation and push on
   2026-08-28 SGT. The paired interaction layer is implemented and locally validated on guarded
   backend/dashboard branches named `codex/phase2-today-interactions`, stacked on the pushed Phase 1
@@ -81,13 +81,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   five browser checks with one intentional mobile skip, and dependency installation with zero reported
   vulnerabilities pass. The local 21st CLI was unavailable, so the UI was grounded in the tracked
   `.21st` design system and existing Threadwise components rather than external catalogue output.
-- Phase 3 validation: Prisma format/generate/validate, backend typecheck/build, 940 tests with 6
-  intentional skips, focused delivery/expiry/Note regressions, and a 416-file tracked-secret scan pass.
-  One known parallel Windows temp-directory test timed out after 939 passes, then passed independently
-  and in the complete single-worker suite. Dashboard typecheck/lint, 139 tests, isolated optimized
-  build, 152-file secret scan, and browser smoke (5 passed, 1 intentional mobile skip) pass. The local
-  21st CLI remained unavailable; the tracked design context and branded picker were used directly.
-- Owner-mandated acceptance expansion (recorded 2026-08-28 SGT): before merge or rollout, convert the
+- Phase 3 validation: Prisma format/generate/validate, backend typecheck/build, 961 tests with 6
+  intentional skips, focused delivery/expiry/Note regressions, and the tracked-secret scan pass.
+  The complete single-worker suite is green. Dashboard typecheck/lint, 139 tests, isolated optimized
+  build, tracked-secret scan, and the current release-artifact browser suite (7 passed, 1 intentional
+  mobile command-palette skip) pass.
+- Owner-mandated acceptance expansion (completed 2026-08-28 SGT): converted the
   full behavioural transcript into executable parser, service, and Telegram/dashboard suites. The
   mandatory edge matrix covers midnight and timezone changes; DST gap/overlap; process restart during
   `Add more`; duplicate Telegram updates and callback replay; one invalid batch item; members without
@@ -96,8 +95,10 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   separate plan/deadline/reminder/ambiguity; service assertions must cover atomicity, Carryover,
   idempotency, authorization, and Study deduplication; surface assertions must cover visible dialogue,
   the normal three-button budget, exact deep links, accessibility, and responsive behaviour. Treat the
-  current Phase 3 validation as implementation evidence, not completion of this newly added release
-  gate. Canonical detail is in the product specification's `Executable acceptance strategy` section.
+  expanded release gate is now executable and green. During expansion it exposed and corrected two
+  real gaps: existing private users now repair a missing private delivery chat on their next private
+  interaction, and exact Canvas Study matches are planned in place with the provider deadline
+  preserved. Canonical detail is in the product specification's `Executable acceptance strategy`.
 - Documentation reconciliation (2026-08-28 SGT): added the owner-facing Phase 1–3 morning update and
   synchronized the backend README, architecture, changelog, product journal, implementation report,
   product specification, contributor handoff, and this ledger. The paired dashboard README, product
@@ -107,10 +108,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
   commit `e1b0150` are the paired guarded review boundary on
   `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.
-- Exact next action after publication: keep the owner gate unset in production. Implement and pass the
-  owner-mandated executable acceptance matrix, then review and merge both Phase 3 branches together.
-  Only afterward, under separate authorization, apply the pending additive migrations, configure the
-  owner gate, and deploy the paired services.
+- Exact release action: review and merge both Phase 3 branches, apply only their additive migrations,
+  set `TODAY_FOUNDATION_OWNER_TELEGRAM_ID` to the existing production owner principal without recording
+  its value, deploy backend before dashboard, and verify health/release identity and fail-closed scope.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 

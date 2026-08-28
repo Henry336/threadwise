@@ -1,6 +1,6 @@
 # Today planning, carryover, briefings, and Note sessions
 
-Status: accepted product direction; **Phase 3 delivery and Note refinements implemented on guarded branches**.
+Status: accepted product direction; **Phase 3 implemented and expanded acceptance gate passed; release authorized**.
 
 Recorded: 28 August 2026 SGT.
 
@@ -111,11 +111,13 @@ useful layer, with end-to-end coverage reserved for visible cross-layer behaviou
 
 ### Required edge-case matrix
 
-The merge/release gate is incomplete until executable tests cover all of the following: midnight;
+The merge/release gate covers all of the following with executable tests: midnight;
 timezone changes; DST gap and overlap; restart during `Add more`; duplicate update and callback replay;
 one invalid batch item; no private bot relationship; Canvas matching with deadline preservation;
 quiet hours; disabled briefings; and cross-workspace draft/agenda access attempts. Existing unrelated
-coverage does not count unless its assertions exercise this Phase 1–3 path directly.
+coverage does not count unless its assertions exercise this Phase 1–3 path directly. The completed
+suite also fixed private-chat eligibility repair and exact Canvas planning/deduplication uncovered by
+these cases.
 
 ## Behavioural acceptance run
 

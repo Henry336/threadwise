@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Context } from "grammy";
 
+const prismaMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  update: vi.fn(),
+  findUniqueOrThrow: vi.fn(),
+}));
+
 vi.mock("../config/env", () => ({
   env: {
     DEFAULT_TIMEZONE: "Asia/Singapore",
@@ -11,10 +17,13 @@ vi.mock("../config/env", () => ({
 }));
 
 vi.mock("../db/prisma", () => ({
-  prisma: {}
+  prisma: {
+    user: { upsert: prismaMocks.upsert, findUniqueOrThrow: prismaMocks.findUniqueOrThrow },
+    userSettings: { update: prismaMocks.update, create: vi.fn() },
+  }
 }));
 
-import { defaultTimezoneForTelegramLanguage, threadwiseUserIdentity } from "./users";
+import { defaultTimezoneForTelegramLanguage, ensureUser, threadwiseUserIdentity } from "./users";
 
 describe("user defaults", () => {
   it("infers common timezone defaults from Telegram language codes when possible", () => {
@@ -62,6 +71,27 @@ describe("user defaults", () => {
       defaultTimezone: "Asia/Yangon",
       defaultCurrency: "MMK",
       defaultOcrLanguages: "eng+mya"
+    });
+  });
+
+  it("records a private chat relationship for an older user before briefs can be sent", async () => {
+    const existing = {
+      id: "user-1",
+      telegramId: "456",
+      settings: { userId: "user-1", reminderChatId: null },
+    };
+    const refreshed = { ...existing, settings: { ...existing.settings, reminderChatId: "456" } };
+    prismaMocks.upsert.mockResolvedValue(existing);
+    prismaMocks.update.mockResolvedValue({});
+    prismaMocks.findUniqueOrThrow.mockResolvedValue(refreshed);
+
+    await expect(ensureUser({
+      chat: { id: 456, type: "private", first_name: "Henry" },
+      from: { id: 456, is_bot: false, first_name: "Henry", language_code: "en" },
+    } as Context)).resolves.toEqual(refreshed);
+    expect(prismaMocks.update).toHaveBeenCalledWith({
+      where: { userId: "user-1" },
+      data: { reminderChatId: "456" },
     });
   });
 });

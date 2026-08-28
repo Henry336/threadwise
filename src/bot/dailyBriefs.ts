@@ -47,18 +47,20 @@ export async function runDailyBriefPass(
     },
     include: { user: { select: { id: true, telegramId: true } } },
   });
-  const candidates: BriefCandidate[] = rows.map((settings) => ({
-    userId: settings.user.id,
-    telegramId: settings.user.telegramId,
-    recipientChatId: settings.reminderChatId ?? settings.user.telegramId,
-    timezone: settings.timezone,
-    quietHoursStart: settings.quietHoursStart,
-    quietHoursEnd: settings.quietHoursEnd,
-    morningBriefEnabled: settings.morningBriefEnabled,
-    morningBriefTime: settings.morningBriefTime,
-    eveningDebriefEnabled: settings.eveningDebriefEnabled,
-    eveningDebriefTime: settings.eveningDebriefTime,
-  }));
+  const candidates: BriefCandidate[] = rows
+    .filter((settings) => settings.reminderChatId === settings.user.telegramId)
+    .map((settings) => ({
+      userId: settings.user.id,
+      telegramId: settings.user.telegramId,
+      recipientChatId: settings.reminderChatId!,
+      timezone: settings.timezone,
+      quietHoursStart: settings.quietHoursStart,
+      quietHoursEnd: settings.quietHoursEnd,
+      morningBriefEnabled: settings.morningBriefEnabled,
+      morningBriefTime: settings.morningBriefTime,
+      eveningDebriefEnabled: settings.eveningDebriefEnabled,
+      eveningDebriefTime: settings.eveningDebriefTime,
+    }));
   const summary: DailyBriefPassSummary = { checked: candidates.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const candidate of candidates) {
