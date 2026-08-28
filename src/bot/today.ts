@@ -17,7 +17,7 @@ import {
   type TaskCaptureDraftRecord,
   type TaskCaptureScope,
 } from "../services/taskCaptureDrafts";
-import { calendarDate, splitTaskDraftText } from "../services/taskPlanning";
+import { calendarDate, splitTaskDraftText, startsWithTaskAction } from "../services/taskPlanning";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
@@ -25,8 +25,6 @@ import { commandBody } from "../utils/text";
 import { isGroupChat } from "./groupRouting";
 import { dashboardViewUrl, groupDashboardUrl, todayDraftDashboardUrl } from "./links";
 import { userFacingError } from "./errorResponses";
-
-const ACTION_START = /^(?:add|buy|call|collect|complete|email|finish|fix|meet|pay|plan|prepare|read|replace|return|revise|send|start|study|submit|write)\b/i;
 
 type BotTodayScope = {
   capture: TaskCaptureScope;
@@ -318,9 +316,10 @@ ${agenda.unscheduledCount} unscheduled task${agenda.unscheduledCount === 1 ? "" 
 export function formatTodayCapturePrompt(): string {
   return [
     bold("Add tasks to Today"),
-    "Send one task, or separate several with commas or new lines.",
+    "Send one task, or put each task on a new line.",
     "",
-    `Example: ${code("Start CS2103T increments, prepare CS2102 tutorial, buy groceries")}`,
+    `Commas stay together unless the next phrase clearly starts another action.`,
+    `Example: ${code("Start CS2103T increments\nPrepare CS2102 tutorial\nBuy groceries")}`,
     "",
     "You will review the list before anything is saved.",
   ].join("\n");
@@ -407,7 +406,7 @@ function looksLikeTaskCapture(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || trimmed.endsWith("?") || /^(?:note|idea|remember)\b/i.test(trimmed)) return false;
   try {
-    return splitTaskDraftText(trimmed).length > 1 || ACTION_START.test(trimmed);
+    return splitTaskDraftText(trimmed).length > 1 || startsWithTaskAction(trimmed);
   } catch {
     return false;
   }

@@ -84,7 +84,8 @@ describe("Today Telegram acceptance dialogue", () => {
   it("makes the Add tasks force-reply prompt self-explanatory", () => {
     const prompt = formatTodayCapturePrompt();
     expect(prompt).toContain("Add tasks to Today");
-    expect(prompt).toContain("commas or new lines");
+    expect(prompt).toContain("put each task on a new line");
+    expect(prompt).toContain("Commas stay together");
     expect(prompt).toContain("review the list before anything is saved");
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Add tasks to Today" } } } as Context)).toBe(true);
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Something else" } } } as Context)).toBe(false);

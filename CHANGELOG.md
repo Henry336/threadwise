@@ -4,8 +4,9 @@
 
 ### Clear Telegram entry point for Today tasks
 - Added a visible `＋ Add tasks` action to `/today`. It opens Telegram's reply composer with a compact
-  batch example, accepts one task or comma/newline-separated tasks, and still requires review before
-  anything is saved.
+  batch example, accepts one task or a newline-separated list, and still requires review before
+  anything is saved. Semicolons are explicit separators; commas split only before another phrase that
+  clearly begins with an action, so `Do taxes, laundry, homework` and `Meet mom, dad` stay intact.
 - Made the same workflow discoverable as `/todo` and `/today` in Personal, Group, and Study command
   menus, changed the vague Help topic to `Today & tasks`, and added the concise `/todo` example to the
   Today card and help copy without expanding the normal three-action review card.

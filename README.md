@@ -71,8 +71,9 @@ small Telegram edit/reply or authenticated dashboard response
 - Reviews the current inbox with `/review`, including task pressure, recent notes, and ideas.
 - Captures tasks with `/add <task>`.
 - On the owner-gated Today stack, `/today` visibly offers `＋ Add tasks`; the Telegram reply composer
-  accepts one task or comma/newline-separated tasks. `/todo Buy groceries, prepare tutorial` is the
-  direct equivalent. Both create one durable review draft, default ordinary work to Today without
+  accepts one task or a newline-separated list. Semicolons always separate tasks; a comma separates
+  only when the next phrase clearly starts another action, so names and object lists remain intact.
+  `/todo Buy groceries, prepare tutorial` is the direct equivalent. Both create one durable review draft, default ordinary work to Today without
   inventing a deadline or reminder, support `Add more` before atomic approval, and compose private
   Today/Carryover/deadline views across Individual, assigned Group, and Study work.
 - Accepts photos and image documents, then offers clean buttons to keep the original, add an editable caption, extract text locally, or save and extract in one step. A Telegram album settles into one durable review card: save all images once or apply one shared caption to every image. Extracted text can become a note, task, or reminder; no OCR or OpenAI API key is required.

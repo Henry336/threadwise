@@ -56,6 +56,10 @@ configured or when an existing, separately enabled deadline policy applies.
   discard controls live inside the focused edit flow.
 - `Add more` starts a short-lived explicit batch-capture state. Incoming messages append to the
   pending draft until the user reviews it. Nothing is saved before approval.
+- Newlines and semicolons are explicit task boundaries. A comma is a boundary only when the following
+  phrase independently starts with a clear task action. Preserve ambiguous object/name lists such as
+  `Do taxes, laundry, homework` and `Meet mom, dad` as one task; users can use newlines whenever they
+  need an unambiguous list.
 - If one ambiguity blocks correct interpretation, replace the generic edit action with one focused
   clarification, such as `Plan for Friday` versus `Due Friday`.
 - Abandoned drafts expire without creating partial tasks or reminders.

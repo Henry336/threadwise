@@ -61,12 +61,31 @@ describe("task planning intent", () => {
 });
 
 describe("task draft splitting", () => {
-  it("splits comma, semicolon, and newline lists while respecting quoted commas", () => {
+  it("uses hard line/semicolon boundaries and only splits commas before another clear action", () => {
     expect(splitTaskDraftText('Buy veg, "Call Alice, Bob and Chen"; Prepare tutorial\n- Email group')).toEqual([
       "Buy veg",
       '"Call Alice, Bob and Chen"',
       "Prepare tutorial",
       "Email group",
     ]);
+    expect(splitTaskDraftText("Start CS2103T increments, Prepare CS2102 tutorial, Buy groceries")).toEqual([
+      "Start CS2103T increments",
+      "Prepare CS2102 tutorial",
+      "Buy groceries",
+    ]);
+  });
+
+  it("keeps ambiguous comma-separated objects inside one task", () => {
+    expect(splitTaskDraftText("Do taxes, laundry, homework")).toEqual(["Do taxes, laundry, homework"]);
+    expect(splitTaskDraftText("Meet mom, dad")).toEqual(["Meet mom, dad"]);
+    expect(splitTaskDraftText("Email Alice, Bob and Chen, prepare tutorial")).toEqual([
+      "Email Alice, Bob and Chen",
+      "prepare tutorial",
+    ]);
+  });
+
+  it("supports plain, bulleted, checkbox, and numbered newline lists", () => {
+    expect(splitTaskDraftText("Do taxes\nLaundry\nHomework")).toEqual(["Do taxes", "Laundry", "Homework"]);
+    expect(splitTaskDraftText("- Do taxes\n[ ] Laundry\n3. Homework")).toEqual(["Do taxes", "Laundry", "Homework"]);
   });
 });

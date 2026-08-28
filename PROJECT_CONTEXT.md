@@ -11,10 +11,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 - Post-release discoverability fix: `/today` now visibly offers `＋ Add tasks` beside `Open Today` and
   states the `/todo` batch syntax in the card. The button opens Telegram's reply composer with one
-  short example; replies accept a single task or comma/newline-separated tasks and return the existing
-  atomic review card. Personal, Group, and Study command menus publish `/today` and `/todo`; Help uses
+  short example; replies accept a single task or newline-separated tasks and return the existing atomic
+  review card. Semicolons are hard separators. Commas split only before a following phrase that starts
+  with a recognized task action, preserving ambiguous object/name lists as one task. Personal, Group,
+  and Study command menus publish `/today` and `/todo`; Help uses
   `Today & tasks` instead of the ambiguous `Reminders` label. The normal review remains capped at
-  `Save N`, `Add more`, and `Edit details`. Validation: 962 tests passed with 6 intentional skips,
+  `Save N`, `Add more`, and `Edit details`. Latest validation: 964 tests passed with 6 intentional skips,
   plus typecheck, production build, tracked-secret scan, and diff checks.
 - Phase 3 release status: the owner authorized the expanded acceptance implementation, paired merge,
   additive production migrations, owner-gate configuration, and paired deployment on 2026-08-28 SGT.

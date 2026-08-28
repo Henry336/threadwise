@@ -23,6 +23,8 @@ const REMINDER_MARKER = /\bremind\s+me\b/i;
 const RELATIVE_PLAN_DAY = /\b(?:today|tomorrow|day\s+after\s+tomorrow|tonight|this\s+(?:morning|afternoon|evening|night))\b/i;
 const EXPLICIT_PLAN_DAY = /\b(?:on|for)\s+(?:(?:next|this)\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/i;
 const BARE_TRAILING_DAY = /\b(?:(?:next|this)\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i;
+const TASK_ACTION_START = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)?(?:["“'‘]\s*)?(?:add|apply|book|buy|call|cancel|check|clean|collect|complete|cook|create|do|draft|email|finish|fix|get|make|meet|order|organize|pack|pay|plan|prepare|read|replace|reply|research|return|review|revise|schedule|send|shop|start|study|submit|update|wash|write)\b/i;
+const TASK_LIST_PREFIX = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)/u;
 
 export function calendarDate(value: Date, timezone: string): Date {
   const local = DateTime.fromJSDate(value).setZone(timezone);
@@ -47,12 +49,13 @@ export function splitTaskDraftText(sourceText: string): string[] {
   let depth = 0;
 
   const flush = () => {
-    const value = current.trim().replace(/^[-*•]\s*/u, "");
+    const value = current.trim().replace(TASK_LIST_PREFIX, "");
     current = "";
     if (value) parts.push(value);
   };
 
-  for (const character of source) {
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
     if (quote) {
       current += character;
       if (character === quote) quote = undefined;
@@ -65,7 +68,9 @@ export function splitTaskDraftText(sourceText: string): string[] {
     }
     if (character === "(" || character === "[" || character === "{") depth += 1;
     if (character === ")" || character === "]" || character === "}") depth = Math.max(0, depth - 1);
-    if (depth === 0 && (character === "," || character === ";" || character === "\n")) {
+    const hardSeparator = character === ";" || character === "\n";
+    const commaStartsAnotherTask = character === "," && startsWithTaskAction(source.slice(index + 1));
+    if (depth === 0 && (hardSeparator || commaStartsAnotherTask)) {
       flush();
       continue;
     }
@@ -76,6 +81,10 @@ export function splitTaskDraftText(sourceText: string): string[] {
     throw new Error(`Add at most ${TASK_CAPTURE_DRAFT_LIMIT} tasks at once.`);
   }
   return parts;
+}
+
+export function startsWithTaskAction(text: string): boolean {
+  return TASK_ACTION_START.test(text.trimStart());
 }
 
 export function parseTaskTimingIntent(
