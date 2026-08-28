@@ -1663,3 +1663,22 @@ and the next command/action. Never mark incomplete work complete.
   production build, and `git diff --check`. The optional local `21st` CLI is not installed, so its
   supplemental deterministic review could not run; direct source review and focused regressions cover
   the reported defects. No backend runtime, schema, repository data, or privacy/security behavior changed.
+
+### Today completion and density pass — implementation checkpoint (2026-08-28 SGT)
+
+- The shared Personal, Group, and Study Today planner now exposes an accessible check control on every
+  visible Today, Carryover, and Deadline-watch row. A unified owner-gated Today completion endpoint
+  resolves the authorized agenda entry and delegates to the existing task/recurrence or Study completion
+  service, rather than duplicating completion semantics in the browser.
+- Each dashboard column shows five items per page with compact Previous/Next controls and a total range.
+  Mobile spacing and 40px completion targets prevent the former long, cramped first-screen list.
+- Telegram `/today` pages the Today section five at a time, caps Carryover at three and Deadline watch at
+  three, and shows stable public IDs. Users can complete a batch without button fatigue by replying, for
+  example, `done TASK-1 STUDY-4`; ambiguous short IDs are rejected. The same bounded density and completion
+  guidance now applies to opt-in morning and evening briefs.
+- Task capture guidance prefers one task per line and no longer presents commas as a reliable separator.
+  This behavior remains owner-gated with no new paid service, schema migration, or reminder coupling.
+- Validation is green: backend TypeScript/build, secret scan, 966 tests with 6 intentional skips, and
+  focused Today coverage pass. Dashboard TypeScript, lint, optimized production build, secret scan,
+  141 tests, and Playwright at desktop/mobile (7 pass, 1 intentional mobile skip) pass. Deployment
+  verification remains required before this checkpoint is live.

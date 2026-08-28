@@ -76,9 +76,31 @@ describe("Today Telegram acceptance dialogue", () => {
     expect(card).toContain("Today's To-Do List");
     expect(card).toContain("Carryover");
     expect(card).toContain("Deadline watch");
+    expect(card).toContain("TASK-1");
+    expect(card).toContain("done TASK-1 TASK-4");
     expect(card).toContain("＋ Add tasks");
     expect(card).toContain("/todo Buy groceries, prepare tutorial");
     expect(formatCarryoverPrompt(agenda.carryover[0]!, agenda)).toContain("Choose a fresh day");
+  });
+
+  it("pages long Today lists instead of sending a wall of tasks", () => {
+    const today = Array.from({ length: 11 }, (_, index) => ({
+      id: String(index + 1),
+      publicId: `TASK-${index + 1}`,
+      title: `Task ${index + 1}`,
+      mode: "INDIVIDUAL" as const,
+      status: "OPEN",
+      plannedFor: "2026-08-31",
+    }));
+    const agenda = { localDate: "2026-08-31", timezone: "Asia/Singapore", scope: PlanningScope.PERSONAL, today, carryover: [], dueSoon: [], overdue: [], unscheduledCount: 0 };
+    const first = formatAgenda(agenda);
+    const second = formatAgenda(agenda, 1);
+    expect(first).toContain("1–5 of 11");
+    expect(first).toContain("TASK-5");
+    expect(first).not.toContain("TASK-6");
+    expect(second).toContain("6–10 of 11");
+    expect(second).toContain("TASK-10");
+    expect(second).not.toContain("TASK-11");
   });
 
   it("makes the Add tasks force-reply prompt self-explanatory", () => {

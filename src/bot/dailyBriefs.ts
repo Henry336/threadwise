@@ -150,13 +150,14 @@ export function formatMorningBrief(agenda: DailyAgenda): string | undefined {
     "",
     deadlineSection(agenda),
     "",
-    "Nothing else needs your attention.",
+    `Complete quickly: reply ${code("done TASK-1 TASK-4")} using the IDs shown above.`,
+    "Open Today for the full list.",
   ].join("\n");
 }
 
 export function formatEveningDebrief(agenda: DailyAgenda, completed: number): string | undefined {
   if (!completed && !agenda.today.length && !agenda.carryover.length && !agenda.dueSoon.length) return undefined;
-  const remaining = [...agenda.today, ...agenda.carryover].slice(0, 8);
+  const remaining = [...agenda.today, ...agenda.carryover];
   return [
     bold("Evening wrap-up"),
     "",
@@ -165,23 +166,25 @@ export function formatEveningDebrief(agenda: DailyAgenda, completed: number): st
     agendaSection("STILL OPEN", remaining, agenda, "Nothing remains from today's plan."),
     "",
     deadlineSection(agenda),
+    "",
+    `Complete quickly: reply ${code("done TASK-1 TASK-4")} using the IDs shown above.`,
   ].join("\n");
 }
 
 function agendaSection(title: string, entries: AgendaEntry[], agenda: DailyAgenda, empty: string, carried = false): string {
-  const rows = entries.slice(0, 6).map((entry) => {
+  const rows = entries.slice(0, 4).map((entry) => {
     const context = entry.moduleCode ?? entry.workspaceName ?? modeLabel(entry.mode);
     const carry = carried && entry.plannedFor
       ? ` · carried ${Math.max(1, DateTime.fromISO(agenda.localDate).diff(DateTime.fromISO(entry.plannedFor), "days").days)}d`
       : "";
-    return `□ ${h(entry.title)} · ${code(context)}${carry}`;
+    return `□ ${code(entry.publicId)} ${h(entry.title)} · ${code(context)}${carry}`;
   });
   if (entries.length > rows.length) rows.push(`+${entries.length - rows.length} more`);
   return [bold(title), ...(rows.length ? rows : [h(empty)])].join("\n");
 }
 
 function deadlineSection(agenda: DailyAgenda): string {
-  const rows = agenda.dueSoon.slice(0, 5).map((entry) => `• ${h(entry.title)}\n  Due ${h(DateTime.fromISO(entry.dueAt!).setZone(agenda.timezone).toFormat("ccc, d LLL · h:mm a"))}`);
+  const rows = agenda.dueSoon.slice(0, 3).map((entry) => `• ${h(entry.title)}\n  Due ${h(DateTime.fromISO(entry.dueAt!).setZone(agenda.timezone).toFormat("ccc, d LLL · h:mm a"))}`);
   if (agenda.dueSoon.length > rows.length) rows.push(`+${agenda.dueSoon.length - rows.length} more deadlines`);
   return [bold("DEADLINE WATCH"), ...(rows.length ? rows : ["Nothing due in the next 3 days."])].join("\n");
 }

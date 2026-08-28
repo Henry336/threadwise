@@ -12,7 +12,7 @@ import {
   type DraftItemPatch,
   type TaskCaptureScope,
 } from "../services/taskCaptureDrafts";
-import { getDailyAgenda, planDailyAgendaEntry } from "../services/dailyAgenda";
+import { completeDailyAgendaEntry, getDailyAgenda, planDailyAgendaEntry } from "../services/dailyAgenda";
 import type { DashboardWorkspaceScope } from "./workspaces";
 import { requireDashboardStudyWorkspace } from "./study";
 
@@ -59,6 +59,20 @@ export async function planTodayAgendaEntryForDashboard(
     groupWorkspaceId: captureScope.groupWorkspaceId,
     studyWorkspaceId: captureScope.studyWorkspaceId,
   }, entryId, plannedFor, database);
+}
+
+export async function completeTodayAgendaEntryForDashboard(
+  scope: DashboardWorkspaceScope,
+  entryId: string,
+  database: PrismaClient = prisma,
+) {
+  const captureScope = await resolveTaskCaptureScope(scope, database);
+  return completeDailyAgendaEntry({
+    principalTelegramId: scope.principalTelegramId,
+    scope: captureScope.scope,
+    groupWorkspaceId: captureScope.groupWorkspaceId,
+    studyWorkspaceId: captureScope.studyWorkspaceId,
+  }, entryId, database);
 }
 
 export async function createDashboardTaskCaptureDraft(

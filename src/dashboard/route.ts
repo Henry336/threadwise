@@ -221,6 +221,7 @@ import {
   todayAgendaForDashboard,
   planTodayAgendaEntryForDashboard,
   updateDashboardTaskCaptureDraftItem,
+  completeTodayAgendaEntryForDashboard,
 } from "./today";
 
 export type DashboardRouteActions = {
@@ -770,6 +771,15 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const input = todayAgendaPlanSchema.parse(request.body);
     return { entry: await planTodayAgendaEntryForDashboard(scope, id, input.plannedFor) };
   }, "plan_today_entry"));
+
+  server.post("/api/v1/dashboard/today/:id/complete", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    await assertDashboardTaskMutation(scope, id, "complete", options.telegramBotToken);
+    const entry = await completeTodayAgendaEntryForDashboard(scope, id);
+    await recordDashboardTaskMutation(scope, entry, { kind: "updated", input: { status: "DONE" } }, options.telegramBotToken);
+    return { entry };
+  }, "complete_today_entry"));
 
   server.post("/api/v1/dashboard/task-drafts", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);

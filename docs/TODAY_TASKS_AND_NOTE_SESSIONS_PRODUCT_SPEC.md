@@ -634,6 +634,10 @@ Expected: no task, reminder, or partial batch is created.
 - Note sessions keep exact source text and preserve the existing private ownership boundary.
 - Straightforward capture, planning, briefing, and reminder behaviour remains deterministic and fully
   usable without a paid AI provider.
+- Dashboard agenda rows provide a clear, keyboard-accessible completion control in every mode; visible
+  lists are paged at five items rather than becoming an unbounded mobile scroll.
+- Telegram Today and automatic briefs remain bounded. They show stable task IDs and accept one compact
+  text completion instruction such as `done TASK-1 STUDY-4`, avoiding one inline button per task.
 
 ## Decisions finalized across Phases 1–3
 

@@ -2,8 +2,10 @@ import { PlanningScope, StudyItemType, type StudyModule } from "@prisma/client";
 import { Bot, Context, InlineKeyboard } from "grammy";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
-import { getDailyAgenda, planDailyAgendaEntry, type AgendaEntry, type DailyAgenda } from "../services/dailyAgenda";
-import { groupWorkspaceForContext } from "../services/groupWorkspaces";
+import { completeDailyAgendaEntry, getDailyAgenda, planDailyAgendaEntry, type AgendaEntry, type DailyAgenda } from "../services/dailyAgenda";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
+import { assertGroupTaskAction } from "../services/groupTaskPolicy";
+import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { isStudyContext, listStudyModules, requireStudyWorkspace } from "../services/study";
 import {
   appendTaskCaptureDraft,
@@ -72,6 +74,12 @@ export function registerTodayInteractions(bot: Bot): void {
   bot.callbackQuery("td:today", async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => undefined);
     await handleToday(ctx);
+  });
+
+  bot.callbackQuery(/^td:page:(\d+)$/i, async (ctx) => {
+    if (!todayOwner(ctx)) return ctx.answerCallbackQuery({ text: "This planner is private.", show_alert: true });
+    await ctx.answerCallbackQuery().catch(() => undefined);
+    await handleToday(ctx, Number(ctx.match[1] ?? 0), true);
   });
 
   bot.callbackQuery("td:capture", async (ctx) => {
@@ -147,6 +155,11 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
     if (ctx.message.text.startsWith("/") || !todayOwner(ctx)) return next();
     try {
       const scope = await resolveScope(ctx);
+      const completionReferences = quickCompletionReferences(ctx.message.text);
+      if (completionReferences) {
+        await completeFromToday(ctx, scope, completionReferences);
+        return;
+      }
       const active = await findActiveTaskCaptureDraft(scope.capture);
       if (active?.status === "COLLECTING") {
         const moduleId = moduleForText(scope.modules, ctx.message.text)?.id;
@@ -181,7 +194,7 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
   });
 }
 
-async function handleToday(ctx: Context): Promise<void> {
+async function handleToday(ctx: Context, requestedPage = 0, edit = false): Promise<void> {
   if (!todayOwner(ctx)) return;
   try {
     const scope = await resolveScope(ctx);
@@ -191,10 +204,10 @@ async function handleToday(ctx: Context): Promise<void> {
       groupWorkspaceId: scope.capture.groupWorkspaceId,
       studyWorkspaceId: scope.capture.studyWorkspaceId,
     });
-    const keyboard = new InlineKeyboard();
-    if (agenda.carryover[0]) keyboard.text("Plan carryover", `td:carry-prompt:${agenda.carryover[0].id}`).row();
-    keyboard.text("＋ Add tasks", "td:capture").url("Open Today", todayUrl(scope));
-    await replyHtml(ctx, formatAgenda(agenda), { reply_markup: keyboard });
+    const page = clampTodayPage(requestedPage, agenda.today.length);
+    const keyboard = todayKeyboard(agenda, scope, page);
+    if (edit) await editDraftMessage(ctx, formatAgenda(agenda, page), keyboard);
+    else await replyHtml(ctx, formatAgenda(agenda, page), { reply_markup: keyboard });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't open Today right now."));
   }
@@ -296,21 +309,90 @@ export function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
   return [bold(`Saved ${included.length} task${included.length === 1 ? "" : "s"}`), "", `Today: ${todayCount}`, `Other planned days: ${scheduled}`, `Deadlines added: ${deadlines}`, "", "No reminders were created."].join("\n");
 }
 
-export function formatAgenda(agenda: DailyAgenda): string {
-  const section = (title: string, entries: AgendaEntry[], empty: string) => [bold(title), ...(entries.length ? entries.slice(0, 10).map((entry) => `□ ${h(entry.title)}${entry.moduleCode ? ` · ${code(entry.moduleCode)}` : ""}`) : [h(empty)])].join("\n");
-  const deadlineRows = agenda.dueSoon.slice(0, 8).map((entry) => `• ${h(entry.title)}
+const TODAY_PAGE_SIZE = 5;
+
+export function formatAgenda(agenda: DailyAgenda, requestedPage = 0): string {
+  const page = clampTodayPage(requestedPage, agenda.today.length);
+  const start = page * TODAY_PAGE_SIZE;
+  const visibleToday = agenda.today.slice(start, start + TODAY_PAGE_SIZE);
+  const todayHeading = agenda.today.length > TODAY_PAGE_SIZE
+    ? `Today's To-Do List · ${start + 1}–${start + visibleToday.length} of ${agenda.today.length}`
+    : "Today's To-Do List";
+  const section = (title: string, entries: AgendaEntry[], empty: string, limit = TODAY_PAGE_SIZE) => {
+    const rows = entries.slice(0, limit).map((entry) => `□ ${code(entry.publicId)} ${h(entry.title)}${entry.moduleCode ? ` · ${code(entry.moduleCode)}` : ""}`);
+    if (entries.length > rows.length) rows.push(`+${entries.length - rows.length} more in the dashboard`);
+    return [bold(title), ...(rows.length ? rows : [h(empty)])].join("\n");
+  };
+  const deadlineRows = agenda.dueSoon.slice(0, 3).map((entry) => `• ${h(entry.title)}
   Due ${h(DateTime.fromISO(entry.dueAt!).setZone(agenda.timezone).toFormat("ccc, d LLL · h:mm a"))}`);
+  if (agenda.dueSoon.length > deadlineRows.length) deadlineRows.push(`+${agenda.dueSoon.length - deadlineRows.length} more deadlines in the dashboard`);
   return [
-    section("Today's To-Do List", agenda.today, "None"),
+    section(todayHeading, visibleToday, "None", TODAY_PAGE_SIZE),
     "",
-    section("Carryover", agenda.carryover, "None"),
+    section("Carryover", agenda.carryover, "None", 3),
     "",
     bold("Deadline watch"),
     ...(deadlineRows.length ? deadlineRows : ["Nothing due in the next 3 days."]),
     agenda.unscheduledCount ? `
 ${agenda.unscheduledCount} unscheduled task${agenda.unscheduledCount === 1 ? "" : "s"} remain in All Tasks.` : undefined,
-    `\nAdd tasks: tap ${bold("＋ Add tasks")} or send ${code("/todo Buy groceries, prepare tutorial")}.`,
+    `\nComplete quickly: reply ${code("done TASK-1 TASK-4")} using the IDs shown above.`,
+    `Add tasks: tap ${bold("＋ Add tasks")} or send ${code("/todo Buy groceries, prepare tutorial")}.`,
   ].filter(Boolean).join("\n");
+}
+
+function todayKeyboard(agenda: DailyAgenda, scope: BotTodayScope, page: number): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const pages = Math.max(1, Math.ceil(agenda.today.length / TODAY_PAGE_SIZE));
+  if (pages > 1) {
+    if (page > 0) keyboard.text("‹ Previous", `td:page:${page - 1}`);
+    keyboard.text(`${page + 1}/${pages}`, `td:page:${page}`);
+    if (page + 1 < pages) keyboard.text("Next ›", `td:page:${page + 1}`);
+    keyboard.row();
+  }
+  if (agenda.carryover[0]) keyboard.text("Plan carryover", `td:carry-prompt:${agenda.carryover[0].id}`).row();
+  return keyboard.text("＋ Add tasks", "td:capture").url("Open Today", todayUrl(scope));
+}
+
+function clampTodayPage(requestedPage: number, itemCount: number): number {
+  const last = Math.max(0, Math.ceil(itemCount / TODAY_PAGE_SIZE) - 1);
+  return Math.min(Math.max(0, Number.isInteger(requestedPage) ? requestedPage : 0), last);
+}
+
+function quickCompletionReferences(text: string): string[] | null {
+  const match = text.trim().match(/^(?:done|complete)\s+(.+)$/i);
+  if (!match?.[1]) return null;
+  const references = match[1].split(/[\s,]+/).map((value) => value.trim().toUpperCase()).filter(Boolean);
+  return references.length ? [...new Set(references)].slice(0, 12) : null;
+}
+
+async function completeFromToday(ctx: Context, scope: BotTodayScope, references: string[]): Promise<void> {
+  const agendaScope = {
+    principalTelegramId: scope.capture.principalTelegramId,
+    scope: scope.capture.scope,
+    groupWorkspaceId: scope.capture.groupWorkspaceId,
+    studyWorkspaceId: scope.capture.studyWorkspaceId,
+  };
+  const agenda = await getDailyAgenda(agendaScope, { dueSoonDays: 30 });
+  const entries = [...new Map(
+    [...agenda.today, ...agenda.carryover, ...agenda.dueSoon, ...agenda.overdue].map((entry) => [entry.id, entry]),
+  ).values()];
+  const selected: AgendaEntry[] = [];
+  for (const reference of references) {
+    const matches = entries.filter((entry) => entry.publicId.toUpperCase() === reference || entry.publicId.toUpperCase().endsWith(`-${reference}`));
+    if (matches.length !== 1) {
+      await ctx.reply(matches.length ? `“${reference}” matches more than one item. Use the full ID shown in Today.` : `I couldn't find ${reference} in this Today view.`);
+      return;
+    }
+    selected.push(matches[0]!);
+  }
+  for (const entry of selected) {
+    if (isGroupChat(ctx) && entry.mode === "GROUP") {
+      await assertGroupTaskAction(scope.capture.ownerUserId, entry.publicId, collaborationActorFromContext(ctx), await isGroupManager(ctx), "complete");
+    }
+  }
+  const completed: AgendaEntry[] = [];
+  for (const entry of selected) completed.push(await completeDailyAgendaEntry(agendaScope, entry.id));
+  await replyHtml(ctx, `${bold(`Completed ${completed.length} task${completed.length === 1 ? "" : "s"}`)}\n${completed.map((entry) => `✓ ${code(entry.publicId)} ${h(entry.title)}`).join("\n")}\n\nOpen ${code("/today")} to see what remains.`);
 }
 
 export function formatTodayCapturePrompt(): string {

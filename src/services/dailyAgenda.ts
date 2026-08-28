@@ -11,6 +11,8 @@ import {
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { calendarDate, calendarDateKey, todayCalendarDate } from "./taskPlanning";
+import { completeStudyItem } from "./study";
+import { completeTask } from "./tasks";
 
 export type AgendaEntry = {
   id: string;
@@ -129,6 +131,34 @@ export async function planDailyAgendaEntry(
     });
   }
   return { ...entry, ...(plannedFor ? { plannedFor } : { plannedFor: undefined }), firstPlannedFor: entry.firstPlannedFor ?? plannedFor ?? undefined };
+}
+
+export async function completeDailyAgendaEntry(
+  scope: AgendaScope,
+  entryId: string,
+  database: PrismaClient = prisma,
+): Promise<AgendaEntry> {
+  const agenda = await getDailyAgenda(scope, { dueSoonDays: 30 }, database);
+  const entries = [...agenda.today, ...agenda.carryover, ...agenda.dueSoon, ...agenda.overdue];
+  const entry = entries.find((candidate) => candidate.id === entryId);
+  if (!entry) throw new DailyAgendaError("That item is not available in this Today view.", "not_found");
+
+  if (entry.mode === "STUDY") {
+    const workspace = await database.studyWorkspace.findFirst({
+      where: { id: entry.workspaceId, ownerTelegramId: scope.principalTelegramId, active: true },
+    });
+    if (!workspace) throw new DailyAgendaError("That Study item is unavailable.", "not_found");
+    await completeStudyItem(workspace, entry.publicId);
+  } else {
+    const task = await database.task.findFirst({
+      where: { id: entry.id, archivedAt: null },
+      select: { userId: true, publicId: true },
+    });
+    if (!task) throw new DailyAgendaError("That task is unavailable.", "not_found");
+    await completeTask(task.userId, task.publicId);
+  }
+
+  return { ...entry, status: entry.mode === "STUDY" ? StudyItemStatus.DONE : TaskStatus.DONE };
 }
 
 export async function claimDailyBriefDelivery(
