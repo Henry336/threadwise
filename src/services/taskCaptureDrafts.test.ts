@@ -206,7 +206,7 @@ describe("task capture drafts", () => {
       items: [{
         id: "item-1",
         title: "Buy vegetables",
-        sourceText: "Buy vegetables",
+        sourceText: "Buy vegetables\nReason: prepare dinner",
         plannedFor: new Date("2026-08-31T00:00:00.000Z"),
         dueAt: null,
         assignees: [],
@@ -239,6 +239,7 @@ describe("task capture drafts", () => {
     expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         title: "Buy vegetables",
+        description: "Reason: prepare dinner",
         plannedFor: new Date("2026-08-31T00:00:00.000Z"),
         dueAt: null,
         nextReminderAt: null,

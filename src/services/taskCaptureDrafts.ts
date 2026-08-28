@@ -19,6 +19,7 @@ import {
   TASK_CAPTURE_DRAFT_TTL_MS,
   parseTaskTimingIntent,
   splitTaskDraftText,
+  taskContinuationDescription,
 } from "./taskPlanning";
 
 const activeStatuses = [TaskCaptureDraftStatus.COLLECTING, TaskCaptureDraftStatus.REVIEWING] as const;
@@ -479,6 +480,7 @@ async function commitTasks(tx: Prisma.TransactionClient, draft: TaskCaptureDraft
         userId: draft.ownerUserId,
         publicId,
         title: item.title,
+        description: taskContinuationDescription(item.sourceText),
         sourceText: item.sourceText,
         dueAt: item.dueAt,
         plannedFor: item.plannedFor,

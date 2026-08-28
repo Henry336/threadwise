@@ -59,7 +59,8 @@ configured or when an existing, separately enabled deadline policy applies.
 - Newlines and semicolons are explicit task boundaries. A comma is a boundary only when the following
   phrase independently starts with a clear task action. Preserve ambiguous object/name lists such as
   `Do taxes, laundry, homework` and `Meet mom, dad` as one task; users can use newlines whenever they
-  need an unambiguous list.
+  need an unambiguous list. A labelled continuation line such as `Reason:`, `Context:`, `Details:`, or
+  `Note:` belongs to the task above and is saved as task detail rather than promoted to another task.
 - If one ambiguity blocks correct interpretation, replace the generic edit action with one focused
   clarification, such as `Plan for Friday` versus `Due Friday`.
 - Abandoned drafts expire without creating partial tasks or reminders.

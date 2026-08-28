@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarDateKey, parseTaskTimingIntent, splitTaskDraftText, todayCalendarDate } from "./taskPlanning";
+import { calendarDateKey, parseTaskTimingIntent, splitTaskDraftText, taskContinuationDescription, todayCalendarDate } from "./taskPlanning";
 
 const NOW = new Date("2026-08-31T01:00:00.000Z");
 const ZONE = "Asia/Singapore";
@@ -87,5 +87,26 @@ describe("task draft splitting", () => {
   it("supports plain, bulleted, checkbox, and numbered newline lists", () => {
     expect(splitTaskDraftText("Do taxes\nLaundry\nHomework")).toEqual(["Do taxes", "Laundry", "Homework"]);
     expect(splitTaskDraftText("- Do taxes\n[ ] Laundry\n3. Homework")).toEqual(["Do taxes", "Laundry", "Homework"]);
+  });
+
+  it("keeps labelled context with the task above without weakening newline lists", () => {
+    const source = [
+      "Explore the PPT and create a working Google Slides copy",
+      "",
+      "Reason: Google Slides may be better for collaborative work",
+      "Check the NUSHackers form",
+    ].join("\n");
+
+    expect(splitTaskDraftText(source)).toEqual([
+      "Explore the PPT and create a working Google Slides copy\n\nReason: Google Slides may be better for collaborative work",
+      "Check the NUSHackers form",
+    ]);
+    expect(taskContinuationDescription(splitTaskDraftText(source)[0]!)).toBe(
+      "Reason: Google Slides may be better for collaborative work",
+    );
+    expect(parseTaskTimingIntent(splitTaskDraftText(source)[0]!, ZONE, NOW).title).toBe(
+      "Explore the PPT and create a working Google Slides copy",
+    );
+    expect(parseTaskTimingIntent("Prepare slides\nReason: the team needs them by Friday", ZONE, NOW).dueAt).toBeUndefined();
   });
 });

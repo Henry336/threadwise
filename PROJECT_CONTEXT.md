@@ -16,8 +16,13 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   with a recognized task action, preserving ambiguous object/name lists as one task. Personal, Group,
   and Study command menus publish `/today` and `/todo`; Help uses
   `Today & tasks` instead of the ambiguous `Reminders` label. The normal review remains capped at
-  `Save N`, `Add more`, and `Edit details`. Latest validation: 964 tests passed with 6 intentional skips,
+  `Save N`, `Add more`, and `Edit details`. Latest validation: 965 tests passed with 6 intentional skips,
   plus typecheck, production build, tracked-secret scan, and diff checks.
+- Continuation-line correction: labelled paragraphs beginning with `Reason:`, `Context:`, `Details:`,
+  `Note:`, and related labels remain attached to the preceding item rather than becoming another task.
+  Personal/Group commits store that continuation as visible task details; Study retains the complete
+  source in its existing notes field. Timing is derived only from the task's first line, so dates in a
+  reason or note cannot silently become deadlines.
 - Phase 3 release status: the owner authorized the expanded acceptance implementation, paired merge,
   additive production migrations, owner-gate configuration, and paired deployment on 2026-08-28 SGT.
   Both guarded branches were fast-forwarded to `main`. Render deployment

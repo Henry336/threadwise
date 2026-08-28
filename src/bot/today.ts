@@ -319,6 +319,7 @@ export function formatTodayCapturePrompt(): string {
     "Send one task, or put each task on a new line.",
     "",
     `Commas stay together unless the next phrase clearly starts another action.`,
+    `Labelled context such as ${code("Reason:")} or ${code("Note:")} stays with the task above.`,
     `Example: ${code("Start CS2103T increments\nPrepare CS2102 tutorial\nBuy groceries")}`,
     "",
     "You will review the list before anything is saved.",

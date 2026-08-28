@@ -10,6 +10,9 @@
 - Made the same workflow discoverable as `/todo` and `/today` in Personal, Group, and Study command
   menus, changed the vague Help topic to `Today & tasks`, and added the concise `/todo` example to the
   Today card and help copy without expanding the normal three-action review card.
+- Kept labelled continuation lines such as `Reason:`, `Context:`, `Details:`, and `Note:` attached to
+  the preceding task. They now appear as saved task details instead of becoming phantom tasks or
+  affecting the task's deadline interpretation.
 
 ### Today planning, delivery, and Note sessions (Phases 1–3; released 2026-08-28)
 - Added optional planned days without conflating them with deadlines or reminders, durable atomic task

@@ -25,6 +25,7 @@ const EXPLICIT_PLAN_DAY = /\b(?:on|for)\s+(?:(?:next|this)\s+)?(?:monday|tuesday
 const BARE_TRAILING_DAY = /\b(?:(?:next|this)\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*$/i;
 const TASK_ACTION_START = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)?(?:["“'‘]\s*)?(?:add|apply|book|buy|call|cancel|check|clean|collect|complete|cook|create|do|draft|email|finish|fix|get|make|meet|order|organize|pack|pay|plan|prepare|read|replace|reply|research|return|review|revise|schedule|send|shop|start|study|submit|update|wash|write)\b/i;
 const TASK_LIST_PREFIX = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)/u;
+const TASK_CONTINUATION_START = /^(?:reason|why|context|details?|notes?|background|purpose|constraints?|requirements?|references?|links?)\s*:/i;
 
 export function calendarDate(value: Date, timezone: string): Date {
   const local = DateTime.fromJSDate(value).setZone(timezone);
@@ -68,7 +69,8 @@ export function splitTaskDraftText(sourceText: string): string[] {
     }
     if (character === "(" || character === "[" || character === "{") depth += 1;
     if (character === ")" || character === "]" || character === "}") depth = Math.max(0, depth - 1);
-    const hardSeparator = character === ";" || character === "\n";
+    const nextLine = character === "\n" ? nextMeaningfulLine(source.slice(index + 1)) : "";
+    const hardSeparator = character === ";" || (character === "\n" && !isTaskContinuationLine(nextLine));
     const commaStartsAnotherTask = character === "," && startsWithTaskAction(source.slice(index + 1));
     if (depth === 0 && (hardSeparator || commaStartsAnotherTask)) {
       flush();
@@ -87,6 +89,20 @@ export function startsWithTaskAction(text: string): boolean {
   return TASK_ACTION_START.test(text.trimStart());
 }
 
+function nextMeaningfulLine(text: string): string {
+  return text.split(/\r?\n/).find((line) => line.trim()) ?? "";
+}
+
+export function isTaskContinuationLine(text: string): boolean {
+  return TASK_CONTINUATION_START.test(text.trimStart());
+}
+
+export function taskContinuationDescription(sourceText: string): string | undefined {
+  const [, ...continuationLines] = sourceText.trim().split(/\r?\n/);
+  const description = continuationLines.join("\n").trim();
+  return description || undefined;
+}
+
 export function parseTaskTimingIntent(
   sourceText: string,
   timezone: string,
@@ -95,14 +111,15 @@ export function parseTaskTimingIntent(
 ): TaskTimingIntent {
   const source = sourceText.trim();
   if (!source) throw new Error("Give the task a title.");
+  const titleSource = source.split(/\r?\n/, 1)[0]?.trim() || source;
   const warnings: TaskTimingWarning[] = [];
-  const explicitlyUnscheduled = UNSCHEDULED.test(source);
-  const reminderRequested = REMINDER_MARKER.test(source);
-  const deadlineMatch = DEADLINE_MARKER.exec(source);
-  const deadlineClause = deadlineMatch ? source.slice(deadlineMatch.index) : "";
-  const beforeDeadline = deadlineMatch ? source.slice(0, deadlineMatch.index).trim() : source;
+  const explicitlyUnscheduled = UNSCHEDULED.test(titleSource);
+  const reminderRequested = REMINDER_MARKER.test(titleSource);
+  const deadlineMatch = DEADLINE_MARKER.exec(titleSource);
+  const deadlineClause = deadlineMatch ? titleSource.slice(deadlineMatch.index) : "";
+  const beforeDeadline = deadlineMatch ? titleSource.slice(0, deadlineMatch.index).trim() : titleSource;
   const dueAt = deadlineMatch ? parseDueDate(deadlineClause, timezone, now) : undefined;
-  const reminderAt = reminderRequested ? parseDueDate(source, timezone, now) : undefined;
+  const reminderAt = reminderRequested ? parseDueDate(titleSource, timezone, now) : undefined;
   if (reminderRequested) warnings.push("REMINDER_REQUIRES_CONFIRMATION");
 
   let plannedFor: Date | undefined;
@@ -119,8 +136,8 @@ export function parseTaskTimingIntent(
     }
   }
 
-  const structured = structureTaskDeterministically(source);
-  const title = (structured.title || source)
+  const structured = structureTaskDeterministically(titleSource);
+  const title = (structured.title || titleSource)
     .replace(UNSCHEDULED, "")
     .replace(/^\s*(?:todo|task)\s*:\s*/i, "")
     .replace(/\s+/g, " ")
