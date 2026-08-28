@@ -1680,5 +1680,7 @@ and the next command/action. Never mark incomplete work complete.
   This behavior remains owner-gated with no new paid service, schema migration, or reminder coupling.
 - Validation is green: backend TypeScript/build, secret scan, 966 tests with 6 intentional skips, and
   focused Today coverage pass. Dashboard TypeScript, lint, optimized production build, secret scan,
-  141 tests, and Playwright at desktop/mobile (7 pass, 1 intentional mobile skip) pass. Deployment
-  verification remains required before this checkpoint is live.
+  141 tests, and Playwright at desktop/mobile (7 pass, 1 intentional mobile skip) pass.
+- Release checkpoint: backend `01a3f632ee3b` is live on Render and its public health endpoint returns
+  HTTP 200 at that exact commit. Dashboard `5df6491facf7` is live in Vercel Production after both CI jobs
+  passed. The paired worktrees were clean after release; only this documentation checkpoint followed.
