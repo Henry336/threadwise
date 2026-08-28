@@ -96,9 +96,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   a private bot relationship; Canvas matching with exact deadline preservation; quiet hours and
   disabled briefing settings; and cross-workspace draft/agenda access attempts. Parser assertions must
   separate plan/deadline/reminder/ambiguity; service assertions must cover atomicity, Carryover,
-  idempotency, authorization, and Study deduplication; surface assertions must cover visible dialogue,
-  the normal three-button budget, exact deep links, accessibility, and responsive behaviour. Treat the
-  expanded release gate is now executable and green. During expansion it exposed and corrected two
+  idempotency, authorization, and Study deduplication; surface assertions cover visible dialogue,
+  the normal three-button budget, exact deep links, accessibility, and responsive behaviour. The
+  expanded release gate is executable and green. During expansion it exposed and corrected two
   real gaps: existing private users now repair a missing private delivery chat on their next private
   interaction, and exact Canvas Study matches are planned in place with the provider deadline
   preserved. Canonical detail is in the product specification's `Executable acceptance strategy`.
@@ -108,9 +108,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   definition, architecture, changelog, contributor handoff, and tracked `.21st` decisions are also
   aligned. Historical audit/runbook documents retain their original dates and scope rather than being
   rewritten as current behavior.
-- Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
-  commit `e1b0150` are the paired guarded review boundary on
-  `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.
+- Phase 3 publication checkpoint: acceptance-complete commits `0ab4c9c` (backend) and `eac5844`
+  (dashboard) are the deployed stacked Phase 1–3 code boundary. The guarded branch tips and `main`
+  matched exactly at merge time; subsequent `main` commits update release documentation only.
 - Release action is complete. Roll back backend first to `de7563d6af66` before reverting dashboard if
   a paired live regression is discovered. Never record the owner-gate value; it is verified only by
   presence and equality with the established owner principal.
