@@ -1,6 +1,6 @@
 # Today planning, carryover, briefings, and Note sessions
 
-Status: accepted product direction; **Phase 3 implemented and expanded acceptance gate passed; release authorized**.
+Status: accepted product direction; **Phase 3 implemented, acceptance-gated, and owner-only production release live**.
 
 Recorded: 28 August 2026 SGT.
 
@@ -11,8 +11,8 @@ API contracts. Phase 2 adds owner-gated Telegram batch review, focused correctio
 `/today`, carryover re-planning, exact draft links, and one responsive dashboard Today planner shared
 by Individual, Group, and Study. Phase 3 adds opt-in private scheduled delivery, proactive expired-card
 replacement, two-step carryover prompts, dashboard briefing consent, and a persistent one-hour private
-Note session. Shared group digests and optional cleanup copies remain future work; nothing here implies
-production migration, deployment, or enablement.
+Note session. The paired stack is now additively migrated and live behind the configured owner gate.
+Shared group digests and optional cleanup copies remain future work.
 
 ## Product promise
 

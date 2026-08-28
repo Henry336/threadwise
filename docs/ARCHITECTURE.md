@@ -78,7 +78,7 @@ shows the exact paragraph count with Save & finish and Cancel actions. Save join
 blank lines; the background sweep auto-saves non-empty sessions after one hour of inactivity and
 discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence,
 then safe character boundaries while leaving the stored note unchanged. This paragraph describes the
-guarded Phase 3 branch and is not yet the production runtime.
+deployed owner-gated Phase 3 runtime.
 
 Today planning reuses existing actionable records instead of introducing a second to-do model.
 `plannedFor` is an optional local calendar date independent of `dueAt` and reminder schedules;
@@ -87,7 +87,7 @@ drafts hold parsed rows until one atomic approval. The agenda service composes P
 and Study projections while retaining their authorization boundaries. Morning and evening delivery is
 private, independently opt-in, quiet-hours-aware, empty-state suppressing, and claimed through a
 per-user/local-date/kind delivery ledger. All new Telegram and dashboard paths remain fail-closed behind
-`TODAY_FOUNDATION_OWNER_TELEGRAM_ID` until the paired guarded stack is deliberately released.
+`TODAY_FOUNDATION_OWNER_TELEGRAM_ID`; the deployed stack therefore remains fail-closed and owner-only.
 
 Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
 

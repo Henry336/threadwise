@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Guarded Today planning, delivery, and Note sessions (Phases 1–3)
+### Today planning, delivery, and Note sessions (Phases 1–3; released 2026-08-28)
 - Added optional planned days without conflating them with deadlines or reminders, durable atomic task
   drafts, derived Carryover, and cross-mode agenda composition for Individual, assigned Group, and
   Study work.
@@ -18,6 +18,8 @@
   relationship, Canvas deadline preservation, exact links, accessibility, and responsive behaviour.
 - Repaired missing private delivery-chat identity on a user's next private interaction and planned
   exact matching Canvas Study work in place rather than duplicating or replacing its deadline.
+- Fast-forwarded the paired stack to `main`, ran the additive Render pre-deploy migrations, configured
+  the owner-only gate, and released backend `0ab4c9cffced` with dashboard `eac5844`.
 
 ### Threadwise-native Markdown Study notes
 - Upgraded Study notes without creating a second note store: `StudyResource.body` remains the canonical Markdown source shared by Telegram, dashboard search, sessions, and AI evidence.

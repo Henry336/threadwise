@@ -1,10 +1,10 @@
 # Phase 3 Today delivery and Note-session implementation report
 
 Date: 28 August 2026 SGT  
-Status: implemented; expanded acceptance gate passed; paired merge and authorized release in progress.
+Status: implemented; expanded acceptance gate passed; merged, migrated, owner-gated, and deployed.
 
-Publication boundary: backend commit `2ac4824` and dashboard commit `e1b0150` on paired branch
-`codex/phase3-today-delivery-notes`.
+Release boundary: backend `0ab4c9cffced` and dashboard `eac5844`, fast-forwarded from paired
+`codex/phase3-today-delivery-notes` branches to `main`.
 
 Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_UPDATE.md).
 
@@ -31,7 +31,9 @@ Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_
   message ID for an active private Note session.
 - Existing exact note text, deadlines, reminders, Canvas data, and first-planned dates are unchanged.
 - The feature remains fail-closed when `TODAY_FOUNDATION_OWNER_TELEGRAM_ID` is unset.
-- No production database, environment setting, migration, deployment, or merge was changed.
+- Render's configured `npm run db:migrate` pre-deploy step completed before backend
+  `dep-da8et9mk1f9s73bss8i0` became live. The new owner gate is configured to the established owner
+  principal without exposing its value. Vercel reports the paired dashboard deployment successful.
 
 ## Validation
 
@@ -47,8 +49,7 @@ Short owner update: [`PHASE1_3_TODAY_MORNING_UPDATE.md`](PHASE1_3_TODAY_MORNING_
 
 - Shared Group digests require a separate workspace opt-in and real-user validation.
 - Optional Note cleanup must be a previewed derived copy and never overwrite exact source text.
-- Production migration, owner-gate configuration, deployment, and wider rollout require separate
-  authorization after paired review and merge.
+- Wider multi-user rollout remains separate from this owner-gated release.
 
 ## Expanded acceptance gate — passed
 

@@ -1,7 +1,7 @@
 # Morning update — Today planning Phases 1–3
 
 Date: 28 August 2026 SGT  
-Status: implemented, expanded acceptance gate passed, and production release authorized; **release in progress**.
+Status: implemented, expanded acceptance gate passed, merged, migrated, and **live in production**.
 
 ## What changed
 
@@ -27,10 +27,10 @@ Status: implemented, expanded acceptance gate passed, and production release aut
   `Add more`, update/callback replay, invalid batch rows, private-chat absence, Canvas deduplication/
   deadline preservation, quiet hours, disabled briefs, and cross-workspace access attempts.
 
-## What happens next
+## Release result
 
-1. Review and merge the paired `codex/phase3-today-delivery-notes` branches together.
-2. Apply the authorized additive migrations and configure the owner gate without recording its value.
-3. Deploy backend before dashboard and verify live health, release identity, and owner-only scope.
-
-Until those steps finish, production behavior is unchanged.
+- Backend `0ab4c9cffced` is live on Render deployment `dep-da8et9mk1f9s73bss8i0`; the additive
+  migration-before-start step completed and `/health` reports `ok: true` at that commit.
+- Dashboard `eac5844` is successful on Vercel; hosted validate and browser checks are green.
+- The Today owner gate is present and matches the established production owner identity. Its value is
+  intentionally absent from source, logs, and documentation.

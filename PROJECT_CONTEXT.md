@@ -9,15 +9,18 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
-- Phase 3 release authorization/status: the owner explicitly authorized the expanded acceptance
-  implementation, paired merge, additive production migrations, owner-gate configuration, and paired
-  deployment on 2026-08-28 SGT. The implementation and acceptance changes are complete on paired
-  `codex/phase3-today-delivery-notes` branches; merge and production release are the active operation.
-  Shared Group digests and AI Note rewriting remain outside this release.
+- Phase 3 release status: the owner authorized the expanded acceptance implementation, paired merge,
+  additive production migrations, owner-gate configuration, and paired deployment on 2026-08-28 SGT.
+  Both guarded branches were fast-forwarded to `main`. Render deployment
+  `dep-da8et9mk1f9s73bss8i0` is live at backend commit `0ab4c9cffced`; its configured pre-deploy migration
+  command completed successfully, public health reports `ok: true`, and the owner gate matches the
+  existing production owner identity. Vercel reports dashboard commit `eac5844` successful, with its
+  hosted validate and browser checks green. Shared Group digests and AI Note rewriting remain outside
+  this release.
 - Authorization/status: the owner explicitly authorized Phase 2 implementation and push on
   2026-08-28 SGT. The paired interaction layer is implemented and locally validated on guarded
   backend/dashboard branches named `codex/phase2-today-interactions`, stacked on the pushed Phase 1
-  foundation. It is not merged, migrated, deployed, or enabled in production.
+  foundation. Those changes are now included in the deployed Phase 3 stack recorded above.
 - Product decision: do not add a parallel `Todo` entity. Reuse the existing actionable records and
   add an independent optional planned day. A task/work item is the action; planned day is when the
   user intends to work; deadline is when it must be finished; reminder is explicit permission to
@@ -108,9 +111,9 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Phase 3 publication checkpoint: backend implementation commit `2ac4824` and dashboard implementation
   commit `e1b0150` are the paired guarded review boundary on
   `codex/phase3-today-delivery-notes`. The branches contain the stacked Phase 1–3 work.
-- Exact release action: review and merge both Phase 3 branches, apply only their additive migrations,
-  set `TODAY_FOUNDATION_OWNER_TELEGRAM_ID` to the existing production owner principal without recording
-  its value, deploy backend before dashboard, and verify health/release identity and fail-closed scope.
+- Release action is complete. Roll back backend first to `de7563d6af66` before reverting dashboard if
+  a paired live regression is discovered. Never record the owner-gate value; it is verified only by
+  presence and equality with the established owner principal.
 
 ## Active checkpoint — three-mode reliability and product roadmap (2026-08-24 SGT)
 
