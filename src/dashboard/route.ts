@@ -88,6 +88,7 @@ import {
   taskCaptureDraftItemUpdateSchema,
   todayAgendaQuerySchema,
   todayAgendaPlanSchema,
+  todayAgendaOrderSchema,
 } from "./schemas";
 import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
@@ -222,6 +223,7 @@ import {
   planTodayAgendaEntryForDashboard,
   updateDashboardTaskCaptureDraftItem,
   completeTodayAgendaEntryForDashboard,
+  reorderTodayAgendaForDashboard,
 } from "./today";
 
 export type DashboardRouteActions = {
@@ -764,6 +766,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     return { agenda: await todayAgendaForDashboard(scope, todayAgendaQuerySchema.parse(request.query)) };
   }, "today_agenda"));
+
+  server.patch("/api/v1/dashboard/today/order", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
+    return { agenda: await reorderTodayAgendaForDashboard(scope, todayAgendaOrderSchema.parse(request.body)) };
+  }, "reorder_today_agenda"));
 
   server.patch("/api/v1/dashboard/today/:id/plan", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);

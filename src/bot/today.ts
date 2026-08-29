@@ -2,7 +2,7 @@ import { PlanningScope, StudyItemType, type StudyModule } from "@prisma/client";
 import { Bot, Context, InlineKeyboard } from "grammy";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
-import { completeDailyAgendaEntry, getDailyAgenda, planDailyAgendaEntry, type AgendaEntry, type DailyAgenda } from "../services/dailyAgenda";
+import { completeDailyAgendaEntry, getDailyAgenda, planDailyAgendaEntry, reorderPersonalDailyAgenda, type AgendaEntry, type DailyAgenda } from "../services/dailyAgenda";
 import { collaborationActorFromContext } from "../services/groupCollaboration";
 import { assertGroupTaskAction } from "../services/groupTaskPolicy";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
@@ -155,6 +155,11 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
     if (ctx.message.text.startsWith("/") || !todayOwner(ctx)) return next();
     try {
       const scope = await resolveScope(ctx);
+      const move = parseTodayMoveInstruction(ctx.message.text);
+      if (move) {
+        await reorderFromToday(ctx, scope, move);
+        return;
+      }
       const completionReferences = quickCompletionReferences(ctx.message.text);
       if (completionReferences) {
         await completeFromToday(ctx, scope, completionReferences);
@@ -335,7 +340,7 @@ export function formatAgenda(agenda: DailyAgenda, requestedPage = 0): string {
     ...(deadlineRows.length ? deadlineRows : ["Nothing due in the next 3 days."]),
     agenda.unscheduledCount ? `
 ${agenda.unscheduledCount} unscheduled task${agenda.unscheduledCount === 1 ? "" : "s"} remain in All Tasks.` : undefined,
-    `\nComplete quickly: reply ${code("done TASK-1 TASK-4")} using the IDs shown above.`,
+    `\nQuick actions: ${code("done TASK-1 TASK-4")} · ${code("move TASK-4 to top")}.`,
     `Add tasks: tap ${bold("＋ Add tasks")} or send ${code("/todo Buy groceries, prepare tutorial")}.`,
   ].filter(Boolean).join("\n");
 }
@@ -363,6 +368,76 @@ function quickCompletionReferences(text: string): string[] | null {
   if (!match?.[1]) return null;
   const references = match[1].split(/[\s,]+/).map((value) => value.trim().toUpperCase()).filter(Boolean);
   return references.length ? [...new Set(references)].slice(0, 12) : null;
+}
+
+export type TodayMoveInstruction = {
+  reference: string;
+  placement: "top" | "up" | "down" | "before" | "after";
+  targetReference?: string;
+};
+
+export function parseTodayMoveInstruction(text: string): TodayMoveInstruction | null {
+  const trimmed = text.trim();
+  const prioritize = trimmed.match(/^prioritize\s+(\S+)$/i);
+  if (prioritize?.[1]) return { reference: prioritize[1].toUpperCase(), placement: "top" };
+  const top = trimmed.match(/^move\s+(\S+)\s+to\s+top$/i);
+  if (top?.[1]) return { reference: top[1].toUpperCase(), placement: "top" };
+  const step = trimmed.match(/^move\s+(\S+)\s+(up|down)$/i);
+  if (step?.[1] && step[2]) return { reference: step[1].toUpperCase(), placement: step[2].toLowerCase() as "up" | "down" };
+  const relative = trimmed.match(/^move\s+(\S+)\s+(before|after)\s+(\S+)$/i);
+  if (relative?.[1] && relative[2] && relative[3]) {
+    return { reference: relative[1].toUpperCase(), placement: relative[2].toLowerCase() as "before" | "after", targetReference: relative[3].toUpperCase() };
+  }
+  return null;
+}
+
+async function reorderFromToday(ctx: Context, scope: BotTodayScope, move: TodayMoveInstruction): Promise<void> {
+  if (scope.capture.scope !== PlanningScope.PERSONAL) {
+    await ctx.reply("Manual ordering is being trialled in Personal Today first.");
+    return;
+  }
+  const agendaScope = { principalTelegramId: scope.capture.principalTelegramId, scope: PlanningScope.PERSONAL };
+  const agenda = await getDailyAgenda(agendaScope, { dueSoonDays: 30 });
+  const entry = uniqueAgendaReference(agenda.today, move.reference);
+  if (!entry) {
+    await ctx.reply(`I couldn't find one unique ${move.reference} in Personal Today. Use the full ID shown by /today.`);
+    return;
+  }
+  const current = agenda.today.map((candidate) => candidate.id);
+  const withoutMoved = current.filter((id) => id !== entry.id);
+  let destination = 0;
+  if (move.placement === "up" || move.placement === "down") {
+    const currentIndex = current.indexOf(entry.id);
+    destination = Math.max(0, Math.min(withoutMoved.length, currentIndex + (move.placement === "up" ? -1 : 1)));
+  } else if (move.placement === "before" || move.placement === "after") {
+    const target = move.targetReference ? uniqueAgendaReference(agenda.today, move.targetReference) : undefined;
+    if (!target || target.id === entry.id) {
+      await ctx.reply(`I couldn't find one unique ${move.targetReference ?? "target"} in Personal Today.`);
+      return;
+    }
+    const targetIndex = withoutMoved.indexOf(target.id);
+    destination = targetIndex + (move.placement === "after" ? 1 : 0);
+  }
+  const orderedEntryIds = [...withoutMoved];
+  orderedEntryIds.splice(destination, 0, entry.id);
+  if (orderedEntryIds.every((id, index) => id === current[index])) {
+    await ctx.reply(`${entry.publicId} is already there.`);
+    return;
+  }
+  const updated = await reorderPersonalDailyAgenda(agendaScope, {
+    localDate: agenda.localDate,
+    orderedEntryIds,
+    movedEntryId: entry.id,
+    expectedRevision: agenda.orderRevision,
+  });
+  const position = updated.today.findIndex((candidate) => candidate.id === entry.id) + 1;
+  await replyHtml(ctx, `${bold("Today reprioritized")}\n${code(entry.publicId)} ${h(entry.title)} is now ${bold(`#${position}`)}.\n\nOpen ${code("/today")} to see the updated order.`);
+}
+
+function uniqueAgendaReference(entries: AgendaEntry[], reference: string): AgendaEntry | undefined {
+  const upper = reference.toUpperCase();
+  const matches = entries.filter((entry) => entry.publicId.toUpperCase() === upper || entry.publicId.toUpperCase().endsWith(`-${upper}`));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 async function completeFromToday(ctx: Context, scope: BotTodayScope, references: string[]): Promise<void> {

@@ -415,6 +415,7 @@ model User {
   studyWorkspace             StudyWorkspace?
   taskCaptureDrafts          TaskCaptureDraft[]
   dailyBriefDeliveries       DailyBriefDelivery[]
+  dailyAgendaOrderStates     DailyAgendaOrderState[]
 }
 
 model StudyWorkspace {
@@ -1616,6 +1617,35 @@ model DailyBriefDelivery {
   @@unique([recipientTelegramId, localDate, kind, scopeKey])
   @@index([status, localDate])
   @@index([userId, localDate, kind])
+}
+
+model DailyAgendaOrderState {
+  id          String   @id @default(uuid())
+  ownerUserId String
+  localDate   DateTime @db.Date
+  revision    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User                   @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  items DailyAgendaOrderItem[]
+
+  @@unique([ownerUserId, localDate])
+  @@index([localDate, updatedAt])
+}
+
+model DailyAgendaOrderItem {
+  id        String   @id @default(uuid())
+  stateId   String
+  entryId   String
+  rank      Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  state DailyAgendaOrderState @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  @@unique([stateId, entryId])
+  @@index([stateId, rank])
 }
 
 model PendingNoteMerge {

@@ -38,6 +38,8 @@ export type DailyAgenda = {
   dueSoon: AgendaEntry[];
   overdue: AgendaEntry[];
   unscheduledCount: number;
+  orderRevision: number;
+  reorderable: boolean;
 };
 
 export type AgendaScope = {
@@ -159,6 +161,104 @@ export async function completeDailyAgendaEntry(
   }
 
   return { ...entry, status: entry.mode === "STUDY" ? StudyItemStatus.DONE : TaskStatus.DONE };
+}
+
+export async function reorderPersonalDailyAgenda(
+  scope: AgendaScope,
+  input: { localDate: string; orderedEntryIds: string[]; movedEntryId: string; expectedRevision: number },
+  database: PrismaClient = prisma,
+): Promise<DailyAgenda> {
+  if (scope.scope !== PlanningScope.PERSONAL) {
+    throw new DailyAgendaError("Manual ordering is available in Personal Today first.", "forbidden");
+  }
+  const owner = await database.user.findUnique({ where: { telegramId: scope.principalTelegramId }, select: { id: true } });
+  if (!owner) throw new DailyAgendaError("Personal settings are unavailable.", "not_found");
+  const agenda = await getDailyAgenda(scope, { localDate: input.localDate, dueSoonDays: 30 }, database);
+  const currentIds = agenda.today.map((entry) => entry.id);
+  const requested = [...new Set(input.orderedEntryIds)];
+  if (requested.length !== input.orderedEntryIds.length || requested.length !== currentIds.length) {
+    throw new DailyAgendaError("Today changed while you were reordering it. Refresh and try again.", "conflict");
+  }
+  const currentSet = new Set(currentIds);
+  if (!requested.every((id) => currentSet.has(id)) || !currentSet.has(input.movedEntryId)) {
+    throw new DailyAgendaError("Today changed while you were reordering it. Refresh and try again.", "conflict");
+  }
+  const unchangedCurrent = currentIds.filter((id) => id !== input.movedEntryId);
+  const unchangedRequested = requested.filter((id) => id !== input.movedEntryId);
+  if (unchangedCurrent.some((id, index) => unchangedRequested[index] !== id)) {
+    throw new DailyAgendaError("Move one Today item at a time.", "invalid");
+  }
+  if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0 || input.expectedRevision !== agenda.orderRevision) {
+    throw new DailyAgendaError("Today was reordered elsewhere. Refresh and try again.", "conflict");
+  }
+
+  const localDate = parseLocalDate(input.localDate);
+  await database.$transaction(async (tx) => {
+    await tx.dailyAgendaOrderState.deleteMany({
+      where: {
+        ownerUserId: owner.id,
+        localDate: { lt: DateTime.fromISO(input.localDate).minus({ days: 90 }).toJSDate() },
+      },
+    });
+    const state = await tx.dailyAgendaOrderState.upsert({
+      where: { ownerUserId_localDate: { ownerUserId: owner.id, localDate } },
+      update: {},
+      create: { ownerUserId: owner.id, localDate },
+      include: { items: true },
+    });
+    const revision = await tx.dailyAgendaOrderState.updateMany({
+      where: { id: state.id, revision: input.expectedRevision },
+      data: { revision: { increment: 1 } },
+    });
+    if (revision.count !== 1) throw new DailyAgendaError("Today was reordered elsewhere. Refresh and try again.", "conflict");
+
+    await tx.dailyAgendaOrderItem.deleteMany({ where: { stateId: state.id, entryId: { notIn: requested } } });
+    const existingRanks = new Map(state.items.map((item) => [item.entryId, item.rank]));
+    const movedIndex = requested.indexOf(input.movedEntryId);
+    const previousId = requested[movedIndex - 1];
+    const nextId = requested[movedIndex + 1];
+    const previousRank = previousId ? existingRanks.get(previousId) : undefined;
+    const nextRank = nextId ? existingRanks.get(nextId) : undefined;
+    const completeExistingOrder = requested
+      .filter((id) => id !== input.movedEntryId)
+      .every((id) => existingRanks.has(id));
+    const sparseRank = completeExistingOrder
+      ? previousRank === undefined && nextRank === undefined
+        ? 1_024
+        : previousRank === undefined
+          ? nextRank! - 1_024
+          : nextRank === undefined
+            ? previousRank + 1_024
+            : (previousRank + nextRank) / 2
+      : undefined;
+    const canUpdateOne = sparseRank !== undefined
+      && Number.isFinite(sparseRank)
+      && (previousRank === undefined || sparseRank - previousRank > 1e-7)
+      && (nextRank === undefined || nextRank - sparseRank > 1e-7);
+
+    if (canUpdateOne) {
+      await tx.dailyAgendaOrderItem.upsert({
+        where: { stateId_entryId: { stateId: state.id, entryId: input.movedEntryId } },
+        update: { rank: sparseRank },
+        create: { stateId: state.id, entryId: input.movedEntryId, rank: sparseRank },
+      });
+    } else {
+      for (const [index, entryId] of requested.entries()) {
+        const rank = (index + 1) * 1_024;
+        await tx.dailyAgendaOrderItem.upsert({
+          where: { stateId_entryId: { stateId: state.id, entryId } },
+          update: { rank },
+          create: { stateId: state.id, entryId, rank },
+        });
+      }
+    }
+    await tx.auditLog.create({ data: {
+      userId: owner.id,
+      action: "today.personal.reordered",
+      metadata: { localDate: input.localDate, movedEntryId: input.movedEntryId, revision: input.expectedRevision + 1 },
+    } });
+  });
+  return getDailyAgenda(scope, { localDate: input.localDate }, database);
 }
 
 export async function claimDailyBriefDelivery(
@@ -294,7 +394,21 @@ async function personalAgenda(
     });
     studyEntries = items.map((item) => studyEntry(item, studyWorkspace.id));
   }
-  return groupAgendaEntries([...taskEntries, ...studyEntries], PlanningScope.PERSONAL, timezone, requestedDate, dueSoonDays);
+  const agenda = groupAgendaEntries([...taskEntries, ...studyEntries], PlanningScope.PERSONAL, timezone, requestedDate, dueSoonDays);
+  const state = await database.dailyAgendaOrderState.findUnique({
+    where: { ownerUserId_localDate: { ownerUserId: userId, localDate: parseLocalDate(agenda.localDate) } },
+    include: { items: true },
+  });
+  const ranks = new Map(state?.items.map((item) => [item.entryId, item.rank]) ?? []);
+  const orderedToday = [...agenda.today].sort((left, right) => {
+    const leftRank = ranks.get(left.id);
+    const rightRank = ranks.get(right.id);
+    if (leftRank !== undefined && rightRank !== undefined) return leftRank - rightRank;
+    if (leftRank !== undefined) return -1;
+    if (rightRank !== undefined) return 1;
+    return agenda.today.indexOf(left) - agenda.today.indexOf(right);
+  });
+  return { ...agenda, today: orderedToday, orderRevision: state?.revision ?? 0, reorderable: true };
 }
 
 async function groupAgenda(
@@ -370,6 +484,8 @@ export function groupAgendaEntries(
     dueSoon: [...dueSoon].sort(compare),
     overdue: [...overdue].sort(compare),
     unscheduledCount: entries.filter((entry) => !entry.plannedFor).length,
+    orderRevision: 0,
+    reorderable: false,
   };
 }
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Private Personal Today prioritization
+- Replaced the misleading pre-checked open-task affordance with an empty completion circle. Successful
+  completion shows a short confirmed state before removing the row; failed requests restore it.
+- Added private daily ordering for Personal Today across Personal tasks, assigned Group work, and Study
+  items without changing their source records. Optimistic revisions reject stale or forged reorder
+  requests, sparse ranks avoid rewriting every row for ordinary moves, and states expire after 90 days.
+- Added Personal-only pointer, touch, keyboard, and compact move-action support in the dashboard while
+  preserving five-item paging. Group, Study, Carryover, and Deadline Watch remain non-draggable.
+- Added concise private Telegram commands such as `move TASK-8 to top`, `move STUDY-4 after TASK-2`,
+  and `prioritize TASK-5`; private Today cards and briefings follow the same stored order.
+
 ### Clear Telegram entry point for Today tasks
 - Added a visible `＋ Add tasks` action to `/today`. It opens Telegram's reply composer with a compact
   batch example, accepts one task or a newline-separated list, and still requires review before

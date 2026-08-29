@@ -2,7 +2,7 @@ import { PlanningScope, TaskCaptureDraftItemStatus, TaskCaptureDraftStatus } fro
 import { describe, expect, it } from "vitest";
 import type { TaskCaptureDraftRecord } from "../services/taskCaptureDrafts";
 import type { Context } from "grammy";
-import { formatAgenda, formatCarryoverPrompt, formatDraftReview, formatSavedDraft, formatTodayCapturePrompt, isTodayCaptureReply, reviewKeyboard } from "./today";
+import { formatAgenda, formatCarryoverPrompt, formatDraftReview, formatSavedDraft, formatTodayCapturePrompt, isTodayCaptureReply, parseTodayMoveInstruction, reviewKeyboard } from "./today";
 
 const draft = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -66,6 +66,8 @@ describe("Today Telegram acceptance dialogue", () => {
       localDate: "2026-08-31",
       timezone: "Asia/Singapore",
       scope: PlanningScope.PERSONAL,
+      orderRevision: 0,
+      reorderable: true,
       today: [{ id: "1", publicId: "TASK-1", title: "Today", mode: "INDIVIDUAL" as const, status: "OPEN", plannedFor: "2026-08-31" }],
       carryover: [{ id: "2", publicId: "TASK-2", title: "Old", mode: "GROUP" as const, status: "OPEN", plannedFor: "2026-08-27", firstPlannedFor: "2026-08-27" }],
       dueSoon: [{ id: "3", publicId: "STUDY-3", title: "Quiz", mode: "STUDY" as const, status: "OPEN", dueAt: "2026-09-01T10:00:00.000Z" }],
@@ -92,7 +94,7 @@ describe("Today Telegram acceptance dialogue", () => {
       status: "OPEN",
       plannedFor: "2026-08-31",
     }));
-    const agenda = { localDate: "2026-08-31", timezone: "Asia/Singapore", scope: PlanningScope.PERSONAL, today, carryover: [], dueSoon: [], overdue: [], unscheduledCount: 0 };
+    const agenda = { localDate: "2026-08-31", timezone: "Asia/Singapore", scope: PlanningScope.PERSONAL, orderRevision: 0, reorderable: true, today, carryover: [], dueSoon: [], overdue: [], unscheduledCount: 0 };
     const first = formatAgenda(agenda);
     const second = formatAgenda(agenda, 1);
     expect(first).toContain("1–5 of 11");
@@ -111,5 +113,13 @@ describe("Today Telegram acceptance dialogue", () => {
     expect(prompt).toContain("review the list before anything is saved");
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Add tasks to Today" } } } as Context)).toBe(true);
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Something else" } } } as Context)).toBe(false);
+  });
+
+  it("parses concise Personal Today move commands without treating ordinary prose as a command", () => {
+    expect(parseTodayMoveInstruction("move TASK-8 to top")).toEqual({ reference: "TASK-8", placement: "top" });
+    expect(parseTodayMoveInstruction("move study-4 after task-2")).toEqual({ reference: "STUDY-4", placement: "after", targetReference: "TASK-2" });
+    expect(parseTodayMoveInstruction("prioritize task-5")).toEqual({ reference: "TASK-5", placement: "top" });
+    expect(parseTodayMoveInstruction("move TASK-3 up")).toEqual({ reference: "TASK-3", placement: "up" });
+    expect(parseTodayMoveInstruction("Meet mom, dad")).toBeNull();
   });
 });

@@ -1685,7 +1685,7 @@ and the next command/action. Never mark incomplete work complete.
   HTTP 200 at that exact commit. Dashboard `5df6491facf7` is live in Vercel Production after both CI jobs
   passed. The paired worktrees were clean after release; only this documentation checkpoint followed.
 
-### Personal-first Today prioritization plan — approved, not implemented (2026-08-29 SGT)
+### Personal-first Today prioritization — implementation and release candidate (2026-08-29 SGT)
 
 #### Completion affordance correction
 
@@ -1741,5 +1741,18 @@ and the next command/action. Never mark incomplete work complete.
 - Evaluate whether users understand the empty circle without explanation, whether ordering reduces planning
   friction, and whether pagination makes cross-page moves discoverable. Expand to Study or Group only after
   this Personal trial is stable; Group will require a separate decision about shared ordering permissions.
-- This checkpoint records product intent only. No schema, code, runtime, deployment, or live behavior has
-  changed, and implementation must receive a separate explicit instruction.
+- Implementation now follows this boundary. The additive `DailyAgendaOrderState` and
+  `DailyAgendaOrderItem` tables retain a private owner/date revision plus sparse entry ranks; they do
+  not alter Task, StudyItem, Group, deadline, or reminder records. The reorder service validates the
+  complete visible Today set, permits one moved item per optimistic revision, normalizes ranks only
+  when necessary, removes stale entries, and clears order states older than 90 days on a later move.
+- The dashboard uses an empty completion circle, a brief confirmed state, and removal with rollback.
+  Personal Today alone exposes pointer/touch/keyboard sorting plus compact Move to top/up/down actions;
+  Group, Study, Carryover, and Deadline Watch do not expose handles. Telegram Personal Today follows
+  the stored order and accepts concise `move`/`prioritize` commands without adding button fatigue.
+- Validation is green: Prisma generate/validate, backend typecheck/build, 970 tests with 6 intentional
+  skips, tracked-secret scan, and a zero-finding production dependency audit; dashboard typecheck,
+  lint, optimized production build, 143 tests, tracked-secret scan, a zero-finding production
+  dependency audit, and the desktop/mobile browser suite with 7 passes plus 1 intentional mobile skip.
+  One unrelated file-courier test timed out during an initial concurrent run, then passed independently
+  and in the complete sequential suite. Publication and exact runtime verification remain next.

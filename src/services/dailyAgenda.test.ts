@@ -1,6 +1,6 @@
 import { DailyBriefKind, PlanningScope, Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
-import { claimDailyBriefDelivery, countDailyAgendaCompletions, groupAgendaEntries, planDailyAgendaEntry, type AgendaEntry } from "./dailyAgenda";
+import { claimDailyBriefDelivery, countDailyAgendaCompletions, getDailyAgenda, groupAgendaEntries, planDailyAgendaEntry, reorderPersonalDailyAgenda, type AgendaEntry } from "./dailyAgenda";
 
 const entry = (overrides: Partial<AgendaEntry> & Pick<AgendaEntry, "id" | "title">): AgendaEntry => ({
   publicId: `TASK-${overrides.id}`,
@@ -83,6 +83,7 @@ describe("daily agenda grouping", () => {
       groupMembership: { findMany: vi.fn(async () => []) },
       task: { findMany: vi.fn(async () => [task]), findFirst: vi.fn(async () => task), update },
       studyWorkspace: { findFirst: vi.fn(async () => null) },
+      dailyAgendaOrderState: { findUnique: vi.fn(async () => null) },
       auditLog: { create: audit },
       $transaction: vi.fn(async (callback) => callback(database)),
     } as never;
@@ -134,6 +135,7 @@ describe("daily agenda grouping", () => {
       groupMembership: { findMany: vi.fn(async () => []) },
       task: { findMany: vi.fn(async () => []) },
       studyWorkspace: { findFirst: vi.fn(async () => null) },
+      dailyAgendaOrderState: { findUnique: vi.fn(async () => null) },
       $transaction: transaction,
     } as never;
     await expect(planDailyAgendaEntry(
@@ -143,5 +145,85 @@ describe("daily agenda grouping", () => {
       database,
     )).rejects.toEqual(expect.objectContaining({ code: "not_found" }));
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("persists a private Personal Today order without changing task records", async () => {
+    let state: { id: string; revision: number; items: Array<{ entryId: string; rank: number }> } | null = null;
+    const tasks = [
+      { id: "task-a", publicId: "TASK-1", title: "Alpha", userId: "user-1", plannedFor: new Date("2026-08-31T00:00:00.000Z"), firstPlannedFor: null, dueAt: null, status: "OPEN", archivedAt: null },
+      { id: "task-b", publicId: "TASK-2", title: "Beta", userId: "user-1", plannedFor: new Date("2026-08-31T00:00:00.000Z"), firstPlannedFor: null, dueAt: null, status: "OPEN", archivedAt: null },
+    ];
+    const database: any = {
+      user: { findUnique: vi.fn(async () => ({ id: "user-1", settings: { timezone: "Asia/Singapore" } })) },
+      groupMembership: { findMany: vi.fn(async () => []) },
+      task: { findMany: vi.fn(async () => tasks) },
+      studyWorkspace: { findFirst: vi.fn(async () => null) },
+      dailyAgendaOrderState: {
+        findUnique: vi.fn(async () => state ? { ...state, items: [...state.items] } : null),
+        deleteMany: vi.fn(async () => ({ count: 0 })),
+        upsert: vi.fn(async () => {
+          state ??= { id: "order-1", revision: 0, items: [] };
+          return { ...state, items: [...state.items] };
+        }),
+        updateMany: vi.fn(async ({ where }: any) => {
+          if (!state || state.revision !== where.revision) return { count: 0 };
+          state.revision += 1;
+          return { count: 1 };
+        }),
+      },
+      dailyAgendaOrderItem: {
+        deleteMany: vi.fn(async () => ({ count: 0 })),
+        upsert: vi.fn(async ({ where, update, create }: any) => {
+          const entryId = where.stateId_entryId.entryId;
+          const existing = state!.items.find((item) => item.entryId === entryId);
+          if (existing) existing.rank = update.rank;
+          else state!.items.push({ entryId, rank: create.rank });
+          return {};
+        }),
+      },
+      auditLog: { create: vi.fn(async () => ({})) },
+    };
+    database.$transaction = vi.fn(async (callback: any) => callback(database));
+
+    const scope = { principalTelegramId: "123", scope: PlanningScope.PERSONAL };
+    const reordered = await reorderPersonalDailyAgenda(scope, {
+      localDate: "2026-08-31",
+      orderedEntryIds: ["task-b", "task-a"],
+      movedEntryId: "task-b",
+      expectedRevision: 0,
+    }, database);
+
+    expect(reordered.today.map((item) => item.id)).toEqual(["task-b", "task-a"]);
+    expect(reordered.orderRevision).toBe(1);
+    expect(reordered.reorderable).toBe(true);
+    expect(database.task.findMany).toHaveBeenCalled();
+    expect(database.task.update).toBeUndefined();
+    await expect(getDailyAgenda(scope, { localDate: "2026-08-31" }, database)).resolves.toMatchObject({ orderRevision: 1 });
+  });
+
+  it("rejects Personal Today reorder requests with a stale revision", async () => {
+    const database = {
+      user: { findUnique: vi.fn(async () => ({ id: "user-1", settings: { timezone: "Asia/Singapore" } })) },
+      groupMembership: { findMany: vi.fn(async () => []) },
+      task: { findMany: vi.fn(async () => [{ id: "task-a", publicId: "TASK-1", title: "Alpha", userId: "user-1", plannedFor: new Date("2026-08-31T00:00:00.000Z"), firstPlannedFor: null, dueAt: null, status: "OPEN", archivedAt: null }]) },
+      studyWorkspace: { findFirst: vi.fn(async () => null) },
+      dailyAgendaOrderState: { findUnique: vi.fn(async () => ({ id: "order-1", revision: 2, items: [] })) },
+      $transaction: vi.fn(),
+    } as never;
+
+    await expect(reorderPersonalDailyAgenda(
+      { principalTelegramId: "123", scope: PlanningScope.PERSONAL },
+      { localDate: "2026-08-31", orderedEntryIds: ["task-a"], movedEntryId: "task-a", expectedRevision: 1 },
+      database,
+    )).rejects.toEqual(expect.objectContaining({ code: "conflict" }));
+    expect((database as any).$transaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual Today ordering unavailable in Group and Study scopes", async () => {
+    await expect(reorderPersonalDailyAgenda(
+      { principalTelegramId: "123", scope: PlanningScope.GROUP, groupWorkspaceId: "group-1" },
+      { localDate: "2026-08-31", orderedEntryIds: ["task-a"], movedEntryId: "task-a", expectedRevision: 0 },
+      {} as never,
+    )).rejects.toEqual(expect.objectContaining({ code: "forbidden" }));
   });
 });

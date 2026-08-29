@@ -202,6 +202,13 @@ export const todayAgendaPlanSchema = z.object({
   plannedFor: dateOnly.nullable(),
 }).strict();
 
+export const todayAgendaOrderSchema = z.object({
+  localDate: dateOnly,
+  orderedEntryIds: z.array(z.string().uuid()).min(1).max(500),
+  movedEntryId: z.string().uuid(),
+  expectedRevision: z.number().int().min(0),
+}).strict();
+
 export const taskCaptureDraftCreateSchema = z.object({
   text: trimmed(20_000),
   moduleId: z.string().uuid().optional(),

@@ -89,6 +89,14 @@ private, independently opt-in, quiet-hours-aware, empty-state suppressing, and c
 per-user/local-date/kind delivery ledger. All new Telegram and dashboard paths remain fail-closed behind
 `TODAY_FOUNDATION_OWNER_TELEGRAM_ID`; the deployed stack therefore remains fail-closed and owner-only.
 
+Personal Today priority is stored as a private projection rather than a field on Task or StudyItem.
+`DailyAgendaOrderState` keys one revisioned order to an owner and local calendar date;
+`DailyAgendaOrderItem` keeps sparse ranks for canonical agenda entry IDs. Reorder writes must contain
+the complete current Today set and move exactly one entry against the observed revision. This preserves
+the underlying Personal, assigned Group, and Study records and makes stale concurrent requests fail
+closed. Group and Study agenda views remain deterministically sorted and non-reorderable. Old private
+order states are removed after 90 days during subsequent Personal reorder activity.
+
 Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
 
 The approved public-Study direction is additive and does not weaken this sealed path. Its tenant,

@@ -22,6 +22,8 @@ const agenda = {
   localDate: "2026-08-31",
   timezone: "Asia/Singapore",
   scope: PlanningScope.PERSONAL,
+  orderRevision: 0,
+  reorderable: true,
   today: [{ id: "task-1", publicId: "TASK-1", title: "Prepare tutorial", mode: "INDIVIDUAL" as const, plannedFor: "2026-08-31", status: "OPEN" }],
   carryover: [{ id: "task-2", publicId: "TASK-2", title: "Return book", mode: "GROUP" as const, workspaceName: "Project", plannedFor: "2026-08-30", firstPlannedFor: "2026-08-30", status: "OPEN" }],
   dueSoon: [{ id: "study-1", publicId: "STUDY-1", title: "Submit quiz", mode: "STUDY" as const, moduleCode: "CS2102", dueAt: "2026-09-01T10:00:00.000Z", status: "OPEN" }],
