@@ -1684,3 +1684,62 @@ and the next command/action. Never mark incomplete work complete.
 - Release checkpoint: backend `01a3f632ee3b` is live on Render and its public health endpoint returns
   HTTP 200 at that exact commit. Dashboard `5df6491facf7` is live in Vercel Production after both CI jobs
   passed. The paired worktrees were clean after release; only this documentation checkpoint followed.
+
+### Personal-first Today prioritization plan — approved, not implemented (2026-08-29 SGT)
+
+#### Completion affordance correction
+
+- The current outlined control must not show a check while a task is still open; that reads as an
+  already-completed state. Its resting state will be an empty circle. Activating it will show a check
+  briefly, announce completion to assistive technology, and promptly remove the task from every visible
+  Today projection. Failure restores the empty circle and row with an actionable error. Reduced-motion
+  users receive the state change without a decorative delay.
+- Remove the current long dashboard instruction containing Telegram command syntax. The dashboard may
+  use one short contextual line only when useful: `Tap a circle to complete. Drag to reorder.` Telegram
+  completion guidance belongs in Telegram's Today card, not in the dashboard's primary hierarchy.
+
+#### Rollout boundary
+
+- Roll out manual Today ordering in **Personal/Individual mode first**. Group and Study Today views keep
+  their current deterministic ordering and must not display drag handles during this trial.
+- Personal Today is a private cross-mode agenda. It may contain Personal tasks, Study items, and Group
+  tasks assigned to the user; reordering them here changes only that person's Personal Today order. It
+  must not mutate a shared Group order, a Study workspace order, deadlines, reminder cadence, or source
+  system priority.
+- Deadline Watch remains automatically deadline-sorted and is not draggable. Carryover is not directly
+  draggable; after `Do today`, the item is appended to Today and can then be prioritized.
+
+#### Interaction design
+
+- Add a dedicated drag handle separate from the empty completion circle and the task content. Desktop
+  supports pointer drag; touch starts from the handle after a short hold so scrolling remains natural.
+- Keyboard and non-drag parity are required: grab/drop with the keyboard plus `Move up`, `Move down`, and
+  `Move to top`. Focus must follow the moved row, and an aria-live message must announce its new position.
+- Keep the existing five-item paging. Reordering within a page updates the complete ordered list; moving
+  an item across page boundaries is supported first through the accessible move actions. Automatic
+  drag-across-page switching is deferred unless usability testing shows it is necessary.
+- Use optimistic movement with rollback on failure, avoid a separate P1/P2 label system, and preserve
+  deadline/module/context metadata while a row moves.
+
+#### Persistence and Telegram parity
+
+- Do not store this as a global field on Task or StudyItem. Introduce a private daily agenda-order record
+  keyed by principal, local date, Personal scope, entry kind/id, and a sortable rank. Fractional ranks
+  should make an ordinary move a one-record update, with bounded normalization and retention cleanup.
+- New Today tasks append to the end; completion removes the rank record or makes it irrelevant; carryover
+  promotion appends; duplicate Today/Deadline projections share one canonical entry identity.
+- Private Telegram `/today`, morning brief, and evening debrief must follow the same Personal order.
+  Button-free commands such as `move TASK-8 to top` and `move STUDY-4 after TASK-2` are planned for the
+  Personal rollout. Group-chat and Study-context reorder commands remain unavailable until separately
+  evaluated and authorized.
+
+#### Acceptance and expansion gate
+
+- Test persistence across refresh/restart, timezone and midnight boundaries, pagination, completion after
+  reorder, carryover promotion, mixed entry kinds, duplicate Telegram updates, stale/concurrent revisions,
+  touch scrolling, keyboard operation, rollback, and cross-workspace access attempts.
+- Evaluate whether users understand the empty circle without explanation, whether ordering reduces planning
+  friction, and whether pagination makes cross-page moves discoverable. Expand to Study or Group only after
+  this Personal trial is stable; Group will require a separate decision about shared ordering permissions.
+- This checkpoint records product intent only. No schema, code, runtime, deployment, or live behavior has
+  changed, and implementation must receive a separate explicit instruction.
