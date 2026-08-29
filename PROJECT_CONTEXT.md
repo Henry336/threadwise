@@ -1755,4 +1755,10 @@ and the next command/action. Never mark incomplete work complete.
   lint, optimized production build, 143 tests, tracked-secret scan, a zero-finding production
   dependency audit, and the desktop/mobile browser suite with 7 passes plus 1 intentional mobile skip.
   One unrelated file-courier test timed out during an initial concurrent run, then passed independently
-  and in the complete sequential suite. Publication and exact runtime verification remain next.
+  and in the complete sequential suite.
+- Release checkpoint: backend commit `b7d2a87ca384` is live in Render deployment
+  `dep-da95qpbl550s739nk13g`; its additive migration completed and the cache-busted public `/health`
+  endpoint returned HTTP 200 with that exact commit. Dashboard commit `e6dea9e2b67c` passed both
+  required GitHub jobs, Vercel marked deployment `6152269935` successful in Production, and the
+  canonical dashboard route returned HTTP 200. This release remains owner-gated and costs no new
+  third-party service.

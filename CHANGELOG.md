@@ -12,6 +12,8 @@
   preserving five-item paging. Group, Study, Carryover, and Deadline Watch remain non-draggable.
 - Added concise private Telegram commands such as `move TASK-8 to top`, `move STUDY-4 after TASK-2`,
   and `prioritize TASK-5`; private Today cards and briefings follow the same stored order.
+- Released backend `b7d2a87ca384` on Render after the additive migration, paired with dashboard
+  `e6dea9e2b67c` in Vercel Production.
 
 ### Clear Telegram entry point for Today tasks
 - Added a visible `＋ Add tasks` action to `/today`. It opens Telegram's reply composer with a compact
