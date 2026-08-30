@@ -232,10 +232,7 @@ export function formatNoteDetail(note: {
   archivedReason?: string | null;
 }, timezone = "UTC"): string {
   void timezone;
-  const metadata = [
-    note.tags.length ? `#${note.tags.map((tag) => h(tag)).join("  #")}` : undefined,
-    note.archivedAt ? "🗃 Archived" : undefined
-  ].filter(Boolean).join("\n");
+  const metadata = note.archivedAt ? "🗃 Archived" : "";
 
   return joinBlocks([
     bold("📝 Note"),

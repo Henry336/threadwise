@@ -460,3 +460,9 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   project memory. **Open item for the owner:** back up the non-rotatable secrets in a password
   manager — `GOOGLE_TOKEN_ENCRYPTION_KEY`, `MICROSOFT_TOKEN_ENCRYPTION_KEY`, and the Ed25519
   `DASHBOARD_API_PRIVATE_KEY` (losing these orphans stored user data). No code/behavior changes.
+
+- **2026-08-31 (Codex):** Implemented the approved Study-first full-screen rich note slice without
+  21st.dev: encrypted cross-device `StudyNoteDraft` autosave with optimistic conflicts and expiry;
+  one Overview entry point; inline rich Markdown/Mermaid editing; final title/module filing into the
+  canonical Study resource; and compatibility-safe retirement of visible/generated tags across all
+  modes. See `PROJECT_CONTEXT.md` for the active release gate and exact scope boundary.

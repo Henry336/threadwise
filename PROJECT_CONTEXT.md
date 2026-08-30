@@ -1762,3 +1762,33 @@ and the next command/action. Never mark incomplete work complete.
   required GitHub jobs, Vercel marked deployment `6152269935` successful in Production, and the
   canonical dashboard route returned HTTP 200. This release remains owner-gated and costs no new
   third-party service.
+
+## Active checkpoint — Study-first full-screen rich notes (2026-08-31 SGT)
+
+- Approved scope: Study Mode first, cross-device autosave, no 21st.dev dependency for this pass.
+  Personal and Group note creation remain available but do not receive the new rich editor until the
+  Study trial is checked live and separately approved.
+- Product flow: Overview exposes one `Write note` action. It opens a near/full-viewport writing space
+  where headings, bold, italic, underline, lists, checklists, links, tables, code, and Mermaid render
+  inline. There is no Write/Preview/Split mode. Clicking a Mermaid canvas reveals its source; an
+  explicit continuation action inserts a paragraph after the diagram.
+- Persistence: unfinished title/body/module state autosaves through the sealed Study BFF to encrypted
+  `StudyNoteDraft` rows. One new-note draft and one draft per existing note are keyed within the
+  workspace, expire after seven days, purge opportunistically, and use revision checks so a stale
+  device cannot silently overwrite a newer copy. Draft text is not searchable or AI evidence.
+- Filing: Save opens one focused sheet for title and module. A successful file creates/updates the
+  canonical Markdown `StudyResource`, then removes the scratch draft; Library, Telegram fallback,
+  backlinks, bounded revision history, sessions, search, and analysis continue using the same record.
+- Tag retirement: visible tag inputs/chips/copy are removed across Personal, Group, and Study, and new
+  deterministic/heuristic/voice/AI paths emit empty legacy tag arrays. Existing database columns and
+  historical values are preserved dormant to avoid destructive migration or breaking old clients.
+- Trust boundary: imported raw HTML/scripts remain disabled; existing bounded strict Mermaid and
+  remote-image consent rules remain unchanged. Draft routes repeat owner/workspace authorization,
+  validate module/resource scope, cap title/body size, and never expose database or provider secrets.
+- Validation is green: Prisma format/validate/generate; backend typecheck/build, 976 tests with 6
+  intentional skips, 151 focused security tests, secret scan, and zero-finding production/complete
+  dependency audits; dashboard TypeScript, ESLint, optimized production build, 153 unit/regression
+  tests, 72 focused security tests, secret scan, zero-finding dependency audits, and Playwright
+  desktop/mobile smoke coverage (7 pass, 1 intentional skip). The first concurrent backend run had
+  the known Excel timeout; Excel passed in isolation and in the final complete sequential suite.
+  Commits, backend-first release, exact revision verification, and live editor QA remain the release gate.

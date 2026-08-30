@@ -172,7 +172,6 @@ export async function collectStudyEvidence(
       title: cleanText(`${resource.kind}: ${resource.title}`, 180),
       detail: cleanText([
         userText ? `${resource.kind === StudyResourceKind.NOTE ? "Learner text" : "Saved excerpt"}: ${userText}` : undefined,
-        resource.tags.length ? `Tags: ${resource.tags.join(", ")}` : undefined,
         resource.url ? "A saved link is present; its contents were not fetched." : undefined,
       ].filter(Boolean).join("\n"), MAX_DETAIL),
       occurredAt: occurredAt.toISOString(),

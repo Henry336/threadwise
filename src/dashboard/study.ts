@@ -178,6 +178,22 @@ export const studyResourceUpdateSchema = z.object({
   expectedUpdatedAt: isoDate.optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "Choose at least one resource change.");
 
+export const studyNoteDraftQuerySchema = z.object({
+  resourceId: id.optional(),
+}).strict();
+
+export const studyNoteDraftSaveSchema = z.object({
+  resourceId: id.nullable().optional(),
+  resourceUpdatedAt: isoDate.nullable().optional(),
+  moduleId: id.nullable().optional(),
+  title: z.string().max(500).default(""),
+  body: z.string().max(100_000).default(""),
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+}).strict().refine((value) => !value.resourceId || Boolean(value.resourceUpdatedAt), {
+  message: "The saved note version is required for an editing draft.",
+  path: ["resourceUpdatedAt"],
+});
+
 export const studySearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(200),
   moduleId: id.optional(),
@@ -728,6 +744,97 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
     caption: input.caption,
   });
   return result.resource;
+}
+
+const STUDY_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+export async function getDashboardStudyNoteDraft(
+  workspace: StudyWorkspace,
+  input: z.infer<typeof studyNoteDraftQuerySchema>,
+) {
+  await purgeExpiredStudyNoteDrafts(workspace);
+  return prisma.studyNoteDraft.findFirst({
+    where: {
+      workspaceId: workspace.id,
+      ownerUserId: workspace.ownerUserId,
+      draftKey: input.resourceId ?? "new",
+      expiresAt: { gt: new Date() },
+    },
+  });
+}
+
+export async function saveDashboardStudyNoteDraft(
+  workspace: StudyWorkspace,
+  input: z.infer<typeof studyNoteDraftSaveSchema>,
+) {
+  const resourceId = input.resourceId ?? null;
+  const draftKey = resourceId ?? "new";
+  if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
+  if (resourceId) {
+    const resource = await findStudyResource(workspace.id, resourceId);
+    if (resource.kind !== StudyResourceKind.NOTE) throw new StudyModeError("Only Study notes can have writing drafts.", "invalid");
+    if (resource.updatedAt.toISOString() !== input.resourceUpdatedAt) {
+      throw new StudyModeError("The saved note changed before this draft started. Reload it before continuing.", "conflict");
+    }
+  }
+  await purgeExpiredStudyNoteDrafts(workspace);
+  const expiresAt = new Date(Date.now() + STUDY_NOTE_DRAFT_TTL_MS);
+  const existing = await prisma.studyNoteDraft.findUnique({
+    where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } },
+  });
+  if (!existing) {
+    if (input.expectedRevision !== 0) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
+    try {
+      return await prisma.studyNoteDraft.create({
+        data: {
+          workspaceId: workspace.id,
+          ownerUserId: workspace.ownerUserId,
+          draftKey,
+          resourceId,
+          resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
+          moduleId: input.moduleId ?? null,
+          title: input.title,
+          body: input.body,
+          expiresAt,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
+      }
+      throw error;
+    }
+  }
+  const updated = await prisma.studyNoteDraft.updateMany({
+    where: {
+      id: existing.id,
+      workspaceId: workspace.id,
+      ownerUserId: workspace.ownerUserId,
+      revision: input.expectedRevision,
+    },
+    data: {
+      moduleId: input.moduleId ?? null,
+      title: input.title,
+      body: input.body,
+      expiresAt,
+      revision: { increment: 1 },
+    },
+  });
+  if (updated.count !== 1) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
+  return prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } });
+}
+
+export async function deleteDashboardStudyNoteDraft(workspace: StudyWorkspace, draftId: string) {
+  const removed = await prisma.studyNoteDraft.deleteMany({
+    where: { id: draftId, workspaceId: workspace.id, ownerUserId: workspace.ownerUserId },
+  });
+  if (removed.count !== 1) throw new StudyModeError("Draft not found.", "not_found");
+}
+
+async function purgeExpiredStudyNoteDrafts(workspace: StudyWorkspace) {
+  await prisma.studyNoteDraft.deleteMany({
+    where: { workspaceId: workspace.id, ownerUserId: workspace.ownerUserId, expiresAt: { lte: new Date() } },
+  });
 }
 
 export async function updateDashboardStudyResource(workspace: StudyWorkspace, resourceId: string, input: z.infer<typeof studyResourceUpdateSchema>) {

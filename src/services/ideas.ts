@@ -179,7 +179,6 @@ export async function createImplementationBrief(userId: string, publicOrUuid: st
     `- Problem: ${idea.problem ?? "Not specified; infer from the idea and ask only if blocking."}`,
     `- Target user: ${idea.targetUser ?? "Not specified; infer a practical first user."}`,
     `- Type: ${idea.type ?? "Not specified"}`,
-    `- Tags: ${idea.tags.length ? idea.tags.join(", ") : "none"}`,
     "",
     "Idea score context:",
     scoreLines,
@@ -254,7 +253,6 @@ export function formatIdeaDetail(idea: {
   void timezone;
   const metadata = [
     idea.type ? `◦ ${h(idea.type)}` : undefined,
-    idea.tags.length ? `#${idea.tags.map((tag) => h(tag)).join("  #")}` : undefined,
     idea.pinnedAt ? "⭐ Starred" : undefined
   ].filter(Boolean).join("\n");
 

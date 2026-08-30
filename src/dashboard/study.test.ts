@@ -5,6 +5,8 @@ import {
   loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
   studyModuleCreateSchema,
+  studyNoteDraftQuerySchema,
+  studyNoteDraftSaveSchema,
   studyScheduleCreateSchema,
   studyScheduleDeleteSchema,
   studyScheduleUpdateSchema,
@@ -90,6 +92,21 @@ describe("Study dashboard input contracts", () => {
       name: "Computer Organisation",
       color: "#168b83",
     });
+  });
+
+  it("bounds cross-device note drafts and requires optimistic revision state", () => {
+    const resourceId = "10000000-0000-4000-8000-000000000001";
+    const moduleId = "10000000-0000-4000-8000-000000000002";
+    expect(studyNoteDraftQuerySchema.parse({ resourceId })).toEqual({ resourceId });
+    expect(studyNoteDraftSaveSchema.parse({
+      resourceId,
+      resourceUpdatedAt: "2026-08-31T00:00:00.000Z",
+      moduleId,
+      title: "Draft",
+      body: "# Working note",
+      expectedRevision: 3,
+    })).toMatchObject({ resourceId, moduleId, expectedRevision: 3 });
+    expect(() => studyNoteDraftSaveSchema.parse({ title: "Draft", body: "x".repeat(100_001), expectedRevision: 0 })).toThrow();
   });
 
   it("accepts an optional live-travel destination on a schedule block", () => {

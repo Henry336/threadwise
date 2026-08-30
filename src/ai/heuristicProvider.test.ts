@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { HeuristicAiProvider } from "./heuristicProvider";
 
 describe("HeuristicAiProvider", () => {
-  it("does not tag the word both as bot", async () => {
+  it("does not generate retired tags for new notes", async () => {
     const provider = new HeuristicAiProvider();
     const note = await provider.structureNote("Selling yourself - mentioned by both Matthias and Ma Brenda");
 
-    expect(note.tags).not.toContain("bot");
+    expect(note.tags).toEqual([]);
   });
 
   it("creates a connected fallback note merge instead of pasting note ids", async () => {
@@ -24,9 +24,7 @@ describe("HeuristicAiProvider", () => {
     expect(preview.title).not.toContain("NOTE-");
     expect(preview.body).toContain("client-facing product path");
     expect(preview.connections.join(" ")).toContain("client discovery");
-    expect(preview.tags).toContain("product");
-    expect(preview.tags).toContain("sales");
-    expect(preview.tags).not.toContain("bot");
+    expect(preview.tags).toEqual([]);
   });
 });
 

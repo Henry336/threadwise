@@ -351,7 +351,6 @@ export function buildGeminiIdeaPrompt(
     idea.problem ? `Problem: ${idea.problem}` : undefined,
     idea.targetUser ? `Target user: ${idea.targetUser}` : undefined,
     idea.type ? `Type: ${idea.type}` : undefined,
-    idea.tags.length ? `Tags: ${idea.tags.join(", ")}` : undefined,
     idea.marketNotes ? `Existing notes: ${idea.marketNotes}` : undefined,
     idea.dos.length ? `Do: ${idea.dos.join("; ")}` : undefined,
     idea.donts.length ? `Do not: ${idea.donts.join("; ")}` : undefined

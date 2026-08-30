@@ -147,7 +147,9 @@ import {
   createDashboardStudyOrigin,
   createDashboardStudyResource,
   createDashboardStudyScheduleBlock,
+  deleteDashboardStudyNoteDraft,
   deleteDashboardStudyOrigin,
+  getDashboardStudyNoteDraft,
   getDashboardStudyResource,
   getDashboardStudyItem,
   getDashboardStudySnapshot,
@@ -159,6 +161,7 @@ import {
   resolveDashboardStudyMistake,
   saveDashboardStudyWeeklyPlan,
   saveDashboardStudyWeeklyReview,
+  saveDashboardStudyNoteDraft,
   searchDashboardStudyPlaces,
   searchDashboardStudy,
   startDashboardStudySession,
@@ -173,6 +176,8 @@ import {
   studyModuleCreateSchema,
   studyModuleUpdateSchema,
   studyNoteSuggestionReviewSchema,
+  studyNoteDraftQuerySchema,
+  studyNoteDraftSaveSchema,
   studyNusmodsImportSchema,
   studyOriginCreateSchema,
   studyOriginUpdateSchema,
@@ -526,6 +531,23 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const { id } = studyIdParamsSchema.parse(request.params);
     return { item: await completeDashboardStudyItem(workspace, id, false) };
   }, "study_complete_item"));
+
+  server.get("/api/v1/dashboard/study/note-drafts", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { draft: await getDashboardStudyNoteDraft(workspace, studyNoteDraftQuerySchema.parse(request.query)) };
+  }, "study_get_note_draft"));
+
+  server.patch("/api/v1/dashboard/study/note-drafts", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { draft: await saveDashboardStudyNoteDraft(workspace, studyNoteDraftSaveSchema.parse(request.body)) };
+  }, "study_save_note_draft"));
+
+  server.delete("/api/v1/dashboard/study/note-drafts/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const { id } = studyIdParamsSchema.parse(request.params);
+    await deleteDashboardStudyNoteDraft(workspace, id);
+    return { deleted: true };
+  }, "study_delete_note_draft"));
 
   server.get("/api/v1/dashboard/study/resources", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);

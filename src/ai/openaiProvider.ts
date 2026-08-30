@@ -90,14 +90,14 @@ export class OpenAiProvider implements AiProvider {
   async structureIdea(text: string): Promise<StructuredIdea> {
     const content = await this.jsonCompletion(
       "Structure rough software, product, or workflow ideas into concise portfolio-ready records. Return JSON only.",
-      `Idea text:\n${text}\n\nReturn: { "title": string, "concept": string, "problem"?: string, "targetUser"?: string, "type"?: string, "tags": string[] }`
+      `Idea text:\n${text}\n\nReturn: { "title": string, "concept": string, "problem"?: string, "targetUser"?: string, "type"?: string }`
     );
 
-    return safeJsonParse<StructuredIdea>(content, {
+    const structured = safeJsonParse<Omit<StructuredIdea, "tags">>(content, {
       title: "Untitled Idea",
       concept: text,
-      tags: []
     });
+    return { ...structured, tags: [] };
   }
 
   async structureTask(text: string): Promise<StructuredTask> {
@@ -115,15 +115,15 @@ export class OpenAiProvider implements AiProvider {
   async structureNote(text: string): Promise<StructuredNote> {
     const content = await this.jsonCompletion(
       "Clean a rough personal note into a readable, recallable note without losing important details. Preserve specifics, names, numbers, dates, caveats, and source wording when useful. Return JSON only.",
-      `Raw note:\n${text}\n\nReturn: { "title": string, "body": string, "summary": string, "tags": string[] }\n\nGuidelines:\n- title should be short and searchable\n- body should be clear, complete, and human-readable\n- summary should be one sentence\n- tags should be sparse and useful`
+      `Raw note:\n${text}\n\nReturn: { "title": string, "body": string, "summary": string }\n\nGuidelines:\n- title should be short and searchable\n- body should be clear, complete, and human-readable\n- summary should be one sentence`
     );
 
-    return safeJsonParse<StructuredNote>(content, {
+    const structured = safeJsonParse<Omit<StructuredNote, "tags">>(content, {
       title: "Untitled Note",
       body: text,
       summary: text.slice(0, 180),
-      tags: []
     });
+    return { ...structured, tags: [] };
   }
 
   async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
@@ -136,24 +136,25 @@ export class OpenAiProvider implements AiProvider {
         JSON.stringify(notes, null, 2),
         previousPreview ? ["", "Previous preview to improve:", JSON.stringify(previousPreview, null, 2)].join("\n") : "",
         "",
-        "Return: { \"title\": string, \"body\": string, \"summary\": string, \"tags\": string[], \"connections\": string[], \"preservedDetails\": string[], \"possibleMissingContext\": string[] }",
+        "Return: { \"title\": string, \"body\": string, \"summary\": string, \"connections\": string[], \"preservedDetails\": string[], \"possibleMissingContext\": string[] }",
         "",
         "Guidelines:",
         "- Make the merged note easier to reread later than the originals.",
         "- Strongly connect related ideas across notes, but label uncertainty instead of pretending.",
         "- Preserve important details even if they are messy.",
         "- If this is a retry, improve the connections and check whether the previous preview left out important details.",
-        "- Keep tags sparse and useful."
+        "- Keep the title specific enough to retrieve later."
       ].join("\n")
     );
 
-    return safeJsonParse<MergedNotePreview>(content, fallbackMergedNotePreview(notes));
+    const preview = safeJsonParse<Omit<MergedNotePreview, "tags">>(content, fallbackMergedNotePreview(notes));
+    return { ...preview, tags: [] };
   }
 
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
     const content = await this.jsonCompletion(
       "Analyze a user's notekeeping style from their saved notes. Be direct, practical, and specific. Return JSON only.",
-      `Notes:\n${JSON.stringify(notes, null, 2)}\n\nReturn: { "overview": string, "whatWorks": string[], "whatDoesNotWork": string[], "suggestions": string[], "experiments": string[] }\n\nFocus on retrieval quality, clarity, consistency, missing context, tagging habits, note granularity, and ways to make future notes more useful.`
+      `Notes:\n${JSON.stringify(notes, null, 2)}\n\nReturn: { "overview": string, "whatWorks": string[], "whatDoesNotWork": string[], "suggestions": string[], "experiments": string[] }\n\nFocus on retrieval quality, clarity, consistency, missing context, note granularity, and ways to make future notes more useful.`
     );
 
     return safeJsonParse<NoteAnalysis>(content, {
@@ -296,12 +297,11 @@ function isModelAvailabilityError(error: unknown): boolean {
 function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {
   const title = notes.length === 1 ? notes[0]?.title ?? "Merged Note" : `Merged Notes: ${notes.map((note) => note.publicId).join(", ")}`;
   const body = notes.map((note) => `${note.title}\n${note.body}`).join("\n\n");
-  const tags = [...new Set(notes.flatMap((note) => note.tags))].slice(0, 6);
   return {
     title,
     body,
     summary: notes.map((note) => note.summary).join(" "),
-    tags,
+    tags: [],
     connections: ["These notes were grouped together by the user for later consolidation."],
     preservedDetails: notes.map((note) => `${note.publicId}: ${note.summary}`),
     possibleMissingContext: []

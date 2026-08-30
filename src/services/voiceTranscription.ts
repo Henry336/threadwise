@@ -472,7 +472,7 @@ async function completeVoiceJob(
             body: cleanedText,
             summary: voiceNoteSummary(cleanedText),
             sourceText: rawTranscript,
-            tags: ["voice-note"],
+            tags: [],
             embedding
           }
         });

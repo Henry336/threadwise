@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Study-first full-screen note writing
+- Added encrypted, owner/workspace-scoped cross-device Study drafts with seven-day expiry,
+  opportunistic cleanup, and optimistic revision conflicts. Unfiled text is never added to blind
+  search indexes or Study analysis evidence.
+- Added protected GET/PATCH/DELETE draft routes behind the existing sealed Study authorization
+  boundary. Filing still creates or updates the canonical `StudyResource`, preserving Library,
+  Telegram, search, backlinks, revisions, sessions, and analysis behavior.
+- Retired visible note/idea tags and stopped generating them in deterministic, heuristic, voice,
+  OpenAI, and Telegram flows. Historical database fields remain intact for backward compatibility.
+
 ### Private Personal Today prioritization
 - Replaced the misleading pre-checked open-task affordance with an empty completion circle. Successful
   completion shows a short confirmed state before removing the row; failed requests restore it.

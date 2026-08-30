@@ -125,6 +125,30 @@ describe("content encryption", () => {
     expect(args.data.searchTokens).toBeUndefined();
   });
 
+  it("encrypts cross-device Study writing drafts without indexing unfinished text", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const args = prepareContentWrite("StudyNoteDraft", "create", {
+      data: { title: "Unfiled lecture note", body: "Private unfinished Markdown", revision: 1 },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(args.data.title)).toBe(true);
+    expect(isEncryptedContent(args.data.body)).toBe(true);
+    expect(args.data.revision).toBe(1);
+    expect(args.data.searchTokens).toBeUndefined();
+  });
+
+  it("encrypts cross-device Study writing drafts without indexing unfinished text", () => {
+    const cipher = new ContentCipher({ mode: "write", key: KEY });
+    const args = prepareContentWrite("StudyNoteDraft", "create", {
+      data: { title: "Unfiled lecture note", body: "Private unfinished Markdown", revision: 1 },
+    }, cipher) as { data: Record<string, unknown> };
+
+    expect(isEncryptedContent(args.data.title)).toBe(true);
+    expect(isEncryptedContent(args.data.body)).toBe(true);
+    expect(args.data.revision).toBe(1);
+    expect(args.data.searchTokens).toBeUndefined();
+  });
+
   it("encrypts AI payloads and suggestions without creating blind indexes", () => {
     const cipher = new ContentCipher({ mode: "write", key: KEY });
     const job = prepareContentWrite("GeminiStudyAnalysisJob", "create", {

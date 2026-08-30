@@ -413,6 +413,7 @@ model User {
   voiceTranscriptionJobs     VoiceTranscriptionJob[]
   pendingTaskImports         PendingTaskImport[]
   studyWorkspace             StudyWorkspace?
+  studyNoteDrafts            StudyNoteDraft[]
   taskCaptureDrafts          TaskCaptureDraft[]
   dailyBriefDeliveries       DailyBriefDelivery[]
   dailyAgendaOrderStates     DailyAgendaOrderState[]
@@ -468,6 +469,7 @@ model StudyWorkspace {
   analysisJobs          GeminiStudyAnalysisJob[]
   noteEditSuggestions   StudyNoteEditSuggestion[]
   noteCaptureSession    StudyNoteCaptureSession?
+  noteDrafts            StudyNoteDraft[]
   taskCaptureDrafts     TaskCaptureDraft[]
   canvasSync            StudyCanvasSync?
   canvasAssignments     StudyCanvasAssignment[]
@@ -520,6 +522,7 @@ model StudyModule {
   canvasMaterials       StudyCanvasMaterial[]
   analysisJobs          GeminiStudyAnalysisJob[]
   noteEditSuggestions   StudyNoteEditSuggestion[]
+  noteDrafts            StudyNoteDraft[]
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, canvasCourseId])
@@ -753,6 +756,7 @@ model StudyResource {
   revisions           StudyResourceRevision[]
   outgoingNoteLinks   StudyNoteLink[]           @relation("StudyNoteLinkSource")
   incomingNoteLinks   StudyNoteLink[]           @relation("StudyNoteLinkTarget")
+  noteDrafts          StudyNoteDraft[]
 
   @@unique([workspaceId, publicId])
   @@unique([workspaceId, telegramUniqueId])
@@ -761,6 +765,31 @@ model StudyResource {
   @@index([workspaceId, archivedAt])
   @@index([wikiLookupKeys], type: Gin)
   @@index([searchTokens], type: Gin)
+}
+
+model StudyNoteDraft {
+  id                String    @id @default(uuid())
+  workspaceId       String
+  ownerUserId       String
+  draftKey          String
+  resourceId        String?
+  resourceUpdatedAt DateTime?
+  moduleId          String?
+  title             String    @default("")
+  body              String    @default("")
+  revision          Int       @default(1)
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace StudyWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner     User           @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  resource  StudyResource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  module    StudyModule?   @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, draftKey])
+  @@index([ownerUserId, expiresAt])
+  @@index([workspaceId, updatedAt])
 }
 
 model StudyResourceRevision {

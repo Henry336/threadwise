@@ -59,7 +59,6 @@ export async function buildItemCard(
       pages.length > 1 ? bold(`📝 Note · ${page}/${pages.length}`) : bold("📝 Note"),
       bold(truncate(note.title, 300)),
       body ? h(pages[page - 1] ?? "") : undefined,
-      note.tags.length ? `#${note.tags.map((tag) => h(tag)).join("  #")}` : undefined,
       note.pinnedAt ? "⭐ Starred" : undefined
     ]);
     return {
@@ -79,7 +78,6 @@ export async function buildItemCard(
     bold(`💡 Idea · ${String(idea.status ?? "raw").toLowerCase()}`),
     bold(idea.title),
     concept ? h(truncate(concept, 900)) : undefined,
-    idea.tags.length ? `#${idea.tags.map((tag) => h(tag)).join("  #")}` : undefined,
     idea.pinnedAt ? "⭐ Starred" : undefined
   ]);
   return { text, keyboard: itemActionsKeyboard("idea", idea, includeDefaultBack, undefined, workspaceId) };
@@ -96,7 +94,6 @@ export function buildArchivedNoteCard(
     pages.length > 1 ? bold(`📝 Note · ${page}/${pages.length}`) : bold("📝 Note"),
     bold(truncate(note.title, 300)),
     body ? h(pages[page - 1] ?? "") : undefined,
-    note.tags.length ? `#${note.tags.map((tag) => h(tag)).join("  #")}` : undefined,
     note.archivedAt ? "🗃 Archived" : undefined
   ]);
   return {

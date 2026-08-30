@@ -85,7 +85,7 @@ export class HeuristicAiProvider implements AiProvider {
       problem: "Unstructured thought needs to be saved before it gets lost.",
       targetUser: "The person who captured the idea.",
       type: "other",
-      tags: inferTags(text)
+      tags: []
     };
   }
 
@@ -103,7 +103,7 @@ export class HeuristicAiProvider implements AiProvider {
       title: titleCase(inferNoteTitle(cleaned)),
       body: formatRoughNote(cleaned),
       summary: summarize(formatRoughNote(cleaned), 160),
-      tags: inferTags(cleaned)
+      tags: []
     };
   }
 
@@ -111,7 +111,6 @@ export class HeuristicAiProvider implements AiProvider {
     const noteTexts = notes.map((note) => cleanNoteText(note.sourceText || note.body || note.summary));
     const combined = noteTexts.join("\n");
     const details = noteTexts.flatMap(extractNoteDetails);
-    const tags = [...new Set([...notes.flatMap((note) => note.tags), ...inferTags(combined)])].slice(0, 6);
     const title = inferMergedTitle(combined, notes);
     const theme = inferMergeTheme(combined);
     const body = formatMergedBody(theme, details, combined, Boolean(previousPreview), attempt);
@@ -120,7 +119,7 @@ export class HeuristicAiProvider implements AiProvider {
       title,
       body,
       summary: summarize(theme, 180),
-      tags,
+      tags: [],
       connections: inferConnections(combined, notes),
       preservedDetails: notes.map((note) => `${note.publicId}: ${summarize(formatRoughNote(note.sourceText || note.body), 180)}`),
       possibleMissingContext: inferMissingContext(combined, attempt)
@@ -128,23 +127,12 @@ export class HeuristicAiProvider implements AiProvider {
   }
 
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
-    const tagCounts = new Map<string, number>();
-    for (const note of notes) {
-      for (const tag of note.tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-      }
-    }
-    const commonTags = [...tagCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([tag]) => tag);
-
     return {
-      overview: `You have ${notes.length} saved notes${commonTags.length ? `, often around ${commonTags.join(", ")}` : ""}.`,
+      overview: `You have ${notes.length} saved notes.`,
       whatWorks: ["Saving notes in one searchable place", "Keeping enough raw detail to preserve context"],
-      whatDoesNotWork: ["Some notes may need clearer titles", "Mixed topics can become harder to retrieve without tags"],
+      whatDoesNotWork: ["Some notes may need clearer titles", "Mixed topics can become harder to retrieve from one long note"],
       suggestions: ["Use one note per durable idea or fact", "Start notes with the topic first", "Add a short why-this-matters sentence"],
-      experiments: ["Review recent notes weekly", "Try tags for people, projects, and concepts", "Convert action-like notes into tasks"]
+      experiments: ["Review recent notes weekly", "Use specific titles that match how you would search later", "Convert action-like notes into tasks"]
     };
   }
 
@@ -187,24 +175,6 @@ function summarize(text: string, maxLength = 90): string {
 
 function titleCase(text: string): string {
   return text.replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function inferTags(text: string): string[] {
-  const lower = text.toLowerCase();
-  const tags = new Set<string>();
-
-  if (hasTerm(lower, "telegram") || hasTerm(lower, "bot")) tags.add("bot");
-  if (hasTerm(lower, "task") || hasTerm(lower, "todo") || hasTerm(lower, "remind")) tags.add("tasks");
-  if (hasTerm(lower, "relationship") || hasTerm(lower, "conflict")) tags.add("relationships");
-  if (hasTerm(lower, "calendar")) tags.add("calendar");
-  if (hasTerm(lower, "ai")) tags.add("ai");
-  if (hasTerm(lower, "product manager") || hasTerm(lower, "product") || hasTerm(lower, "software design")) tags.add("product");
-  if (hasTerm(lower, "client") || hasTerm(lower, "customer")) tags.add("clients");
-  if (hasTerm(lower, "selling") || hasTerm(lower, "sales") || hasTerm(lower, "closed deals")) tags.add("sales");
-  if (hasTerm(lower, "api") || hasTerm(lower, "documentation") || hasTerm(lower, "documentations")) tags.add("technical");
-  if (hasTerm(lower, "career") || hasTerm(lower, "role") || hasTerm(lower, "working with")) tags.add("career");
-
-  return [...tags].slice(0, 5);
 }
 
 function hasTerm(text: string, term: string): boolean {

@@ -141,8 +141,7 @@ export function formatNoteMergePreview(result: NoteMergePreviewResult): string {
     preview.preservedDetails.length ? ["", bold("Details preserved"), ...preview.preservedDetails.map((item) => `- ${h(item)}`)].join("\n") : undefined,
     preview.possibleMissingContext.length
       ? ["", bold("Possible missing context"), ...preview.possibleMissingContext.map((item) => `- ${h(item)}`)].join("\n")
-      : undefined,
-    preview.tags.length ? ["", `${bold("Tags")} ${h(preview.tags.join(", "))}`].join("\n") : undefined
+      : undefined
   ]
     .filter(Boolean)
     .join("\n");

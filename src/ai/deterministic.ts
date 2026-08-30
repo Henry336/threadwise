@@ -109,7 +109,7 @@ export function structureNoteDeterministically(text: string): StructuredNote {
     title: title || "Untitled Note",
     body: body || text.trim(),
     summary: summary || text.trim(),
-    tags: inferTags(`${title} ${body}`)
+    tags: []
   };
 }
 
@@ -251,25 +251,6 @@ function inferNoteTitle(text: string): string {
   const segment = text.split(/\s*->\s*|[.:;]/)[0]?.trim() || text;
   const words = segment.split(/\s+/).filter((word) => !STOP_WORDS.has(word.toLowerCase()));
   return summarize(words.length ? words.join(" ") : segment, 70);
-}
-
-function inferTags(text: string): string[] {
-  const lower = text.toLowerCase();
-  const tags = new Set<string>();
-
-  if (hasTerm(lower, "telegram") || hasTerm(lower, "bot")) tags.add("bot");
-  if (hasTerm(lower, "task") || hasTerm(lower, "todo") || hasTerm(lower, "remind")) tags.add("tasks");
-  if (hasTerm(lower, "calendar") || hasTerm(lower, "schedule") || hasTerm(lower, "meeting")) tags.add("calendar");
-  if (hasTerm(lower, "ai") || hasTerm(lower, "model") || hasTerm(lower, "prompt")) tags.add("ai");
-  if (hasTerm(lower, "product manager") || hasTerm(lower, "product") || hasTerm(lower, "software design")) tags.add("product");
-  if (hasTerm(lower, "client") || hasTerm(lower, "customer")) tags.add("clients");
-  if (hasTerm(lower, "selling") || hasTerm(lower, "sales") || hasTerm(lower, "closed deals")) tags.add("sales");
-  if (hasTerm(lower, "api") || hasTerm(lower, "documentation") || hasTerm(lower, "documentations")) tags.add("technical");
-  if (hasTerm(lower, "career") || hasTerm(lower, "role") || hasTerm(lower, "working with")) tags.add("career");
-  if (hasTerm(lower, "school") || hasTerm(lower, "class") || hasTerm(lower, "exam")) tags.add("school");
-  if (hasTerm(lower, "gift") || hasTerm(lower, "birthday")) tags.add("personal");
-
-  return [...tags].slice(0, 5);
 }
 
 function startsWithAny(lower: string, starters: string[]): boolean {
