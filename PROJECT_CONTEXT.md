@@ -1791,4 +1791,9 @@ and the next command/action. Never mark incomplete work complete.
   tests, 72 focused security tests, secret scan, zero-finding dependency audits, and Playwright
   desktop/mobile smoke coverage (7 pass, 1 intentional skip). The first concurrent backend run had
   the known Excel timeout; Excel passed in isolation and in the final complete sequential suite.
-  Commits, backend-first release, exact revision verification, and live editor QA remain the release gate.
+- Release checkpoint: backend commit `0adbf0be688f` is live in Render deployment
+  `dep-daa7shoae00c73b6qr2g`; the additive migration-before-start step completed and `/health`
+  returned HTTP 200 with that exact commit. Dashboard commit `b81f57fc3594` passed both GitHub
+  validation jobs, Vercel marked the production deployment successful, and the canonical
+  `/dashboard?demo=1` route returned HTTP 200. Authenticated cross-device editor behavior remains
+  the owner's live acceptance check; the release itself is complete and no new paid service was added.
