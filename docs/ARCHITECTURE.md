@@ -1,10 +1,12 @@
 # Architecture Notes
 
-Updated: 2026-08-13
+Updated: 2026-08-31
 
 Current backend release: v0.32.0
 
-Threadwise is intentionally split into small modules so future contributors can change one feature without reshaping the whole bot.
+Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
+one domain without reshaping the whole product. Several legacy composition modules remain large; use
+`docs/DEVELOPER_ONBOARDING.md` and the current post-release audit before extracting them.
 
 ## Core Principles
 

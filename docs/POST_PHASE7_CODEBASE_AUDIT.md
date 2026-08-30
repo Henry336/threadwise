@@ -1,5 +1,10 @@
 # Post-Phase-7 Threadwise codebase audit
 
+> Historical snapshot (2026-08-17). Current status and residual findings are in
+> `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`. Gate 3A and findings F-01 through F-03
+> were subsequently completed/remediated and released; the finding text below is preserved as the
+> evidence that drove that work, not as a statement of current exposure.
+
 Date: 2026-08-17 SGT  
 Status: **final local audit complete; findings recorded; no audit finding remediated in this pass**
 

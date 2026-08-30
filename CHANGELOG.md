@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Post-release audit and contributor handoff
+- Added a current cross-repository code, UI/UX, security, privacy, efficiency, and validation audit.
+- Added a new-developer code map, trust-boundary guide, safe-change workflow, and release checklist.
+- Reconciled the active security roadmap with the completed Gate 3A and released Canvas-token,
+  dashboard-mutation replay, and shared-rate-limit remediations. Historical reports remain dated
+  snapshots rather than being rewritten as if their original findings never existed.
+
 ### Study-first full-screen note writing
 - Added encrypted, owner/workspace-scoped cross-device Study drafts with seven-day expiry,
   opportunistic cleanup, and optimistic revision conflicts. Unfiled text is never added to blind

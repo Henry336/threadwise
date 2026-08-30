@@ -6,6 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, deployed and audited):** Released the Study-first full-screen rich-note slice:
+  encrypted cross-device drafts, inline Markdown/Mermaid editing, title/module filing into canonical
+  Study resources, and compatibility-safe visible tag retirement. Backend runtime `0adbf0be688f`
+  and dashboard runtime `b81f57fc3594` are live. The post-release audit and new-developer map are
+  `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` and
+  `docs/DEVELOPER_ONBOARDING.md`. No critical vulnerability or confirmed release regression was
+  found; residual CSP, session-revocation, editor accessibility/recovery/performance, behavioral-test,
+  native-selector, and large-module findings are documented but not silently remediated.
+
 - **2026-08-28 (Codex):** Made Today task capture self-explanatory in Telegram. `/today` now pairs
   `＋ Add tasks` with `Open Today`; the add action opens a force-reply composer that accepts one task or
   newline-separated batches and returns the existing atomic review card. Commas split conservatively
@@ -51,18 +60,6 @@ then follow the pointers below.
   Do not collect browser tokens/cookies or build a connector until the NUS/Coursemology operator
   confirms a supported read-only contract. No provider, credential, schema, database, production,
   merge, or deployment state changed.
-- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
-  `codex/post-phase7-work-filter-audit`; canonical evidence is
-  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
-  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
-  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
-  finding was remediated, merged, deployed, or used to mutate production in this pass.
-- **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
-  `codex/post-phase7-work-filter-audit`; canonical evidence is
-  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
-  cycle-caused regression, but production has not inherited most Phase 3–7 changes. Gate 3A,
-  Phase 6 F-01–F-03, CSP enforcement evidence, and hosted synthetic staging remain open. No audit
-  finding was remediated, merged, deployed, or used to mutate production in this pass.
 - **2026-08-17 (Codex):** Completed the post-Phase-7 local audit on guarded branch
   `codex/post-phase7-work-filter-audit`; canonical evidence is
   `docs/POST_PHASE7_CODEBASE_AUDIT.md`. The guarded cycle is materially safer with no confirmed
@@ -212,6 +209,18 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-31 (Codex):** Completed a post-release static, dependency, test, and live responsive
+  audit across both repos. Added current findings plus onboarding maps; reconciled Gate 3A and Phase 6
+  status; refreshed README/architecture/changelog/handoff/context. Runtime behavior was deliberately
+  unchanged. Full serialized backend, dashboard unit/browser/type/lint/build, secret, and dependency
+  gates pass. Findings await owner prioritization.
+
+- **2026-08-31 (Codex):** Implemented and released the approved Study-first full-screen rich note
+  slice without 21st.dev: encrypted cross-device `StudyNoteDraft` autosave with optimistic conflicts
+  and expiry; one Overview entry point; inline rich Markdown/Mermaid editing; final title/module filing
+  into the canonical Study resource; and compatibility-safe retirement of visible/generated tags
+  across all modes. See `PROJECT_CONTEXT.md` for the exact release record.
 
 - **2026-08-28 (Codex):** Implemented Phase 3 Today delivery and private Note refinements on guarded
   branch `codex/phase3-today-delivery-notes`. Owner-gated morning/evening loops now send bounded,
@@ -460,9 +469,3 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   project memory. **Open item for the owner:** back up the non-rotatable secrets in a password
   manager — `GOOGLE_TOKEN_ENCRYPTION_KEY`, `MICROSOFT_TOKEN_ENCRYPTION_KEY`, and the Ed25519
   `DASHBOARD_API_PRIVATE_KEY` (losing these orphans stored user data). No code/behavior changes.
-
-- **2026-08-31 (Codex):** Implemented the approved Study-first full-screen rich note slice without
-  21st.dev: encrypted cross-device `StudyNoteDraft` autosave with optimistic conflicts and expiry;
-  one Overview entry point; inline rich Markdown/Mermaid editing; final title/module filing into the
-  canonical Study resource; and compatibility-safe retirement of visible/generated tags across all
-  modes. See `PROJECT_CONTEXT.md` for the active release gate and exact scope boundary.

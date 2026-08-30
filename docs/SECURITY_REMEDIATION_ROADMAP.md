@@ -12,11 +12,21 @@ phase is validated or rolled back.
 
 ## Current state
 
-- Status: **Phases 1 and 2 complete; Phase 3, Phase 4, and Phase 5 implementation are complete on guarded branches; production activation remains blocked at Gate 3A; Phase 6 assurance is stopped at findings review; Phase 7 architecture is complete on guarded branches, with implementation and activation not started**.
-- The final local reconciliation after Phase 7 is recorded in
-  `docs/POST_PHASE7_CODEBASE_AUDIT.md`. It confirms that F-01 through F-03, Gate 3A, CSP
-  enforcement evidence, and hosted synthetic staging remain open; no audit finding was silently
-  remediated or deployed.
+- Status (2026-08-31): **The guarded Phase 1-6 runtime stack was reviewed, Gate 3A was proven, and the
+  paired stack was released. Phase 7 public-Study architecture is complete; multi-tenant public Study
+  implementation and activation have not started.**
+- Gate 3A passed with an encrypted logical backup, isolated restore comparison, all migrations, and
+  independently attested encryption-key recovery before release.
+- Phase 6 F-01 through F-03 are remediated in current `main`: Canvas pagination/material URLs are
+  origin/path constrained and redirects refused; dashboard mutation JTIs are consumed in a shared
+  replay store; and shared ingress/principal/operation rate limits are active.
+- CSP enforcement evidence and hosted synthetic authenticated staging remain open. CSP is deliberately
+  report-only because current dynamic style attributes produce violations and would break under the
+  present enforced policy.
+- Destructive historical content backfill and retention deletion remain separate, explicitly gated
+  operations; their absence is not a failed ordinary deployment.
+- The 2026-08-17 state remains in `docs/POST_PHASE7_CODEBASE_AUDIT.md` as historical evidence. The
+  current reconciliation is `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -418,13 +428,15 @@ phase complete merely because code was written or pushed.
 
 ## Next authorized action
 
-Phase 7 architecture and guarded-branch publication are complete. The next safe product unit is
-**Stage 7.1 tenant foundations only**, but it is not authorized: wait for explicit approval before
-adding schema/runtime code, applying a migration/backfill, or beginning any later rollout stage.
+Phase 7 architecture is complete. The next safe public-Study product unit remains **Stage 7.1 tenant
+foundations only**, but it is not authorized: wait for explicit approval before adding public-tenant
+schema/runtime code, applying a public-Study migration, or beginning a cohort rollout.
 
-Separately, present and obtain explicit remediation approval for Phase 6 F-01 through F-03 before
-fixing them. Those findings, remote ephemeral PostgreSQL CI, dedicated hosted synthetic staging,
-and Gate 3A backup/restore/key-recovery evidence remain blockers before any public cohort. Do not
-provision hosted staging, rotate credentials, perform production verification, merge/deploy, create
-or register a public Study bot, connect a real Canvas tenant, invite users, or cut over the founder
-workspace without the corresponding recorded approval and gate evidence.
+Phase 6 F-01 through F-03 and Gate 3A are no longer blockers; they were completed before/currently in
+the released stack. Current remediation candidates are listed in
+`docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` and still require owner prioritization before
+runtime fixes. Dedicated hosted synthetic authenticated staging and clean CSP enforcement evidence
+remain blockers before CSP enforcement or any public cohort. Do not provision staging, rotate
+credentials, run destructive privacy tooling, create/register a public Study bot, connect a real
+public Canvas tenant, invite users, or cut over the founder workspace without the corresponding
+recorded approval and gate evidence.

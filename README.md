@@ -6,7 +6,7 @@ Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, 
 
 Current backend release: **v0.32.0**
 
-Documentation verified against the deployed backend and dashboard: **2026-08-28**
+Documentation verified against the deployed backend and dashboard: **2026-08-31**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -20,8 +20,12 @@ Product decisions, observed friction, and implementation rationale: [docs/PRODUC
 
 Latest Today release summary: [docs/PHASE1_3_TODAY_MORNING_UPDATE.md](docs/PHASE1_3_TODAY_MORNING_UPDATE.md)
 
-The owner-gated Today-planning Phase 1–3 stack is merged, additively migrated, and live at backend
-commit `0ab4c9cffced` with dashboard commit `eac5844`.
+New-developer map: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
+
+Current code/UI/security audit: [docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md](docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md)
+
+The owner-gated Today-planning stack and Study-first rich-note release are merged, additively migrated,
+and live at backend runtime commit `0adbf0be688f` with dashboard commit `b81f57fc3594`.
 
 Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)
 

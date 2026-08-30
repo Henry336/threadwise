@@ -1797,3 +1797,28 @@ and the next command/action. Never mark incomplete work complete.
   validation jobs, Vercel marked the production deployment successful, and the canonical
   `/dashboard?demo=1` route returned HTTP 200. Authenticated cross-device editor behavior remains
   the owner's live acceptance check; the release itself is complete and no new paid service was added.
+
+## Active checkpoint — post-release audit and contributor handoff (2026-08-31 SGT)
+
+- Scope: read-only code/UI/UX/security/privacy/efficiency audit of backend `3869a4a`, dashboard
+  `b81f57f`, and the live dashboard demo, followed by documentation-only reconciliation. No runtime
+  finding, migration, credential, provider, database row, or production configuration was changed.
+- Canonical findings: `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`. No critical issue,
+  confirmed cross-workspace leak, exposed secret, or release regression was found. Current priorities
+  are large-module maintainability; report-only/non-enforcement-ready CSP; non-revocable seven-day
+  browser sessions; mobile accessible names; Study filing focus isolation; abrupt-close autosave;
+  long-note serialization; behavioral editor coverage; native-selector consistency; and explicit
+  draft DTO/data minimization.
+- Historical correction: Gate 3A and Phase 6 F-01 through F-03 are complete in current released code.
+  `docs/POST_PHASE7_CODEBASE_AUDIT.md` is retained as a dated 2026-08-17 snapshot and now points to the
+  current report. CSP enforcement, hosted synthetic authenticated staging, destructive historical
+  privacy backfill, and retention deletion remain separately gated.
+- Validation: backend default parallel run had three timeouts but no assertion failures; both affected
+  files passed 8/8 with one worker and the full serialized suite passed 976 with 6 skips. Dashboard
+  passed 153 unit/regression tests and 7 browser checks with 1 intentional mobile skip. Both repos pass
+  type/build (plus dashboard lint), tracked-secret scans, and zero-finding production/full dependency
+  audits. Live 390×844 Personal demo light/dark was coherent with no console errors; report-only CSP
+  logged legitimate inline-style violations.
+- New-developer documentation: backend `docs/DEVELOPER_ONBOARDING.md`; dashboard sibling
+  `docs/DEVELOPER_ONBOARDING.md`. These define reading order, code ownership, request flows, invariants,
+  safe change/release gates, hotspots, and which older documents are historical.
