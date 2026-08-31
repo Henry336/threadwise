@@ -6,6 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, Phase 2 release candidate):** Added an additive owner-scoped
+  `DashboardBrowserSession` registry and signed-service-token create/check/revoke routes. The paired
+  dashboard now registers either Telegram login, rejects legacy/non-active/cross-owner sessions on each
+  personalized request, and revokes the exact record on logout. CSP enforcement is the dashboard
+  default with nonce-bound scripts/style elements and a separately scoped dynamic-style-attribute lane.
+  Local backend gates pass at 988 tests/6 skips and 158 security checks; paired dashboard gates pass at
+  184 tests, 85 security checks, and Playwright 15/5 intentional skips. Backend-first publication and
+  exact hosted commit evidence are the remaining release steps.
+
 - **2026-08-31 (Codex, deployed Phase 1):** Closed the bounded Study draft-DTO, rendered-selector,
   unnamed-image-action, large-note benchmark, and authenticated Study editor lifecycle findings without
   entering CSP enforcement, session revocation, or large-module refactoring. Study draft responses now

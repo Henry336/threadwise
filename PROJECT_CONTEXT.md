@@ -1992,3 +1992,34 @@ and the next command/action. Never mark incomplete work complete.
   completed, and the canonical hosted suite passed 12 tests with 8 intentional external/mobile skips.
   No migration, production data access, paid provider, or secret change was part of this release.
   Phase 1 is complete in production; CSP/session work remains Phase 2 and large-module extraction Phase 3.
+
+## Active checkpoint — security remediation Phase 2 (2026-08-31 SGT)
+
+- Authorized scope: replace self-contained seven-day dashboard cookies with server-revocable browser
+  sessions, close the session on logout, and move the dashboard CSP from report-only to production
+  enforcement without weakening script execution controls. Phase 3 large-module extraction remains
+  separate and must not be mixed into this release.
+- Rollout order: add the bounded, owner-scoped session registry and API to the backend first; then make
+  both Telegram OIDC and Mini App sign-in register a session, require an active registry record on every
+  dashboard/BFF request, and revoke that exact record during logout. Legacy cookies deliberately fail
+  closed and require one fresh sign-in after release.
+- CSP compatibility decision: scripts remain nonce-bound with `strict-dynamic` and no `unsafe-inline`
+  or `unsafe-eval`. Existing bounded dynamic layout geometry (including timetable positioning and drag
+  transforms) uses the CSP Level 3 `style-src-attr` compatibility lane while stylesheet elements remain
+  self/nonce restricted. The concession must be documented, covered by policy tests, and must not permit
+  raw user HTML or dynamic script execution.
+- Delivery gate: additive Prisma migration; focused revocation/authorization/CSP tests; full backend and
+  dashboard type, build, lint, unit, browser, dependency, and secret gates; backend-first production
+  release; exact Render/Vercel commit verification; and hosted browser smoke evidence. No paid provider,
+  production-data inspection, or destructive migration is authorized or required.
+- Implementation checkpoint: additive `DashboardBrowserSession` persistence and owner-derived
+  create/check/revoke routes are complete. OIDC and Mini App login register the session before issuing a
+  cookie; every personalized render/BFF call fails closed against the registry; logout revokes the exact
+  session; and correctly signed legacy cookies without a session id are rejected. CSP enforcement is now
+  the default with nonce-bound scripts/style elements and the documented dynamic-style-attribute lane.
+- Local validation checkpoint: backend Prisma validation, typecheck/build, 988 tests with 6 intentional
+  skips, 158 focused security checks, tracked-secret scan, and production/full zero-finding dependency
+  audits pass. Dashboard 184 tests, 85 focused security checks, typecheck, lint, isolated optimized build,
+  tracked-secret scan, both zero-finding dependency audits, and Playwright (15 passed, 5 intentional
+  mobile skips) pass. The browser gate explicitly rejects CSP console violations and the authenticated
+  synthetic Study lifecycle verifies the registry using a real signed service-token exchange.

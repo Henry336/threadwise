@@ -51,6 +51,22 @@ Telegram's native command catalogue is also scoped, not global. Startup register
 6. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
 7. Replies are formatted by bot/service formatter helpers.
 
+## Dashboard browser-session revocation
+
+Vercel still authenticates backend calls with one-minute Ed25519 service JWTs whose subject is the
+verified Telegram id. Browser login now also creates an owner-scoped `DashboardBrowserSession` row
+through `POST /api/v1/dashboard/browser-sessions`. The browser receives only the opaque random session
+id inside Vercel's signed HttpOnly cookie. Vercel checks that record through the authenticated API before
+every server render or BFF request; expired, revoked, malformed, missing, and cross-owner ids all fail
+closed. `DELETE` marks the exact session revoked and account deletion cascade-removes every session.
+
+The session routes derive ownership only from the signed service-token subject, accept bounded schemas,
+use the shared ingress rate limit and mutation-replay guard, return `no-store`, and never accept a user id
+in the body. The additive table stores no Telegram profile, cookie signature, provider token, or user
+content. Rows more than 30 days beyond expiry/revocation are opportunistically purged. Deploy this
+backend migration and API before a dashboard version that requires the registry; legacy cookies are
+intentionally rejected and require a fresh Telegram sign-in.
+
 Telegram copy follows a small convention: show the saved content first, then a compact metadata block with stable IDs and dates, then any assistant guidance. Shared formatting helpers live in `src/utils/messageFormat.ts`; task list/detail/search formatters live in `src/bot/formatters.ts`; note and idea card formatting lives with their services. New contributors should change copy in those formatter functions instead of spreading ad hoc message strings through handlers.
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
