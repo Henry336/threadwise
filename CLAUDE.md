@@ -6,14 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-08-31 (Codex, guarded Phase 1):** Closed the bounded Study draft-DTO, rendered-selector,
+- **2026-08-31 (Codex, deployed Phase 1):** Closed the bounded Study draft-DTO, rendered-selector,
   unnamed-image-action, large-note benchmark, and authenticated Study editor lifecycle findings without
   entering CSP enforcement, session revocation, or large-module refactoring. Study draft responses now
   exclude internal ownership/storage metadata. A synthetic local service verifies real EdDSA service
   tokens and workspace scoping while Playwright proves recovery, conflicts, import guidance, filing focus,
   canonical save, and Library visibility. The real editor measured 875/886/941 ms at approximately
-  10k/50k/100k characters. See `PROJECT_CONTEXT.md` and the 31 August post-release audit addendum.
-  Publication/deployment evidence is not recorded until the guarded commits are actually released.
+  10k/50k/100k characters. Backend PR `#19` deployed first at `1d47597f30bd`; dashboard PR `#4`
+  followed at `14f285ebfcba`, with both GitHub gates, Vercel production, Render health, and 12 hosted
+  browser checks passing. See `PROJECT_CONTEXT.md` and the 31 August post-release audit addendum.
 
 - **2026-08-31 (Codex, deployed):** Completed the paired rich-note friction and Study
   organization pass. Dashboard typing now uses bounded Markdown synchronization and contenteditable-aware
