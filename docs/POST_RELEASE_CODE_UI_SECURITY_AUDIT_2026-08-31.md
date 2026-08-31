@@ -7,7 +7,7 @@ Status: initial findings preserved; subsequent Phase 1/2 resolutions and Phase 3
 
 ## Phase 1–3 regression audit addendum — 2026-08-31
 
-An independent post-implementation pass found two runtime defects in the dashboard and no lost backend
+An independent post-implementation pass found three runtime defects in the dashboard and no lost backend
 route, Study authorization boundary, draft field, or Beacon registration from the three phases.
 
 - **Medium security — false-success logout.** The Vercel registry client treated upstream 401 and 404
@@ -23,6 +23,12 @@ route, Study authorization boundary, draft field, or Beacon registration from th
   Both layers now use the existing reference-counted body lock; the active confirmation makes obscured
   body roots inert and restores their prior state on dismissal. Desktop and mobile browser tests prove
   isolation and scroll restoration.
+- **Medium UX/reliability — action menu dismissed immediately.** The first merged hosted browser run
+  exposed an intermittent Notes export failure: action menus closed on every capture-phase `scroll`, so
+  a delayed browser focus/layout scroll could dismiss a menu just after it opened. Menu focus now uses
+  `preventScroll`; dismissal listens for explicit wheel, touch-move, resize, Escape, and page-navigation
+  intent. The exact export journey passed ten consecutive desktop repetitions before release and the
+  corrected main-branch browser job is green.
 
 One apparent selector finding was not a runtime defect: the remaining `<select>` strings are inside a
 commented historical settings reference, and the rendered-source regression strips comments before
@@ -30,10 +36,13 @@ asserting that every live choice uses the shared picker. It remains low-priority
 not a user-visible Phase 1 regression.
 
 Validation after correction: backend 990 passed/6 intentional skips, 158 security checks, Prisma
-validation, typecheck/build, secret scan, and two zero-finding dependency audits; dashboard 187 tests,
+validation, typecheck/build, secret scan, and two zero-finding dependency audits; dashboard 188 tests,
 86 security checks, typecheck/lint/optimized build, secret scan, two zero-finding audits, and Playwright
 17 passed/5 intentional mobile skips. The route inventory remains 112 and Beacon retains all 11 grammY
-transport registrations. Release evidence follows in the active project checkpoint after deployment.
+transport registrations. Dashboard PRs `#11` and `#12` are merged at `ebca698` and `ff2a153`; main CI
+run `33412090618` is green, all seven applicable desktop smoke journeys pass against the public production
+URL, and Vercel deployment `GaG1hmE5iGoBRuFurrkB1RgYPCdQ` is Ready. Backend audit documentation is on
+`main` at `711688b`; no backend runtime redeploy was required.
 
 ## Phase 3 maintainability addendum — 2026-08-31
 

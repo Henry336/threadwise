@@ -6,12 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-08-31 (Codex, Phase 1–3 regression audit validated):** Re-audited the deployed
+- **2026-09-01 (Codex, Phase 1–3 regression audit released):** Re-audited the deployed
   Study-draft/UI, browser-session/CSP, and maintainability-extraction phases. No backend route, Study
   scope, DTO field, or Beacon registration was lost. The paired dashboard corrects false-success logout
   on rejected revocation and overlapping Study/confirmation scroll locks, while destructive confirmation
-  now isolates the obscured page. Complete backend/dashboard/security/browser/build/dependency gates are
-  green; paired release and live revision evidence are pending.
+  now isolates the obscured page. A hosted gate also exposed and verified the correction for delayed
+  scroll dismissing a newly opened Notes action menu. Complete backend/dashboard/security/browser/build/
+  dependency gates are green. Dashboard PRs `#11`/`#12` are live at `ff2a153` through Ready Vercel
+  deployment `GaG1hmE5iGoBRuFurrkB1RgYPCdQ`; backend audit docs are on `main` at `711688b` and its
+  already-validated Phase 3 runtime remains `29d439c`.
 
 - **2026-08-31 (Codex, deployed Phase 3):** Performed the first behavior-preserving
   large-module extraction behind characterization tests. The general dashboard router delegates all
@@ -274,11 +277,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
-- **2026-08-31 (Codex, Phase 1–3 regression audit validated):** Found and fixed two paired-dashboard
+- **2026-09-01 (Codex, Phase 1–3 regression audit released):** Found and fixed three dashboard
   regressions: non-2xx session revocation can no longer clear the cookie as if logout succeeded, and
   overlapping Study/global dialogs now share reference-counted scroll restoration plus inert background
-  isolation. Backend 990/6 and 158 security checks, dashboard 187/86 and browser 17/5, builds, scans,
-  audits, route inventory 112, and Beacon registrations 11 are green. Release is pending.
+  isolation; action menus no longer disappear on delayed programmatic scroll. Backend 990/6 and 158
+  security checks, dashboard 188/86 and browser 17/5, builds, scans, audits, route inventory 112, and
+  Beacon registrations 11 are green. Dashboard `ff2a153` is live and seven production desktop smokes pass.
 
 - **2026-08-31 (Codex, deployed Phase 3):** Added the backend Study-route and
   Beacon-registration seams plus the paired dashboard Study-shell/Deep-Work/dialog seams. Added

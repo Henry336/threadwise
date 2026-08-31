@@ -7,27 +7,33 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — Phase 1–3 regression audit (2026-08-31 SGT)
+## Active checkpoint — Phase 1–3 regression audit released (2026-09-01 SGT)
 
 - Objective: independently re-audit the deployed 31 August Phase 1 draft/UI closure, Phase 2
   revocable-session/CSP work, and Phase 3 maintainability extraction across the backend and
   dashboard; fix confirmed defects, rerun complete gates, and release only validated changes.
-- Confirmed and fixed locally: the dashboard logout client treated upstream 401/404
+- Confirmed and fixed: the dashboard logout client treated upstream 401/404
   revocation failures as success even though the backend's idempotent revoke contract already
   returns 200; the extracted shared Study dialog and global confirmation dialog still use separate
-  direct body-overflow restoration and can recreate the overlapping-modal scroll-lock race; and a
-  large browser-native-selector implementation remains as commented dead source in
+  direct body-overflow restoration and can recreate the overlapping-modal scroll-lock race; and the
+  shared action menu closed on every capture-phase scroll event, allowing delayed focus/layout scroll
+  to dismiss Notes actions immediately after opening. A large browser-native-selector implementation
+  remains as commented dead source in
   `dashboard-app.tsx`. The selector gate already removes block comments before scanning, so this is
   low-priority dead-source cleanup rather than a rendered Phase 1 defect.
 - Fixes: logout now accepts only a successful backend revocation before removing the cookie; the shared
   Study and global confirmation dialogs use the existing reference-counted body lock; and destructive
-  confirmation marks obscured body roots inert and restores their prior state.
+  confirmation marks obscured body roots inert and restores their prior state. Action menus suppress
+  focus scrolling and dismiss on explicit wheel/touch/page-navigation intent rather than raw scroll.
 - Local evidence: Phase 1 Study draft DTOs, Phase 2 CSP/session boundaries, Phase 3 route/Beacon/UI
   seams, complete tests, type/lint/build/Prisma, secret scans, dependency audits, and the responsive
-  browser matrix are green. Backend: 990 passed/6 skipped and 158 security checks. Dashboard: 187
+  browser matrix are green. Backend: 990 passed/6 skipped and 158 security checks. Dashboard: 188
   tests, 86 security checks, 17 browser passes/5 intentional mobile skips. Route inventory remains 112;
-  Beacon registrations remain 11. Merge, deployment, and live revision verification remain pending;
-  no schema, database, provider, or secret changed.
+  Beacon registrations remain 11. The exact export scenario also passed 10 consecutive local browser
+  repetitions and all seven applicable desktop journeys passed against production. Backend documentation
+  is on `main` at `711688b`; dashboard fixes are on `main` at `ff2a153`, main CI run `33412090618` is
+  green, and Vercel deployment `GaG1hmE5iGoBRuFurrkB1RgYPCdQ` is Ready. No schema, database, provider,
+  or secret changed; the live backend remains the already-validated Phase 3 runtime at `29d439c`.
 
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
