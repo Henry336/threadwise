@@ -6,14 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-08-31 (Codex, Phase 2 release candidate):** Added an additive owner-scoped
+- **2026-08-31 (Codex, deployed Phase 2):** Added an additive owner-scoped
   `DashboardBrowserSession` registry and signed-service-token create/check/revoke routes. The paired
   dashboard now registers either Telegram login, rejects legacy/non-active/cross-owner sessions on each
   personalized request, and revokes the exact record on logout. CSP enforcement is the dashboard
   default with nonce-bound scripts/style elements and a separately scoped dynamic-style-attribute lane.
   Local backend gates pass at 988 tests/6 skips and 158 security checks; paired dashboard gates pass at
-  184 tests, 85 security checks, and Playwright 15/5 intentional skips. Backend-first publication and
-  exact hosted commit evidence are the remaining release steps.
+  184 tests, 85 security checks, and Playwright 15/5 intentional skips. Backend PR `#21` is live on
+  Render at `5b2b962324ba`; dashboard PR `#6` is live through Ready Vercel production deployment
+  `dpl_Bhk9yjShbMNnYu4gxYkbCgojHoDp` at code merge `c4eade6b85de`. Phase 3 large-module extraction remains.
 
 - **2026-08-31 (Codex, deployed Phase 1):** Closed the bounded Study draft-DTO, rendered-selector,
   unnamed-image-action, large-note benchmark, and authenticated Study editor lifecycle findings without

@@ -2023,3 +2023,12 @@ and the next command/action. Never mark incomplete work complete.
   tracked-secret scan, both zero-finding dependency audits, and Playwright (15 passed, 5 intentional
   mobile skips) pass. The browser gate explicitly rejects CSP console violations and the authenticated
   synthetic Study lifecycle verifies the registry using a real signed service-token exchange.
+- Publication checkpoint: backend PR `#21` merged first as
+  `5b2b962324ba3e90fe0614f5d3117c9eb9de1d17`; Render applied additive migration
+  `20260831220000_dashboard_browser_sessions`, returned HTTP 200, and reported exact runtime commit
+  `5b2b962324ba`. Dashboard PR `#6` then merged as
+  `c4eade6b85dea912e5f3be1f1689bdbd27dcee10` after validate/browser/Vercel checks passed. Direct
+  production deployment `dpl_Bhk9yjShbMNnYu4gxYkbCgojHoDp` completed Ready and is aliased to
+  `https://threadwise-dashboard.vercel.app`. No legacy `THREADWISE_CSP_MODE` override exists in Vercel,
+  so the new enforcement default is active. Phase 2 is complete in production; users with a cookie from
+  before this release must sign in once, while Phase 3 large-module extraction remains separate.
