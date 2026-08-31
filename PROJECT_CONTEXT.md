@@ -2060,3 +2060,11 @@ and the next command/action. Never mark incomplete work complete.
   tracked-secret scan, both zero-finding audits, and Playwright (15 passed, 5 intentional mobile skips)
   pass. The first browser attempt used a stale pre-Phase-2 default `.next` artifact and therefore observed
   the old report-only CSP; rebuilding the current default artifact made the complete browser gate pass.
+- Publication checkpoint: backend PR `#24` merged first as
+  `29d439cc4b15f3d0208b1ffedc77fa8ca838bbab`; Render `/health` returned HTTP 200 with exact runtime
+  commit `29d439cc4b15`. Dashboard PR `#9` then merged as
+  `f6f8326e559ee4d32110cee114c573dd0d244930`; production deployment
+  `dpl_FppQmpqC8ZyPr6bMbJmyJjmVwhju` completed Ready and owns the canonical Vercel alias. No migration,
+  database access, paid provider, secret/configuration change, or user action is required. Phase 3's
+  first incremental extraction is complete in production; residual oversized modules remain documented
+  for later feature-led extraction rather than another big-bang phase.

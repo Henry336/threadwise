@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Phase 3 incremental composition extraction
+### Phase 3 incremental composition extraction (released 2026-08-31)
 - Split all Study dashboard route registration into `src/dashboard/studyRoutes.ts` while retaining the
   parent router's authentication, replay protection, shared rate limits, workspace resolution, and
   error mapping unchanged.
