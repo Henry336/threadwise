@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Study timetable deletion scroll recovery (released 2026-08-31)
+- Replaced stacked block-details/deletion modals with one active destructive focus layer.
+- Added a reference-counted body scroll lock that restores the original overflow in either overlay
+  cleanup order, preventing desktop and mobile pages from remaining permanently unscrollable.
+- Protected both lock orders and the single-modal invariant with regressions; released dashboard
+  `703d89b1612e` after full local, hosted CI, Vercel, and desktop/mobile browser gates.
+
 ### Personal full-screen note writing and checklist alignment (released 2026-08-31)
 - Corrected Tiptap checklist geometry at its label/content boundary and protected the relationship with
   rendered desktop/mobile measurements rather than screenshot-specific offsets.

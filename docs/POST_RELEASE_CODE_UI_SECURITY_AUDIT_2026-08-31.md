@@ -2,7 +2,7 @@
 
 Date: 2026-08-31 SGT  
 Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo, with
-release addenda through backend `25f8093` and dashboard `7bf90df`
+release addenda through backend `25f8093` and dashboard `703d89b`
 Status: initial findings preserved; subsequent bounded resolutions and release evidence are addended
 
 ## Executive summary
@@ -181,6 +181,23 @@ at that commit. Dashboard `7bf90df1a75a` passed GitHub CI run `33360802480` and 
 Vercel production deployment. The same
 Personal create/checklist/title/save flow passed against the canonical production URL in desktop and
 mobile Chromium; desktop additionally verified `.md` export.
+
+### Resolved and released 2026-08-31 — timetable deletion could permanently lock page scrolling
+
+**Previous evidence.** Study block details and its deletion confirmation remained mounted as separate
+portal siblings. Both independently captured and replaced `document.body.style.overflow`; when a
+successful deletion closed both in one React commit, cleanup order could restore the inner dialog's
+captured `hidden` value last. Every recurrence scope shared that lifecycle on desktop and mobile.
+
+**Resolution.** The destructive confirmation now replaces block details, leaving one active modal and
+focus owner. Timetable overlays additionally use a reference-counted scroll lock that restores the
+original overflow only when the last holder releases, regardless of release order or duplicate cleanup.
+The recurrence request bodies and backend deletion semantics are unchanged.
+
+**Release evidence.** Two lock-order tests and a structural single-modal guard pass within 172 dashboard
+tests. All 78 focused security checks, typecheck, lint, isolated production build, secret scan, and the
+browser gate (10 pass, 2 intentional mobile skips) pass. Dashboard `703d89b1612e` passed GitHub CI run
+`33369782858`, completed Vercel production deployment, and passed the 10 hosted browser checks.
 
 ### Medium reliability — the authenticated Study rich-note lifecycle is still mostly structural
 

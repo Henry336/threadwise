@@ -1887,3 +1887,23 @@ and the next command/action. Never mark incomplete work complete.
   desktop and mobile Chromium. Desktop also
   verified `.md` export. No paid service, Group-mode expansion, destructive migration, or provider change
   was introduced.
+
+## Active checkpoint — Study timetable deletion scroll recovery (2026-08-31 SGT)
+
+- User-reported failure: after removing a timetable block by **This date only**, **This and future
+  dates**, or **Entire series**, both desktop and mobile remained clickable but could no longer scroll.
+- Root cause: block details and deletion confirmation were simultaneous sibling portals. Each captured
+  `document.body.style.overflow`, then set it to `hidden`; same-commit cleanup could restore the
+  confirmation's captured value (`hidden`) last and permanently lock the page.
+- Resolution: deletion confirmation replaces the details dialog so only one destructive `aria-modal`
+  owns focus. `src/lib/body-scroll-lock.ts` reference-counts any genuinely overlapping timetable
+  overlays and restores the original overflow only after the last lock releases, independent of cleanup
+  order. No timetable data, recurrence semantics, deletion API, backend, schema, provider, or production
+  record changed.
+- Validation: two lock-order/idempotence tests plus a structural single-modal guard pass inside the full
+  172-test dashboard suite. All 78 focused security checks, typecheck, lint, isolated production build,
+  tracked-secret scan, and browser gate (10 pass, 2 intentional mobile skips) pass.
+- Release evidence: dashboard `703d89b1612e83178724602907cc081a3c833628` fast-forwarded `main`,
+  passed GitHub Dashboard CI run `33369782858`, completed Vercel production deployment, and passed the
+  same 10 hosted desktop/mobile smoke checks. The authenticated three-scope deletion flow remains the
+  owner's final live data acceptance because automated tests must not delete production timetable rows.
