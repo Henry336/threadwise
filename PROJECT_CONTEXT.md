@@ -1807,7 +1807,7 @@ and the next command/action. Never mark incomplete work complete.
   confirmed cross-workspace leak, exposed secret, or release regression was found. Current priorities
   are large-module maintainability; report-only/non-enforcement-ready CSP; non-revocable seven-day
   browser sessions; mobile accessible names; Study filing focus isolation; abrupt-close autosave;
-  long-note serialization; behavioral editor coverage; native-selector consistency; and explicit
+  large-note benchmarking; behavioral editor coverage; native-selector consistency; and explicit
   draft DTO/data minimization.
 - Historical correction: Gate 3A and Phase 6 F-01 through F-03 are complete in current released code.
   `docs/POST_PHASE7_CODEBASE_AUDIT.md` is retained as a dated 2026-08-17 snapshot and now points to the
@@ -1822,3 +1822,30 @@ and the next command/action. Never mark incomplete work complete.
 - New-developer documentation: backend `docs/DEVELOPER_ONBOARDING.md`; dashboard sibling
   `docs/DEVELOPER_ONBOARDING.md`. These define reading order, code ownership, request flows, invariants,
   safe change/release gates, hotspots, and which older documents are historical.
+
+## Active checkpoint — Study editor focus, indentation, and Mermaid/UML guidance (2026-08-31 SGT)
+
+- User-reported failure: typing could suddenly stop until the last text position was clicked again.
+  Root mechanism addressed in the dashboard: the controlled Tiptap bridge could re-serialize and treat
+  a locally emitted Markdown body as replacement content after a parent/autosave render, resetting the
+  editor selection. The editor now tracks its last local emission and calls `setContent` only for a
+  genuinely external body; the parent body callback is stable.
+- Tab behavior: Tab/Shift+Tab nests or lifts bullet, numbered, and task-list items. Inside Mermaid or
+  ordinary code blocks it indents/outdents every selected line by one portable two-space level. In normal
+  paragraphs it deliberately returns control to native focus traversal: arbitrary visual paragraph
+  indentation does not round-trip safely through portable Markdown and would create a keyboard trap.
+- Diagram guidance: one searchable, responsive editor-side panel contains 38 quick-reference entries and
+  12 insertable examples: flowchart, Mermaid-native UML sequence/class/state, ER, mind map, Gantt,
+  timeline, journey, pie, Git graph, and quadrant. Escape closes the guide before the full editor.
+- Privacy/security boundary: UML uses the already installed strict, bounded, time-limited, sanitized local
+  Mermaid renderer. PlantUML, configuration directives, plugins, scripts, remote diagram rendering, and
+  a second note format/store remain unsupported. No backend schema, runtime route, secret, migration,
+  provider, or production data changes are required.
+- Tests added: local-vs-external editor synchronization, multiline indentation/outdent offsets, template
+  uniqueness/budgets/UML coverage/quick-reference depth, structural UI regressions, and a real Chromium
+  parse of every example through the installed Mermaid browser bundle. The complete dashboard gate passed:
+  162 unit/regression tests, 72 security checks, typecheck, lint, production build, tracked-secret scan,
+  both zero-finding dependency audits, and browser checks with 8 passes and 2 intentional skips. Runtime
+  `e9e21b192f1543cc9244611288c0186eb6d3b2af` passed GitHub CI run `33353462062`, Vercel completed its
+  production deployment, and the canonical dashboard returned HTTP 200. The owner-only authenticated
+  editor remains the user's live acceptance surface. No backend release was needed.

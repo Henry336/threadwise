@@ -731,3 +731,28 @@ merged or deployed.
 restart and replay behavior, invalid atomic batches, private-chat absence, Canvas deadline preservation,
 quiet/disabled delivery, authorization, deep links, accessibility, and responsive behavior before
 merge or rollout.
+
+### 31 August 2026 — Keep diagram help local and protect the writing flow
+
+**Friction discovered:** Study note typing could lose its active selection after a parent/autosave render,
+and diagram authoring required remembering Mermaid syntax. UML was desirable, but adding PlantUML or a
+remote renderer would create another runtime and privacy boundary for private notes.
+
+**Decision:** Treat locally emitted Markdown as editor-owned and replace the document only for genuinely
+external content. Keep UML inside Mermaid's class, sequence, and state grammars. Put searchable syntax
+help and insertable examples in one editor-side panel. Let Tab/Shift+Tab nest lists or indent diagram/code
+source, while normal prose retains native focus traversal and portable Markdown semantics.
+
+**Implemented:** The dashboard tracks the last local Markdown emission, stabilizes the parent callback,
+and avoids redundant comparison serialization on the normal typing path. The guide contains 38 quick
+syntax entries and 12 templates covering UML and common Mermaid diagrams. Escape closes the guide before
+the editor, and every template is parsed by the installed Mermaid bundle in Chromium.
+
+**Outcome/evidence:** All 162 dashboard tests, 72 security checks, TypeScript, lint, production build,
+secret/dependency scans, and browser checks (8 passed, 2 intentional skips) pass. Every guide example
+parses in the installed Chromium Mermaid runtime. Dashboard `e9e21b192f15` passed hosted CI and completed
+its Vercel production deployment; the canonical dashboard returned HTTP 200. The backend schema,
+encrypted draft contract, providers, and data model are unchanged.
+
+**Follow-up:** Perform the owner-only live typing/selection and responsive guide acceptance check.
+Benchmark 10k/50k/100k-character notes before a wider editor rollout.

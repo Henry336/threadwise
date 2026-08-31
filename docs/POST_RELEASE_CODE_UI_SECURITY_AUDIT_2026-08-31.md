@@ -135,26 +135,37 @@ immediately after typing can drop the newest edits even while the UI says autosa
 write, and test process/tab termination. If reliable delivery cannot be guaranteed, make the status
 distinguish `Unsaved changes` from `Saved across devices` at all times.
 
-### Medium efficiency — long notes are serialized twice per editor transaction
+### Resolved 2026-08-31 — duplicate per-keystroke serialization and selection replacement
 
 **Location.** Dashboard `src/components/study-rich-note-body.tsx:124-132`.
 
-**Evidence.** Every Tiptap update calls `getMarkdown()`, updates React parent state, and then the sync
-effect calls `getMarkdown()` again to compare the new prop. Notes may contain up to 100,000 characters.
+**Previous evidence.** Every Tiptap update called `getMarkdown()`, updated React parent state, and then
+the sync effect called `getMarkdown()` again to compare the new prop. Notes may contain up to 100,000
+characters, and treating the echoed prop as replacement content could reset the active selection.
 
-**Impact.** Typing cost grows with document size and can become visible input latency on slower devices.
+**Resolution.** The editor now records the last locally emitted body and returns before serializing or
+calling `setContent` when the parent echoes that body. Only content that differs from both that emission
+and the current editor document is treated as an external replacement. The parent also supplies a stable
+body callback. Pure synchronization tests cover local echo, real external replacement, and already-current
+content. Representative 10k/50k/100k latency measurement remains useful, but the duplicate normal-path
+serialization and focus-reset mechanism are removed.
 
-**Recommendation.** Keep editor-local state, serialize on a bounded debounce, and use an explicit
-external-version signal for real remote replacements instead of comparing the entire Markdown body on
-every keystroke. Measure at representative 10k/50k/100k sizes before and after.
+**Residual recommendation.** Benchmark representative 10k/50k/100k notes before widening the rollout.
+If serialization is still visible, debounce parent serialization separately without weakening draft
+durability or cross-device conflict detection.
+
+**Release evidence.** Dashboard runtime `e9e21b192f15` passed the complete local gate and hosted CI run
+`33353462062`, then completed its Vercel production deployment. The canonical dashboard returned HTTP 200.
 
 ### Medium reliability — the rich-note acceptance gate is mostly structural
 
 **Location.** Dashboard `src/components/study-ui-regressions.test.ts:145-164`.
 
-**Evidence.** The primary rich-note regression test reads source files and checks for strings. There is
-no browser/component flow covering autosave recovery, filing focus, conflict resolution, import error,
-Mermaid editing, or abrupt close. The live demo cannot enter the owner-gated Study editor.
+**Evidence.** The primary rich-note regression test still reads source files and checks for strings.
+Pure tests now cover local/external synchronization and indentation boundaries, and Playwright loads the
+installed Mermaid runtime to parse every shipped Mermaid/UML template. There is still no browser/component
+flow covering autosave recovery, filing focus, conflict resolution, import error, diagram editing, or
+abrupt close. The live demo cannot enter the owner-gated Study editor.
 
 **Impact.** Refactors can satisfy the assertions while interaction behavior is broken; conversely,
 safe refactors can fail because text moved.

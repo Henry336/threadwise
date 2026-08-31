@@ -6,14 +6,23 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, dashboard deployed):** The Study rich editor now distinguishes
+  local Markdown emissions from genuine external replacements so autosave renders do not reset the
+  active selection. Tab/Shift+Tab supports portable list and Mermaid/code indentation, and a searchable
+  Mermaid/UML guide provides browser-validated class, sequence, state, and general diagram examples.
+  The backend/data model is unchanged and UML remains inside the existing strict local Mermaid trust
+  boundary. Dashboard runtime `e9e21b192f15` passed GitHub CI and completed its Vercel production
+  deployment; the canonical dashboard returns HTTP 200.
+
 - **2026-08-31 (Codex, deployed and audited):** Released the Study-first full-screen rich-note slice:
   encrypted cross-device drafts, inline Markdown/Mermaid editing, title/module filing into canonical
   Study resources, and compatibility-safe visible tag retirement. Backend runtime `0adbf0be688f`
   and dashboard runtime `b81f57fc3594` are live. The post-release audit and new-developer map are
   `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` and
   `docs/DEVELOPER_ONBOARDING.md`. No critical vulnerability or confirmed release regression was
-  found; residual CSP, session-revocation, editor accessibility/recovery/performance, behavioral-test,
-  native-selector, and large-module findings are documented but not silently remediated.
+  found; residual CSP, session-revocation, editor accessibility/recovery/large-note benchmarking,
+  behavioral-test, native-selector, and large-module findings are documented. The duplicate
+  per-keystroke serialization/selection-replacement finding has since been remediated above.
 
 - **2026-08-28 (Codex):** Made Today task capture self-explanatory in Telegram. `/today` now pairs
   `＋ Add tasks` with `Open Today`; the add action opens a force-reply composer that accepts one task or
@@ -209,6 +218,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-31 (Codex, dashboard deployed):** Implemented the dashboard-only Study typing-focus fix, stable body callback,
+  accessible diagram guide, Mermaid-native UML templates, and Tab indentation. Updated paired project
+  context and audit status; runtime `e9e21b1` is live and no backend runtime, migration, secret, or
+  provider changed.
 
 - **2026-08-31 (Codex):** Completed a post-release static, dependency, test, and live responsive
   audit across both repos. Added current findings plus onboarding maps; reconciled Gate 3A and Phase 6

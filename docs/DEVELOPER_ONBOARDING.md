@@ -59,7 +59,10 @@ route/service boundary. Mutations consume a JTI and apply shared principal/opera
 
 Drafts expire, are not searchable, and cannot silently overwrite a newer note revision. Telegram,
 Library, search, backlinks, sessions, revisions, and analysis all continue to use `StudyResource`.
-Do not create a second note store or enable raw HTML/plugin execution.
+The dashboard's UML support is Mermaid-native and local; do not add PlantUML or a remote renderer
+without a new privacy/security decision. Locally emitted Markdown must not be routed back through
+Tiptap `setContent`, and diagram templates must pass the installed browser parser contract. Do not
+create a second note store or enable raw HTML/plugin execution.
 
 ## Data and privacy invariants
 
