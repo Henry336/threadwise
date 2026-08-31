@@ -18,8 +18,9 @@ dashboard files are large enough that unrelated changes collide in the same modu
 important browser security gap is that Content Security Policy remains report-only and cannot yet be
 enforced without breaking legitimate inline style attributes. The Study/Personal rich editor's
 accessible names, nested filing focus, typed error handling, visible list markers, and normal-path
-typing performance have since been remediated. Large-note benchmarking, fully reliable termination
-recovery, and an authenticated Study lifecycle fixture remain appropriate gates before Group expansion.
+typing performance have since been remediated. Representative large-note benchmarking and an isolated,
+cryptographically authenticated Study lifecycle fixture now protect that rollout. Fully reliable abrupt
+process/device termination recovery remains a separate systems-level limitation.
 
 ## Remediation addendum — 2026-08-31
 
@@ -42,14 +43,45 @@ complete:
 - Study modules can be pinned. A nullable `pinnedAt` column and bounded index put pinned modules first
   without rewriting existing records.
 
-Still open: oversized modules, CSP enforcement readiness, revocable browser sessions, explicit Study
-draft response DTOs, remaining native selectors, backend parallel-test timeout ergonomics, and two
-older unnamed icon-only actions. Page-hide keepalive narrows the last autosave window for ordinary
+Still open: oversized modules, CSP enforcement readiness, revocable browser sessions, and backend
+parallel-test timeout ergonomics. Page-hide keepalive narrows the last autosave window for ordinary
 drafts but cannot guarantee delivery after abrupt process/device loss or beyond browser keepalive limits.
 
 **Release evidence.** Backend `4689c8dd5608` is healthy after its additive migration. Dashboard
 `5e831a918a4f` passed GitHub CI run `33376998070`, completed Vercel, and passed the canonical hosted
 browser gate (12 passed, 2 intentional mobile skips).
+
+## Bounded audit-remediation Phase 1 addendum — 2026-08-31
+
+This guarded Phase 1 closes five audit items without entering the CSP, session-revocation, or
+large-module gates:
+
+- Study draft responses now cross one explicit browser DTO containing only draft id, canonical-resource
+  version, module, title/body, revision, and lifecycle timestamps. Owner, workspace, draft-key, canonical
+  resource id, and database creation metadata remain server-side; focused tests reject their return.
+- Every currently rendered native selector in Personal, Group, and Study has moved to the shared
+  accessible Threadwise choice control. It preserves hidden form submission, keyboard listbox semantics,
+  searchable long lists, disabled states, mobile viewport containment, and light/dark tokens. The only
+  native selectors left in source are a commented historical settings reference and an unused pre-migration
+  Deep Work reference; neither is compiled into a user flow.
+- The two previously unnamed image actions, plus each recent-image target, now expose action-and-object
+  accessible names.
+- A local synthetic Study service validates the real EdDSA dashboard service JWT and workspace header.
+  Playwright uses a separately HMAC-authenticated owner browser session to prove draft load, autosave,
+  reload recovery, stale-device conflict refusal, invalid-import guidance, filing focus isolation,
+  canonical save, and Library visibility without borrowing production credentials or content.
+- Browser measurements exercise the real rich editor and cross-device draft write at approximately
+  10k, 50k, and 100k characters. The complete gate measured 875 ms, 886 ms, and 941 ms respectively,
+  including the 140 ms coalescing delay and isolated HTTP persistence; every size is held to an 8-second
+  CI safety ceiling.
+
+Guarded validation at this checkpoint: backend focused Study-draft tests, typecheck, build, tracked-secret
+scan, and both zero-finding dependency audits pass; dashboard typecheck, lint, isolated production build,
+177 unit/regression tests, 78 focused security checks, tracked-secret scan, both zero-finding dependency
+audits, and the complete browser suite pass (15 passed, 5 intentional mobile skips). The long-running
+serialized backend suite and broad assurance command encountered the already-recorded local timeout/hang
+ergonomics issue after producing progress, so neither is claimed as a new pass here. No migration or
+production data access is required by this phase.
 
 ## What was verified as improved
 
@@ -183,11 +215,10 @@ quiet window with a 900 ms maximum wait and synchronously flushed at filing/pers
 Only genuine external content can replace the editor document. The parent callback is stable, and the
 global shortcut handler now treats Tiptap descendants as typing targets rather than opening Quick
 Capture on the letter `n`. Pure sync tests and a real browser typing/list/focus flow cover the path.
-Representative 10k/50k/100k latency measurement remains useful.
+Representative 10k/50k/100k latency measurement now passes in the authenticated browser fixture.
 
-**Residual recommendation.** Benchmark representative 10k/50k/100k notes before widening the rollout.
-If serialization is still visible, debounce parent serialization separately without weakening draft
-durability or cross-device conflict detection.
+**Residual recommendation.** Keep the benchmark in the browser gate and watch its trend before widening
+the rollout. Do not weaken draft durability or cross-device conflict detection to chase synthetic speed.
 
 **Release evidence.** Dashboard runtime `e9e21b192f15` passed the complete local gate and hosted CI run
 `33353462062`, then completed its Vercel production deployment. The canonical dashboard returned HTTP 200.
@@ -233,25 +264,18 @@ tests. All 78 focused security checks, typecheck, lint, isolated production buil
 browser gate (10 pass, 2 intentional mobile skips) pass. Dashboard `703d89b1612e` passed GitHub CI run
 `33369782858`, completed Vercel production deployment, and passed the 10 hosted browser checks.
 
-### Medium reliability — the authenticated Study rich-note lifecycle is still mostly structural
+### Resolved in bounded Phase 1 — authenticated Study rich-note lifecycle
 
 **Location.** Dashboard `src/components/study-ui-regressions.test.ts:145-164`.
 
-**Evidence.** The primary rich-note regression test still reads source files and checks for strings.
-Pure tests now cover local/external synchronization and indentation boundaries, and Playwright loads the
-installed Mermaid runtime to parse every shipped Mermaid/UML template. There is still no browser/component
-flow covering autosave recovery, filing focus, conflict resolution, import error, diagram editing, or
-abrupt close. The live demo cannot enter the owner-gated Study editor.
+**Resolution.** Playwright now starts an isolated Study API fixture whose EdDSA verifier checks the same
+issuer, audience, subject, and JTI contract used by the real BFF. A separately signed owner browser session
+exercises load, autosave, reload recovery, conflict refusal, invalid import, filing focus, canonical save,
+and Library visibility. Production credentials and content are never used. Pure serializer/security tests
+and real Mermaid/UML parser checks remain complementary rather than being mistaken for lifecycle coverage.
 
-Personal demo coverage now exercises opening, rich checklist entry, measured alignment, title filing,
-and successful save on desktop and mobile. The owner-gated Study lifecycle still lacks an authenticated
-fixture.
-
-**Impact.** Study refactors can satisfy the assertions while interaction behavior is broken; conversely,
-safe refactors can fail because text moved.
-
-**Recommendation.** Keep narrow serializer/security unit tests, then add a synthetic authenticated
-Study fixture and behavioral component/browser tests for the complete editor lifecycle.
+**Residual boundary.** Abrupt operating-system/process termination cannot be made transactional with a
+browser keepalive alone and remains a distinct resilience test, not an authentication gap.
 
 ### Medium test ergonomics — default parallel backend run has insufficient timeout headroom
 
@@ -266,36 +290,24 @@ masking a future real timeout.
 integration-style tests evidence-based timeouts. Keep a serialized full-suite lane until the parallel
 lane is stable.
 
-### Medium UI consistency — browser-native selectors remain in mature surfaces
+### Resolved in bounded Phase 1 — rendered selectors use one dashboard control
 
 **Location.** Examples include dashboard `src/components/dashboard-app.tsx:1065,1192,1367-1368,
 1507-1509`, `src/components/group-scheduling.tsx:153,228-229`, and Study
 `src/components/study-dashboard.tsx:436,985,1020-1026,1135-1137,1208,1229-1230`.
 
-**Evidence.** Newer Work and analysis selectors use branded accessible pickers, while Library,
-settings, review, task/idea editors, scheduling, Deep Work, and assignment controls still use native
-`select` elements.
+**Resolution.** Library, settings, review, task/idea/mistake editors, scheduling, assignment, origin,
+module, and timetable-adjacent controls now use the shared choice picker. Controlled and form-submitted
+variants share listbox/option semantics, focus return, outside-click dismissal, search, mobile containment,
+and theme tokens. A regression scans every rendered component boundary for native selectors.
 
-**Impact.** The visual language changes between adjacent workflows and native popups do not match the
-dashboard in light/dark mode.
-
-**Recommendation.** Migrate in bounded feature groups using one shared accessible picker. Preserve
-native semantics, keyboard/typeahead behavior, and mobile viewport safety; do not replace all selects
-in one risky sweep.
-
-### Low privacy — Study draft responses expose internal ownership metadata to the owner browser
+### Resolved in bounded Phase 1 — Study draft responses expose a minimal DTO
 
 **Location.** Backend `src/dashboard/study.ts:751-825`.
 
-**Evidence.** `findFirst`, `create`, and `findUniqueOrThrow` return raw `StudyNoteDraft` rows. The browser
-needs draft id, revision, resource version, module, title/body, and timestamps, but also receives
-internal `ownerUserId`, `workspaceId`, `draftKey`, and `resourceId` values.
-
-**Impact.** Authorization is correct, so this is not a cross-tenant leak. It increases exposed metadata
-and couples the browser contract to the database model.
-
-**Recommendation.** Map drafts to an explicit response DTO and test that internal identifiers are not
-serialized.
+**Resolution.** All Study draft load/create/update paths map through `DashboardStudyNoteDraft`. Contract
+tests assert the browser receives only the required editing and lifecycle fields and explicitly rejects
+`ownerUserId`, `workspaceId`, `draftKey`, `resourceId`, and `createdAt`.
 
 ### Resolved in the current pass — editor errors are visible and code-driven
 
@@ -309,16 +321,13 @@ failure after canonical save is ignored, so a stale draft may reopen and then co
 those codes, and invalid extension, size, and file-read failures provide specific feedback. Post-save
 draft deletion remains best-effort because stale drafts expire and conflict safely.
 
-### Low accessibility — several icon-only actions have no explicit label
+### Resolved in bounded Phase 1 — image-only actions are explicitly named
 
 **Location.** Dashboard `src/components/dashboard-app.tsx:1007` (Recent frames navigation) and
 `src/components/phase-two-collections.tsx:240` (image delete), plus any future icon-only action.
 
-**Evidence.** These buttons contain only an icon and no `aria-label`; the live accessibility snapshot
-showed the Recent frames action as unnamed.
-
-**Recommendation.** Add action-and-object labels and an automated scan for unnamed interactive
-elements at desktop and mobile widths.
+**Resolution.** Recent frames navigation, every recent image, and image deletion expose stable
+action-and-object `aria-label` values. Focused regressions guard the labels.
 
 ## Validation evidence
 
@@ -328,9 +337,9 @@ elements at desktop and mobile widths.
 | Backend isolated timeout files | 8 passed |
 | Backend full suite, one worker | 976 passed, 6 skipped |
 | Backend typecheck / build / secret scan | passed |
-| Dashboard unit/regression suite | 153 passed |
+| Dashboard unit/regression suite | 177 passed |
 | Dashboard typecheck / lint / production build / secret scan | passed |
-| Dashboard browser suite | 7 passed, 1 intentional mobile skip |
+| Dashboard browser suite | 15 passed, 5 intentional mobile skips |
 | Backend and dashboard production/full npm audits | zero vulnerabilities in all four runs |
 | Live demo, 390×844, light and dark | visually coherent; no console errors; CSP report-only notices |
 
@@ -342,11 +351,10 @@ not a product defect.
 
 1. Fix accessible names and filing focus isolation; add behavioral editor tests with the same change.
 2. Make autosave termination-safe and typed-error driven; prove recovery and conflict behavior.
-3. Profile/debounce Markdown serialization before any Group expansion or broader large-note rollout.
-4. Establish synthetic authenticated staging and eliminate CSP violations before enforcement.
-5. Add revocable dashboard sessions and explicit draft DTOs as a bounded security/privacy release.
+3. Preserve the authenticated large-note benchmark before any Group expansion.
+4. Establish clean CSP staging evidence before enforcement.
+5. Add revocable dashboard sessions as a bounded security release.
 6. Split the largest modules incrementally behind characterization tests.
-7. Migrate remaining native selectors in user-visible feature groups.
 
 No active penetration test, production content inspection, destructive migration, credential
 rotation, or runtime remediation was performed in this audit.
