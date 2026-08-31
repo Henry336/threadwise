@@ -127,6 +127,11 @@ connection, tenant migration, invitation, or deployment is active.
 
 Study services are split by responsibility. `study.ts` owns weeks, modules, work, sessions, mistakes, reviews, schedule blocks, dashboard aggregation, and CSV exports. `studyNaturalLanguage.ts` performs deterministic intent and module extraction. `studyCanvas.ts` owns a single-flight, paginated, retry-bounded, read-only Canvas mirror. `studyAttention.ts` scores work from deadlines, explicit priority, mastery, backlog age, effort, and source uncertainty. `studyResources.ts` owns module resources, reply/pending captures, local OCR metadata, durable silent note sessions, and Unicode-safe Telegram pagination. `studyTransit.ts` consumes the public Improved NextBus contract and manages saved/default/temporary origins. `studyReminders.ts` derives and prioritizes proactive candidates while `studyCapture.ts` and `study.ts` keep Telegram handlers thin.
 
+Dashboard transport composition follows the same boundary. `src/dashboard/route.ts` owns shared
+authentication, replay protection, rate limiting, workspace resolution, and error mapping, then injects
+that secured runner into `src/dashboard/studyRoutes.ts`. Study route registration cannot bypass the
+parent boundary; its file owns only Study path/schema/service wiring.
+
 Canvas course identity is anchored to the provider course id plus retained term id/name/date metadata; a matching human-readable module code is not sufficient evidence that two terms are the same. Clearly out-of-semester courses are skipped with reason-coded sync diagnostics. `studyDeadlineTrust.ts` independently classifies each Canvas deadline against its Canvas term and configured Study semester. A suspicious or missing-provider deadline stays visible for manual confirmation but is excluded from overdue totals, module traffic-light deadline pressure, timetable deadline lanes, weekly previews, and urgent reminder candidates.
 
 `studyNusmods.ts` is the deterministic timetable-import boundary. It parses only canonical NUSMods semester share URLs, derives the academic year from the configured Study semester, fetches the selected modules from the public NUSMods API, matches the exact lesson type and class number, and upserts recurring blocks with `source=NUSMODS` plus stable source references. A re-import reconciles only that source namespace: stale NUSMods selections are deactivated, while manual schedule blocks are never rewritten. Published venue labels are passed through `studyTransit.ts`; a resolved venue enables the existing live-journey and class-departure pipeline, while an unresolved venue stays visible and produces an explicit import warning.
@@ -305,6 +310,10 @@ Gmail was removed from the active runtime in July 2026. Its legacy schema object
 ## Beacon dual-bot boundary
 
 Beacon is an optional second grammY `Bot` instance created in `src/main.ts`. It shares the Fastify process, Prisma client, PostgreSQL database, and Render service with Threadwise, but uses a separate Telegram token, webhook path, update-id table, command list, allowlist, and `Community*` tables. The process derives a Telegram webhook header secret from the Beacon token, supplies it to `setWebhook`, and rejects requests without a timing-safe header match.
+
+`src/community/registration.ts` owns grammY middleware and Telegram event registration. Moderation,
+conversation, and presentation decisions stay in `src/community/index.ts` and are injected through an
+explicit handler contract, preventing transport wiring from silently absorbing domain authorization.
 
 ```text
 Telegram → primary webhook → Threadwise bot → User / Group / Study domains

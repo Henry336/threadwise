@@ -2033,3 +2033,30 @@ and the next command/action. Never mark incomplete work complete.
   No legacy `THREADWISE_CSP_MODE` override exists in Vercel,
   so the new enforcement default is active. Phase 2 is complete in production; users with a cookie from
   before this release must sign in once, while Phase 3 large-module extraction remains separate.
+
+## Active checkpoint — maintainability remediation Phase 3 (2026-08-31 SGT)
+
+- Authorized scope: behavior-preserving incremental extraction of the highest-risk composition files,
+  following the audit's stable-responsibility order. This phase separates dashboard Study route
+  registration from the general dashboard router, Beacon bot registration from moderation domains, and
+  the Study dashboard shell from its Deep Work/analysis feature view. Public APIs, authorization,
+  persistence, Telegram copy, rendered behavior, and deployment configuration must remain unchanged.
+- Safety boundary: this is not a big-bang rewrite. Existing characterization tests remain authoritative;
+  moved responsibilities receive direct seam tests where useful. No schema migration, production-data
+  inspection, secret/provider change, new dependency, paid service, or feature expansion is authorized.
+- Delivery gate: both repositories must pass their full type/build/test/security/dependency/secret gates,
+  plus the complete browser suite. Release backend first if its composition changes, then dashboard;
+  verify exact live commits and update contributor maps with the new ownership seams.
+- Implementation checkpoint: `src/dashboard/studyRoutes.ts` now owns all 41 Study route registrations
+  and receives the parent router's secured runner; `src/community/registration.ts` owns grammY transport
+  wiring behind injected moderation handlers. Route inventory is unchanged at 112 paths and all nine
+  Beacon command/event entry points remain present. The paired dashboard moves Deep Work, module analysis,
+  session editing, and the shared Study dialog into focused components. Measured hotspot reductions are
+  1,383→1,070 lines for the general router, 2,955→2,772 for Beacon domains, and 1,303→911 for the Study
+  shell. Remaining oversized modules are explicitly residual work, not silently declared solved.
+- Local validation checkpoint: backend typecheck/build, 990 tests with 6 intentional skips, 158 focused
+  security checks, tracked-secret scan, route/event inventory comparison, and production/full zero-finding
+  dependency audits pass. Dashboard typecheck/lint/build, 185 tests, 85 focused security checks,
+  tracked-secret scan, both zero-finding audits, and Playwright (15 passed, 5 intentional mobile skips)
+  pass. The first browser attempt used a stale pre-Phase-2 default `.next` artifact and therefore observed
+  the old report-only CSP; rebuilding the current default artifact made the complete browser gate pass.

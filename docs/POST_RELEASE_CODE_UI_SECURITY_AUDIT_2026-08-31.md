@@ -3,7 +3,30 @@
 Date: 2026-08-31 SGT  
 Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo, with
 release addenda through backend `5b2b962` and dashboard `c4eade6`
-Status: initial findings preserved; subsequent Phase 1/2 resolutions and release evidence are addended
+Status: initial findings preserved; subsequent Phase 1/2 resolutions and Phase 3 implementation evidence are addended
+
+## Phase 3 maintainability addendum — 2026-08-31
+
+The recommended first incremental split is implemented without changing product behavior. The general
+dashboard router now delegates the complete Study HTTP surface to `src/dashboard/studyRoutes.ts` after
+the parent applies the existing authentication, rate-limit, replay, workspace, and error boundaries.
+Beacon's grammY registration now lives in `src/community/registration.ts`, while moderation decisions
+remain in `src/community/index.ts` behind an explicit injected handler contract. The dashboard Study
+shell delegates Deep Work, module analysis, and the shared modal primitive to focused components.
+
+Characterization gates preserve 112 dashboard route paths and all nine Beacon command/event entry
+points. Measured hotspots improve from 1,383 to 1,070 lines for `dashboard/route.ts`, 2,955 to 2,772 for
+`community/index.ts`, and 1,303 to 911 for `study-dashboard.tsx`. This materially reduces collision and
+review scope but does not claim that every oversized module is solved: `dashboard-app.tsx`, the remaining
+Beacon moderation domains, Study capture/service/data/bot modules, and the still-large general router
+remain candidates for future incremental extraction.
+
+Validation is green: backend typecheck/build, 990 tests with 6 intentional skips, 158 security checks,
+tracked-secret scan, route/event inventory comparison, and two zero-finding dependency audits; dashboard
+typecheck/lint/build, 185 tests, 85 security checks, tracked-secret scan, two zero-finding audits, and
+Playwright with 15 passes and 5 intentional mobile skips. A first Playwright attempt exposed a stale
+local `.next` artifact carrying the former report-only CSP; rebuilding the current default artifact
+restored the expected enforced policy and the full gate passed.
 
 ## Phase 2 closure addendum — 2026-08-31
 
@@ -125,7 +148,7 @@ paid provider, or secret change.
 
 ### High engineering risk — oversized composition and routing modules
 
-**Evidence.** Backend hotspots include `src/community/index.ts` (2,955 lines),
+**Original evidence.** Backend hotspots included `src/community/index.ts` (2,955 lines),
 `src/bot/studyCapture.ts` (1,895), `src/services/study.ts` (1,486),
 `src/dashboard/data.ts` (1,456), `src/bot/study.ts` (1,360), and
 `src/dashboard/route.ts` (1,272). Dashboard hotspots include
@@ -135,7 +158,10 @@ paid provider, or secret change.
 files. Security-sensitive authorization and UI state can be changed accidentally while editing an
 unrelated feature.
 
-**Recommendation.** Split by stable responsibility, not arbitrary line count. Start with route
+**Current status.** Phase 3 completed that first split and added characterization budgets; see the
+addendum above. Residual oversized modules remain a medium engineering risk rather than a closed issue.
+
+**Recommendation.** Continue splitting by stable responsibility, not arbitrary line count. Start with route
 registration versus handlers, Study shell versus feature views, and Beacon registration versus
 moderation domains. Preserve public service seams and add characterization tests before moving code.
 Do not attempt one big-bang refactor.
