@@ -122,6 +122,46 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("keeps Personal rich-note drafts behind the signed owner and bounded route schemas", async () => {
+    const server = Fastify();
+    const getPersonalNoteDraft = vi.fn(async () => null);
+    const savePersonalNoteDraft = vi.fn(async () => ({ id: "0c68a350-c061-4a86-a63f-842c132dc77d", revision: 1 }));
+    const deletePersonalNoteDraft = vi.fn(async () => undefined);
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      actions: { getPersonalNoteDraft, savePersonalNoteDraft, deletePersonalNoteDraft } as never,
+    });
+    const authorization = `Bearer ${await validToken()}`;
+
+    const loaded = await server.inject({
+      method: "GET",
+      url: "/api/v1/dashboard/note-drafts",
+      headers: { authorization },
+    });
+    expect(loaded.statusCode).toBe(200);
+    expect(getPersonalNoteDraft).toHaveBeenCalledWith("123456789", {});
+
+    const saved = await server.inject({
+      method: "PATCH",
+      url: "/api/v1/dashboard/note-drafts",
+      headers: { authorization },
+      payload: { title: "Private draft", body: "Unfinished Markdown", expectedRevision: 0 },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(savePersonalNoteDraft).toHaveBeenCalledWith("123456789", {
+      title: "Private draft", body: "Unfinished Markdown", expectedRevision: 0,
+    });
+
+    const removed = await server.inject({
+      method: "DELETE",
+      url: "/api/v1/dashboard/note-drafts/0c68a350-c061-4a86-a63f-842c132dc77d",
+      headers: { authorization },
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(deletePersonalNoteDraft).toHaveBeenCalledWith("123456789", "0c68a350-c061-4a86-a63f-842c132dc77d");
+    await server.close();
+  });
+
   it("keeps the Phase 1 Today API hidden from every non-owner principal", async () => {
     const server = Fastify();
     registerDashboardRoute(server, {

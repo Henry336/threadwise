@@ -6,6 +6,14 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, release pending):** Fixed rich-editor checklist alignment at the Tiptap
+  label/content boundary and extended the checked Study writing experience to Personal mode without
+  changing Group. Personal keeps canonical `Note` records but gains full-screen WYSIWYG Markdown,
+  local strict Mermaid/UML, title-only filing, `.md` portability, and encrypted owner-scoped
+  `PersonalNoteDraft` recovery with seven-day expiry and optimistic conflicts. Additive migration,
+  focused route/encryption tests, dashboard desktop/mobile geometry checks, and production build pass;
+  full gates and coordinated backend-before-dashboard release are pending.
+
 - **2026-08-31 (Codex, dashboard deployed):** The Study rich editor now distinguishes
   local Markdown emissions from genuine external replacements so autosave renders do not reset the
   active selection. Tab/Shift+Tab supports portable list and Mermaid/code indentation, and a searchable

@@ -157,7 +157,27 @@ durability or cross-device conflict detection.
 **Release evidence.** Dashboard runtime `e9e21b192f15` passed the complete local gate and hosted CI run
 `33353462062`, then completed its Vercel production deployment. The canonical dashboard returned HTTP 200.
 
-### Medium reliability — the rich-note acceptance gate is mostly structural
+### Resolved in guarded code 2026-08-31 — checklist geometry and first Personal rich-note lifecycle
+
+**Previous evidence.** Tiptap checklist text inherited the document paragraph's top margin while the
+checkbox occupied a separate grid cell, visibly placing the empty control above its first text line.
+Personal notes still used the compact legacy textarea even after the Study writer proved viable.
+
+**Resolution.** Task-item CSS now targets Tiptap's `li > label + div` structure, centers the control in
+the first line, and removes only the first/last task paragraph's outer margins. Personal Today and Notes
+reuse the same selection-safe editor and strict local diagram boundary with Personal accent tokens and a
+title-only filing step. New encrypted `PersonalNoteDraft` storage scopes by signed owner, expires after
+seven days, checks draft and canonical-note revisions, and remains outside search/AI evidence. Group is
+explicitly not widened.
+
+**Evidence before release.** Backend type/build, 981 tests with 6 intentional skips, 152 focused security
+checks, secret scan, and both zero-finding dependency audits pass. Dashboard typecheck/lint/build, 169
+unit/regression tests, 78 focused security checks, secret scan, both zero-finding dependency audits, and
+the complete browser gate (10 pass, 2 intentional mobile skips) pass. The browser check measures the
+rendered checkbox/text centers, not merely CSS source strings. Commit ids, migration, and hosted deployment
+evidence must be appended at release.
+
+### Medium reliability — the authenticated Study rich-note lifecycle is still mostly structural
 
 **Location.** Dashboard `src/components/study-ui-regressions.test.ts:145-164`.
 
@@ -167,7 +187,11 @@ installed Mermaid runtime to parse every shipped Mermaid/UML template. There is 
 flow covering autosave recovery, filing focus, conflict resolution, import error, diagram editing, or
 abrupt close. The live demo cannot enter the owner-gated Study editor.
 
-**Impact.** Refactors can satisfy the assertions while interaction behavior is broken; conversely,
+Personal demo coverage now exercises opening, rich checklist entry, measured alignment, title filing,
+and successful save on desktop and mobile. The owner-gated Study lifecycle still lacks an authenticated
+fixture.
+
+**Impact.** Study refactors can satisfy the assertions while interaction behavior is broken; conversely,
 safe refactors can fail because text moved.
 
 **Recommendation.** Keep narrow serializer/security unit tests, then add a synthetic authenticated

@@ -53,6 +53,11 @@ import {
   type DashboardSearchKind
 } from "./data";
 import {
+  deleteDashboardPersonalNoteDraft,
+  getDashboardPersonalNoteDraft,
+  saveDashboardPersonalNoteDraft,
+} from "./personalNoteDrafts";
+import {
   dashboardIdParamsSchema,
   capturePreviewSchema,
   calendarTaskIntegrationSchema,
@@ -71,6 +76,8 @@ import {
   noteCreateSchema,
   noteListQuerySchema,
   noteUpdateSchema,
+  personalNoteDraftQuerySchema,
+  personalNoteDraftSaveSchema,
   searchQuerySchema,
   settingsUpdateSchema,
   taskCreateSchema,
@@ -242,6 +249,9 @@ export type DashboardRouteActions = {
   createNote: typeof createDashboardNote;
   updateNote: typeof updateDashboardNote;
   archiveNote: typeof archiveDashboardNote;
+  getPersonalNoteDraft: typeof getDashboardPersonalNoteDraft;
+  savePersonalNoteDraft: typeof saveDashboardPersonalNoteDraft;
+  deletePersonalNoteDraft: typeof deleteDashboardPersonalNoteDraft;
   listIdeas: typeof listDashboardIdeas;
   getIdea: typeof getDashboardIdea;
   createIdea: typeof createDashboardIdea;
@@ -293,6 +303,9 @@ const defaultActions: DashboardRouteActions = {
   createNote: createDashboardNote,
   updateNote: updateDashboardNote,
   archiveNote: archiveDashboardNote,
+  getPersonalNoteDraft: getDashboardPersonalNoteDraft,
+  savePersonalNoteDraft: saveDashboardPersonalNoteDraft,
+  deletePersonalNoteDraft: deleteDashboardPersonalNoteDraft,
   listIdeas: listDashboardIdeas,
   getIdea: getDashboardIdea,
   createIdea: createDashboardIdea,
@@ -912,6 +925,23 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     await actions.archiveTask(telegramId, id);
     return { archived: true };
   }, "archive_task"));
+
+  server.get("/api/v1/dashboard/note-drafts", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return { draft: await actions.getPersonalNoteDraft(telegramId, personalNoteDraftQuerySchema.parse(request.query)) };
+  }, "get_personal_note_draft"));
+
+  server.patch("/api/v1/dashboard/note-drafts", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    return { draft: await actions.savePersonalNoteDraft(telegramId, personalNoteDraftSaveSchema.parse(request.body)) };
+  }, "save_personal_note_draft"));
+
+  server.delete("/api/v1/dashboard/note-drafts/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    assertPersonalWorkspace(scope);
+    const { id } = dashboardIdParamsSchema.parse(request.params);
+    await actions.deletePersonalNoteDraft(telegramId, id);
+    return { deleted: true };
+  }, "delete_personal_note_draft"));
 
   server.post("/api/v1/dashboard/notes", async (request, reply) => run(request, reply, async (telegramId) => ({
     note: await actions.createNote(telegramId, noteCreateSchema.parse(request.body))

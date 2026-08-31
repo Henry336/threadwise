@@ -92,8 +92,8 @@ export class DashboardItemNotFoundError extends Error {
 }
 
 export class DashboardConflictError extends Error {
-  constructor() {
-    super("This item changed somewhere else. Refresh it before saving your edit.");
+  constructor(message = "This item changed somewhere else. Refresh it before saving your edit.") {
+    super(message);
     this.name = "DashboardConflictError";
   }
 }

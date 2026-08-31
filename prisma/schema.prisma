@@ -414,6 +414,7 @@ model User {
   pendingTaskImports         PendingTaskImport[]
   studyWorkspace             StudyWorkspace?
   studyNoteDrafts            StudyNoteDraft[]
+  personalNoteDrafts         PersonalNoteDraft[]
   taskCaptureDrafts          TaskCaptureDraft[]
   dailyBriefDeliveries       DailyBriefDelivery[]
   dailyAgendaOrderStates     DailyAgendaOrderState[]
@@ -1492,6 +1493,7 @@ model Note {
   mergedIntoNote         Note?                   @relation("NoteMerge", fields: [mergedIntoNoteId], references: [id], onDelete: SetNull)
   mergedSourceNotes      Note[]                  @relation("NoteMerge")
   voiceTranscriptionJobs VoiceTranscriptionJob[]
+  drafts                 PersonalNoteDraft[]
 
   @@unique([userId, publicId])
   @@index([userId, createdAt])
@@ -1499,6 +1501,27 @@ model Note {
   @@index([userId, archivedAt])
   @@index([userId, mergedIntoNoteId])
   @@index([searchTokens], type: Gin)
+}
+
+model PersonalNoteDraft {
+  id            String    @id @default(uuid())
+  userId        String
+  draftKey      String
+  noteId        String?
+  noteUpdatedAt DateTime?
+  title         String    @default("")
+  body          String    @default("")
+  revision      Int       @default(1)
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  note Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, draftKey])
+  @@index([userId, expiresAt])
+  @@index([noteId])
 }
 
 model NoteCaptureSession {

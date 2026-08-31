@@ -53,16 +53,20 @@ Never accept a browser-supplied canonical user id. Resolve the Telegram subject 
 opaque workspace id as a candidate only, and repeat personal/group/Study authorization inside each
 route/service boundary. Mutations consume a JTI and apply shared principal/operation rate limits.
 
-### Study rich notes
+### Rich notes
 
-`Editor → encrypted StudyNoteDraft → final title/module filing → canonical StudyResource`
+`Study editor → encrypted StudyNoteDraft → final title/module filing → canonical StudyResource`
+
+`Personal editor → encrypted PersonalNoteDraft → final title filing → canonical Note`
 
 Drafts expire, are not searchable, and cannot silently overwrite a newer note revision. Telegram,
 Library, search, backlinks, sessions, revisions, and analysis all continue to use `StudyResource`.
+Personal Notes and Telegram continue to use `Note`; the rich writer is not a parallel collection.
 The dashboard's UML support is Mermaid-native and local; do not add PlantUML or a remote renderer
 without a new privacy/security decision. Locally emitted Markdown must not be routed back through
 Tiptap `setContent`, and diagram templates must pass the installed browser parser contract. Do not
-create a second note store or enable raw HTML/plugin execution.
+create a second canonical note store or enable raw HTML/plugin execution. Group note drafts remain
+outside this flow until their collaboration ownership is explicitly designed.
 
 ## Data and privacy invariants
 

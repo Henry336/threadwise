@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:
 const PREFIX = "twenc:v1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
-const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource|StudyResourceRevision|StudyNoteDraft|GeminiIdeaJob|GeminiStudyAnalysisJob|StudyNoteEditSuggestion|StudyCanvasMaterial):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
+const ENCRYPTED_VALUE_PATTERN = /^twenc:v1:(Task|Note|Idea|StoredImage|StudyResource|StudyResourceRevision|StudyNoteDraft|PersonalNoteDraft|GeminiIdeaJob|GeminiStudyAnalysisJob|StudyNoteEditSuggestion|StudyCanvasMaterial):[A-Za-z][A-Za-z0-9]*:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{16,}:[A-Za-z0-9_-]*$/u;
 
 let cachedEnvironmentCipher: { signature: string; cipher: ContentCipher } | undefined;
 
@@ -15,6 +15,7 @@ export type ContentModel =
   | "StudyResource"
   | "StudyResourceRevision"
   | "StudyNoteDraft"
+  | "PersonalNoteDraft"
   | "GeminiIdeaJob"
   | "GeminiStudyAnalysisJob"
   | "StudyNoteEditSuggestion"
@@ -34,6 +35,7 @@ export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   StudyResource: { encrypted: ["title", "body", "url", "fileName", "caption", "ocrText", "analysisExcerpt", "captionPreview", "ocrPreview"], searchable: ["title", "body", "url", "fileName", "caption", "ocrText"] },
   StudyResourceRevision: { encrypted: ["title", "body"], searchable: [] },
   StudyNoteDraft: { encrypted: ["title", "body"], searchable: [] },
+  PersonalNoteDraft: { encrypted: ["title", "body"], searchable: [] },
   GeminiIdeaJob: { encrypted: ["prompt", "finalResponse"], searchable: [] },
   GeminiStudyAnalysisJob: { encrypted: ["evidenceCiphertext", "promptCiphertext", "resultCiphertext"], searchable: [] },
   StudyNoteEditSuggestion: { encrypted: ["originalBody", "suggestedBody", "rationale", "appliedBody"], searchable: [] },

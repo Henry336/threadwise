@@ -507,6 +507,12 @@ Deep Work is a persistent Study companion rather than a route that hides the res
 
 Study notes use portable Markdown in the existing canonical resource body. The dashboard supports GitHub-Flavored Markdown, strict Mermaid diagrams, Mermaid-native class/sequence/state UML with searchable syntax help, Tab-indented lists and diagram/code source, `[[wiki links]]`, backlinks, selection-safe encrypted cross-device draft recovery, bounded version history, and `.md` import/export. New Study drafts autosave to an owner/workspace-scoped `StudyNoteDraft` for seven days, use optimistic revisions to reject stale devices, and become ordinary searchable Library resources only after the learner files them with a title and module. Telegram shows a readable text fallback for the same saved note instead of executing formatting or diagram source. Threadwise does not execute imported HTML, scripts, PlantUML, Obsidian plugins, or vault automation. User-facing note and idea tags are retired across modes; historical tag columns remain dormant for backward compatibility rather than being destructively migrated.
 
+Personal Notes now reuse the same full-screen inline rich Markdown/Mermaid/UML writer, syntax help,
+selection-safe editing, Tab behavior, and `.md` portability. Unfinished Personal content autosaves for
+seven days to encrypted owner-scoped `PersonalNoteDraft` rows with optimistic conflict checks, then files
+back into the existing canonical `Note` after one title decision. It does not ask for a module or tags.
+Group note editing remains on its prior flow until shared draft ownership is designed explicitly.
+
 It is disabled unless both exact numeric identifiers are configured on Render:
 
 ```text

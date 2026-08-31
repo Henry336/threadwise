@@ -103,17 +103,32 @@ export const taskImportItemUpdateSchema = z.object({
 
 export const noteCreateSchema = z.object({
   title: trimmed(500),
-  body: trimmed(50_000),
+  body: trimmed(100_000),
   tags: tags.optional()
 }).strict();
 
 export const noteUpdateSchema = z.object({
   title: trimmed(500).optional(),
-  body: trimmed(50_000).optional(),
+  body: trimmed(100_000).optional(),
   tags: tags.optional(),
   pinned: z.boolean().optional(),
   expectedUpdatedAt: dateTime.optional()
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required.");
+
+export const personalNoteDraftQuerySchema = z.object({
+  noteId: z.string().uuid().optional(),
+}).strict();
+
+export const personalNoteDraftSaveSchema = z.object({
+  noteId: z.string().uuid().nullable().optional(),
+  noteUpdatedAt: dateTime.nullable().optional(),
+  title: z.string().max(500).default(""),
+  body: z.string().max(100_000).default(""),
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+}).strict().refine((value) => !value.noteId || Boolean(value.noteUpdatedAt), {
+  message: "The saved note version is required for an editing draft.",
+  path: ["noteUpdatedAt"],
+});
 
 export const ideaCreateSchema = z.object({
   title: trimmed(500),
@@ -290,6 +305,8 @@ export type TaskCollaborationInput = z.infer<typeof taskCollaborationSchema>;
 export type CapturePreviewInput = z.infer<typeof capturePreviewSchema>;
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>;
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>;
+export type PersonalNoteDraftQueryInput = z.infer<typeof personalNoteDraftQuerySchema>;
+export type PersonalNoteDraftSaveInput = z.infer<typeof personalNoteDraftSaveSchema>;
 export type IdeaCreateInput = z.infer<typeof ideaCreateSchema>;
 export type IdeaUpdateInput = z.infer<typeof ideaUpdateSchema>;
 export type IdeaConvertInput = z.infer<typeof ideaConvertSchema>;

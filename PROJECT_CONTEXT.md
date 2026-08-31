@@ -1849,3 +1849,34 @@ and the next command/action. Never mark incomplete work complete.
   `e9e21b192f1543cc9244611288c0186eb6d3b2af` passed GitHub CI run `33353462062`, Vercel completed its
   production deployment, and the canonical dashboard returned HTTP 200. The owner-only authenticated
   editor remains the user's live acceptance surface. No backend release was needed.
+
+## Active checkpoint — checklist alignment and Personal rich notes (2026-08-31 SGT)
+
+- Approved scope: repair the visibly low checklist text/checkbox alignment, then roll the validated rich
+  note-writing experience into Individual/Personal mode. Group note editing is deliberately unchanged;
+  shared ownership and draft conflicts need a separate product decision rather than inherited assumptions.
+- UI correction: checklist rows now align against Tiptap's actual `li > label + div` structure. The
+  checkbox label is vertically centered to the first 1.72-line text row, and first/last task paragraphs
+  lose only their inappropriate outer margins. A real desktop/mobile Chromium geometry check protects the
+  relationship instead of relying only on a screenshot-specific pixel offset.
+- Personal flow: the Personal Today heading and Notes page open the same near/full-screen selection-safe
+  Markdown editor used by Study. Formatting, checklists, tables, local strict Mermaid, Mermaid-native UML,
+  searchable syntax help, Tab list/code indentation, `.md` import, and Personal `.md` export are available.
+  Final filing asks only for title; there is no fake module or tag choice. Saved content remains the existing
+  canonical Personal `Note`, so Telegram, search, archive, pinning, and existing public ids do not fork.
+- Persistence/security: new `PersonalNoteDraft` rows keep encrypted unfinished title/body text for seven
+  days. Draft keys are unique per authenticated owner (`new` or canonical note id), expired rows purge
+  opportunistically, optimistic integer revisions reject stale devices, and an existing draft retains its
+  starting `Note.updatedAt` so it cannot overwrite a newer Telegram/browser save. The same-origin BFF permits
+  only GET/PATCH on the collection and DELETE on UUID records; backend routes repeat Personal-workspace and
+  signed-owner checks. Drafts are neither searchable nor AI evidence.
+- Data migration: additive `20260831150000_personal_note_drafts`; no existing Personal, Group, Study, task,
+  reminder, search, integration, or provider record is rewritten. Personal note body validation now matches
+  the already reviewed 100,000-character rich-editor ceiling. No new service, paid dependency, provider,
+  browser secret, or raw-HTML/remote-rendering boundary is introduced.
+- Validation checkpoint before release: Prisma validate/generate, backend typecheck/build, 981 tests with
+  6 intentional skips, 152 focused security tests, tracked-secret scan, and two zero-finding dependency
+  audits pass. Dashboard typecheck/lint, optimized build, 169 unit/regression tests, 78 focused security
+  tests, tracked-secret scan, two zero-finding dependency audits, and the complete browser gate (10 pass,
+  2 intentional mobile skips) pass. Final commits, additive production migration, and coordinated
+  backend-before-dashboard release remain pending.
