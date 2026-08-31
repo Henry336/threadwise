@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Phase 3 incremental composition extraction
+- Split all Study dashboard route registration into `src/dashboard/studyRoutes.ts` while retaining the
+  parent router's authentication, replay protection, shared rate limits, workspace resolution, and
+  error mapping unchanged.
+- Split Beacon's grammY transport registration into `src/community/registration.ts`; moderation and
+  conversation decisions remain in the existing domain module behind an explicit handler contract.
+- Added characterization budgets that preserve all 112 dashboard API paths, the nine Beacon event/
+  command entry points, and the new ownership seams. No schema, endpoint, copy, provider, or user-visible
+  behavior changed.
+
 ### Study timetable deletion scroll recovery (released 2026-08-31)
 - Replaced stacked block-details/deletion modals with one active destructive focus layer.
 - Added a reference-counted body scroll lock that restores the original overflow in either overlay

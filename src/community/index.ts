@@ -16,7 +16,6 @@ import {
   addCommunityTrigger,
   approveCommunityTrigger,
   attachCommunityReportMessage,
-  claimCommunityUpdate,
   clearCommunityConversation,
   communityAccess,
   communityActionById,
@@ -42,7 +41,6 @@ import {
   cycleCommunityFloodPreset,
   cycleCommunityMentionLimit,
   deleteEmptyCommunityTriggerGroup,
-  ensureConfiguredCommunityGroups,
   expireCommunityEvidence,
   hasPermanentCommunityBan,
   isNewCommunityMemberPaused,
@@ -117,6 +115,7 @@ import {
   isBeaconOwnerOnlyControl,
   isBeaconPublicGroupControl
 } from "./controlAccess";
+import { createRegisteredBeaconBot } from "./registration";
 import {
   actionsText,
   auditsText,
@@ -177,12 +176,9 @@ import {
 } from "./ui";
 
 const OWNER_ONLY = "Only Beacon's owner can do that.";
-const REPORT_PATTERN = /^(?:\/report(?:@\w+)?|report(?:\s+this)?|ဒီစာကို\s*တိုင်ကြားမယ်|တိုင်ကြားမယ်)(?:\s+(.+))?$/iu;
 const SETTINGS_PATTERN = /^(?:\/beacon(?:@\w+)?|beacon\s+(?:settings|menu)|moderation\s+settings)$/iu;
-const ADD_MODERATOR_PATTERN = /^(?:add|make)\s+(?:this\s+user\s+)?(?:a\s+)?moderator$/iu;
 const RULES_PATTERN = /^(?:\/rules(?:@\w+)?|rules|စည်းမျဉ်း(?:များ)?)$/iu;
 const floodState = new Map<string, Array<{ at: number; text: string }>>();
-const PURGE_PATTERN = /^(?:\/purge(?:@\w+)?|purge(?:\s+(?:this\s+)?topic)?)$/iu;
 
 type WizardData = {
   target: ModeratorIdentityInput;
@@ -195,208 +191,29 @@ type WizardData = {
 type ActionChoice = { action: CommunityModerationActionType; deleteMessage: boolean; muteDurationMinutes?: number };
 
 export async function createBeaconBot(token: string, config: BeaconConfig): Promise<Bot> {
-  const bot = new Bot(token);
-  await ensureConfiguredCommunityGroups(config);
-
-  bot.use(async (ctx, next) => {
-    if (!(await claimCommunityUpdate(ctx.update.update_id))) return;
-    await next();
+  return createRegisteredBeaconBot(token, config, {
+    showPrivateHome,
+    showPrivateEntry,
+    configuredGroup,
+    accessFor,
+    showMemberHelp,
+    showGroupHome,
+    showRules,
+    handleMemberReport,
+    beginTopicPurge,
+    handleCallback,
+    answerCallback,
+    handlePrivateMessage,
+    handleServiceMessage,
+    enforceStructuralSafety,
+    handleConversationMessage,
+    handleNaturalPolicyCommand,
+    beginModeratorTarget,
+    enforceConfiguredPolicy,
+    notifyOwner,
+    memberName,
   });
-
-  bot.command("start", async (ctx) => {
-    const actorId = String(ctx.from?.id ?? "");
-    const requestedGroupId = typeof ctx.match === "string" && ctx.match.startsWith("manage_")
-      ? ctx.match.slice("manage_".length)
-      : undefined;
-    if (requestedGroupId) {
-      const group = await communityGroupById(requestedGroupId);
-      if (group?.enabled) {
-        const access = await communityAccess(group.id, actorId, config.ownerTelegramId);
-        if (access.owner || access.moderator) {
-          await selectCommunityControlGroup(actorId, group.id);
-          await showPrivateHome(ctx, group, access);
-          return;
-        }
-      }
-    }
-    await showPrivateEntry(ctx, config);
-  });
-
-  bot.command("beacon", async (ctx) => {
-    if (ctx.chat.type === "private") {
-      await showPrivateEntry(ctx, config);
-      return;
-    }
-    const group = await configuredGroup(ctx);
-    if (!group) return;
-    const access = await accessFor(ctx, group, config);
-    if (!access.owner && !access.moderator) {
-      await showMemberHelp(ctx, group);
-      return;
-    }
-    await showGroupHome(ctx, group, access);
-  });
-
-  bot.command("rules", async (ctx) => {
-    const group = await configuredGroup(ctx);
-    if (!group) return;
-    await showRules(ctx, group);
-  });
-
-  bot.command("report", async (ctx) => {
-    const group = await configuredGroup(ctx);
-    if (!group) return;
-    await handleMemberReport(ctx, group, config);
-  });
-
-  bot.command("purge", async (ctx) => {
-    const group = await configuredGroup(ctx);
-    if (!group) return;
-    await beginTopicPurge(ctx, group, config);
-  });
-
-  bot.callbackQuery(/^bc:/, async (ctx) => {
-    try {
-      await handleCallback(ctx, config);
-    } catch (error) {
-      logger.error("Beacon callback failed.", { error: String(error), data: ctx.callbackQuery.data });
-      await answerCallback(ctx, "That action could not be completed. Please reopen Beacon and try again.", true);
-    }
-  });
-
-  bot.on("chat_member", async (ctx) => {
-    const group = await communityGroupForChat(String(ctx.chat.id));
-    if (!group) return;
-    const member = ctx.chatMember.new_chat_member;
-    const active = !["left", "kicked"].includes(member.status);
-    await upsertCommunityMember({
-      groupId: group.id,
-      telegramId: String(member.user.id),
-      username: member.user.username,
-      displayName: memberName(member.user),
-      joined: active,
-      active
-    });
-    if (active && await hasPermanentCommunityBan(group.id, String(member.user.id))) {
-      await ctx.api.banChatMember(Number(group.telegramChatId), member.user.id).catch((error) =>
-        logger.warn("Beacon could not restore a permanent ban.", {
-          groupId: group.id,
-          telegramId: String(member.user.id),
-          error: String(error)
-        })
-      );
-      return;
-    }
-    if (!active) {
-      const suspended = await suspendCommunityModerator(group.id, String(member.user.id));
-      if (suspended) {
-        const audit = await recordCommunityAudit({
-          groupId: group.id,
-          actorTelegramId: "SYSTEM",
-          action: "MODERATOR_AUTO_SUSPENDED",
-          targetTelegramId: suspended.telegramId,
-          details: { reason: "left_group" }
-        });
-        await notifyOwner(bot, config, group, audit.id, [
-          "<b>Moderator suspended</b>",
-          `${escapeHtml(displayModerator(suspended))} left the group. Beacon permissions were suspended automatically.`
-        ].join("\n"));
-      }
-    }
-  });
-
-  bot.on("my_chat_member", async (ctx) => {
-    const group = await communityGroupForChat(String(ctx.chat.id));
-    if (group) await updateCommunityGroupTitle(group.id, ctx.chat.title);
-  });
-
-  bot.on("message", async (ctx) => {
-    if (ctx.chat.type === "private") {
-      await handlePrivateMessage(ctx, config);
-      return;
-    }
-    const group = await configuredGroup(ctx);
-    if (!group) return;
-    await updateCommunityGroupTitle(group.id, "title" in ctx.chat ? ctx.chat.title : undefined);
-
-    if (
-      ctx.message.new_chat_members?.length
-      || ctx.message.left_chat_member
-      || ctx.message.forum_topic_created
-      || ctx.message.forum_topic_edited
-    ) {
-      await handleServiceMessage(ctx, group, config);
-      return;
-    }
-
-    const senderId = String(ctx.from?.id ?? "");
-    if (!senderId) return;
-    await upsertCommunityMember({
-      groupId: group.id,
-      telegramId: senderId,
-      username: ctx.from?.username,
-      displayName: ctx.from ? memberName(ctx.from) : undefined
-    });
-
-    const text = ctx.message.text?.trim();
-    if (!text) {
-      await enforceStructuralSafety(ctx, group, config, "");
-      return;
-    }
-
-    const reportMatch = text.match(REPORT_PATTERN);
-    if (reportMatch) {
-      await handleMemberReport(ctx, group, config, reportMatch[1]);
-      return;
-    }
-
-    const access = await accessFor(ctx, group, config);
-    const conversation = await activeCommunityConversation(group.id, senderId);
-    if (conversation && await handleConversationMessage(ctx, group, conversation, access, config)) return;
-
-    if (SETTINGS_PATTERN.test(text)) {
-      if (!access.owner && !access.moderator) await showMemberHelp(ctx, group);
-      else await showGroupHome(ctx, group, access);
-      return;
-    }
-    if (isBeaconInvocation(text)) {
-      if (access.owner || access.moderator) await showGroupHome(ctx, group, access);
-      else await showMemberHelp(ctx, group);
-      return;
-    }
-    if (RULES_PATTERN.test(text)) {
-      await showRules(ctx, group);
-      return;
-    }
-    if (PURGE_PATTERN.test(text)) {
-      await beginTopicPurge(ctx, group, config);
-      return;
-    }
-    if (ADD_MODERATOR_PATTERN.test(text) && ctx.message.reply_to_message) {
-      if (!access.owner) {
-        await ctx.reply(OWNER_ONLY);
-        return;
-      }
-      await beginModeratorTarget(ctx, group, config, ctx.message.reply_to_message.from);
-      return;
-    }
-    if (await handleNaturalPolicyCommand(ctx, group, access, config)) return;
-
-    if (access.owner || access.moderator || await isTrustedCommunityMember(group.id, senderId)) return;
-    if (await enforceStructuralSafety(ctx, group, config, text)) return;
-    await enforceConfiguredPolicy(ctx, group, config, text);
-  });
-
-  bot.catch((error) => {
-    logger.error("Beacon update failed.", {
-      error: String(error.error),
-      updateId: error.ctx.update.update_id
-    });
-  });
-
-  return bot;
 }
-
 export function startBeaconCleanupLoop(): NodeJS.Timeout {
   return setInterval(() => {
     void expireCommunityEvidence().catch((error) => logger.error("Beacon evidence cleanup failed.", { error: String(error) }));

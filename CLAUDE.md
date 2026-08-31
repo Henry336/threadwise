@@ -6,6 +6,14 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, Phase 3 validation in progress):** Performed the first behavior-preserving
+  large-module extraction behind characterization tests. The general dashboard router delegates all
+  Study endpoints to `src/dashboard/studyRoutes.ts` after shared auth/replay/rate/workspace checks;
+  Beacon delegates grammY registration to `src/community/registration.ts` while moderation decisions
+  remain injected domain handlers. Route inventory remains 112 and all nine Beacon registration entry
+  points are preserved. The paired dashboard separates Deep Work/module analysis and the shared Study
+  dialog from its shell. No schema, API path, copy, provider, secret, or product behavior changed.
+
 - **2026-08-31 (Codex, deployed Phase 2):** Added an additive owner-scoped
   `DashboardBrowserSession` registry and signed-service-token create/check/revoke routes. The paired
   dashboard now registers either Telegram login, rejects legacy/non-active/cross-owner sessions on each
@@ -256,6 +264,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-31 (Codex, Phase 3 validation in progress):** Added the guarded backend Study-route and
+  Beacon-registration seams plus the paired dashboard Study-shell/Deep-Work/dialog seams. Added
+  maintainability characterization budgets and updated audit/onboarding/changelog/context records.
+  Release evidence will replace this in-progress marker after all gates and production verification.
 
 - **2026-08-31 (Codex, deployed):** Implemented bounded rich-note synchronization, fixed the
   global-shortcut focus theft, restored list markers, isolated/aligned filing focus, added module pinning,

@@ -139,7 +139,18 @@ gates. Backend schema/API changes release before dashboard consumers.
 
 ## Change ownership and hotspots
 
-Prefer incremental extraction when touching these files:
+Phase 3 established two backend composition seams:
+
+- `src/dashboard/route.ts` owns shared authentication, replay/rate limiting, workspace resolution,
+  common error mapping, and non-Study route composition. `src/dashboard/studyRoutes.ts` owns only the
+  Study HTTP surface and receives the already-secured `run` boundary from the parent router.
+- `src/community/registration.ts` owns grammY middleware, command, callback, membership, and message
+  registration. `src/community/index.ts` retains Beacon moderation conversations and domain behavior,
+  injected into registration through `BeaconRegistrationHandlers`.
+
+Characterization tests in `src/maintainabilityBoundaries.test.ts` protect route/event inventory and
+keep these responsibilities from silently collapsing back together. Prefer further incremental
+extraction when touching the remaining hotspots:
 
 - `src/community/index.ts`
 - `src/bot/studyCapture.ts`
@@ -148,9 +159,11 @@ Prefer incremental extraction when touching these files:
 - `src/bot/study.ts`
 - `src/dashboard/route.ts`
 
-An extraction should preserve exported seams, carry tests with the moved responsibility, and avoid
-mixing behavior changes into the same commit. The current audit contains the measured line counts and
-recommended split order.
+The first pass reduced `community/index.ts` from 2,955 to 2,772 lines and `dashboard/route.ts` from
+1,383 to 1,070 lines while preserving all 112 HTTP route paths and all nine Beacon registration entry
+points. These files remain large, so the risk is reduced rather than erased. An extraction should
+preserve exported seams, carry tests with the moved responsibility, and avoid mixing behavior changes
+into the same commit.
 
 ## Deployment and migrations
 
