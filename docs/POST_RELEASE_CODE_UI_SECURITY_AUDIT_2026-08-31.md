@@ -2,7 +2,7 @@
 
 Date: 2026-08-31 SGT  
 Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo, with
-release addenda through backend `25f8093` and dashboard `703d89b`
+release addenda through backend `4689c8d` and dashboard `5e831a9`
 Status: initial findings preserved; subsequent bounded resolutions and release evidence are addended
 
 ## Executive summary
@@ -46,6 +46,10 @@ Still open: oversized modules, CSP enforcement readiness, revocable browser sess
 draft response DTOs, remaining native selectors, backend parallel-test timeout ergonomics, and two
 older unnamed icon-only actions. Page-hide keepalive narrows the last autosave window for ordinary
 drafts but cannot guarantee delivery after abrupt process/device loss or beyond browser keepalive limits.
+
+**Release evidence.** Backend `4689c8dd5608` is healthy after its additive migration. Dashboard
+`5e831a918a4f` passed GitHub CI run `33376998070`, completed Vercel, and passed the canonical hosted
+browser gate (12 passed, 2 intentional mobile skips).
 
 ## What was verified as improved
 

@@ -1940,6 +1940,9 @@ and the next command/action. Never mark incomplete work complete.
   audits pass. Dashboard typecheck, lint, optimized build, 175 unit/regression tests, 78 focused security
   checks, tracked-secret scan, production/full zero-finding audits, and Playwright (12 passed, 2
   intentional mobile skips) pass. Diff checks are clean.
-- Release state: implementation and documentation are complete locally on paired
-  `codex/study-rich-notes` branches. The module migration is additive. Commits, backend-first publication,
-  migration/deployment health, dashboard deployment, and hosted smoke evidence remain.
+- Release evidence: backend `4689c8dd560812ff63e3230e0dfa308134098709` released first; Render's
+  pre-deploy applied additive migration `20260831190000_pin_study_modules` and `/health` reports HTTP 200
+  at commit `4689c8dd5608`. Dashboard `5e831a918a4fd890ecf38a248653405a4cc81e2c`
+  then passed GitHub Dashboard CI run `33376998070`, completed Vercel, and passed the canonical hosted
+  browser gate (12 passed, 2 intentional mobile skips). Both feature branches and `main` contain the
+  release; no paid provider, Group note flow, destructive migration, or existing record rewrite changed.

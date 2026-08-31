@@ -6,13 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-08-31 (Codex, release in progress):** Completed the paired rich-note friction and Study
+- **2026-08-31 (Codex, deployed):** Completed the paired rich-note friction and Study
   organization pass. Dashboard typing now uses bounded Markdown synchronization and contenteditable-aware
   shortcuts; numbered/bulleted markers, aligned active filing dialogs, visible import errors, mobile
   search names, and best-effort page-hide persistence are covered. Study modules gain additive nullable
   pins; timetable creation omits invalid null custom types, keeps Destination optional, aligns the
   leave-time row, and receives field-specific validation copy. See `PROJECT_CONTEXT.md` and the audit
-  addendum for resolved versus still-open findings.
+  addendum for resolved versus still-open findings. Backend `4689c8dd5608` is healthy after the
+  additive migration; dashboard `5e831a918a4f` completed Vercel, passed GitHub CI run `33376998070`,
+  and passed 12 hosted browser checks with 2 intentional mobile skips.
 
 - **2026-08-31 (Codex, deployed):** Fixed rich-editor checklist alignment at the Tiptap
   label/content boundary and extended the checked Study writing experience to Personal mode without
@@ -235,10 +237,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
-- **2026-08-31 (Codex, release in progress):** Implemented bounded rich-note synchronization, fixed the
+- **2026-08-31 (Codex, deployed):** Implemented bounded rich-note synchronization, fixed the
   global-shortcut focus theft, restored list markers, isolated/aligned filing focus, added module pinning,
   and corrected optional timetable payload/error/layout behavior. Updated continuity, onboarding, design,
-  and audit documentation; complete release gates and backend-first deployment remain.
+  and audit documentation. Backend `4689c8d` released first with its additive migration; dashboard
+  `5e831a9` then completed CI/Vercel and passed the hosted browser gate.
 
 - **2026-08-31 (Codex, dashboard deployed):** Implemented the dashboard-only Study typing-focus fix, stable body callback,
   accessible diagram guide, Mermaid-native UML templates, and Tab indentation. Updated paired project
