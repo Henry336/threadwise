@@ -266,6 +266,27 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("turns schema type errors into field-specific user guidance", async () => {
+    const server = Fastify();
+    const createTask = vi.fn();
+    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask } });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: { title: null },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "invalid_request",
+      message: "Title has an invalid value. Clear it or enter a valid value, then try again.",
+    });
+    expect(createTask).not.toHaveBeenCalled();
+    await server.close();
+  });
+
   it("enforces the canonical 15-minute reminder floor for dashboard mutations", async () => {
     const server = Fastify();
     const createTask = vi.fn(async () => ({ id: "task-1" }));

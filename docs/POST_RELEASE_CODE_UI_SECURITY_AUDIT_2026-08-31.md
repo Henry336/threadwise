@@ -16,9 +16,36 @@ and production-build gates pass.
 The highest current risk is maintainability rather than an active breach. Several backend and
 dashboard files are large enough that unrelated changes collide in the same modules. The most
 important browser security gap is that Content Security Policy remains report-only and cannot yet be
-enforced without breaking legitimate inline style attributes. The Study/Personal rich editor still has
-bounded accessibility, abrupt-close recovery, large-note performance, and authenticated-lifecycle test
-gaps that should be addressed before any Group expansion.
+enforced without breaking legitimate inline style attributes. The Study/Personal rich editor's
+accessible names, nested filing focus, typed error handling, visible list markers, and normal-path
+typing performance have since been remediated. Large-note benchmarking, fully reliable termination
+recovery, and an authenticated Study lifecycle fixture remain appropriate gates before Group expansion.
+
+## Remediation addendum — 2026-08-31
+
+This pass resolves the latest note and timetable defects without claiming that the broader audit is
+complete:
+
+- Markdown conversion is bounded behind a 140 ms quiet window with a 900 ms maximum wait, then flushed
+  before filing, explicit close, and best-effort page-hide persistence. Dashboard shortcuts now
+  recognize every `contenteditable` descendant, eliminating the mid-word focus theft that opened Quick
+  Capture when the learner typed `n`.
+- Ordered and unordered lists have explicit nested markers. A browser regression types a numbered list
+  continuously, checks its computed decimal marker, and proves the editor retains focus.
+- Study and Personal filing sheets are active modal layers: the obscured editor is inert, the sheet owns
+  dialog semantics and keyboard focus, and title/module controls share one aligned rhythm.
+- Mobile Personal and Study search controls now retain stable accessible names.
+- Markdown import failures are visible and structured draft error codes identify conflicts.
+- Timetable creation no longer sends an invalid `customTypeLabel: null`. Backend validation converts
+  invalid-type failures to field-specific guidance, while the full-width leave-time row aligns with the
+  recurrence dates and clearly marks Destination as optional.
+- Study modules can be pinned. A nullable `pinnedAt` column and bounded index put pinned modules first
+  without rewriting existing records.
+
+Still open: oversized modules, CSP enforcement readiness, revocable browser sessions, explicit Study
+draft response DTOs, remaining native selectors, backend parallel-test timeout ergonomics, and two
+older unnamed icon-only actions. Page-hide keepalive narrows the last autosave window for ordinary
+drafts but cannot guarantee delivery after abrupt process/device loss or beyond browser keepalive limits.
 
 ## What was verified as improved
 
@@ -96,7 +123,7 @@ HttpOnly, Secure, SameSite, and the same-origin BFF controls.
 **Qualification.** The token is not readable by ordinary client JavaScript and is not a bearer token
 for direct Render access. An attacker must first obtain the cookie.
 
-### Medium accessibility — mobile search controls lose their accessible names
+### Resolved in the current pass — mobile search controls keep accessible names
 
 **Location.** Dashboard `src/components/dashboard-app.tsx:781`,
 `src/components/study-dashboard.tsx:361`, `src/app/globals.css:667`, and
@@ -108,10 +135,10 @@ button as an unnamed button.
 
 **Impact.** Screen-reader and voice-control users cannot identify the primary search command on mobile.
 
-**Recommendation.** Add stable `aria-label` values such as `Find anything` and
-`Search this semester`; retain visible tooltips where appropriate.
+**Resolution.** Both controls now have stable `aria-label` values independent of responsive visible
+copy. Focused regressions guard both names.
 
-### Medium accessibility — the Study filing sheet does not isolate keyboard focus
+### Resolved in the current pass — filing sheets isolate keyboard focus
 
 **Location.** Dashboard `src/components/study-note-editor.tsx:149-174` and `:227-235`.
 
@@ -121,10 +148,11 @@ to include toolbar and editor controls behind the filing scrim.
 
 **Impact.** Keyboard users can tab into obscured controls and lose context while choosing title/module.
 
-**Recommendation.** Treat filing as the active modal layer: give it dialog semantics, trap focus within
-it, make the underlying editor inert while open, and restore focus to Save when it closes.
+**Resolution.** Study and Personal filing forms now own nested dialog semantics and the active focus
+trap while the underlying editor header, status, messages, and writing space are inert. Browser coverage
+proves the filing title receives focus and the editor is excluded.
 
-### Medium data-loss UX — abrupt browser exit can lose the last autosave window
+### Mitigated in the current pass — abrupt browser exit can still outrun persistence
 
 **Location.** Dashboard `src/components/study-note-editor.tsx:131-145`.
 
@@ -132,9 +160,10 @@ it, make the underlying editor inert while open, and restore focus to Save when 
 milliseconds and there is no page-hide/unload handoff. Closing the tab, browser, PWA process, or device
 immediately after typing can drop the newest edits even while the UI says autosave is on.
 
-**Recommendation.** Add a privacy-reviewed page-hide strategy, such as a bounded same-origin keepalive
-write, and test process/tab termination. If reliable delivery cannot be guaranteed, make the status
-distinguish `Unsaved changes` from `Saved across devices` at all times.
+**Mitigation.** Both editors flush pending Markdown and attempt a bounded same-origin keepalive write on
+`pagehide`; normal Close still waits for persistence and status distinguishes saving, error, and saved
+states. Browser shutdown is not transactional: abrupt process/device loss and oversized keepalive bodies
+remain residual risks and should be exercised by a dedicated termination harness.
 
 ### Resolved 2026-08-31 — duplicate per-keystroke serialization and selection replacement
 
@@ -144,12 +173,13 @@ distinguish `Unsaved changes` from `Saved across devices` at all times.
 the sync effect called `getMarkdown()` again to compare the new prop. Notes may contain up to 100,000
 characters, and treating the echoed prop as replacement content could reset the active selection.
 
-**Resolution.** The editor now records the last locally emitted body and returns before serializing or
-calling `setContent` when the parent echoes that body. Only content that differs from both that emission
-and the current editor document is treated as an external replacement. The parent also supplies a stable
-body callback. Pure synchronization tests cover local echo, real external replacement, and already-current
-content. Representative 10k/50k/100k latency measurement remains useful, but the duplicate normal-path
-serialization and focus-reset mechanism are removed.
+**Resolution.** The editor records the last locally emitted body and returns before serializing or
+calling `setContent` when the parent echoes it. Markdown conversion is also coalesced behind a 140 ms
+quiet window with a 900 ms maximum wait and synchronously flushed at filing/persistence boundaries.
+Only genuine external content can replace the editor document. The parent callback is stable, and the
+global shortcut handler now treats Tiptap descendants as typing targets rather than opening Quick
+Capture on the letter `n`. Pure sync tests and a real browser typing/list/focus flow cover the path.
+Representative 10k/50k/100k latency measurement remains useful.
 
 **Residual recommendation.** Benchmark representative 10k/50k/100k notes before widening the rollout.
 If serialization is still visible, debounce parent serialization separately without weakening draft
@@ -263,7 +293,7 @@ and couples the browser contract to the database model.
 **Recommendation.** Map drafts to an explicit response DTO and test that internal identifiers are not
 serialized.
 
-### Low UX/robustness — editor errors are silent or coupled to English copy
+### Resolved in the current pass — editor errors are visible and code-driven
 
 **Location.** Dashboard `src/components/study-note-editor.tsx:117-122`, `:180-195`, and `:245-257`.
 
@@ -271,8 +301,9 @@ serialized.
 `/changed somewhere else/i` because `noteApi` discards the structured backend error code. Draft-delete
 failure after canonical save is ignored, so a stale draft may reopen and then conflict safely.
 
-**Recommendation.** Preserve typed API error codes, show bounded import errors, and let the backend
-ignore/delete drafts whose bound canonical resource version is already stale.
+**Resolution.** The shared note-draft client preserves backend error codes, conflict handling checks
+those codes, and invalid extension, size, and file-read failures provide specific feedback. Post-save
+draft deletion remains best-effort because stale drafts expire and conflict safely.
 
 ### Low accessibility — several icon-only actions have no explicit label
 

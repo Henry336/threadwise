@@ -347,7 +347,7 @@ export async function ensureStudyWeek(workspace: StudyWorkspace, weekNumber = ac
 export async function listStudyModules(workspaceId: string, includeArchived = false): Promise<StudyModule[]> {
   return prisma.studyModule.findMany({
     where: { workspaceId, ...(includeArchived ? {} : { active: true }) },
-    orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+    orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { displayOrder: "asc" }, { code: "asc" }],
   });
 }
 
@@ -398,7 +398,7 @@ export async function addStudyModule(
 export async function updateStudyModule(
   workspace: StudyWorkspace,
   moduleId: string,
-  input: { code?: string; name?: string; active?: boolean },
+  input: { code?: string; name?: string; active?: boolean; pinned?: boolean },
 ): Promise<StudyModule> {
   await requireModule(workspace.id, moduleId);
   const module = await prisma.studyModule.update({
@@ -410,9 +410,10 @@ export async function updateStudyModule(
         active: input.active,
         userArchivedAt: input.active ? null : new Date(),
       } : {}),
+      ...(input.pinned !== undefined ? { pinnedAt: input.pinned ? new Date() : null } : {}),
     },
   });
-  await auditStudy(workspace.ownerUserId, "study.module.updated", { workspaceId: workspace.id, moduleId, code: module.code, active: module.active });
+  await auditStudy(workspace.ownerUserId, "study.module.updated", { workspaceId: workspace.id, moduleId, code: module.code, active: module.active, pinned: Boolean(module.pinnedAt) });
   return module;
 }
 

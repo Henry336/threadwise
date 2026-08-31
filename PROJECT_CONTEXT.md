@@ -1907,3 +1907,39 @@ and the next command/action. Never mark incomplete work complete.
   passed GitHub Dashboard CI run `33369782858`, completed Vercel production deployment, and passed the
   same 10 hosted desktop/mobile smoke checks. The authenticated three-scope deletion flow remains the
   owner's final live data acceptance because automated tests must not delete production timetable rows.
+
+## Active checkpoint — rich-note friction, module pins, and timetable validation (2026-08-31 SGT)
+
+- Root typing defects: Tiptap was converting Markdown for every transaction, and the dashboard's global
+  `N` shortcut did not recognize nested `contenteditable` nodes. Typing words containing `n` could open
+  Quick Capture and steal the remaining keystrokes. The editor now batches conversion behind a 140 ms
+  quiet window/900 ms maximum wait, flushes at save/close/page-hide boundaries, and all global shortcuts
+  ignore `contenteditable` descendants. Explicit list-marker CSS restores numbered and bullet markers.
+- Filing/accessibility: Study and Personal filing sheets are active nested dialogs with their own focus
+  trap; the obscured editor is inert. The title and module controls share one width, height, gap, focus
+  treatment, and breathing room. Mobile Personal/Study search controls retain stable accessible names.
+- Recovery/errors: normal close remains persistence-blocking; page-hide now makes a bounded same-origin
+  keepalive attempt after flushing pending Markdown. This mitigates but cannot guarantee delivery after
+  process/device loss or beyond browser keepalive limits. Draft clients retain structured backend codes,
+  and Markdown extension/size/read failures are visible.
+- Timetable: non-Other creation omits `customTypeLabel` instead of sending invalid null. Backend
+  invalid-type failures are converted to field-specific guidance rather than raw Zod copy. Recurrence and
+  leave-reminder rows use full-width alignment, Destination is explicitly optional, and empty destination
+  values remain omitted.
+- Modules: an additive nullable `StudyModule.pinnedAt` field and composite index support owner-controlled
+  pins. Pinned active modules sort first without changing Canvas selection, activation, mastery, archival,
+  or existing records.
+- Audit reconciliation: now fixed are mobile search names, filing focus isolation, normal-path Markdown
+  serialization/focus loss, typed/import errors, and browser-level Personal numbered-list/focus coverage.
+  Still open are incremental large-module extraction, CSP enforcement readiness, revocable seven-day
+  browser sessions, explicit Study draft DTOs, remaining native selectors, backend parallel-test timeout
+  ergonomics, two older unnamed icon-only actions, authenticated Study lifecycle coverage, and large-note
+  profiling. Group rich notes remain intentionally out of scope.
+- Validation checkpoint: backend Prisma validation, typecheck, build, 984 tests with 6 intentional
+  skips, 154 focused security checks, tracked-secret scan, and production/full zero-finding dependency
+  audits pass. Dashboard typecheck, lint, optimized build, 175 unit/regression tests, 78 focused security
+  checks, tracked-secret scan, production/full zero-finding audits, and Playwright (12 passed, 2
+  intentional mobile skips) pass. Diff checks are clean.
+- Release state: implementation and documentation are complete locally on paired
+  `codex/study-rich-notes` branches. The module migration is additive. Commits, backend-first publication,
+  migration/deployment health, dashboard deployment, and hosted smoke evidence remain.

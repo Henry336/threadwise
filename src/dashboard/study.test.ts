@@ -5,6 +5,7 @@ import {
   loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
   studyModuleCreateSchema,
+  studyModuleUpdateSchema,
   studyNoteDraftQuerySchema,
   studyNoteDraftSaveSchema,
   studyScheduleCreateSchema,
@@ -92,6 +93,11 @@ describe("Study dashboard input contracts", () => {
       name: "Computer Organisation",
       color: "#168b83",
     });
+  });
+
+  it("accepts an explicit module pin state", () => {
+    expect(studyModuleUpdateSchema.parse({ pinned: true })).toEqual({ pinned: true });
+    expect(studyModuleUpdateSchema.parse({ pinned: false })).toEqual({ pinned: false });
   });
 
   it("bounds cross-device note drafts and requires optimistic revision state", () => {

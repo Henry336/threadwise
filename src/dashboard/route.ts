@@ -1206,6 +1206,23 @@ function searchKinds(value: string | undefined): DashboardSearchKind[] {
   return kinds as DashboardSearchKind[];
 }
 
+function friendlyValidationMessage(error: ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Check the highlighted fields and try again.";
+  if (issue.code !== "invalid_type") return issue.message;
+  const key = String(issue.path.at(-1) ?? "field");
+  const labels: Record<string, string> = {
+    customTypeLabel: "Custom type",
+    destination: "Destination",
+    destinationPlaceId: "Destination",
+    recurrenceStartDate: "Starts on",
+    recurrenceEndDate: "Ends on",
+    defaultOriginId: "Usual origin",
+  };
+  const label = labels[key] ?? key.replace(/([a-z])([A-Z])/gu, "$1 $2").replace(/^./u, (value) => value.toUpperCase());
+  return `${label} has an invalid value. Clear it or enter a valid value, then try again.`;
+}
+
 function sendDashboardError(reply: FastifyReply, error: unknown, operation: string) {
   if (error instanceof DashboardAuthenticationError) {
     return reply
@@ -1280,7 +1297,7 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
     return reply.code(409).send({ error: "revision_conflict", message: error.message });
   }
   if (error instanceof ZodError || error instanceof DashboardValidationError) {
-    const message = error instanceof ZodError ? error.issues[0]?.message : error.message;
+    const message = error instanceof ZodError ? friendlyValidationMessage(error) : error.message;
     return reply.code(400).send({ error: "invalid_request", ...(message ? { message } : {}) });
   }
   if (error instanceof DashboardUpstreamError) {

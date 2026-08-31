@@ -491,6 +491,7 @@ model StudyModule {
   name              String
   active            Boolean           @default(true)
   displayOrder      Int               @default(0)
+  pinnedAt          DateTime?
   color             String?
   workloadGroup     String?
   canvasCourseId    String?
@@ -526,6 +527,7 @@ model StudyModule {
   noteDrafts            StudyNoteDraft[]
 
   @@unique([workspaceId, code])
+  @@index([workspaceId, active, pinnedAt, displayOrder])
   @@unique([workspaceId, canvasCourseId])
   @@index([workspaceId, active, displayOrder])
   @@index([workspaceId, currentMastery])

@@ -45,6 +45,7 @@ import {
   listStudyMistakes,
   saveWeeklyReview,
   unbindStudyWorkspace,
+  updateStudyModule,
   updateStudyMastery,
 } from "./study";
 
@@ -116,8 +117,22 @@ describe("Study module selection", () => {
 
     expect(db.studyModule.findMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace-1", active: true },
-      orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+      orderBy: [{ pinnedAt: { sort: "desc", nulls: "last" } }, { displayOrder: "asc" }, { code: "asc" }],
     });
+  });
+
+  it("stores pin state without changing the module's active state", async () => {
+    db.studyModule.findFirst.mockResolvedValue(module);
+    db.studyModule.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...module, ...data }));
+
+    const pinned = await updateStudyModule(workspace, module.id, { pinned: true });
+
+    expect(db.studyModule.update).toHaveBeenCalledWith({
+      where: { id: module.id },
+      data: { pinnedAt: expect.any(Date) },
+    });
+    expect(pinned.active).toBe(true);
+    expect(pinned.pinnedAt).toBeInstanceOf(Date);
   });
 });
 

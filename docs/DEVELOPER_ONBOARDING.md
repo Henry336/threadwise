@@ -68,6 +68,12 @@ Tiptap `setContent`, and diagram templates must pass the installed browser parse
 create a second canonical note store or enable raw HTML/plugin execution. Group note drafts remain
 outside this flow until their collaboration ownership is explicitly designed.
 
+Study module pins are nullable `StudyModule.pinnedAt` presentation state. Pinned active modules sort
+first, followed by the existing display-order/code rules; pinning must not imply Canvas selection,
+activation, mastery, or archival. Dashboard timetable create payloads omit empty optional strings;
+route validation must translate schema failures into field-specific user guidance rather than expose
+raw Zod messages.
+
 ## Data and privacy invariants
 
 - PostgreSQL is canonical; Telegram cards and browser state are projections.
