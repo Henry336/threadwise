@@ -53,12 +53,20 @@ import {
   type DashboardSearchKind
 } from "./data";
 import {
+  createDashboardBrowserSession,
+  DashboardBrowserSessionError,
+  requireActiveDashboardBrowserSession,
+  revokeDashboardBrowserSession,
+} from "./browserSessions";
+import {
   deleteDashboardPersonalNoteDraft,
   getDashboardPersonalNoteDraft,
   saveDashboardPersonalNoteDraft,
 } from "./personalNoteDrafts";
 import {
   dashboardIdParamsSchema,
+  dashboardBrowserSessionCreateSchema,
+  dashboardBrowserSessionParamsSchema,
   capturePreviewSchema,
   calendarTaskIntegrationSchema,
   deleteAccountSchema,
@@ -239,6 +247,9 @@ import {
 } from "./today";
 
 export type DashboardRouteActions = {
+  createBrowserSession: typeof createDashboardBrowserSession;
+  requireActiveBrowserSession: typeof requireActiveDashboardBrowserSession;
+  revokeBrowserSession: typeof revokeDashboardBrowserSession;
   listTasks: typeof listDashboardTasks;
   getTask: typeof getDashboardTask;
   createTask: typeof createDashboardTask;
@@ -293,6 +304,9 @@ type DashboardRouteOptions = {
 };
 
 const defaultActions: DashboardRouteActions = {
+  createBrowserSession: createDashboardBrowserSession,
+  requireActiveBrowserSession: requireActiveDashboardBrowserSession,
+  revokeBrowserSession: revokeDashboardBrowserSession,
   listTasks: listDashboardTasks,
   getTask: getDashboardTask,
   createTask: createDashboardTask,
@@ -343,6 +357,13 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   const requestReplayGuard = options.requestReplayGuard ?? consumeDashboardMutationToken;
   const requestRateLimiter = options.requestRateLimiter ?? limitDashboardRequest;
 
+  const authenticateSessionRequest = async (request: FastifyRequest, operation: string) => {
+    const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
+    await requestRateLimiter(principal, request.method, operation);
+    await requestReplayGuard(principal, request.method, operation);
+    return principal;
+  };
+
   const run = async (request: FastifyRequest, reply: FastifyReply, work: RouteWork, operation: string) => {
     noStore(reply);
     try {
@@ -374,6 +395,42 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       ...(scheduling ? { scheduling: { polls: scheduling } } : {}),
     };
   };
+
+  server.post("/api/v1/dashboard/browser-sessions", async (request, reply) => {
+    noStore(reply);
+    try {
+      const principal = await authenticateSessionRequest(request, "create_browser_session");
+      const { ttlSeconds } = dashboardBrowserSessionCreateSchema.parse(request.body);
+      const session = await actions.createBrowserSession(principal.telegramId, ttlSeconds);
+      return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
+    } catch (error) {
+      return sendDashboardError(reply, error, "create_browser_session");
+    }
+  });
+
+  server.get("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => {
+    noStore(reply);
+    try {
+      const principal = await authenticateSessionRequest(request, "verify_browser_session");
+      const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
+      const session = await actions.requireActiveBrowserSession(principal.telegramId, id);
+      return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
+    } catch (error) {
+      return sendDashboardError(reply, error, "verify_browser_session");
+    }
+  });
+
+  server.delete("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => {
+    noStore(reply);
+    try {
+      const principal = await authenticateSessionRequest(request, "revoke_browser_session");
+      const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
+      await actions.revokeBrowserSession(principal.telegramId, id);
+      return { revoked: true };
+    } catch (error) {
+      return sendDashboardError(reply, error, "revoke_browser_session");
+    }
+  });
 
   server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
 
@@ -1235,6 +1292,13 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
       error: "request_replayed",
       message: "This request was already processed. Refresh and try again.",
     });
+  }
+  if (error instanceof DashboardBrowserSessionError) {
+    if (error.code === "user_not_found") return reply.code(404).send({ error: "user_not_found" });
+    return reply
+      .code(401)
+      .header("WWW-Authenticate", 'Bearer realm="threadwise-dashboard", error="invalid_session"')
+      .send({ error: "session_inactive" });
   }
   if (error instanceof SharedRateLimitExceededError) {
     return reply

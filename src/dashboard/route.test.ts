@@ -122,6 +122,50 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("creates, verifies, and revokes only the authenticated owner's browser session", async () => {
+    const server = Fastify();
+    const session = {
+      id: "0c68a350-c061-4a86-a63f-842c132dc77d",
+      expiresAt: new Date("2026-09-07T14:00:00.000Z"),
+    };
+    const createBrowserSession = vi.fn(async () => session);
+    const requireActiveBrowserSession = vi.fn(async () => session);
+    const revokeBrowserSession = vi.fn(async () => undefined);
+    registerDashboardRoute(server, {
+      publicKey: publicKeyPem,
+      actions: { createBrowserSession, requireActiveBrowserSession, revokeBrowserSession },
+    });
+    const authorization = `Bearer ${await validToken()}`;
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/browser-sessions",
+      headers: { authorization },
+      payload: { ttlSeconds: 604_800 },
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toEqual({ session: { id: session.id, expiresAt: session.expiresAt.toISOString() } });
+    expect(createBrowserSession).toHaveBeenCalledWith("123456789", 604_800);
+
+    const checked = await server.inject({
+      method: "GET",
+      url: `/api/v1/dashboard/browser-sessions/${session.id}`,
+      headers: { authorization },
+    });
+    expect(checked.statusCode).toBe(200);
+    expect(requireActiveBrowserSession).toHaveBeenCalledWith("123456789", session.id);
+
+    const revoked = await server.inject({
+      method: "DELETE",
+      url: `/api/v1/dashboard/browser-sessions/${session.id}`,
+      headers: { authorization },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toEqual({ revoked: true });
+    expect(revokeBrowserSession).toHaveBeenCalledWith("123456789", session.id);
+    await server.close();
+  });
+
   it("keeps Personal rich-note drafts behind the signed owner and bounded route schemas", async () => {
     const server = Fastify();
     const getPersonalNoteDraft = vi.fn(async () => null);

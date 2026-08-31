@@ -30,7 +30,7 @@ Older audit and rollout documents are historical snapshots unless their header s
 | HTTP ingress | `src/server.ts` | Fastify routes, webhook authentication, shared ingress limits, health/admin/provider callbacks |
 | Telegram routing | `src/bot/index.ts`, `commands.ts`, `callbacks.ts`, `naturalLanguage.ts` | Thin update routing and interaction surfaces |
 | Domain services | `src/services/*` | Canonical task/note/reminder/group/Study/provider behavior |
-| Dashboard API | `src/dashboard/route.ts`, `auth.ts`, `data.ts`, `study.ts` | JWT verification, workspace authorization, schemas, BFF-facing DTOs |
+| Dashboard API | `src/dashboard/route.ts`, `auth.ts`, `browserSessions.ts`, `data.ts`, `study.ts` | JWT verification, revocable browser sessions, workspace authorization, schemas, BFF-facing DTOs |
 | Database | `prisma/schema.prisma`, `prisma/migrations/*`, `src/db/prisma.ts` | Relational source of truth and Prisma encryption extension |
 | Security | `src/security/*` | Content encryption, replay consumption, rate limits, protected payloads |
 | AI adapters | `src/ai/*`, selected workers/services | Optional bounded providers; deterministic paths must remain useful without them |
@@ -47,7 +47,7 @@ must not become a dependency for capture, reminders, search, Study scheduling, o
 
 ### Dashboard
 
-`Browser → Vercel same-origin BFF → 60-second EdDSA JWT → Fastify dashboard route → authorized service`
+`Browser → signed HttpOnly cookie + active server session → Vercel same-origin BFF → 60-second EdDSA JWT → Fastify dashboard route → authorized service`
 
 Never accept a browser-supplied canonical user id. Resolve the Telegram subject server-side, treat an
 opaque workspace id as a candidate only, and repeat personal/group/Study authorization inside each
@@ -158,7 +158,8 @@ recommended split order.
 - `/health` exposes the short runtime commit; verify it after release.
 - Vercel hosts the dashboard; never put secrets in `NEXT_PUBLIC_*` variables.
 - Content-encryption migration/inspection commands are intentionally separate from ordinary deploys.
-- CSP remains report-only. Do not set dashboard enforcement until `docs/CSP_ROLLOUT.md` passes.
+- The dashboard CSP is enforced by default; its documented emergency rollback is explicit report-only.
+  Preserve nonce-bound scripts/style elements and the narrowly scoped dynamic-style-attribute lane.
 
 ## Definition of done
 

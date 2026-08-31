@@ -876,6 +876,12 @@ jti=<unique non-empty request id>
 
 The API always derives the human principal from the verified positive `sub` claim. Personal requests resolve directly to that person's internal owner. A group request may additionally send `X-Threadwise-Workspace: <opaque UUID>`; the server resolves that UUID, verifies the human's live Telegram membership through the bot, records that verified access, and only then scopes the request to the group's synthetic `chat:-100123...` owner. This lets any current member use a dashboard link posted in the group without first running a separate bot command. Request bodies never accept `userId` or raw chat ids. Personalized responses send private/no-store caching headers and the API intentionally has no browser CORS policy. Saved-image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup; bot tokens and reusable Telegram file IDs never reach the browser.
 
+Browser login additionally registers a random seven-day `DashboardBrowserSession` through the same
+authenticated API. Vercel requires that owner-scoped row to remain active before serving personalized
+pages or proxying requests, and logout revokes it server-side. The additive session table contains only
+owner relation, opaque id, expiry, revocation, and creation timestamps. Deploy its migration and routes
+before the paired dashboard consumer; cookies issued by older releases require one fresh Telegram login.
+
 One way to create the key pair locally is:
 
 ```bash

@@ -418,6 +418,7 @@ model User {
   taskCaptureDrafts          TaskCaptureDraft[]
   dailyBriefDeliveries       DailyBriefDelivery[]
   dailyAgendaOrderStates     DailyAgendaOrderState[]
+  dashboardBrowserSessions  DashboardBrowserSession[]
 }
 
 model StudyWorkspace {
@@ -2884,6 +2885,19 @@ model DashboardRequestReplay {
   expiresAt            DateTime
   createdAt            DateTime @default(now())
 
+  @@index([expiresAt])
+}
+
+model DashboardBrowserSession {
+  id          String    @id @default(uuid())
+  ownerUserId String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, revokedAt, expiresAt])
   @@index([expiresAt])
 }
 

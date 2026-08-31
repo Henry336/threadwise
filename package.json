@@ -23,7 +23,7 @@
     "security:scan-secrets": "node scripts/scan-tracked-secrets.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "security:audit:all": "npm audit --audit-level=high",
-    "security:assurance": "vitest run src/telegramWebhookAuth.test.ts src/services/telegramUpdates.test.ts src/dashboard/auth.test.ts src/dashboard/route.test.ts src/dashboard/workspaces.test.ts src/dashboard/study.test.ts src/community/controlAccess.test.ts src/services/studyPhase1Utilities.test.ts src/services/studyResources.persistence.test.ts src/services/studyAnalysisRunner.test.ts src/services/fileCourier.test.ts src/services/taskImports.test.ts src/services/voiceTranscription.test.ts src/security/contentEncryption.test.ts src/security/protectedPayload.test.ts"
+    "security:assurance": "vitest run src/telegramWebhookAuth.test.ts src/services/telegramUpdates.test.ts src/dashboard/auth.test.ts src/dashboard/browserSessions.test.ts src/dashboard/route.test.ts src/dashboard/workspaces.test.ts src/dashboard/study.test.ts src/community/controlAccess.test.ts src/services/studyPhase1Utilities.test.ts src/services/studyResources.persistence.test.ts src/services/studyAnalysisRunner.test.ts src/services/fileCourier.test.ts src/services/taskImports.test.ts src/services/voiceTranscription.test.ts src/security/contentEncryption.test.ts src/security/protectedPayload.test.ts"
   },
   "keywords": [
     "telegram",

@@ -32,6 +32,10 @@ const overviewQuotes = z.array(overviewQuote).max(OVERVIEW_QUOTE_LIMIT).superRef
 });
 
 export const dashboardIdParamsSchema = z.object({ id: trimmed(128) }).strict();
+export const dashboardBrowserSessionParamsSchema = z.object({ id: z.string().uuid() }).strict();
+export const dashboardBrowserSessionCreateSchema = z.object({
+  ttlSeconds: z.number().int().min(300).max(7 * 24 * 60 * 60),
+}).strict();
 
 const pageQuery = {
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
