@@ -9,6 +9,7 @@ import {
   StudyResourceKind,
   StudyTrafficLight,
   type PrismaClient,
+  type StudyNoteDraft,
   type StudyWorkspace,
 } from "@prisma/client";
 import { z } from "zod";
@@ -750,12 +751,38 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
 
 const STUDY_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
+export type DashboardStudyNoteDraft = Pick<
+  StudyNoteDraft,
+  | "id"
+  | "resourceUpdatedAt"
+  | "moduleId"
+  | "title"
+  | "body"
+  | "revision"
+  | "updatedAt"
+  | "expiresAt"
+>;
+
+function dashboardStudyNoteDraft(draft: StudyNoteDraft | null): DashboardStudyNoteDraft | null {
+  if (!draft) return null;
+  return {
+    id: draft.id,
+    resourceUpdatedAt: draft.resourceUpdatedAt,
+    moduleId: draft.moduleId,
+    title: draft.title,
+    body: draft.body,
+    revision: draft.revision,
+    updatedAt: draft.updatedAt,
+    expiresAt: draft.expiresAt,
+  };
+}
+
 export async function getDashboardStudyNoteDraft(
   workspace: StudyWorkspace,
   input: z.infer<typeof studyNoteDraftQuerySchema>,
 ) {
   await purgeExpiredStudyNoteDrafts(workspace);
-  return prisma.studyNoteDraft.findFirst({
+  const draft = await prisma.studyNoteDraft.findFirst({
     where: {
       workspaceId: workspace.id,
       ownerUserId: workspace.ownerUserId,
@@ -763,6 +790,7 @@ export async function getDashboardStudyNoteDraft(
       expiresAt: { gt: new Date() },
     },
   });
+  return dashboardStudyNoteDraft(draft);
 }
 
 export async function saveDashboardStudyNoteDraft(
@@ -787,7 +815,7 @@ export async function saveDashboardStudyNoteDraft(
   if (!existing) {
     if (input.expectedRevision !== 0) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
     try {
-      return await prisma.studyNoteDraft.create({
+      const created = await prisma.studyNoteDraft.create({
         data: {
           workspaceId: workspace.id,
           ownerUserId: workspace.ownerUserId,
@@ -800,6 +828,7 @@ export async function saveDashboardStudyNoteDraft(
           expiresAt,
         },
       });
+      return dashboardStudyNoteDraft(created)!;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
@@ -823,7 +852,7 @@ export async function saveDashboardStudyNoteDraft(
     },
   });
   if (updated.count !== 1) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-  return prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } });
+  return dashboardStudyNoteDraft(await prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } }))!;
 }
 
 export async function deleteDashboardStudyNoteDraft(workspace: StudyWorkspace, draftId: string) {

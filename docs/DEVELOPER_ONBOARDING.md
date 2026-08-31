@@ -129,6 +129,11 @@ The default parallel suite can time out under heavy local contention in Excel/fi
 failing timeout must be reproduced in isolation and in `npx vitest run --maxWorkers=1`; do not dismiss
 assertion failures as flakiness.
 
+Study draft routes must return `DashboardStudyNoteDraft`, not raw Prisma rows. The browser contract needs
+only draft id, canonical-resource version, module, title/body, revision, update time, and expiry. Keep
+owner ids, workspace ids, draft keys, canonical resource ids, and database creation metadata server-side;
+`src/dashboard/studyNoteDrafts.test.ts` guards this minimization boundary.
+
 For a cross-repo release, also run the dashboard's unit, type, lint, build, browser, secret, and audit
 gates. Backend schema/API changes release before dashboard consumers.
 

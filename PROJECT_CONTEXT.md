@@ -1946,3 +1946,42 @@ and the next command/action. Never mark incomplete work complete.
   then passed GitHub Dashboard CI run `33376998070`, completed Vercel, and passed the canonical hosted
   browser gate (12 passed, 2 intentional mobile skips). Both feature branches and `main` contain the
   release; no paid provider, Group note flow, destructive migration, or existing record rewrite changed.
+
+## Active checkpoint — bounded audit remediation Phase 1 (2026-08-31 SGT)
+
+- Authorized scope: explicit browser-safe Study note-draft DTOs; the two remaining unnamed icon actions;
+  migration of every currently rendered native dashboard `select` to the shared accessible Threadwise
+  choice primitive; representative 10k/50k/100k rich-note conversion benchmarks; and a synthetic,
+  authenticated Study rich-note lifecycle covering load, recovery, autosave, conflict, filing focus,
+  import failure, and canonical save. CSP enforcement, session revocation, and large-module extraction
+  remain separate Phase 2/3 work and must not be mixed into this release.
+- Invariants: DTOs expose only fields the editor needs and never owner/workspace/draft-key metadata;
+  server authorization remains authoritative; picker migrations preserve form submission, current values,
+  disabled/required states, keyboard/typeahead behavior, mobile viewport safety, and light/dark tokens;
+  benchmark code is deterministic and does not weaken autosave durability or log note content; the
+  authenticated fixture uses synthetic identities/data and cannot contact or mutate production.
+- Delivery gate: backend DTO/service/route tests plus full type/build/test/security gates; dashboard
+  picker, accessibility, benchmark, and authenticated lifecycle tests plus full type/lint/build/browser/
+  security gates. Release backend first only if its contract changes, then dashboard, and record exact
+  migration/deployment/hosted evidence. No new paid service or provider is authorized.
+- Implementation checkpoint: all scoped code is complete on the paired `codex/study-rich-notes`
+  worktrees. Backend Study draft load/create/update results map through the explicit
+  `DashboardStudyNoteDraft` contract; tests assert internal owner/workspace/draft/resource/database
+  metadata never reaches the browser. The dashboard shared picker now supports controlled and hidden-
+  form-input use and replaces every native selector in currently rendered Personal, Group, and Study
+  paths. Recent-frame navigation, each recent image, and image deletion have stable accessible names.
+- Authenticated lifecycle checkpoint: local Playwright starts a synthetic Study API that verifies the
+  real EdDSA service-token issuer, audience, subject, and JTI plus workspace scoping. A separately
+  HMAC-authenticated owner browser proves draft load/autosave/reload recovery, stale-device conflict
+  refusal, invalid Markdown-import guidance, nested filing focus, canonical save, and Library visibility.
+  The fixture is local-only, contains no production identity/content, and is skipped against external URLs.
+- Performance checkpoint: the real editor and draft persistence path measured 875 ms at 10k, 886 ms at
+  50k, and 941 ms at 99.5k characters in the complete local browser gate. Each size has an 8-second CI
+  ceiling. This validates the current Study/Personal envelope; Group rich notes remain out of scope.
+- Validation checkpoint: backend focused Study-draft tests, typecheck, build, tracked-secret scan, and
+  production/full zero-finding dependency audits pass. Dashboard typecheck, lint, isolated optimized
+  build, 177 unit/regression tests, 78 focused security checks, tracked-secret scan, both zero-finding
+  dependency audits, and complete Playwright pass (15 passed, 5 intentional mobile skips). The serialized
+  backend full-suite and broad assurance attempts again exceeded practical local completion time after
+  sustained progress, matching the already-open parallel/test-runner ergonomics finding; do not
+  misreport them as passes or product regressions. Publication still needs completion.

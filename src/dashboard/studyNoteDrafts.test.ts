@@ -34,6 +34,16 @@ const baseDraft = {
   resourceId: null, resourceUpdatedAt: null, moduleId: "module", title: "Draft", body: "Body", revision: 1,
   expiresAt: new Date("2026-09-07T00:00:00Z"), createdAt: new Date(), updatedAt: new Date(),
 };
+const browserDraft = {
+  id: baseDraft.id,
+  resourceUpdatedAt: baseDraft.resourceUpdatedAt,
+  moduleId: baseDraft.moduleId,
+  title: baseDraft.title,
+  body: baseDraft.body,
+  revision: baseDraft.revision,
+  expiresAt: baseDraft.expiresAt,
+  updatedAt: baseDraft.updatedAt,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,7 +55,13 @@ beforeEach(() => {
 describe("cross-device Study note drafts", () => {
   it("loads only the owner's unexpired draft in the active workspace", async () => {
     mocks.prisma.studyNoteDraft.findFirst.mockResolvedValue(baseDraft);
-    await expect(getDashboardStudyNoteDraft(workspace, {})).resolves.toEqual(baseDraft);
+    const result = await getDashboardStudyNoteDraft(workspace, {});
+    expect(result).toEqual(browserDraft);
+    expect(result).not.toHaveProperty("ownerUserId");
+    expect(result).not.toHaveProperty("workspaceId");
+    expect(result).not.toHaveProperty("draftKey");
+    expect(result).not.toHaveProperty("resourceId");
+    expect(result).not.toHaveProperty("createdAt");
     expect(mocks.prisma.studyNoteDraft.deleteMany).toHaveBeenCalledWith({ where: {
       workspaceId: workspace.id, ownerUserId: workspace.ownerUserId, expiresAt: { lte: expect.any(Date) },
     } });
@@ -61,7 +77,7 @@ describe("cross-device Study note drafts", () => {
     mocks.prisma.studyNoteDraft.findUniqueOrThrow.mockResolvedValue({ ...baseDraft, revision: 2, body: "After" });
 
     await expect(saveDashboardStudyNoteDraft(workspace, { moduleId: "module", title: "Draft", body: "Body", expectedRevision: 0 }))
-      .resolves.toEqual(baseDraft);
+      .resolves.toEqual(browserDraft);
     await expect(saveDashboardStudyNoteDraft(workspace, { moduleId: "module", title: "Draft", body: "After", expectedRevision: 1 }))
       .resolves.toMatchObject({ revision: 2, body: "After" });
     expect(mocks.prisma.studyNoteDraft.updateMany).toHaveBeenCalledWith(expect.objectContaining({
