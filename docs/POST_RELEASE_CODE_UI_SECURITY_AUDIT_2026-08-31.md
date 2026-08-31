@@ -28,6 +28,10 @@ Playwright with 15 passes and 5 intentional mobile skips. A first Playwright att
 local `.next` artifact carrying the former report-only CSP; rebuilding the current default artifact
 restored the expected enforced policy and the full gate passed.
 
+Release evidence: backend PR `#24` is live on Render at merge `29d439cc4b15`; dashboard PR `#9` is
+live at merge `f6f8326e559e` through Ready Vercel production deployment
+`dpl_FppQmpqC8ZyPr6bMbJmyJjmVwhju`. No migration or production-data operation was required.
+
 ## Phase 2 closure addendum — 2026-08-31
 
 The previously open browser-security findings are now resolved in production. Signed cookies carry an
