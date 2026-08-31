@@ -1874,9 +1874,16 @@ and the next command/action. Never mark incomplete work complete.
   reminder, search, integration, or provider record is rewritten. Personal note body validation now matches
   the already reviewed 100,000-character rich-editor ceiling. No new service, paid dependency, provider,
   browser secret, or raw-HTML/remote-rendering boundary is introduced.
-- Validation checkpoint before release: Prisma validate/generate, backend typecheck/build, 981 tests with
+- Validation checkpoint: Prisma validate/generate, backend typecheck/build, 981 tests with
   6 intentional skips, 152 focused security tests, tracked-secret scan, and two zero-finding dependency
   audits pass. Dashboard typecheck/lint, optimized build, 169 unit/regression tests, 78 focused security
   tests, tracked-secret scan, two zero-finding dependency audits, and the complete browser gate (10 pass,
-  2 intentional mobile skips) pass. Final commits, additive production migration, and coordinated
-  backend-before-dashboard release remain pending.
+  2 intentional mobile skips) pass.
+- Release evidence: backend `25f80939b8e24b6e5da2c404c6184ed5e814f891` fast-forwarded `main`
+  first; Render applied additive migration `20260831150000_personal_note_drafts` and `/health` returned
+  HTTP 200 with commit `25f80939b8e2`. Dashboard `7bf90df1a75aee4b23a712939ec307fe40d9cceb`
+  then fast-forwarded `main`; GitHub Dashboard CI run `33360802480` and Vercel reported success, and the
+  canonical production Personal create, checklist-alignment, title-filing, and save flow passed in
+  desktop and mobile Chromium. Desktop also
+  verified `.md` export. No paid service, Group-mode expansion, destructive migration, or provider change
+  was introduced.

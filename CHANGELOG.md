@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Personal full-screen note writing and checklist alignment (released 2026-08-31)
+- Corrected Tiptap checklist geometry at its label/content boundary and protected the relationship with
+  rendered desktop/mobile measurements rather than screenshot-specific offsets.
+- Reused the selection-safe Study Markdown/Mermaid/UML editor in Personal Today and Notes with title-only
+  filing, Tab indentation, syntax help, `.md` import/export, and canonical Personal `Note` persistence.
+- Added encrypted, owner-scoped `PersonalNoteDraft` recovery with seven-day expiry, optimistic draft and
+  canonical-note conflict checks, strict browser proxy routes, and no search/AI indexing.
+- Released the additive backend migration at `25f80939b8e2`, then dashboard `7bf90df1a75a`; Render health,
+  Vercel status, and hosted desktop/mobile Personal acceptance passed. Group notes remain unchanged.
+
 ### Post-release audit and contributor handoff
 - Added a current cross-repository code, UI/UX, security, privacy, efficiency, and validation audit.
 - Added a new-developer code map, trust-boundary guide, safe-change workflow, and release checklist.

@@ -756,3 +756,31 @@ encrypted draft contract, providers, and data model are unchanged.
 
 **Follow-up:** Perform the owner-only live typing/selection and responsive guide acceptance check.
 Benchmark 10k/50k/100k-character notes before a wider editor rollout.
+
+### 31 August 2026 — Reuse the proven writer in Personal without inventing another note system
+
+**Friction discovered:** Checklist controls sat above their text because Tiptap renders the checkbox and
+content in sibling elements with different inherited spacing. Personal users also remained on a compact
+legacy textarea even after the full-screen Study writer had become stable and portable.
+
+**Decision:** Fix the structural checklist boundary, then reuse the same rich writer for Personal while
+keeping the existing Personal `Note` as the only canonical record. Ask only for a title, keep Group notes
+unchanged until shared draft ownership is designed, and give unfinished Personal text the same encrypted,
+short-lived recovery guarantees as Study through a separately owner-scoped draft model.
+
+**Implemented:** Centered the checklist label against its first text line, removed only task-paragraph
+outer margins, and added a real geometry regression. Personal Today and Notes now open the full-screen
+WYSIWYG Markdown/Mermaid/UML editor with syntax help, Tab indentation, `.md` portability, title-only
+filing, selection-safe typing, and encrypted cross-device drafts. Draft routes enforce signed-owner and
+Personal-workspace scope, optimistic revisions, canonical-note freshness, expiry, and narrow BFF methods.
+
+**Outcome/evidence:** Backend `25f80939b8e2` released first with additive migration
+`20260831150000_personal_note_drafts` and healthy Render status. Dashboard `7bf90df1a75a` passed GitHub
+CI run `33360802480` and completed Vercel production deployment. The complete local gates passed (981
+backend tests plus 6 skips; 169 dashboard
+tests; 152/78 focused security tests; 10 browser passes plus 2 intentional skips), and the hosted Personal
+create/checklist/title/save flow passed in desktop and mobile Chromium.
+
+**Follow-up:** Observe authenticated cross-device recovery and conflict handling with real owner data.
+Benchmark very large notes before considering a Group rollout; do not copy Personal ownership semantics
+into a collaborative workspace.

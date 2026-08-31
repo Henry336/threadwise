@@ -1,8 +1,9 @@
 # Threadwise post-release code, UI, security, and privacy audit
 
 Date: 2026-08-31 SGT  
-Scope: backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo  
-Status: findings documented; no runtime finding was changed during this audit
+Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo, with
+release addenda through backend `25f8093` and dashboard `7bf90df`
+Status: initial findings preserved; subsequent bounded resolutions and release evidence are addended
 
 ## Executive summary
 
@@ -15,9 +16,9 @@ and production-build gates pass.
 The highest current risk is maintainability rather than an active breach. Several backend and
 dashboard files are large enough that unrelated changes collide in the same modules. The most
 important browser security gap is that Content Security Policy remains report-only and cannot yet be
-enforced without breaking legitimate inline style attributes. The new Study editor also has bounded
-accessibility, abrupt-close recovery, performance, and behavioral-test gaps that should be fixed
-before it is expanded to Personal or Group mode.
+enforced without breaking legitimate inline style attributes. The Study/Personal rich editor still has
+bounded accessibility, abrupt-close recovery, large-note performance, and authenticated-lifecycle test
+gaps that should be addressed before any Group expansion.
 
 ## What was verified as improved
 
@@ -157,7 +158,7 @@ durability or cross-device conflict detection.
 **Release evidence.** Dashboard runtime `e9e21b192f15` passed the complete local gate and hosted CI run
 `33353462062`, then completed its Vercel production deployment. The canonical dashboard returned HTTP 200.
 
-### Resolved in guarded code 2026-08-31 — checklist geometry and first Personal rich-note lifecycle
+### Resolved and released 2026-08-31 — checklist geometry and first Personal rich-note lifecycle
 
 **Previous evidence.** Tiptap checklist text inherited the document paragraph's top margin while the
 checkbox occupied a separate grid cell, visibly placing the empty control above its first text line.
@@ -170,12 +171,16 @@ title-only filing step. New encrypted `PersonalNoteDraft` storage scopes by sign
 seven days, checks draft and canonical-note revisions, and remains outside search/AI evidence. Group is
 explicitly not widened.
 
-**Evidence before release.** Backend type/build, 981 tests with 6 intentional skips, 152 focused security
+**Release evidence.** Backend type/build, 981 tests with 6 intentional skips, 152 focused security
 checks, secret scan, and both zero-finding dependency audits pass. Dashboard typecheck/lint/build, 169
 unit/regression tests, 78 focused security checks, secret scan, both zero-finding dependency audits, and
 the complete browser gate (10 pass, 2 intentional mobile skips) pass. The browser check measures the
-rendered checkbox/text centers, not merely CSS source strings. Commit ids, migration, and hosted deployment
-evidence must be appended at release.
+rendered checkbox/text centers, not merely CSS source strings. Backend `25f80939b8e2` released first;
+Render applied additive migration `20260831150000_personal_note_drafts` and `/health` returned HTTP 200
+at that commit. Dashboard `7bf90df1a75a` passed GitHub CI run `33360802480` and then completed its
+Vercel production deployment. The same
+Personal create/checklist/title/save flow passed against the canonical production URL in desktop and
+mobile Chromium; desktop additionally verified `.md` export.
 
 ### Medium reliability — the authenticated Study rich-note lifecycle is still mostly structural
 
@@ -285,7 +290,7 @@ not a product defect.
 
 1. Fix accessible names and filing focus isolation; add behavioral editor tests with the same change.
 2. Make autosave termination-safe and typed-error driven; prove recovery and conflict behavior.
-3. Profile/debounce Markdown serialization before expanding the editor beyond Study mode.
+3. Profile/debounce Markdown serialization before any Group expansion or broader large-note rollout.
 4. Establish synthetic authenticated staging and eliminate CSP violations before enforcement.
 5. Add revocable dashboard sessions and explicit draft DTOs as a bounded security/privacy release.
 6. Split the largest modules incrementally behind characterization tests.
