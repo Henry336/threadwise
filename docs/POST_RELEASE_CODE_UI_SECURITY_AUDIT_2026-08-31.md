@@ -5,6 +5,36 @@ Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live das
 release addenda through backend `5b2b962` and dashboard `c4eade6`
 Status: initial findings preserved; subsequent Phase 1/2 resolutions and Phase 3 implementation evidence are addended
 
+## Phase 1–3 regression audit addendum — 2026-08-31
+
+An independent post-implementation pass found two runtime defects in the dashboard and no lost backend
+route, Study authorization boundary, draft field, or Beacon registration from the three phases.
+
+- **Medium security — false-success logout.** The Vercel registry client treated upstream 401 and 404
+  responses as successful revocation, even though Render's exact-owner revoke endpoint is idempotent
+  and returns 200 for already-missing/revoked records. If service authentication failed while a copied
+  cookie existed, the visible browser could delete its cookie while the server-side session remained
+  active. Logout now rejects every non-2xx revocation response, returns the existing safe 503, and keeps
+  the cookie so the owner can retry. Focused tests reproduce an upstream 401.
+- **Medium UI/accessibility/reliability — overlapping dialog cleanup.** Phase 3 extracted the shared
+  Study dialog with its pre-existing direct `body.style.overflow` save/restore while dirty close opens
+  the global confirmation dialog, which used a second independent save/restore. Cleanup order could
+  leave the page permanently locked, and the obscured page remained exposed to assistive technology.
+  Both layers now use the existing reference-counted body lock; the active confirmation makes obscured
+  body roots inert and restores their prior state on dismissal. Desktop and mobile browser tests prove
+  isolation and scroll restoration.
+
+One apparent selector finding was not a runtime defect: the remaining `<select>` strings are inside a
+commented historical settings reference, and the rendered-source regression strips comments before
+asserting that every live choice uses the shared picker. It remains low-priority dead-source cleanup,
+not a user-visible Phase 1 regression.
+
+Validation after correction: backend 990 passed/6 intentional skips, 158 security checks, Prisma
+validation, typecheck/build, secret scan, and two zero-finding dependency audits; dashboard 187 tests,
+86 security checks, typecheck/lint/optimized build, secret scan, two zero-finding audits, and Playwright
+17 passed/5 intentional mobile skips. The route inventory remains 112 and Beacon retains all 11 grammY
+transport registrations. Release evidence follows in the active project checkpoint after deployment.
+
 ## Phase 3 maintainability addendum — 2026-08-31
 
 The recommended first incremental split is implemented without changing product behavior. The general

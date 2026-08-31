@@ -7,6 +7,28 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — Phase 1–3 regression audit (2026-08-31 SGT)
+
+- Objective: independently re-audit the deployed 31 August Phase 1 draft/UI closure, Phase 2
+  revocable-session/CSP work, and Phase 3 maintainability extraction across the backend and
+  dashboard; fix confirmed defects, rerun complete gates, and release only validated changes.
+- Confirmed and fixed locally: the dashboard logout client treated upstream 401/404
+  revocation failures as success even though the backend's idempotent revoke contract already
+  returns 200; the extracted shared Study dialog and global confirmation dialog still use separate
+  direct body-overflow restoration and can recreate the overlapping-modal scroll-lock race; and a
+  large browser-native-selector implementation remains as commented dead source in
+  `dashboard-app.tsx`. The selector gate already removes block comments before scanning, so this is
+  low-priority dead-source cleanup rather than a rendered Phase 1 defect.
+- Fixes: logout now accepts only a successful backend revocation before removing the cookie; the shared
+  Study and global confirmation dialogs use the existing reference-counted body lock; and destructive
+  confirmation marks obscured body roots inert and restores their prior state.
+- Local evidence: Phase 1 Study draft DTOs, Phase 2 CSP/session boundaries, Phase 3 route/Beacon/UI
+  seams, complete tests, type/lint/build/Prisma, secret scans, dependency audits, and the responsive
+  browser matrix are green. Backend: 990 passed/6 skipped and 158 security checks. Dashboard: 187
+  tests, 86 security checks, 17 browser passes/5 intentional mobile skips. Route inventory remains 112;
+  Beacon registrations remain 11. Merge, deployment, and live revision verification remain pending;
+  no schema, database, provider, or secret changed.
+
 ## Active checkpoint — Today planning, carryover, briefings, and Note sessions (2026-08-28 SGT)
 
 - Post-release discoverability fix: `/today` now visibly offers `＋ Add tasks` beside `Open Today` and

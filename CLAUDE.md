@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-08-31 (Codex, Phase 1–3 regression audit validated):** Re-audited the deployed
+  Study-draft/UI, browser-session/CSP, and maintainability-extraction phases. No backend route, Study
+  scope, DTO field, or Beacon registration was lost. The paired dashboard corrects false-success logout
+  on rejected revocation and overlapping Study/confirmation scroll locks, while destructive confirmation
+  now isolates the obscured page. Complete backend/dashboard/security/browser/build/dependency gates are
+  green; paired release and live revision evidence are pending.
+
 - **2026-08-31 (Codex, deployed Phase 3):** Performed the first behavior-preserving
   large-module extraction behind characterization tests. The general dashboard router delegates all
   Study endpoints to `src/dashboard/studyRoutes.ts` after shared auth/replay/rate/workspace checks;
@@ -266,6 +273,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-08-31 (Codex, Phase 1–3 regression audit validated):** Found and fixed two paired-dashboard
+  regressions: non-2xx session revocation can no longer clear the cookie as if logout succeeded, and
+  overlapping Study/global dialogs now share reference-counted scroll restoration plus inert background
+  isolation. Backend 990/6 and 158 security checks, dashboard 187/86 and browser 17/5, builds, scans,
+  audits, route inventory 112, and Beacon registrations 11 are green. Release is pending.
 
 - **2026-08-31 (Codex, deployed Phase 3):** Added the backend Study-route and
   Beacon-registration seams plus the paired dashboard Study-shell/Deep-Work/dialog seams. Added
