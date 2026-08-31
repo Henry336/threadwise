@@ -2,8 +2,23 @@
 
 Date: 2026-08-31 SGT  
 Scope: initial audit of backend `3869a4a`, dashboard `b81f57f`, and the live dashboard demo, with
-release addenda through backend `4689c8d` and dashboard `5e831a9`
-Status: initial findings preserved; subsequent bounded resolutions and release evidence are addended
+release addenda through backend `5b2b962` and dashboard `c4eade6`
+Status: initial findings preserved; subsequent Phase 1/2 resolutions and release evidence are addended
+
+## Phase 2 closure addendum — 2026-08-31
+
+The previously open browser-security findings are now resolved in production. Signed cookies carry an
+opaque backend-registered session id; every personalized server render/BFF request requires that
+owner-scoped record to be active, and logout revokes it before deleting the cookie. Legacy cookies fail
+closed and require one fresh Telegram sign-in. The additive registry contains no profile, content, or
+provider credential.
+
+CSP is enforced by default. Scripts and style elements are nonce-bound with no inline-script or eval
+allowance. Existing bounded layout attributes use only the CSP Level 3 `style-src-attr` compatibility
+lane; raw HTML remains disabled and Mermaid output remains sanitized. Local optimized/browser gates
+observed zero CSP console violations. Backend merge `5b2b962324ba` and dashboard merge `c4eade6b85de`
+are live; Vercel production deployment `dpl_Bhk9yjShbMNnYu4gxYkbCgojHoDp` is Ready. Large-module
+maintainability is still the principal remaining engineering risk and is Phase 3, not part of this closure.
 
 ## Executive summary
 
@@ -14,9 +29,8 @@ are clean, the complete serialized backend suite passes, and the dashboard unit,
 and production-build gates pass.
 
 The highest current risk is maintainability rather than an active breach. Several backend and
-dashboard files are large enough that unrelated changes collide in the same modules. The most
-important browser security gap is that Content Security Policy remains report-only and cannot yet be
-enforced without breaking legitimate inline style attributes. The Study/Personal rich editor's
+dashboard files are large enough that unrelated changes collide in the same modules. CSP enforcement
+and server-revocable browser sessions have since closed the principal browser-security gaps. The Study/Personal rich editor's
 accessible names, nested filing focus, typed error handling, visible list markers, and normal-path
 typing performance have since been remediated. Representative large-note benchmarking and an isolated,
 cryptographically authenticated Study lifecycle fixture now protect that rollout. Fully reliable abrupt

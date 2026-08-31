@@ -20,9 +20,10 @@ phase is validated or rolled back.
 - Phase 6 F-01 through F-03 are remediated in current `main`: Canvas pagination/material URLs are
   origin/path constrained and redirects refused; dashboard mutation JTIs are consumed in a shared
   replay store; and shared ingress/principal/operation rate limits are active.
-- CSP enforcement evidence and hosted synthetic authenticated staging remain open. CSP is deliberately
-  report-only because current dynamic style attributes produce violations and would break under the
-  present enforced policy.
+- Phase 2 browser hardening is live: owner-scoped browser sessions are server-revocable, and CSP is
+  enforced by default with nonce-bound scripts/style elements plus a documented, style-attribute-only
+  compatibility lane for bounded React geometry. Local synthetic authenticated and hosted deployment
+  gates passed; legacy cookies require one fresh sign-in.
 - Destructive historical content backfill and retention deletion remain separate, explicitly gated
   operations; their absence is not a failed ordinary deployment.
 - The 2026-08-17 state remains in `docs/POST_PHASE7_CODEBASE_AUDIT.md` as historical evidence. The
