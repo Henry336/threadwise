@@ -2028,7 +2028,8 @@ and the next command/action. Never mark incomplete work complete.
   `20260831220000_dashboard_browser_sessions`, returned HTTP 200, and reported exact runtime commit
   `5b2b962324ba`. Dashboard PR `#6` then merged as
   `c4eade6b85dea912e5f3be1f1689bdbd27dcee10` after validate/browser/Vercel checks passed. Direct
-  production deployment `dpl_Bhk9yjShbMNnYu4gxYkbCgojHoDp` completed Ready and is aliased to
-  `https://threadwise-dashboard.vercel.app`. No legacy `THREADWISE_CSP_MODE` override exists in Vercel,
+  production code deployment `dpl_Bhk9yjShbMNnYu4gxYkbCgojHoDp` completed Ready; subsequent
+  documentation-only `main` deployments retain that identical runtime code on the canonical alias.
+  No legacy `THREADWISE_CSP_MODE` override exists in Vercel,
   so the new enforcement default is active. Phase 2 is complete in production; users with a cookie from
   before this release must sign in once, while Phase 3 large-module extraction remains separate.
