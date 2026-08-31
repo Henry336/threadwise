@@ -53,7 +53,7 @@ browser gate (12 passed, 2 intentional mobile skips).
 
 ## Bounded audit-remediation Phase 1 addendum — 2026-08-31
 
-This guarded Phase 1 closes five audit items without entering the CSP, session-revocation, or
+This released Phase 1 closes five audit items without entering the CSP, session-revocation, or
 large-module gates:
 
 - Study draft responses now cross one explicit browser DTO containing only draft id, canonical-resource
@@ -82,6 +82,12 @@ audits, and the complete browser suite pass (15 passed, 5 intentional mobile ski
 serialized backend suite and broad assurance command encountered the already-recorded local timeout/hang
 ergonomics issue after producing progress, so neither is claimed as a new pass here. No migration or
 production data access is required by this phase.
+
+**Release evidence.** Backend PR `#19` merged and deployed first as `1d47597f30bd`; Render `/health`
+returned HTTP 200 at that exact runtime. Dashboard PR `#4` merged as `14f285ebfcba` after its `validate`
+and `browser` jobs passed. Vercel production completed and the canonical hosted browser suite passed
+12 tests with 8 intentional hosted/mobile skips. There was no migration, production-data read/write,
+paid provider, or secret change.
 
 ## What was verified as improved
 

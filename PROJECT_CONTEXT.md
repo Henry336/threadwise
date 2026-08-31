@@ -1984,4 +1984,11 @@ and the next command/action. Never mark incomplete work complete.
   dependency audits, and complete Playwright pass (15 passed, 5 intentional mobile skips). The serialized
   backend full-suite and broad assurance attempts again exceeded practical local completion time after
   sustained progress, matching the already-open parallel/test-runner ergonomics finding; do not
-  misreport them as passes or product regressions. Publication still needs completion.
+  misreport them as passes or product regressions.
+- Publication checkpoint: backend PR `#19` merged as `1d47597f30bde28674bfe6f9ec857b01f1cfcbc4`
+  after its `validate` job passed, then Render `/health` returned HTTP 200 with exact runtime commit
+  `1d47597f30bd`. Dashboard PR `#4` merged second as
+  `14f285ebfcbabd79e830b162d48e877f5a662959`; its `validate` and `browser` jobs passed, Vercel production
+  completed, and the canonical hosted suite passed 12 tests with 8 intentional external/mobile skips.
+  No migration, production data access, paid provider, or secret change was part of this release.
+  Phase 1 is complete in production; CSP/session work remains Phase 2 and large-module extraction Phase 3.
