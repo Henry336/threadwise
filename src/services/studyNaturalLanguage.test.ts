@@ -62,6 +62,18 @@ describe("Study Mode natural-language routing", () => {
     expect(parseStudyNaturalLanguage("Navigate to VCR Room", timezone)).toEqual({ kind: "route", destination: "VCR Room", origin: undefined });
     expect(parseStudyNaturalLanguage("How do I get from PGP to COM3?", timezone)).toEqual({ kind: "route", destination: "COM3", origin: "PGP" });
   });
+
+  it.each([
+    "I need to finish the tutorial",
+    "remind me to read chapter 4 tomorrow",
+    "remember to read chapter 4",
+    "prepare the project slides",
+  ])("reviews task-like prose instead of auto-saving it: %s", (text) => {
+    expect(parseStudyNaturalLanguage(text, timezone)).toMatchObject({
+      kind: "ambiguous",
+      sourceText: text,
+    });
+  });
 });
 
 describe("Study Mode reply capture language", () => {

@@ -7,7 +7,33 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — explicit Today task-capture containment released (2026-09-03 SGT)
+## Active checkpoint — unified capture review implementation (2026-09-03 SGT)
+
+- Objective: complete the second intent-recovery phase after Today containment. Ordinary actionable
+  prose must never become a TODO solely because a deterministic classifier is confident; the user must
+  be able to review and correct the inferred type before the write.
+- Product boundary: explicit commands that name their operation (for example `add task…`, `note:…`,
+  or `remind me…`) and menu-led capture remain direct. Conversational task-like prose such as `I need
+  to…`, `I must…`, `remember to…`, and `I gotta…` is not an explicit task command.
+- Personal/Group implementation: every ordinary classified message creates an actor-bound
+  `PendingCapture` and shows a progressive review card. The first card has at most Save inferred type,
+  Change type, and Ignore; Change type reveals Task, Reminder, Note, and Idea. No record exists until a
+  save choice is made.
+- Reminder continuation: a capture without a future time opens a Telegram force reply persisted against
+  the exact capture, actor, chat, and prompt message. Only that reply can continue it; invalid or past
+  times rotate the prompt without consuming the capture, and callback replay cannot claim twice.
+- Study implementation: ordinary action prose now reaches the existing Study capture chooser rather
+  than `create_task`. Reminder is a distinct choice, requires a future time, retains explicit module
+  selection, and becomes dated Study work handled by the existing Study reminder pipeline.
+- Data change: additive nullable `PendingCapture.telegramChatId` and
+  `telegramPromptMessageId` fields plus one lookup index. No existing task, note, idea, Study item,
+  user setting, provider, secret, or dashboard contract is rewritten.
+- Local validation: Prisma format/generate/validate, TypeScript typecheck, production build, 1006 tests
+  with 6 intentional skips, 158 security-assurance checks, tracked-secret scan, diff check, and both
+  dependency audits pass. Migration apply, PR/merge, and exact Render deployment evidence must still be
+  recorded here before this checkpoint is called released.
+
+## Previous checkpoint — explicit Today task-capture containment released (2026-09-03 SGT)
 
 - User-reported regression: after Today TODOs were introduced, ordinary messages beginning with broad
   action verbs could be claimed by `src/bot/today.ts` before the normal natural-language route. While an

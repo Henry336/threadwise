@@ -1,5 +1,5 @@
 import { StudyResourceKind, StudyTrafficLight } from "@prisma/client";
-import { classifyMessageDeterministically, structureNoteDeterministically, structureTaskDeterministically } from "../ai/deterministic";
+import { structureNoteDeterministically, structureTaskDeterministically } from "../ai/deterministic";
 import { parseDueDate } from "../utils/dates";
 
 export type StudyNaturalIntent =
@@ -148,11 +148,9 @@ export function parseStudyNaturalLanguage(text: string, timezone: string): Study
 }
 
 function taskIntent(text: string, timezone: string): Extract<StudyNaturalIntent, { kind: "create_task" }> | undefined {
-  const classification = classifyMessageDeterministically(text, timezone);
   const explicit = /^(?:todo|to-do|task|assignment|deadline)\s*[:\-]/i.test(text)
-    || /^(?:add|create|save)\s+(?:a\s+)?(?:task|assignment|deadline)\b/i.test(text)
-    || /^(?:remind me to|i need to|need to|make sure i|remember to)\b/i.test(text);
-  if (!explicit && !(classification?.kind === "task" && classification.confidence >= 0.75)) return undefined;
+    || /^(?:add|create|save)\s+(?:a\s+)?(?:task|assignment|deadline)\b/i.test(text);
+  if (!explicit) return undefined;
   const extracted = extractModuleReference(text);
   const source = extracted.text
     .replace(/^(?:todo|to-do|task|assignment|deadline)\s*[:\-]\s*/i, "")

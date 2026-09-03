@@ -14,8 +14,9 @@ one domain without reshaping the whole product. Several legacy composition modul
 - Store all durable state in PostgreSQL.
 - Treat AI as an adapter, not the center of the app.
 - Parse command-like natural language locally before attempting AI classification.
-- Resolve clear natural language locally; offer immediate Task/Note/Idea/Ignore choices for ambiguous private messages.
-- Auto-save only high-confidence task, note, and idea captures, and make them undoable.
+- Resolve explicit commands locally; treat classifier output for ordinary prose as a suggestion, not
+  write authorization.
+- Review ordinary captures before saving and let the sender change among Task, Reminder, Note, and Idea.
 - Treat destructive-looking operations, such as note merging, as preview-and-confirm flows.
 - Keep personal data scoped to a human owner and shared data scoped to one verified group workspace.
 - Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
@@ -32,8 +33,8 @@ another deliberate `＋ Add more` action.
 
 All other text calls the next grammY middleware even while a collecting draft exists. This preserves the
 draft but lets reminder commands, note/idea capture, and ordinary ambiguity handling continue normally.
-Do not reintroduce an action-word fallback in `src/bot/today.ts`; intent classification belongs to the
-normal natural-language route and broader intent/reclassification work is a separate product phase.
+Do not reintroduce an action-word fallback in `src/bot/today.ts`. The normal natural-language route now
+persists a short-lived, actor-bound review and never auto-saves ordinary prose from confidence alone.
 
 ## Application content protection
 
@@ -85,7 +86,17 @@ Telegram copy follows a small convention: show the saved content first, then a c
 
 Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts` handles executable requests and help questions such as `how do I set reminders?`, `show task 1`, `archive note 1`, `change timezone to Myanmar`, `warn me 10 mins before due tasks`, `merge notes 1 2 3`, and `undo`. If no command-like request matches, `deterministic.ts` scores the message as a possible task, scheduled reminder, note, idea, or noise. A low-confidence private message is persisted briefly as a `PendingCapture` and immediately receives actor-bound Task, Note, Idea, and Ignore buttons. It does not wait for AI on the response-critical path. Low-confidence group conversation remains ignored unless it was explicitly addressed to Threadwise.
+Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts`
+executes requests that name their operation and help/control questions such as `add task…`, `note:…`,
+`remind me…`, `show task 1`, and `undo`. It deliberately does not treat `I need to…`, `I must…`,
+or similar action prose as direct task authorization. If no explicit command matches,
+`deterministic.ts` scores the message as task, timed reminder, note, idea, or noise. The suggestion is
+persisted briefly as an actor-bound `PendingCapture` and shown in a progressive review: Save inferred
+type / Change type / Ignore, with Task, Reminder, Note, and Idea behind Change type. No classifier-only
+path writes content. Reminder corrections without a future time continue only through a force reply
+whose actor, chat, and prompt id are stored durably; callback and reply claims are idempotent. Addressed
+Group messages use the same boundary. Study keeps its module-aware Task/Reminder/Note/Question/Resource
+chooser and no longer promotes implicit action prose directly into work.
 
 Group routing lives in `src/bot/groupRouting.ts`. Slash commands are explicit. Ordinary group text is ignored unless it contains the exact runtime bot mention or replies to a normal/receiver-bound Threadwise message. Generic `@something_bot` mentions and a plain leading product name do not activate the router. Two deliberately narrow headings—`TODO:` and `ACTION ITEMS:`—also activate the batch-import path. This keeps normal conversation quiet while giving groups one familiar, low-ceremony capture convention. Telegram privacy mode still controls which unmentioned messages are delivered by Telegram; an exact mention or reply is the universally reliable path.
 

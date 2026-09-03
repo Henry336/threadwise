@@ -5,6 +5,7 @@ const pendingCapture = vi.hoisted(() => ({
   findFirst: vi.fn(),
   delete: vi.fn(),
   deleteMany: vi.fn(),
+  updateMany: vi.fn(),
 }));
 
 vi.mock("../db/prisma", () => ({
@@ -14,7 +15,9 @@ vi.mock("../db/prisma", () => ({
 import {
   consumePendingCapture,
   createPendingCapture,
+  findPendingCaptureReminderReply,
   ignorePendingCapture,
+  rememberPendingCaptureReminderPrompt,
 } from "./pendingCaptures";
 
 describe("pending capture ownership", () => {
@@ -70,6 +73,51 @@ describe("pending capture ownership", () => {
         OR: [
           { actorTelegramId: null },
           { actorTelegramId: "88" },
+        ],
+      }),
+    });
+  });
+
+  it("binds a reminder continuation to the exact actor, chat, and prompt", async () => {
+    pendingCapture.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(rememberPendingCaptureReminderPrompt(
+      "workspace-user",
+      "capture-1",
+      77,
+      -100123,
+      456,
+    )).resolves.toBe(true);
+
+    expect(pendingCapture.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: "capture-1",
+        userId: "workspace-user",
+        OR: [
+          { actorTelegramId: null },
+          { actorTelegramId: "77" },
+        ],
+      }),
+      data: {
+        telegramChatId: "-100123",
+        telegramPromptMessageId: 456,
+      },
+    });
+  });
+
+  it("finds a reminder continuation only for its exact receiver-bound reply", async () => {
+    pendingCapture.findFirst.mockResolvedValue(undefined);
+
+    await findPendingCaptureReminderReply("workspace-user", 77, -100123, 456);
+
+    expect(pendingCapture.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        userId: "workspace-user",
+        telegramChatId: "-100123",
+        telegramPromptMessageId: 456,
+        OR: [
+          { actorTelegramId: null },
+          { actorTelegramId: "77" },
         ],
       }),
     });

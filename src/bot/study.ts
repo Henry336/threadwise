@@ -65,6 +65,7 @@ import { importStudyNusmodsTimetable } from "../services/studyNusmods";
 import {
   handleExtendedStudyCallback,
   handleStudyCaptureCaptionMessage,
+  handleStudyCaptureReminderMessage,
   handleStudyAmbientText,
   handleStudyDocument,
   handleStudyLocation,
@@ -521,6 +522,7 @@ async function handleStudyConversationMessage(
   if (kind === "review") return handleReviewMessage(ctx, workspace, step, payload, text);
   if (kind === "reschedule_item") return handleRescheduleItemMessage(ctx, workspace, payload, text);
   if (kind === "study_capture_caption") return handleStudyCaptureCaptionMessage(ctx, workspace, payload, text);
+  if (kind === "study_capture_reminder") return handleStudyCaptureReminderMessage(ctx, workspace, payload, text);
   if (kind === "study_origin_add") return handleStudyOriginAddMessage(ctx, workspace, text);
   if (kind === "study_origin_rename") return handleStudyOriginRenameMessage(ctx, workspace, payload, text);
   if (kind === "study_travel_block") return handleStudyTravelBlockMessage(ctx, workspace, payload, text);

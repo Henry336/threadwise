@@ -3,7 +3,13 @@ import type { AiProvider } from "../ai/types";
 import { classifyMessageDeterministically } from "../ai/deterministic";
 import { logger } from "../logger";
 import { ensureUser } from "../services/users";
-import { createPendingCapture } from "../services/pendingCaptures";
+import {
+  consumePendingCapture,
+  createPendingCapture,
+  findPendingCaptureReminderReply,
+  ignorePendingCapture,
+  rememberPendingCaptureReminderPrompt,
+} from "../services/pendingCaptures";
 import { createIdea, findIdeaReference, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
@@ -34,8 +40,7 @@ import {
   formatImageUploadBatchReview,
   imageUploadBatchKeyboard,
 } from "../services/imageUploadBatches";
-
-const AUTO_SAVE_CONFIDENCE = 0.88;
+import { formatCaptureReview, formatReminderTimePrompt, suggestedCaptureKind } from "./captureReview";
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
@@ -56,6 +61,8 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const user = await ensureUser(ctx);
+
+      if (await handlePendingCaptureReminderReply(ctx, ai, user, text)) return;
 
       const captionedImageBatch = await applyPendingImageUploadBatchCaption(user.id, text);
       if (captionedImageBatch) {
@@ -161,79 +168,79 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       const deterministicClassification = classifyMessageDeterministically(text, user.settings?.timezone ?? "UTC");
-      if (!deterministicClassification) {
-        const pending = await createPendingCapture(user.id, text, {
-          kind: "noise",
-          confidence: 0,
-          reason: "The message needs an explicit capture choice."
-        }, ctx.from?.id);
-        logger.info("Natural-language message needs an explicit capture choice.", {
-          source: "instant-fallback",
-          addressedGroupMessage
-        });
-        await replyControlCardHtml(ctx, `${bold("Not sure what to do with that.")}\nChoose where it belongs.`, {
-          reply_markup: captureConfirmationKeyboard(pending.id)
-        });
-        return;
-      }
-
-      const classification = deterministicClassification;
+      const classification = deterministicClassification ?? {
+        kind: "noise" as const,
+        confidence: 0,
+        reason: "The message needs an explicit capture choice."
+      };
       logger.info("Classified natural-language message.", {
-        source: "deterministic",
+        source: deterministicClassification ? "deterministic" : "instant-fallback",
         kind: classification.kind,
         confidence: classification.confidence,
-        reason: classification.reason
+        reason: classification.reason,
+        addressedGroupMessage,
       });
 
-      if (classification.kind === "noise" || classification.confidence < 0.45) {
-        const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id);
-        await replyControlCardHtml(ctx, `${bold("Not sure what to do with that.")}\nChoose where it belongs.`, {
-          reply_markup: captureConfirmationKeyboard(pending.id)
-        });
-        return;
-      }
-
-      if (shouldAutoSave(classification.kind, classification.confidence)) {
-        if (classification.kind === "task") {
-          const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-          await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-          await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
-          return;
-        }
-
-        if (classification.kind === "idea") {
-          const idea = await createIdea(user.id, text, ai);
-          await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
-          return;
-        }
-
-        if (classification.kind === "note") {
-          const note = await createNote(user.id, text, ai);
-          await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
-          return;
-        }
-      }
-
       const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id);
-      const hasReminderTime =
-        classification.kind === "task" &&
-        Boolean(parseDueDate(classification.dueDateText ?? text, user.settings?.timezone ?? "UTC"));
-      const label =
-        hasReminderTime
-          ? "a scheduled reminder"
-          : classification.kind === "task"
-            ? "a task"
-            : classification.kind === "idea"
-              ? "an idea"
-              : "a note";
-
-      await replyControlCardHtml(ctx, `${bold("Just checking")}\nThis sounds like ${bold(label)}. ${h("Would you like me to save it?")}`, {
-        reply_markup: captureConfirmationKeyboard(pending.id)
+      const suggestedKind = suggestedCaptureKind(classification, text, user.settings?.timezone ?? "UTC");
+      await replyControlCardHtml(ctx, formatCaptureReview(text, suggestedKind), {
+        reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind)
       });
     } catch (error) {
       await replyHtml(ctx, h(userFacingError(error, "I couldn't handle that request. Try /help for examples.")));
     }
   });
+}
+
+async function handlePendingCaptureReminderReply(
+  ctx: Context,
+  ai: AiProvider,
+  user: Awaited<ReturnType<typeof ensureUser>>,
+  text: string,
+): Promise<boolean> {
+  const actorTelegramId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+  const replyToMessageId = ctx.message?.reply_to_message?.message_id;
+  if (actorTelegramId === undefined || chatId === undefined || replyToMessageId === undefined) return false;
+
+  const pending = await findPendingCaptureReminderReply(
+    user.id,
+    actorTelegramId,
+    chatId,
+    replyToMessageId,
+  );
+  if (!pending) return false;
+
+  if (/^(?:cancel|stop|discard)$/i.test(text.trim())) {
+    await ignorePendingCapture(user.id, pending.id, actorTelegramId);
+    await replyHtml(ctx, "Canceled. Nothing was saved.");
+    return true;
+  }
+
+  const timezone = user.settings?.timezone ?? "UTC";
+  const dueAt = parseDueDate(text, timezone);
+  if (!dueAt || dueAt.getTime() <= Date.now()) {
+    const prompt = await ctx.reply(formatReminderTimePrompt(pending.sourceText), {
+      parse_mode: "HTML",
+      reply_markup: {
+        force_reply: true,
+        selective: true,
+        input_field_placeholder: "Tomorrow at 9am…",
+      },
+    });
+    await rememberPendingCaptureReminderPrompt(user.id, pending.id, actorTelegramId, chatId, prompt.message_id);
+    return true;
+  }
+
+  const claimed = await consumePendingCapture(user.id, pending.id, actorTelegramId);
+  if (!claimed) {
+    await replyHtml(ctx, "That capture was already handled or expired. Send it again if needed.");
+    return true;
+  }
+  const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
+  await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+  await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+  return true;
 }
 
 async function handlePendingMenuInput(
@@ -342,8 +349,4 @@ async function handlePendingMenuInput(
         : "search ";
   clearMenuInput(user.id, actorId);
   return handleNaturalCommand(ctx, ai, `${prefix}${text}`);
-}
-
-function shouldAutoSave(kind: string, confidence: number): boolean {
-  return confidence >= AUTO_SAVE_CONFIDENCE && (kind === "task" || kind === "idea" || kind === "note");
 }
