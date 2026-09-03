@@ -1,8 +1,8 @@
 # Architecture Notes
 
-Updated: 2026-08-31
+Updated: 2026-09-03
 
-Current backend release: v0.32.0
+Current backend release: v0.32.1
 
 Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
 one domain without reshaping the whole product. Several legacy composition modules remain large; use
@@ -20,6 +20,20 @@ one domain without reshaping the whole product. Several legacy composition modul
 - Keep personal data scoped to a human owner and shared data scoped to one verified group workspace.
 - Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
 - Keep Telegram handlers thin; domain behavior belongs in services.
+
+## Telegram task-capture boundary
+
+Today task drafts are an explicit interaction mode, not a global action-verb classifier. A draft may
+start only from `/todo`/`/todos` with content or from a direct reply to the force-reply prompt opened by
+`＋ Add tasks`. Selecting `＋ Add more` moves the durable draft into `COLLECTING`, sends a new force-reply
+prompt, and stores that prompt's chat/message pair. Only a reply to that exact receiver-bound prompt may
+append content. The reply is immediately returned to `REVIEWING`; another addition therefore requires
+another deliberate `＋ Add more` action.
+
+All other text calls the next grammY middleware even while a collecting draft exists. This preserves the
+draft but lets reminder commands, note/idea capture, and ordinary ambiguity handling continue normally.
+Do not reintroduce an action-word fallback in `src/bot/today.ts`; intent classification belongs to the
+normal natural-language route and broader intent/reclassification work is a separate product phase.
 
 ## Application content protection
 

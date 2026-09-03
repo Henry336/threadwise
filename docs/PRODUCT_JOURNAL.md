@@ -784,3 +784,26 @@ create/checklist/title/save flow passed in desktop and mobile Chromium.
 **Follow-up:** Observe authenticated cross-device recovery and conflict handling with real owner data.
 Benchmark very large notes before considering a Group rollout; do not copy Personal ownership semantics
 into a collaborative workspace.
+
+### 3 September 2026 — Make task capture an explicit lane, not a conversation trap
+
+**Friction discovered:** The Today handler ran before the general intent router and treated a broad list
+of action verbs as sufficient permission to start a TODO draft. Worse, after Add more, any following text
+was appended for the draft's lifetime. A reminder, note, idea, or ordinary message could therefore be
+captured as another task without a meaningful choice.
+
+**Decision:** Keep Today batching, but enter it only through `/todo` or a direct Telegram force reply.
+Bind every Add-more continuation to the exact prompt and chat that requested it. Preserve an unfinished
+draft when the user speaks outside that reply, but send the new message through normal Threadwise routing.
+Do not disguise the later unified-intent and type-correction work as part of this containment phase.
+
+**Implemented:** Removed the Today action-word fallback. Add more now creates and remembers a dedicated
+force-reply prompt; the exact reply appends one newline-capable batch and immediately returns to review.
+Other messages bypass the draft, and the collecting card explains that boundary.
+
+**Outcome/evidence:** The complete backend suite passes 993 tests with 6 intentional skips, alongside
+158 focused security checks, TypeScript, production build, secret/diff gates, and two zero-finding
+dependency audits. The online audit found newly disclosed issues in the existing Fastify/fast-uri lock;
+compatible patch updates closed them before release. Exact production evidence is recorded after rollout.
+
+**Follow-up:** Design and evaluate the unified intent/reclassification experience as separate phases.
