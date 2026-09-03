@@ -505,13 +505,36 @@ function appendActiveListNavigation(
   }
 }
 
-export function captureConfirmationKeyboard(pendingId: string): InlineKeyboard {
+export type CaptureSaveKind = "task" | "reminder" | "note" | "idea";
+
+const CAPTURE_KIND_LABELS: Record<CaptureSaveKind, string> = {
+  task: "task",
+  reminder: "reminder",
+  note: "note",
+  idea: "idea",
+};
+
+export function captureConfirmationKeyboard(
+  pendingId: string,
+  suggestedKind?: CaptureSaveKind,
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (suggestedKind) {
+    keyboard.text(`Save ${CAPTURE_KIND_LABELS[suggestedKind]}`, `capture:${suggestedKind}:${pendingId}`).row();
+  }
+  return keyboard
+    .text(suggestedKind ? "Change type" : "Choose type", `capture:choose:${pendingId}`)
+    .text("Ignore", `capture:ignore:${pendingId}`);
+}
+
+export function captureTypeKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📋 Save task", `capture:task:${pendingId}`)
-    .text("💡 Save idea", `capture:idea:${pendingId}`)
-    .row()
-    .text("📝 Save note", `capture:note:${pendingId}`)
-    .text("✕ Ignore", `capture:ignore:${pendingId}`);
+    .text("Task", `capture:task:${pendingId}`)
+    .text("Reminder", `capture:reminder:${pendingId}`).row()
+    .text("Note", `capture:note:${pendingId}`)
+    .text("Idea", `capture:idea:${pendingId}`).row()
+    .text("Back", `capture:back:${pendingId}`)
+    .text("Ignore", `capture:ignore:${pendingId}`);
 }
 
 export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {

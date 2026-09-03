@@ -58,6 +58,7 @@ import {
   startStudyNoteCaptureSession,
   updateStudyPendingCaptureCaption,
   updateStudyPendingCaptureOcr,
+  updateStudyPendingCaptureSourceText,
 } from "../services/studyResources";
 import {
   activateStudyOrigin,
@@ -590,6 +591,27 @@ export async function handleExtendedStudyCallback(
     if (action === "imagemenu") {
       await showImageCaptureActions(ctx, workspace, token, true);
       return true;
+    }
+    if (action === "reminder") {
+      const dueAt = parseDueDate(pending.sourceText ?? "", workspace.timezone);
+      if (!dueAt || dueAt.getTime() <= Date.now()) {
+        await editOrReplyHtml(ctx, `${bold("Reminder needs a time")}\nNothing is saved until you reply to the prompt below.`);
+        const prompt = await ctx.reply(`${bold("When should I remind you?")}\nReply with a future time, such as tomorrow at 9am.`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            force_reply: true,
+            selective: true,
+            input_field_placeholder: "Tomorrow at 9am…",
+          },
+        });
+        await beginStudyConversation(workspace.id, "study_capture_reminder", "time", {
+          token,
+          actorTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
+          telegramChatId: ctx.chat?.id ? String(ctx.chat.id) : undefined,
+          telegramPromptMessageId: prompt.message_id,
+        });
+        return true;
+      }
     }
     if (!pending.moduleId) {
       await chooseCaptureModule(ctx, workspace, token, action);
@@ -1280,18 +1302,27 @@ export function studyCaptureModulePickerKeyboard(
 async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: string, action: string, moduleId: string): Promise<void> {
   const module = await findStudyModule(workspace.id, moduleId);
   if (!module.active) throw new StudyModeError("That module is inactive. Choose a current module instead.", "invalid");
+  const preview = await findStudyPendingCapture(workspace.id, token);
+  if (action === "reminder") {
+    const dueAt = parseDueDate(preview.sourceText ?? "", workspace.timezone);
+    if (!dueAt || dueAt.getTime() <= Date.now()) {
+      throw new StudyModeError("That reminder still needs a future time. Choose Reminder again and reply with one.", "invalid");
+    }
+  }
   // Claim before writing so duplicate or stale callback taps cannot create two records.
   const pending = await consumeStudyPendingCapture(workspace.id, token);
-  if (action === "task") {
+  if (action === "task" || action === "reminder") {
     const text = pending.sourceText?.trim() || pending.fileName || "Study task";
+    const dueAt = action === "reminder" ? parseDueDate(text, workspace.timezone) : undefined;
     const item = await createStudyItem(workspace, {
       moduleId: module.id,
       type: inferStudyItemType(text),
       title: cleanCaptureTitle(text),
       notes: text,
-      priority: StudyPriority.NORMAL,
+      dueAt,
+      priority: inferStudyPriority(dueAt),
     });
-    await editOrReplyHtml(ctx, `${bold("Saved task")} · ${bold(module.code)}\n${code(item.publicId)}`, {
+    await editOrReplyHtml(ctx, `${bold(action === "reminder" ? "Saved reminder" : "Saved task")} · ${bold(module.code)}\n${code(item.publicId)}`, {
       reply_markup: new InlineKeyboard().text("Open work", "study:upcoming:0").text("Home", "study:dashboard"),
     });
     return;
@@ -1708,9 +1739,64 @@ async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId:
 
 function captureChoiceKeyboard(token: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Task", `study:cap:task:${token}`).text("Note", `study:cap:note:${token}`).row()
-    .text("Question", `study:cap:question:${token}`).text("Resource", `study:cap:resource:${token}`).row()
+    .text("Task", `study:cap:task:${token}`).text("Reminder", `study:cap:reminder:${token}`).row()
+    .text("Note", `study:cap:note:${token}`).text("Question", `study:cap:question:${token}`).row()
+    .text("Resource", `study:cap:resource:${token}`).row()
     .text("Ignore", `study:cap:ignore:${token}`);
+}
+
+export async function handleStudyCaptureReminderMessage(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  payload: Record<string, unknown>,
+  text: string,
+): Promise<void> {
+  const token = typeof payload.token === "string" ? payload.token : undefined;
+  const actorTelegramId = typeof payload.actorTelegramId === "string" ? payload.actorTelegramId : undefined;
+  const telegramChatId = typeof payload.telegramChatId === "string" ? payload.telegramChatId : undefined;
+  const telegramPromptMessageId = typeof payload.telegramPromptMessageId === "number" ? payload.telegramPromptMessageId : undefined;
+  const isBoundReply = Boolean(
+    token
+    && actorTelegramId === String(ctx.from?.id)
+    && telegramChatId === String(ctx.chat?.id)
+    && telegramPromptMessageId === ctx.message?.reply_to_message?.message_id
+  );
+  if (!isBoundReply) {
+    await handleStudyAmbientText(ctx, workspace);
+    return;
+  }
+  if (/^(?:cancel|stop|discard)$/i.test(text)) {
+    await consumeStudyPendingCapture(workspace.id, token!);
+    await clearStudyConversation(workspace.id);
+    await replyHtml(ctx, "Canceled. Nothing was saved.");
+    return;
+  }
+
+  const dueAt = parseDueDate(text, workspace.timezone);
+  if (!dueAt || dueAt.getTime() <= Date.now()) {
+    const prompt = await ctx.reply(`${bold("I still need a future time")}\nTry tomorrow at 9am or Friday at noon.`, {
+      parse_mode: "HTML",
+      reply_markup: {
+        force_reply: true,
+        selective: true,
+        input_field_placeholder: "Tomorrow at 9am…",
+      },
+    });
+    await advanceStudyConversation(workspace.id, "time", {
+      ...payload,
+      telegramPromptMessageId: prompt.message_id,
+    });
+    return;
+  }
+
+  const pending = await findStudyPendingCapture(workspace.id, token!);
+  await updateStudyPendingCaptureSourceText(workspace.id, token!, `${pending.sourceText ?? "Study reminder"} ${text}`);
+  await clearStudyConversation(workspace.id);
+  if (!pending.moduleId) {
+    await chooseCaptureModule(ctx, workspace, token!, "reminder", false);
+    return;
+  }
+  await resolveCapture(ctx, workspace, token!, "reminder", pending.moduleId);
 }
 
 function cancelKeyboard(): InlineKeyboard {

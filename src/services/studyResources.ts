@@ -378,6 +378,14 @@ export async function updateStudyPendingCaptureCaption(workspaceId: string, toke
   });
 }
 
+export async function updateStudyPendingCaptureSourceText(workspaceId: string, token: string, sourceText: string) {
+  const pending = await findStudyPendingCapture(workspaceId, token);
+  return prisma.studyPendingCapture.update({
+    where: { id: pending.id },
+    data: { sourceText: sourceText.trim().slice(0, 100_000) || null },
+  });
+}
+
 export async function updateStudyPendingCaptureOcr(
   workspaceId: string,
   token: string,

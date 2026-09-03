@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-03 (Codex, Phase 2 implementation):** Replaced classifier-only auto-save for ordinary
+  Personal/Group prose with an actor-bound review card whose inferred Task/Reminder/Note/Idea type can be
+  changed before saving. Reminder-time replies are durably bound to the exact actor, chat, and prompt.
+  Study action prose now opens its capture chooser instead of becoming work automatically, and Study
+  Reminder requires a future time plus explicit module resolution. The additive pending-capture
+  migration and release evidence are tracked in `PROJECT_CONTEXT.md`.
+
 - **2026-09-03 (Codex, Phase 1 released):** Removed Today's broad action-verb interception
   and bound Add-more collection to the exact Telegram force-reply prompt and chat. Ordinary messages now
   reach normal reminder/note/idea/ambiguity routing even while a task draft waits. The full 993/6 suite,

@@ -147,16 +147,21 @@ describe("natural command parsing", () => {
 
   it.each([
     ["create a task to buy batteries tomorrow", "buy batteries tomorrow"],
-    ["I need to submit the report by Friday", "submit the report by Friday"],
     ["put book dentist on my todo list", "book dentist"],
-    ["I must renew my passport next month", "renew my passport next month"],
-    ["remember to buy milk tomorrow", "buy milk tomorrow"],
     ["put renew passport on my list", "renew passport"],
     ["my next task is to email Alex", "email Alex"],
-    ["I've got to submit the form", "submit the form"],
-    ["I gotta call Mum", "call Mum"]
   ])("parses natural task capture: %s", (input, expected) => {
     expect(parseNaturalTaskBody(input)).toBe(expected);
+  });
+
+  it.each([
+    "I need to submit the report by Friday",
+    "I must renew my passport next month",
+    "remember to buy milk tomorrow",
+    "I've got to submit the form",
+    "I gotta call Mum",
+  ])("leaves task-like prose for the review flow: %s", (input) => {
+    expect(parseNaturalTaskBody(input)).toBeUndefined();
   });
 
   it.each([

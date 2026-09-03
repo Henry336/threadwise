@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Unified capture review (v0.33.0; release pending)
+- Replaced classifier-only auto-save with a review-before-save card for ordinary Personal and Group
+  messages. The card shows one inferred action, progressively reveals Task/Reminder/Note/Idea choices,
+  and keeps Ignore available; explicit commands and menu-led capture remain direct.
+- Narrowed direct task commands to text that actually names a task, TODO, or list. Conversational prose
+  such as `I need to…`, `I must…`, and `remember to…` now reaches the reversible capture review.
+- Added Reminder as a correction target. Missing times use a durable force-reply continuation bound to
+  the exact actor, chat, and prompt; invalid times re-prompt without consuming the pending capture.
+- Sent implicit Study action prose to its existing capture choice instead of auto-creating work. Study
+  capture now supports Reminder, requests a future time when needed, and preserves module selection.
+- Made pending-capture claiming replay-safe and added an additive index for exact reminder replies.
+
 ### Explicit Today task-capture boundary (v0.32.1; released 2026-09-03)
 - Removed the early action-verb fallback that caused ordinary Telegram prose to enter a Today TODO draft
   before the normal intent router could evaluate reminders, notes, ideas, or ambiguity.

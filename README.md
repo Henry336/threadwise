@@ -4,9 +4,9 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.32.0**
+Current backend release: **v0.33.0**
 
-Documentation verified against the deployed backend and dashboard: **2026-08-31**
+Documentation verified against the backend and dashboard: **2026-09-03**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 

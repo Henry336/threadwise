@@ -91,15 +91,9 @@ export function parseNaturalTaskBody(text: string): string | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^(?:please\s+)?(?:add|create|make)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:task|todo|to-do)\s*(?:to|for|:|-)?\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?(?:add|todo|task)\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?i\s+need\s+to\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+my\s+(?:task|todo|to-do)\s+list$/i)
-    ?? normalized.match(/^(?:please\s+)?(?:i\s+)?(?:(?:have|need|ought)\s+to|must|should)\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?remember\s+to\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?make\s+sure\s+i\s+(.+)$/i)
     ?? normalized.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+my\s+list$/i)
-    ?? normalized.match(/^(?:please\s+)?my\s+next\s+task\s+is\s+(?:to\s+)?(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?i(?:'ve|\s+have)\s+got\s+to\s+(.+)$/i)
-    ?? normalized.match(/^(?:please\s+)?i\s+gotta\s+(.+)$/i);
+    ?? normalized.match(/^(?:please\s+)?my\s+next\s+task\s+is\s+(?:to\s+)?(.+)$/i);
   return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 

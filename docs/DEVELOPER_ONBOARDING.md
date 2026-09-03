@@ -42,8 +42,11 @@ Older audit and rollout documents are historical snapshots unless their header s
 
 `Telegram → authenticated webhook → grammY routing → domain service → Prisma → formatted reply`
 
-Clear commands and natural-language actions are handled deterministically first. AI is optional and
-must not become a dependency for capture, reminders, search, Study scheduling, or dashboard access.
+Commands that explicitly name an operation are handled deterministically first. Ordinary prose is
+classified only to suggest a reversible capture type; it is not saved until the sender confirms or
+changes that type. AI is optional and must not become a dependency for capture review, reminders,
+search, Study scheduling, or dashboard access. Receiver-bound continuations must verify the exact actor,
+chat, and replied-to prompt before consuming durable state.
 
 ### Dashboard
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { TaskStatus } from "@prisma/client";
 import {
   archivedNoteDetailKeyboard,
+  captureConfirmationKeyboard,
+  captureTypeKeyboard,
   groupHelpTopicsKeyboard,
   groupImagesModeKeyboard,
   groupSettingsModeKeyboard,
@@ -62,6 +64,22 @@ describe("interactive keyboard navigation", () => {
   it("keeps a back route even when a paged result has only one page", () => {
     expect(callbackData(searchPageKeyboard("search-id", 1, 1))).toEqual(["menu:search"]);
     expect(callbackData(menuBackKeyboard())).toEqual(["menu:home"]);
+  });
+
+  it("uses progressive disclosure for capture review without omitting reminder", () => {
+    expect(callbackData(captureConfirmationKeyboard("capture-1", "task"))).toEqual([
+      "capture:task:capture-1",
+      "capture:choose:capture-1",
+      "capture:ignore:capture-1",
+    ]);
+    expect(callbackData(captureTypeKeyboard("capture-1"))).toEqual([
+      "capture:task:capture-1",
+      "capture:reminder:capture-1",
+      "capture:note:capture-1",
+      "capture:idea:capture-1",
+      "capture:back:capture-1",
+      "capture:ignore:capture-1",
+    ]);
   });
 
   it("keeps only Menu and Dashboard in the persistent private composer", () => {

@@ -2,9 +2,9 @@ import { InputFile, type Bot, type Context } from "grammy";
 import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createTask } from "../services/tasks";
+import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createScheduledReminder, createTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
-import { consumePendingCapture, ignorePendingCapture } from "../services/pendingCaptures";
+import { consumePendingCapture, findPendingCapture, ignorePendingCapture, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
@@ -19,8 +19,8 @@ import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPe
 import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, microsoftExcelConfigured, syncExpenseToExcel, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
-import { bold, code, editOrReplyHtml, editOrReplyText, h } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
+import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
+import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList, replyActiveListWithMessage } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -42,6 +42,8 @@ import { convergeTaskControlSurface } from "../services/taskControlSurfaces";
 import { preferEphemeralInteraction } from "./ephemeral";
 import { beginNoteSession } from "./noteSessions";
 import { resolveGroupTaskCallbackOwner } from "../services/groupTaskCompatibility";
+import { formatCaptureReview, formatCaptureTypeChoice, formatReminderTimePrompt, suggestedPendingCaptureKind } from "./captureReview";
+import { parseDueDate } from "../utils/dates";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):(.+)$/, async (ctx) => handleLegacyTaskAssignmentAction(ctx, ctx.match[2]));
@@ -68,7 +70,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
   bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
   bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
-  bot.callbackQuery(/^capture:(task|idea|note|ignore):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
   bot.callbackQuery(/^image:(note|task|reminder|expense|text|discard):(.+)$/, async (ctx) => {
@@ -1248,6 +1250,72 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
     }
     await ctx.answerCallbackQuery({ text: "Ignored" });
     await editOrReplyQuietAcknowledgementHtml(ctx, "Ignored.");
+    return;
+  }
+
+  if (action === "choose" || action === "back") {
+    const pending = await findPendingCapture(user.id, pendingId, ctx.from?.id);
+    if (!pending) {
+      await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    if (action === "choose") {
+      await editOrReplyHtml(ctx, formatCaptureTypeChoice(pending.sourceText), {
+        reply_markup: captureTypeKeyboard(pending.id),
+      });
+      return;
+    }
+    const suggestedKind = suggestedPendingCaptureKind(pending, user.settings?.timezone ?? "UTC");
+    await editOrReplyHtml(ctx, formatCaptureReview(pending.sourceText, suggestedKind), {
+      reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind),
+    });
+    return;
+  }
+
+  if (action === "reminder") {
+    const pending = await findPendingCapture(user.id, pendingId, ctx.from?.id);
+    if (!pending) {
+      await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
+      return;
+    }
+    const timezone = user.settings?.timezone ?? "UTC";
+    const dueAt = parseDueDate(pending.sourceText, timezone);
+    if (!dueAt || dueAt.getTime() <= Date.now()) {
+      if (!ctx.from || !ctx.chat) return;
+      await ctx.answerCallbackQuery({ text: "Tell me when" });
+      await editOrReplyHtml(ctx, formatReminderTimePrompt(pending.sourceText));
+      const prompt = await ctx.reply("Reply with the reminder time.", {
+        reply_markup: {
+          force_reply: true,
+          selective: true,
+          input_field_placeholder: "Tomorrow at 9am…",
+        },
+      });
+      const remembered = await rememberPendingCaptureReminderPrompt(
+        user.id,
+        pending.id,
+        ctx.from.id,
+        ctx.chat.id,
+        prompt.message_id,
+      );
+      if (!remembered) {
+        await replyHtml(ctx, "That capture expired before I could continue. Send it again if needed.");
+      }
+      return;
+    }
+    const claimed = await consumePendingCapture(user.id, pendingId, ctx.from?.id);
+    if (!claimed) {
+      await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Saving reminder" });
+    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
+    if (isGroupChat(ctx)) {
+      const actor = collaborationActorFromContext(ctx);
+      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
+    }
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
     return;
   }
 

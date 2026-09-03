@@ -26,23 +26,70 @@ export async function consumePendingCapture(
   pendingId: string,
   actorTelegramId?: string | number
 ) {
+  const where = pendingCaptureWhere(userId, pendingId, actorTelegramId);
   const pending = await prisma.pendingCapture.findFirst({
-    where: {
-      id: pendingId,
-      userId,
-      ...(actorTelegramId === undefined ? {} : {
-        OR: [
-          { actorTelegramId: null },
-          { actorTelegramId: String(actorTelegramId) }
-        ]
-      }),
-      expiresAt: { gt: new Date() }
-    }
+    where: { ...where, expiresAt: { gt: new Date() } }
   });
   if (!pending) return undefined;
 
-  await prisma.pendingCapture.delete({ where: { id: pending.id } });
+  const claimed = await prisma.pendingCapture.deleteMany({
+    where: { ...where, id: pending.id, expiresAt: { gt: new Date() } }
+  });
+  if (claimed.count !== 1) return undefined;
   return pending;
+}
+
+export async function findPendingCapture(
+  userId: string,
+  pendingId: string,
+  actorTelegramId?: string | number
+) {
+  return prisma.pendingCapture.findFirst({
+    where: {
+      ...pendingCaptureWhere(userId, pendingId, actorTelegramId),
+      expiresAt: { gt: new Date() }
+    }
+  });
+}
+
+export async function rememberPendingCaptureReminderPrompt(
+  userId: string,
+  pendingId: string,
+  actorTelegramId: string | number,
+  telegramChatId: string | number,
+  telegramPromptMessageId: number
+): Promise<boolean> {
+  const updated = await prisma.pendingCapture.updateMany({
+    where: {
+      ...pendingCaptureWhere(userId, pendingId, actorTelegramId),
+      expiresAt: { gt: new Date() }
+    },
+    data: {
+      telegramChatId: String(telegramChatId),
+      telegramPromptMessageId
+    }
+  });
+  return updated.count === 1;
+}
+
+export async function findPendingCaptureReminderReply(
+  userId: string,
+  actorTelegramId: string | number,
+  telegramChatId: string | number,
+  telegramPromptMessageId: number
+) {
+  return prisma.pendingCapture.findFirst({
+    where: {
+      userId,
+      OR: [
+        { actorTelegramId: null },
+        { actorTelegramId: String(actorTelegramId) }
+      ],
+      telegramChatId: String(telegramChatId),
+      telegramPromptMessageId,
+      expiresAt: { gt: new Date() }
+    }
+  });
 }
 
 export async function ignorePendingCapture(
@@ -70,4 +117,21 @@ function toPrismaKind(kind: Classification["kind"]): CaptureKind {
   if (kind === "task") return CaptureKind.TASK;
   if (kind === "note") return CaptureKind.NOTE;
   return CaptureKind.NOISE;
+}
+
+function pendingCaptureWhere(
+  userId: string,
+  pendingId: string,
+  actorTelegramId?: string | number
+) {
+  return {
+    id: pendingId,
+    userId,
+    ...(actorTelegramId === undefined ? {} : {
+      OR: [
+        { actorTelegramId: null },
+        { actorTelegramId: String(actorTelegramId) }
+      ]
+    })
+  };
 }

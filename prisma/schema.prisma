@@ -418,7 +418,7 @@ model User {
   taskCaptureDrafts          TaskCaptureDraft[]
   dailyBriefDeliveries       DailyBriefDelivery[]
   dailyAgendaOrderStates     DailyAgendaOrderState[]
-  dashboardBrowserSessions  DashboardBrowserSession[]
+  dashboardBrowserSessions   DashboardBrowserSession[]
 }
 
 model StudyWorkspace {
@@ -528,8 +528,8 @@ model StudyModule {
   noteDrafts            StudyNoteDraft[]
 
   @@unique([workspaceId, code])
-  @@index([workspaceId, active, pinnedAt, displayOrder])
   @@unique([workspaceId, canvasCourseId])
+  @@index([workspaceId, active, pinnedAt, displayOrder])
   @@index([workspaceId, active, displayOrder])
   @@index([workspaceId, currentMastery])
 }
@@ -1581,18 +1581,21 @@ model Reflection {
 }
 
 model PendingCapture {
-  id              String      @id @default(uuid())
-  userId          String
-  actorTelegramId String?
-  kind            CaptureKind
-  sourceText      String
-  payload         Json
-  expiresAt       DateTime
-  createdAt       DateTime    @default(now())
+  id                      String      @id @default(uuid())
+  userId                  String
+  actorTelegramId         String?
+  kind                    CaptureKind
+  sourceText              String
+  payload                 Json
+  telegramChatId          String?
+  telegramPromptMessageId Int?
+  expiresAt               DateTime
+  createdAt               DateTime    @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([userId, actorTelegramId, telegramChatId, telegramPromptMessageId], map: "PendingCapture_reminder_reply_idx")
 }
 
 model TaskCaptureDraft {

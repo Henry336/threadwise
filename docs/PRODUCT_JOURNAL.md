@@ -808,3 +808,26 @@ compatible patch updates closed them before release. PR `#28` merged as `1cff18a
 `dep-dachr21t0dsc73dh4i4g` completed live and public health reports v0.32.1 at that exact merge.
 
 **Follow-up:** Design and evaluate the unified intent/reclassification experience as separate phases.
+
+### 3 September 2026 — Make inference reversible before capture
+
+**Friction discovered:** Removing Today's interception exposed the older general-capture shortcut:
+high-confidence action prose still saved immediately as a task. Users could neither inspect the
+interpretation nor change it to Reminder, Note, or Idea, and Study had a separate confidence threshold
+that produced the same surprise.
+
+**Decision:** Confidence may rank a default but cannot authorize a write. Keep explicit operation-naming
+commands fast, then put ordinary prose through one review decision with progressive disclosure so the
+common case stays compact. Treat Reminder as a first-class correction and bind any follow-up time to the
+exact Telegram receiver prompt.
+
+**Implemented:** Personal and Group now show Save inferred type, Change type, and Ignore before saving;
+the expanded picker offers Task, Reminder, Note, and Idea. Broad self-talk patterns no longer masquerade
+as task commands. A missing reminder time starts a durable actor/chat/prompt-bound force reply and
+invalid times re-prompt safely. Study task inference now opens the module-aware capture chooser, whose
+new Reminder path requires a future time and then uses the existing dated-work reminder pipeline.
+Pending claims are replay-safe, and the additive schema stores only Telegram routing identifiers.
+
+**Outcome/evidence:** Prisma format/generate/validate, TypeScript, production build, 1006 tests with 6
+intentional skips, 158 security-assurance checks, tracked-secret/diff gates, and both dependency audits
+pass. Merge, additive migration, and exact production evidence will be appended after publication.
