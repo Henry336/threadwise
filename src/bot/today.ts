@@ -19,7 +19,7 @@ import {
   type TaskCaptureDraftRecord,
   type TaskCaptureScope,
 } from "../services/taskCaptureDrafts";
-import { calendarDate, splitTaskDraftText, startsWithTaskAction } from "../services/taskPlanning";
+import { calendarDate } from "../services/taskPlanning";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
@@ -56,6 +56,22 @@ export function registerTodayInteractions(bot: Bot): void {
     if (action === "add") {
       const draft = await collectTaskCaptureDraft(draftId, scope.capture.principalTelegramId);
       await editDraftMessage(ctx, formatCollectingDraft(draft), new InlineKeyboard().text("Review list", `td:review:${draft.id}`));
+      const prompt = await ctx.reply(formatAddMoreCapturePrompt(), {
+        parse_mode: "HTML",
+        reply_markup: {
+          force_reply: true,
+          selective: true,
+          input_field_placeholder: "Add one task or one per line…",
+        },
+      });
+      if (ctx.chat) {
+        await rememberTaskCaptureDraftTelegramReview(
+          draft.id,
+          scope.capture.principalTelegramId,
+          String(ctx.chat.id),
+          prompt.message_id,
+        );
+      }
       return;
     }
     if (action === "review") {
@@ -166,23 +182,18 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
         return;
       }
       const active = await findActiveTaskCaptureDraft(scope.capture);
-      if (active?.status === "COLLECTING") {
+      const captureRoute = taskCaptureMessageRoute(ctx, active);
+      if (captureRoute === "append" && active) {
         const moduleId = moduleForText(scope.modules, ctx.message.text)?.id;
-        const draft = await appendTaskCaptureDraft(active.id, scope.capture.principalTelegramId, ctx.message.text, { moduleId, studyItemType: StudyItemType.REVISION });
-        await updateCollectingCard(ctx, draft);
+        const appended = await appendTaskCaptureDraft(active.id, scope.capture.principalTelegramId, ctx.message.text, {
+          moduleId,
+          studyItemType: scope.capture.scope === PlanningScope.STUDY ? StudyItemType.REVISION : undefined,
+        });
+        const draft = await reviewTaskCaptureDraft(appended.id, scope.capture.principalTelegramId);
+        await showDraftReview(ctx, draft, scope);
         return;
       }
-      if (isTodayCaptureReply(ctx)) {
-        if (active) {
-          const moduleId = moduleForText(scope.modules, ctx.message.text)?.id;
-          const appended = await appendTaskCaptureDraft(active.id, scope.capture.principalTelegramId, ctx.message.text, {
-            moduleId,
-            studyItemType: scope.capture.scope === PlanningScope.STUDY ? StudyItemType.REVISION : undefined,
-          });
-          const draft = await reviewTaskCaptureDraft(appended.id, scope.capture.principalTelegramId);
-          await showDraftReview(ctx, draft, scope);
-          return;
-        }
+      if (captureRoute === "start") {
         await beginDraft(ctx, ctx.message.text, scope);
         return;
       }
@@ -191,8 +202,7 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
         await showDraftReview(ctx, draft, scope);
         return;
       }
-      if (!looksLikeTaskCapture(ctx.message.text)) return next();
-      await beginDraft(ctx, ctx.message.text, scope);
+      return next();
     } catch (error) {
       await ctx.reply(userFacingError(error, "I couldn't update that task list."));
     }
@@ -256,17 +266,6 @@ async function showDraftReview(ctx: Context, draft: TaskCaptureDraftRecord, scop
   if (ctx.chat) await rememberTaskCaptureDraftTelegramReview(draft.id, scope.capture.principalTelegramId, String(ctx.chat.id), message.message_id);
 }
 
-async function updateCollectingCard(ctx: Context, draft: TaskCaptureDraftRecord): Promise<void> {
-  const markup = new InlineKeyboard().text("Review list", `td:review:${draft.id}`);
-  if (draft.telegramChatId && draft.telegramReviewMessageId) {
-    try {
-      await ctx.api.editMessageText(draft.telegramChatId, draft.telegramReviewMessageId, formatCollectingDraft(draft), { parse_mode: "HTML", reply_markup: markup });
-      return;
-    } catch { /* The original card may no longer be editable. */ }
-  }
-  await replyHtml(ctx, formatCollectingDraft(draft), { reply_markup: markup });
-}
-
 export function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
   const included = draft.items.filter((item) => item.included);
   const needsReview = included.some((item) => item.status === "NEEDS_REVIEW" || item.warnings.length);
@@ -298,7 +297,21 @@ ${remaining} more task${remaining === 1 ? "" : "s"} are waiting in the detailed 
 }
 
 export function formatCollectingDraft(draft: TaskCaptureDraftRecord): string {
-  return [bold(`Adding to this list · ${draft.items.filter((item) => item.included).length} tasks waiting`), "", "Send more tasks in one or several messages.", "Nothing will be saved until you review and approve it."].join("\n");
+  return [
+    bold(`Adding to this list · ${draft.items.filter((item) => item.included).length} tasks waiting`),
+    "",
+    "Reply to the Add more prompt below. Other messages will continue through Threadwise normally.",
+    "Nothing will be saved until you review and approve it.",
+  ].join("\n");
+}
+
+export function formatAddMoreCapturePrompt(): string {
+  return [
+    bold("Add more tasks"),
+    "Reply to this message with one task, or put each task on a new line.",
+    "",
+    "Messages sent outside this reply stay in normal Threadwise.",
+  ].join("\n");
 }
 
 function formatDraftEditHelp(draft: TaskCaptureDraftRecord): string {
@@ -488,6 +501,24 @@ export function isTodayCaptureReply(ctx: Context): boolean {
   return Boolean(replied && "text" in replied && replied.text?.startsWith("Add tasks to Today"));
 }
 
+export function isTaskCaptureDraftReply(ctx: Context, draft: TaskCaptureDraftRecord): boolean {
+  const replied = ctx.message?.reply_to_message;
+  return Boolean(
+    ctx.chat
+      && replied
+      && draft.telegramChatId === String(ctx.chat.id)
+      && draft.telegramReviewMessageId === replied.message_id,
+  );
+}
+
+export type TaskCaptureMessageRoute = "append" | "start" | "none";
+
+export function taskCaptureMessageRoute(ctx: Context, active?: TaskCaptureDraftRecord): TaskCaptureMessageRoute {
+  if (active?.status === "COLLECTING" && isTaskCaptureDraftReply(ctx, active)) return "append";
+  if (!isTodayCaptureReply(ctx)) return "none";
+  return active ? "append" : "start";
+}
+
 async function applyNaturalDraftEdit(draft: TaskCaptureDraftRecord, scope: BotTodayScope, text: string): Promise<boolean> {
   const remove = text.match(/^(?:remove|exclude|drop)\s+(?:task\s+)?(\d+)$/i);
   const deadline = text.match(/^(?:give|set|make)\s+(?:task\s+)?(\d+)\s+(?:a\s+)?(.+?)\s+(?:deadline|due(?:\s+date)?)$/i)
@@ -558,16 +589,6 @@ async function resolveScope(ctx: Context): Promise<BotTodayScope> {
 function moduleForText(modules: StudyModule[], text: string): StudyModule | undefined {
   const upper = text.toUpperCase();
   return modules.find((module) => new RegExp(`(?:^|[^A-Z0-9])${escapeRegex(module.code.toUpperCase())}(?:[^A-Z0-9]|$)`).test(upper));
-}
-
-function looksLikeTaskCapture(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed || trimmed.endsWith("?") || /^(?:note|idea|remember)\b/i.test(trimmed)) return false;
-  try {
-    return splitTaskDraftText(trimmed).length > 1 || startsWithTaskAction(trimmed);
-  } catch {
-    return false;
-  }
 }
 
 function warningCopy(warnings: string[]): string {

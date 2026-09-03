@@ -7,6 +7,32 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — explicit Today task-capture containment (2026-09-03 SGT)
+
+- User-reported regression: after Today TODOs were introduced, ordinary messages beginning with broad
+  action verbs could be claimed by `src/bot/today.ts` before the normal natural-language route. While an
+  Add-more draft was collecting, every subsequent text message was appended, even when it was unrelated.
+  This made reminders, notes, ideas, and normal ambiguity handling feel unavailable.
+- Phase 1 decision: task-draft entry is explicit only—`/todo`/`/todos`, a direct reply to the `＋ Add tasks`
+  prompt, or a direct reply to the exact receiver-bound `＋ Add more` prompt. Remove the global action-word
+  capture fallback. Do not redesign the shared classifier or add review-card reclassification in this
+  phase.
+- Implementation: `＋ Add more` now emits a dedicated Telegram force-reply prompt and persists its exact
+  chat/message pair on the durable draft. Only that reply appends; the accepted batch returns immediately
+  to review. Non-reply text calls the next bot middleware while the draft remains recoverable through its
+  Review action. Explicit focused draft edits, task completion, and Today ordering keep their existing
+  deterministic routes.
+- Validation checkpoint: focused task-capture/service tests pass (19 assertions); the complete backend
+  suite passes 993 tests with 6 intentional skips; all 158 focused security checks pass; TypeScript,
+  production build, tracked-secret scan, and diff checks are green. The online audit initially found a
+  newly disclosed high-severity `fast-uri` chain and moderate Fastify advisory in the existing lockfile;
+  compatible updates to Fastify 5.12.1, fast-uri 3.1.7, and process-warning 5.1.0 now leave both
+  production-only and complete audits at zero findings. Commit, merge, Render rollout, and exact
+  production health evidence follow before this checkpoint is marked released.
+- Later phases remain deliberately separate: a unified intent model that distinguishes tasks/reminders/
+  notes/ideas, and a visible way to correct an inferred type before saving. Phase 1 prevents the Today
+  draft from pre-empting those future decisions; it does not claim the broader classifier is finished.
+
 ## Active checkpoint — Phase 1–3 regression audit released (2026-09-01 SGT)
 
 - Objective: independently re-audit the deployed 31 August Phase 1 draft/UI closure, Phase 2

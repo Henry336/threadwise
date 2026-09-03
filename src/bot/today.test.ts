@@ -2,7 +2,20 @@ import { PlanningScope, TaskCaptureDraftItemStatus, TaskCaptureDraftStatus } fro
 import { describe, expect, it } from "vitest";
 import type { TaskCaptureDraftRecord } from "../services/taskCaptureDrafts";
 import type { Context } from "grammy";
-import { formatAgenda, formatCarryoverPrompt, formatDraftReview, formatSavedDraft, formatTodayCapturePrompt, isTodayCaptureReply, parseTodayMoveInstruction, reviewKeyboard } from "./today";
+import {
+  formatAddMoreCapturePrompt,
+  formatAgenda,
+  formatCarryoverPrompt,
+  formatCollectingDraft,
+  formatDraftReview,
+  formatSavedDraft,
+  formatTodayCapturePrompt,
+  isTaskCaptureDraftReply,
+  isTodayCaptureReply,
+  parseTodayMoveInstruction,
+  reviewKeyboard,
+  taskCaptureMessageRoute,
+} from "./today";
 
 const draft = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -113,6 +126,56 @@ describe("Today Telegram acceptance dialogue", () => {
     expect(prompt).toContain("review the list before anything is saved");
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Add tasks to Today" } } } as Context)).toBe(true);
     expect(isTodayCaptureReply({ message: { reply_to_message: { text: "Something else" } } } as Context)).toBe(false);
+  });
+
+  it("binds Add more collection to the exact force-reply prompt and chat", () => {
+    const prompt = formatAddMoreCapturePrompt();
+    expect(formatCollectingDraft({ ...draft, status: TaskCaptureDraftStatus.COLLECTING })).toContain("Other messages will continue through Threadwise normally");
+    expect(prompt).toContain("Reply to this message");
+    expect(prompt).toContain("Messages sent outside this reply stay in normal Threadwise");
+
+    expect(isTaskCaptureDraftReply({
+      chat: { id: 123 },
+      message: { reply_to_message: { message_id: 9 } },
+    } as Context, draft)).toBe(true);
+    expect(isTaskCaptureDraftReply({
+      chat: { id: 123 },
+      message: { reply_to_message: { message_id: 10 } },
+    } as Context, draft)).toBe(false);
+    expect(isTaskCaptureDraftReply({
+      chat: { id: 456 },
+      message: { reply_to_message: { message_id: 9 } },
+    } as Context, draft)).toBe(false);
+    expect(isTaskCaptureDraftReply({ chat: { id: 123 }, message: {} } as Context, draft)).toBe(false);
+  });
+
+  it("leaves ordinary task-like prose on Threadwise's normal intent route", () => {
+    const collecting = { ...draft, status: TaskCaptureDraftStatus.COLLECTING } as TaskCaptureDraftRecord;
+    const ordinary = { chat: { id: 123 }, message: { text: "Build a revision plan for me" } } as Context;
+    const unrelatedReply = {
+      chat: { id: 123 },
+      message: { text: "Remind me tomorrow", reply_to_message: { message_id: 42, text: "Something else" } },
+    } as Context;
+
+    expect(taskCaptureMessageRoute(ordinary)).toBe("none");
+    expect(taskCaptureMessageRoute(ordinary, collecting)).toBe("none");
+    expect(taskCaptureMessageRoute(unrelatedReply, collecting)).toBe("none");
+  });
+
+  it("accepts only explicit initial and Add more replies into task capture", () => {
+    const collecting = { ...draft, status: TaskCaptureDraftStatus.COLLECTING } as TaskCaptureDraftRecord;
+    const initial = {
+      chat: { id: 123 },
+      message: { text: "Buy groceries", reply_to_message: { message_id: 8, text: "Add tasks to Today" } },
+    } as Context;
+    const addMore = {
+      chat: { id: 123 },
+      message: { text: "Prepare tutorial", reply_to_message: { message_id: 9, text: "Add more tasks" } },
+    } as Context;
+
+    expect(taskCaptureMessageRoute(initial)).toBe("start");
+    expect(taskCaptureMessageRoute(initial, collecting)).toBe("append");
+    expect(taskCaptureMessageRoute(addMore, collecting)).toBe("append");
   });
 
   it("parses concise Personal Today move commands without treating ordinary prose as a command", () => {

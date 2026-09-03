@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-03 (Codex, Phase 1 in release validation):** Removed Today's broad action-verb interception
+  and bound Add-more collection to the exact Telegram force-reply prompt and chat. Ordinary messages now
+  reach normal reminder/note/idea/ambiguity routing even while a task draft waits. The full 993/6 suite,
+  158 security checks, type/build/scans, and zero-finding dependency audits pass; production publication
+  is in progress. See
+  `PROJECT_CONTEXT.md` for the bounded scope and remaining intent phases.
+
 - **2026-09-01 (Codex, Phase 1–3 regression audit released):** Re-audited the deployed
   Study-draft/UI, browser-session/CSP, and maintainability-extraction phases. No backend route, Study
   scope, DTO field, or Beacon registration was lost. The paired dashboard corrects false-success logout
@@ -276,6 +283,12 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-09-03 (Codex, Phase 1 in release validation):** Constrained Today task capture to `/todo`,
+  `＋ Add tasks` replies, and exact receiver-bound Add-more replies. Removed the action-verb catch-all,
+  preserved unrelated message routing during open drafts, added regressions, and completed the v0.32.1
+  local release gate. Compatible dependency updates close one newly disclosed high and one moderate
+  advisory. No schema, provider, secret, dashboard, or production data change is involved.
 
 - **2026-09-01 (Codex, Phase 1–3 regression audit released):** Found and fixed three dashboard
   regressions: non-2xx session revocation can no longer clear the cookie as if logout succeeded, and

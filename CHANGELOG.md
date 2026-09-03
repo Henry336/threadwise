@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Explicit Today task-capture boundary (v0.32.1)
+- Removed the early action-verb fallback that caused ordinary Telegram prose to enter a Today TODO draft
+  before the normal intent router could evaluate reminders, notes, ideas, or ambiguity.
+- Bound `Add more` to a new exact Telegram force-reply prompt and chat. Unrelated messages now continue
+  through normal Threadwise routing while the unfinished draft remains available for review.
+- Return each accepted Add-more reply directly to the atomic review card, so adding another batch always
+  requires a fresh deliberate action. `/todo`, `/todos`, `＋ Add tasks`, focused draft edits, quick
+  completion, and Personal Today ordering remain unchanged.
+
 ### Phase 3 incremental composition extraction (released 2026-08-31)
 - Split all Study dashboard route registration into `src/dashboard/studyRoutes.ts` while retaining the
   parent router's authentication, replay protection, shared rate limits, workspace resolution, and
