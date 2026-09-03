@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Explicit Today task-capture boundary (v0.32.1)
+### Explicit Today task-capture boundary (v0.32.1; released 2026-09-03)
 - Removed the early action-verb fallback that caused ordinary Telegram prose to enter a Today TODO draft
   before the normal intent router could evaluate reminders, notes, ideas, or ambiguity.
 - Bound `Add more` to a new exact Telegram force-reply prompt and chat. Unrelated messages now continue

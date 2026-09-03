@@ -7,7 +7,7 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — explicit Today task-capture containment (2026-09-03 SGT)
+## Active checkpoint — explicit Today task-capture containment released (2026-09-03 SGT)
 
 - User-reported regression: after Today TODOs were introduced, ordinary messages beginning with broad
   action verbs could be claimed by `src/bot/today.ts` before the normal natural-language route. While an
@@ -27,8 +27,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   production build, tracked-secret scan, and diff checks are green. The online audit initially found a
   newly disclosed high-severity `fast-uri` chain and moderate Fastify advisory in the existing lockfile;
   compatible updates to Fastify 5.12.1, fast-uri 3.1.7, and process-warning 5.1.0 now leave both
-  production-only and complete audits at zero findings. Commit, merge, Render rollout, and exact
-  production health evidence follow before this checkpoint is marked released.
+  production-only and complete audits at zero findings.
+- Publication checkpoint: implementation commit `c4c6934` passed GitHub PR `#28` and merged as
+  `1cff18a96ac7cfee671e76acf0a20e85752596cb`. Render deployment `dep-dachr21t0dsc73dh4i4g`
+  completed `live`; public `/health` returns HTTP 200 with `version=0.32.1` and exact commit prefix
+  `1cff18a96ac7`. No migration ran beyond the configured no-op deployment check, and no schema,
+  database content, secret, provider, dashboard, paid service, or user setting changed.
 - Later phases remain deliberately separate: a unified intent model that distinguishes tasks/reminders/
   notes/ideas, and a visible way to correct an inferred type before saving. Phase 1 prevents the Today
   draft from pre-empting those future decisions; it does not claim the broader classifier is finished.

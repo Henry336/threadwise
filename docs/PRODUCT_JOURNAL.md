@@ -804,6 +804,7 @@ Other messages bypass the draft, and the collecting card explains that boundary.
 **Outcome/evidence:** The complete backend suite passes 993 tests with 6 intentional skips, alongside
 158 focused security checks, TypeScript, production build, secret/diff gates, and two zero-finding
 dependency audits. The online audit found newly disclosed issues in the existing Fastify/fast-uri lock;
-compatible patch updates closed them before release. Exact production evidence is recorded after rollout.
+compatible patch updates closed them before release. PR `#28` merged as `1cff18a`; Render deployment
+`dep-dachr21t0dsc73dh4i4g` completed live and public health reports v0.32.1 at that exact merge.
 
 **Follow-up:** Design and evaluate the unified intent/reclassification experience as separate phases.
