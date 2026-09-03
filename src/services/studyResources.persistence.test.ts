@@ -27,6 +27,7 @@ import {
   consumeStudyPendingCapture,
   createStudyPendingCapture,
   finalizeStudyNoteCaptureSession,
+  findLatestStudyPendingCapture,
   setActiveStudyModule,
   studyCaptureContext,
   startStudyNoteCaptureSession,
@@ -129,6 +130,21 @@ describe("durable pending Study captures", () => {
 
     await expect(consumeStudyPendingCapture(workspace.id, pending.token)).resolves.toEqual(pending);
     await expect(consumeStudyPendingCapture(workspace.id, pending.token)).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("finds the newest unexpired review for the same Study actor", async () => {
+    db.studyPendingCapture.findFirst.mockResolvedValue(null);
+
+    await findLatestStudyPendingCapture(workspace.id, 77);
+
+    expect(db.studyPendingCapture.findFirst).toHaveBeenCalledWith({
+      where: {
+        workspaceId: workspace.id,
+        sourceSenderTelegramId: "77",
+        expiresAt: { gt: expect.any(Date) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
   });
 });
 

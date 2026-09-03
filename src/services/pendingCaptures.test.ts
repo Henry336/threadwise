@@ -16,6 +16,7 @@ import {
   consumePendingCapture,
   createPendingCapture,
   findPendingCaptureReminderReply,
+  findLatestPendingCapture,
   ignorePendingCapture,
   rememberPendingCaptureReminderPrompt,
 } from "./pendingCaptures";
@@ -32,14 +33,31 @@ describe("pending capture ownership", () => {
       kind: "noise",
       confidence: 0,
       reason: "needs a choice",
-    }, 77);
+    }, 77, -100123);
 
     expect(pendingCapture.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "workspace-user",
         actorTelegramId: "77",
+        telegramChatId: "-100123",
         sourceText: "Maybe later",
       }),
+    });
+  });
+
+  it("finds only the latest unexpired review for the same actor and chat", async () => {
+    pendingCapture.findFirst.mockResolvedValue(undefined);
+
+    await findLatestPendingCapture("workspace-user", 77, -100123);
+
+    expect(pendingCapture.findFirst).toHaveBeenCalledWith({
+      where: {
+        userId: "workspace-user",
+        actorTelegramId: "77",
+        telegramChatId: "-100123",
+        expiresAt: { gt: expect.any(Date) },
+      },
+      orderBy: { createdAt: "desc" },
     });
   });
 

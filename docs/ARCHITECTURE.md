@@ -93,7 +93,12 @@ or similar action prose as direct task authorization. If no explicit command mat
 `deterministic.ts` scores the message as task, timed reminder, note, idea, or noise. The suggestion is
 persisted briefly as an actor-bound `PendingCapture` and shown in a progressive review: Save inferred
 type / Change type / Ignore, with Task, Reminder, Note, and Idea behind Change type. No classifier-only
-path writes content. Reminder corrections without a future time continue only through a force reply
+path writes content. Explicit natural corrections resolve only against the same actor and chat's latest
+unexpired review. A private post-save correction may replace the user's latest reversible creation
+for ten minutes; the original is archived, both create-undo entries are collapsed into one
+`undoable:reclassify` audit action, and Undo restores the original. Post-save correction is not enabled
+in shared chats because legacy creation audit rows are not actor-bound. Reminder corrections without a
+future time continue only through a force reply
 whose actor, chat, and prompt id are stored durably; callback and reply claims are idempotent. Addressed
 Group messages use the same boundary. Study keeps its module-aware Task/Reminder/Note/Question/Resource
 chooser and no longer promotes implicit action prose directly into work.

@@ -6,18 +6,36 @@ export async function createPendingCapture(
   userId: string,
   sourceText: string,
   classification: Classification,
-  actorTelegramId?: string | number
+  actorTelegramId?: string | number,
+  telegramChatId?: string | number,
 ) {
   const kind = toPrismaKind(classification.kind);
   return prisma.pendingCapture.create({
     data: {
       userId,
       actorTelegramId: actorTelegramId === undefined ? null : String(actorTelegramId),
+      telegramChatId: telegramChatId === undefined ? null : String(telegramChatId),
       sourceText,
       kind,
       payload: classification,
       expiresAt: new Date(Date.now() + 24 * 60 * 60_000)
     }
+  });
+}
+
+export async function findLatestPendingCapture(
+  userId: string,
+  actorTelegramId: string | number,
+  telegramChatId: string | number,
+) {
+  return prisma.pendingCapture.findFirst({
+    where: {
+      userId,
+      actorTelegramId: String(actorTelegramId),
+      telegramChatId: String(telegramChatId),
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: "desc" },
   });
 }
 

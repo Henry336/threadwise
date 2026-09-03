@@ -47,6 +47,7 @@ import {
   currentStudyNoteCaptureSession,
   finalizeStudyNoteCaptureSession,
   findStudyPendingCapture,
+  findLatestStudyPendingCapture,
   findStudyResource,
   listStudyResources,
   paginateStudyText,
@@ -88,6 +89,7 @@ import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
+import { parseCaptureCorrection } from "./captureCorrections";
 import { editEphemeralMessageText, ephemeralDeletionTarget } from "./ephemeral";
 import { groupDashboardUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml, replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
@@ -188,6 +190,7 @@ export async function handleStudyAmbientText(
   }
 
   if (rawOverride === undefined && await handleStudyReplyCapture(ctx, workspace, text)) return;
+  if (rawOverride === undefined && await handleStudyPendingCorrection(ctx, workspace, text)) return;
 
   const normalized = text
     .replace(/^\/study_menu(?:@\w+)?$/i, "Study menu")
@@ -196,6 +199,64 @@ export async function handleStudyAmbientText(
   const intent = parseStudyNaturalLanguage(normalized, workspace.timezone);
   if (!intent) return showStudyCaptureChoice(ctx, workspace, normalized);
   await executeStudyIntent(ctx, workspace, intent);
+}
+
+async function handleStudyPendingCorrection(
+  ctx: Context,
+  workspace: StudyWorkspace,
+  text: string,
+): Promise<boolean> {
+  const correction = parseCaptureCorrection(text);
+  if (!correction || ctx.from?.id === undefined) return false;
+  const pending = await findLatestStudyPendingCapture(workspace.id, ctx.from.id);
+  if (!pending) {
+    await replyHtml(ctx, `${bold("Nothing is waiting for a type choice")}\nSend the study content again, then choose its type before saving.`);
+    return true;
+  }
+  if (correction.kind === "idea") {
+    await replyHtml(ctx, [
+      bold("Study captures use study types"),
+      "Choose Note to keep this with a module, or switch to Personal/Group mode to file it as an Idea.",
+    ].join("\n"), { reply_markup: captureChoiceKeyboard(pending.token) });
+    return true;
+  }
+
+  let current = pending;
+  if (correction.kind === "reminder" && correction.reminderTimeText) {
+    current = await updateStudyPendingCaptureSourceText(
+      workspace.id,
+      pending.token,
+      `${pending.sourceText ?? "Study reminder"} ${correction.reminderTimeText}`,
+    );
+  }
+  const action = correction.kind;
+  if (action === "reminder") {
+    const dueAt = parseDueDate(current.sourceText ?? "", workspace.timezone);
+    if (!dueAt || dueAt.getTime() <= Date.now()) {
+      await replyHtml(ctx, `${bold("Reminder needs a time")}\nNothing is saved until you reply to the prompt below.`);
+      const prompt = await ctx.reply(`${bold("When should I remind you?")}\nReply with a future time, such as tomorrow at 9am.`, {
+        parse_mode: "HTML",
+        reply_markup: {
+          force_reply: true,
+          selective: true,
+          input_field_placeholder: "Tomorrow at 9am…",
+        },
+      });
+      await beginStudyConversation(workspace.id, "study_capture_reminder", "time", {
+        token: current.token,
+        actorTelegramId: String(ctx.from.id),
+        telegramChatId: ctx.chat?.id ? String(ctx.chat.id) : undefined,
+        telegramPromptMessageId: prompt.message_id,
+      });
+      return true;
+    }
+  }
+  if (!current.moduleId) {
+    await chooseCaptureModule(ctx, workspace, current.token, action, false);
+    return true;
+  }
+  await resolveCapture(ctx, workspace, current.token, action, current.moduleId);
+  return true;
 }
 
 async function handleStudyReplyCapture(
@@ -1251,6 +1312,7 @@ async function showStudyCaptureChoice(ctx: Context, workspace: StudyWorkspace, s
     moduleId: module?.id,
     sourceText,
     sourceMessageId: ctx.message?.message_id,
+    sourceSenderTelegramId: ctx.from?.id ? String(ctx.from.id) : undefined,
   });
   await replyHtml(ctx, [
     bold("What should I keep this as?"),

@@ -1,6 +1,6 @@
 # Threadwise developer onboarding
 
-Updated: 2026-08-31 SGT
+Updated: 2026-09-03 SGT
 
 This is the shortest reliable path from a fresh clone to a safe change. Threadwise spans two repos:
 
@@ -182,3 +182,14 @@ into the same commit.
 A change is done only when its behavior, authorization, failure/rollback path, tests, documentation,
 and deployed state (when deployment was requested) agree. A green unit suite is not permission to
 mutate production data or broaden an owner gate.
+
+## Capture correction invariants
+
+- Keep ordinary capture review actor-bound; Personal/Group review lookup must include user, Telegram
+  actor, chat, and unexpired state. Study lookup must include workspace, source actor, and expiry.
+- Run explicit active flows before correction parsing. A correction must never consume an expense
+  edit, image reminder, item edit, Today Add-more reply, or active note session.
+- Keep `parseCaptureCorrection` narrow: it requires `this`/`that` plus explicit change/save language.
+- Never enable post-save shared correction until creation provenance contains a durable member actor.
+- `captureRoutingAcceptance.test.ts`, `captureReclassification.test.ts`, and
+  `undoReclassification.test.ts` are required gates for edits to this path.

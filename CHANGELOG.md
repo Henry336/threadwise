@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Capture correction and intent regression hardening (v0.34.0; release pending)
+- Added natural correction phrases for the actor's latest unexpired capture review, including
+  `Save that as a note instead`, `That was an idea, not a task`, and timed Reminder corrections.
+  Personal and Group reviews are bound to the exact actor and chat; Study corrections are bound to
+  the exact actor and retain module selection.
+- Added a ten-minute private-only correction window for a just-saved Task, Reminder, Note, or Idea.
+  Threadwise creates the corrected replacement, archives the original, and records one atomic
+  reversible audit action. `undo that` restores the original and removes the replacement.
+- Kept shared-chat post-save reclassification deliberately unavailable because historical create
+  audit rows do not identify the Telegram actor. Shared users can correct the actor-bound review
+  before saving without risking changes to another member's item.
+- Added an executable capture-routing acceptance matrix covering explicit reminders/tasks,
+  note/idea overlap, ordinary questions and prose, Study ambiguity, newline batches, comma
+  preservation, actor/chat ownership, expiry, callback replay, durable note sessions, and Undo.
+
 ### Unified capture review (v0.33.0; released 2026-09-03)
 - Replaced classifier-only auto-save with a review-before-save card for ordinary Personal and Group
   messages. The card shows one inferred action, progressively reveals Task/Reminder/Note/Idea choices,
