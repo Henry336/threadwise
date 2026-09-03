@@ -24,8 +24,9 @@ New-developer map: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
 
 Current code/UI/security audit: [docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md](docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md)
 
-The owner-gated Today-planning stack and Study/Personal rich-note releases are merged, additively
-migrated, and live at backend runtime commit `25f80939b8e2` with dashboard commit `7bf90df1a75a`.
+The unified capture-review backend is merged, additively migrated, and live at runtime commit
+`25d3e2f59a71`. The latest dashboard runtime remains `7bf90df1a75a`; Phase 2 required no dashboard
+change.
 
 Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)
 

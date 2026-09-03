@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Unified capture review (v0.33.0; release pending)
+### Unified capture review (v0.33.0; released 2026-09-03)
 - Replaced classifier-only auto-save with a review-before-save card for ordinary Personal and Group
   messages. The card shows one inferred action, progressively reveals Task/Reminder/Note/Idea choices,
   and keeps Ignore available; explicit commands and menu-led capture remain direct.

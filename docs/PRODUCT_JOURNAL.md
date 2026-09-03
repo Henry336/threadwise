@@ -830,4 +830,6 @@ Pending claims are replay-safe, and the additive schema stores only Telegram rou
 
 **Outcome/evidence:** Prisma format/generate/validate, TypeScript, production build, 1006 tests with 6
 intentional skips, 158 security-assurance checks, tracked-secret/diff gates, and both dependency audits
-pass. Merge, additive migration, and exact production evidence will be appended after publication.
+pass. PR `#29` passed GitHub validation and merged as `25d3e2f59a71`. Render deployment
+`dep-daci90mk1f9s73847frg` applied the additive migration and completed live; public health reports
+v0.33.0 at that exact commit.

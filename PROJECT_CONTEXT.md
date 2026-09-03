@@ -7,7 +7,7 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — unified capture review implementation (2026-09-03 SGT)
+## Active checkpoint — unified capture review released (2026-09-03 SGT)
 
 - Objective: complete the second intent-recovery phase after Today containment. Ordinary actionable
   prose must never become a TODO solely because a deterministic classifier is confident; the user must
@@ -28,10 +28,14 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Data change: additive nullable `PendingCapture.telegramChatId` and
   `telegramPromptMessageId` fields plus one lookup index. No existing task, note, idea, Study item,
   user setting, provider, secret, or dashboard contract is rewritten.
-- Local validation: Prisma format/generate/validate, TypeScript typecheck, production build, 1006 tests
+- Validation: Prisma format/generate/validate, TypeScript typecheck, production build, 1006 tests
   with 6 intentional skips, 158 security-assurance checks, tracked-secret scan, diff check, and both
-  dependency audits pass. Migration apply, PR/merge, and exact Render deployment evidence must still be
-  recorded here before this checkpoint is called released.
+  dependency audits pass. GitHub PR `#29` passed its independent validate job and merged as
+  `25d3e2f59a716a0bebde87b37ab413feea26fbff`. Render deployment
+  `dep-daci90mk1f9s73847frg` completed `live`; its configured pre-deploy command applied the additive
+  migration, and public `/health` returns HTTP 200 with `version=0.33.0` and exact commit prefix
+  `25d3e2f59a71`. No dashboard deployment, secret/provider change, paid service, destructive data
+  migration, or existing-content rewrite was required.
 
 ## Previous checkpoint — explicit Today task-capture containment released (2026-09-03 SGT)
 
