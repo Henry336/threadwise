@@ -1,6 +1,6 @@
 # Threadwise Product Journal
 
-Updated: 2026-08-13
+Updated: 2026-09-03
 
 ## 2026-08-12 - Deep Work should accompany study, not hide it
 
@@ -833,3 +833,19 @@ intentional skips, 158 security-assurance checks, tracked-secret/diff gates, and
 pass. PR `#29` passed GitHub validation and merged as `25d3e2f59a71`. Render deployment
 `dep-daci90mk1f9s73847frg` applied the additive migration and completed live; public health reports
 v0.33.0 at that exact commit.
+## 2026-09-03 — Correcting a capture should feel conversational, not destructive
+
+**Friction discovered:** After TODO capture was contained and ordinary prose gained a review card,
+users could correct the type with buttons but natural follow-ups such as “That was an idea, not a
+task” still looked like fresh content. A just-saved mistake also required knowing `/undo`, re-sending
+the text, and choosing again.
+
+**Decision:** Treat explicit `this`/`that` correction language as a reference to the actor's newest
+unexpired review. For a private item saved in the last ten minutes, replace it through the existing
+reversible audit model and make one Undo restore the original. Do not infer this reference from
+ordinary prose, and do not expose post-save Group conversion until old/new creation provenance is
+durably member-bound. Study keeps its native module types instead of mapping Ideas into fake Notes.
+
+**Why:** This closes the user-visible correction loop without restoring classifier auto-save or
+creating a cross-member authorization hazard. The copy teaches one natural phrase inside progressive
+disclosure, so no new always-visible button is added.

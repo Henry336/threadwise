@@ -6,6 +6,7 @@ import { ensureUser } from "../services/users";
 import {
   consumePendingCapture,
   createPendingCapture,
+  findLatestPendingCapture,
   findPendingCaptureReminderReply,
   ignorePendingCapture,
   rememberPendingCaptureReminderPrompt,
@@ -17,10 +18,11 @@ import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdi
 import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
-import { bold, h, replyHtml } from "../utils/html";
+import { bold, code, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { groupWorkspaceForContext } from "../services/groupWorkspaces";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard } from "./keyboards";
+import { recentPersonalCaptureCreatedAt, reclassifyRecentPersonalCapture } from "../services/captureReclassification";
+import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, undoKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
@@ -41,6 +43,7 @@ import {
   imageUploadBatchKeyboard,
 } from "../services/imageUploadBatches";
 import { formatCaptureReview, formatReminderTimePrompt, suggestedCaptureKind } from "./captureReview";
+import { parseCaptureCorrection } from "./captureCorrections";
 
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
@@ -163,6 +166,8 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         return;
       }
 
+      if (await handleCaptureCorrection(ctx, ai, user, text)) return;
+
       if (await handleNaturalCommand(ctx, ai, text)) {
         return;
       }
@@ -181,7 +186,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         addressedGroupMessage,
       });
 
-      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id);
+      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id);
       const suggestedKind = suggestedCaptureKind(classification, text, user.settings?.timezone ?? "UTC");
       await replyControlCardHtml(ctx, formatCaptureReview(text, suggestedKind), {
         reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind)
@@ -190,6 +195,96 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       await replyHtml(ctx, h(userFacingError(error, "I couldn't handle that request. Try /help for examples.")));
     }
   });
+}
+
+async function handleCaptureCorrection(
+  ctx: Context,
+  ai: AiProvider,
+  user: Awaited<ReturnType<typeof ensureUser>>,
+  text: string,
+): Promise<boolean> {
+  const correction = parseCaptureCorrection(text);
+  if (!correction) return false;
+
+  const actorTelegramId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+  if (actorTelegramId === undefined || chatId === undefined) return false;
+  const pending = await findLatestPendingCapture(user.id, actorTelegramId, chatId);
+  const recentSavedAt = !isGroupChat(ctx) ? await recentPersonalCaptureCreatedAt(user.id) : undefined;
+  if (recentSavedAt && (!pending || recentSavedAt > pending.createdAt)) {
+    const reminderAt = correction.kind === "reminder" && correction.reminderTimeText
+      ? parseDueDate(correction.reminderTimeText, user.settings?.timezone ?? "UTC")
+      : undefined;
+    if (correction.kind === "reminder" && (!reminderAt || reminderAt.getTime() <= Date.now())) {
+      await replyHtml(ctx, `${bold("Tell me when")}\nTry ${code("Make that a reminder for tomorrow at 5pm")}. Nothing was changed.`);
+      return true;
+    }
+    const reclassified = await reclassifyRecentPersonalCapture(user.id, correction.kind, ai, reminderAt);
+    if (reclassified) {
+      await replyHtml(ctx, [
+        bold("Classification corrected"),
+        `${code(reclassified.previousPublicId)} → ${code(reclassified.replacementPublicId)} · ${bold(reclassified.requestedKind)}`,
+        h(reclassified.replacementTitle),
+        `${code("undo that")} restores the original.`,
+      ].join("\n"), { reply_markup: undoKeyboard("↩️ Undo correction") });
+    } else {
+      await replyHtml(ctx, "That recent item changed before I could correct it, so I left everything else untouched.");
+    }
+    return true;
+  }
+  if (!pending) {
+    await replyHtml(ctx, [
+      bold("Nothing is waiting for a type choice"),
+      isGroupChat(ctx)
+        ? `For shared work, correct the actor-bound review card before saving. Send the content again, then choose ${bold(correction.kind)}.`
+        : `Send the content again, then choose ${bold(correction.kind)} on its review card.`,
+    ].join("\n"));
+    return true;
+  }
+
+  const timezone = user.settings?.timezone ?? "UTC";
+  if (correction.kind === "reminder") {
+    const dueAt = parseDueDate(correction.reminderTimeText ?? pending.sourceText, timezone);
+    if (!dueAt || dueAt.getTime() <= Date.now()) {
+      const prompt = await ctx.reply(formatReminderTimePrompt(pending.sourceText), {
+        parse_mode: "HTML",
+        reply_markup: {
+          force_reply: true,
+          selective: true,
+          input_field_placeholder: "Tomorrow at 9am…",
+        },
+      });
+      await rememberPendingCaptureReminderPrompt(user.id, pending.id, actorTelegramId, chatId, prompt.message_id);
+      return true;
+    }
+    const claimed = await consumePendingCapture(user.id, pending.id, actorTelegramId);
+    if (!claimed) {
+      await replyHtml(ctx, "That review was already handled or expired. Send the content again if needed.");
+      return true;
+    }
+    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
+    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    return true;
+  }
+
+  const claimed = await consumePendingCapture(user.id, pending.id, actorTelegramId);
+  if (!claimed) {
+    await replyHtml(ctx, "That review was already handled or expired. Send the content again if needed.");
+    return true;
+  }
+  if (correction.kind === "task") {
+    const task = await createTask(user.id, claimed.sourceText, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
+    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+  } else if (correction.kind === "note") {
+    const note = await createNote(user.id, claimed.sourceText, ai);
+    await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
+  } else {
+    const idea = await createIdea(user.id, claimed.sourceText, ai);
+    await replyQuietAcknowledgementHtml(ctx, formatIdeaSavedAcknowledgement(idea));
+  }
+  return true;
 }
 
 async function handlePendingCaptureReminderReply(

@@ -281,6 +281,10 @@ export async function undoLastAction(userId: string): Promise<string> {
     if (type === "merge-notes") {
       return await undoNoteMerge(entry.id, payload);
     }
+
+    if (type === "reclassify") {
+      return await undoReclassify(entry.id, payload);
+    }
   } catch {
     await markUndoConsumed(entry.id, type);
     return "I couldn’t undo that cleanly, so I left your data exactly as it was.";
@@ -288,6 +292,47 @@ export async function undoLastAction(userId: string): Promise<string> {
 
   await markUndoConsumed(entry.id, type);
   return "That undo type is no longer supported, so I left your data as-is.";
+}
+
+async function undoReclassify(entryId: string, payload: Record<string, unknown>): Promise<string> {
+  const original = targetFromPayload(asRecord(payload.original));
+  const replacement = targetFromPayload(asRecord(payload.replacement));
+  const originalState = asRecord(payload.original);
+
+  await prisma.$transaction(async (tx) => {
+    const archivedAt = new Date();
+    if (replacement.kind === "task") {
+      await tx.task.updateMany({
+        where: { id: replacement.id, archivedAt: null },
+        data: { archivedAt, archivedReason: "undo", status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
+      });
+    } else if (replacement.kind === "note") {
+      await tx.note.updateMany({ where: { id: replacement.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
+    } else {
+      await tx.idea.updateMany({ where: { id: replacement.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
+    }
+
+    if (original.kind === "task") {
+      await tx.task.updateMany({
+        where: { id: original.id, archivedReason: "reclassified" },
+        data: {
+          archivedAt: null,
+          archivedReason: null,
+          status: taskStatusValue(originalState.status) ?? TaskStatus.OPEN,
+          completedAt: nullableDateValue(originalState.completedAt),
+          nextReminderAt: nullableDateValue(originalState.nextReminderAt),
+          snoozedUntil: nullableDateValue(originalState.snoozedUntil),
+        },
+      });
+    } else if (original.kind === "note") {
+      await tx.note.updateMany({ where: { id: original.id, archivedReason: "reclassified" }, data: { archivedAt: null, archivedReason: null } });
+    } else {
+      await tx.idea.updateMany({ where: { id: original.id, archivedReason: "reclassified" }, data: { archivedAt: null, archivedReason: null } });
+    }
+    await consumeUndo(tx, entryId, "reclassify");
+  });
+
+  return `${bold("Undone")} Restored ${code(original.publicId)} and removed ${code(replacement.publicId)} from active Threadwise.`;
 }
 
 async function undoCreate(entryId: string, payload: Record<string, unknown>): Promise<string> {
@@ -599,6 +644,12 @@ function nullableStringValue(value: unknown): string | null {
 
 function nullableIntegerValue(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function nullableDateValue(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function summarizeManualText(value: string): string {

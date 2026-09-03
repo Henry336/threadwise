@@ -7,7 +7,31 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — unified capture review released (2026-09-03 SGT)
+## Active checkpoint — capture correction and regression hardening (2026-09-03 SGT)
+
+- Objective: complete intent-recovery Phase 3 without reopening the broad TODO interceptor. Natural
+  correction language must apply only to a clearly referenced recent capture; ordinary mentions of
+  tasks, notes, reminders, or ideas remain normal content.
+- Pending-review correction: `Save that as a note instead`, `That was an idea, not a task`,
+  `Change that into a task`, and `Make this a reminder for tomorrow at 5pm` resolve against the same
+  actor's newest unexpired review. Personal/Group reviews are also chat-bound. Study review ownership
+  uses the source Telegram actor and retains the selected/active module before writing.
+- Post-save correction: private Personal captures have a ten-minute reversible window backed by
+  existing `undoable:create` audit evidence. A correction creates the replacement first, archives the
+  exact active original in a transaction, consumes the two create-undo entries, and records one
+  `undoable:reclassify` action. `undo that` archives the replacement and restores the original state.
+- Security boundary: post-save correction is intentionally private-only because historical Group
+  creation audit rows are owner-bound but not actor-bound. Shared users can still correct their
+  actor/chat-bound pending review before save; Threadwise will not guess which member owns a prior
+  shared creation. Study Ideas remain Personal/Group concepts; Study offers its native task,
+  reminder, note, question, and resource types rather than disguising an Idea as a module Note.
+- Acceptance evidence: the named Phase 3 matrix and focused parser/service tests cover explicit
+  reminders and deadlines, idea/task overlap, ordinary conversation, actor/chat isolation, expired
+  reviews, callback replay, durable note sessions, Study ambiguity/module preservation, newline
+  batches, commas within tasks, and reversible post-save correction. Full release evidence and exact
+  runtime commit will replace this implementation checkpoint after CI and deployment verification.
+
+## Previous checkpoint — unified capture review released (2026-09-03 SGT)
 
 - Objective: complete the second intent-recovery phase after Today containment. Ordinary actionable
   prose must never become a TODO solely because a deterministic classifier is confident; the user must

@@ -362,6 +362,17 @@ export async function findStudyPendingCapture(workspaceId: string, token: string
   return pending;
 }
 
+export async function findLatestStudyPendingCapture(workspaceId: string, actorTelegramId: string | number) {
+  return prisma.studyPendingCapture.findFirst({
+    where: {
+      workspaceId,
+      sourceSenderTelegramId: String(actorTelegramId),
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function setStudyPendingCaptureModule(workspaceId: string, token: string, moduleId: string) {
   const pending = await findStudyPendingCapture(workspaceId, token);
   const module = await prisma.studyModule.findFirst({ where: { id: moduleId, workspaceId, active: true } });

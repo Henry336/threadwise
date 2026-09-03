@@ -59,6 +59,8 @@ export function formatCaptureTypeChoice(sourceText: string): string {
     "Reminder · an alert at a specific time",
     "Note · information to keep",
     "Idea · something to develop later",
+    "",
+    "You can also reply: Save that as a note instead.",
   ].join("\n");
 }
 

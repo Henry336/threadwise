@@ -2,6 +2,7 @@ import { CaptureKind } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import type { Classification } from "../ai/types";
 import { suggestedCaptureKind, suggestedPendingCaptureKind } from "./captureReview";
+import { formatCaptureTypeChoice } from "./captureReview";
 
 const timezone = "Asia/Singapore";
 const now = new Date("2026-09-03T04:00:00.000Z");
@@ -33,5 +34,9 @@ describe("capture review suggestions", () => {
       kind: CaptureKind.NOTE,
       sourceText: "A useful detail",
     }, timezone, now)).toBe("note");
+  });
+
+  it("teaches the natural correction without adding another button", () => {
+    expect(formatCaptureTypeChoice("Draft the report")).toContain("Save that as a note instead");
   });
 });
