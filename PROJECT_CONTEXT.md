@@ -7,7 +7,7 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — Study timetable synchronization release in progress (2026-09-04 SGT)
+## Active checkpoint — Study timetable synchronization released (2026-09-04 SGT)
 
 - Objective: release the owner-requested one-way Google Calendar mirror, bounded occurrence reminders,
   and visible/non-blocking overlap handling while preserving Threadwise as the source of truth.
@@ -29,11 +29,16 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   dependency audits are green. Dashboard typecheck/lint/build, 195 unit tests, 91 security checks,
   19 browser passes with 7 intentional device/fixture skips, tracked-secret scan, and both zero-finding
   dependency audits are green. The first concurrent backend run produced two setup timeouts; both
-  passed alone and the complete single-worker rerun passed. Final commit/push/deployment verification
-  remains before this checkpoint closes.
+  passed alone and the complete single-worker rerun passed.
 - Operational/API contract: `docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`. Release order is additive backend
   migration and backend first, then dashboard. Calendar synchronization remains off until the owner
   explicitly enables it.
+- Production: backend commit `e4c50a2d7008e35182255b4730f2d4b0e968b1be` was fast-forwarded to
+  `main`; Render deployment `dep-dacqfetg1s2s73a9e4jg` completed live after the additive migration,
+  and public `/health` reports v0.35.0 with exact prefix `e4c50a2d7008`. Dashboard commit
+  `c7746c5` was then fast-forwarded to `main`; Vercel deployment `7CqgVDmYuE4EBReD8mR6teLEbvHA`
+  completed successfully for the canonical dashboard. No Calendar sync or reminder setting was
+  enabled for the owner automatically.
 
 ## Previous checkpoint — capture correction and regression hardening released (2026-09-03 SGT)
 

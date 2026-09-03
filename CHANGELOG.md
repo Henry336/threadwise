@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Study timetable Calendar mirror, bounded alerts, and conflict visibility (v0.35.0; 2026-09-04)
+### Study timetable Calendar mirror, bounded alerts, and conflict visibility (v0.35.0; released 2026-09-04)
 - Added an explicit owner-gated, one-way mirror from the canonical Study timetable to the user's
   primary Google Calendar. Stable event IDs, private extended properties, durable block links,
   patch-first upserts, bounded retries, and periodic reconciliation prevent duplicate series and
@@ -17,6 +17,9 @@
   accessible overlap warnings, and side-by-side vertical conflict lanes.
 - Final local gates pass at 1038 backend tests with 6 intentional skips, 159 security checks, Prisma,
   type/build, secret scan, and two zero-finding dependency audits.
+- Released directly as a verified fast-forward at `e4c50a2d7008`; Render deployment
+  `dep-dacqfetg1s2s73a9e4jg` applied the additive migration and public health confirms v0.35.0 at that
+  exact commit. Dashboard v0.10.0 followed only after backend health was green.
 
 ### Capture correction and intent regression hardening (v0.34.0; released 2026-09-03)
 - Added natural correction phrases for the actor's latest unexpired capture review, including
