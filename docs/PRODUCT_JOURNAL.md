@@ -1,6 +1,28 @@
 # Threadwise Product Journal
 
-Updated: 2026-09-03
+Updated: 2026-09-04
+
+## 2026-09-04 — A timetable mirror must be explicit, convergent, and quieter than an alarm flood
+
+**Friction discovered:** Study blocks lived only inside Threadwise, departure prompts could arrive too
+late or repeat without a bounded acknowledgement lifecycle, and legal overlapping blocks could obscure
+one another without explaining the conflict.
+
+**Decision:** Keep Threadwise authoritative and offer one explicit one-way primary-Calendar mirror.
+Model reminders per occurrence with an earlier-of-travel-or-45-minute first alert and three follow-ups.
+Allow overlaps, but make every affected occurrence visible, keyboard-readable, and inspectable.
+
+**Implementation:** The backend adds stable event IDs, durable Calendar links, patch-first upserts,
+bounded retries/reconciliation, privacy-minimized event mapping, and occurrence reminder sequences. The
+dashboard adds consent/status controls, OAuth resume, amber conflict badges in every view, persistent
+touch details, vertical lanes, and quiet post-save conflict copy.
+
+**Outcome/evidence:** Direct tests cover deterministic identity, weekly/single recurrence, exclusions,
+DST-local timing, privacy, 45-minute/earlier-travel scheduling, follow-up bounds, and abandoned scheduler
+claims. Complete local and live release evidence is recorded in `PROJECT_CONTEXT.md`.
+
+**Follow-up:** Watch only bounded sync counts/safe error codes. Never log event content, tokens,
+coordinates, or route details. Preserve Stop syncing as the non-destructive kill switch.
 
 ## 2026-08-12 - Deep Work should accompany study, not hide it
 

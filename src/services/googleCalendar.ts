@@ -58,6 +58,13 @@ export type GoogleCalendarMeetingInput = {
   timezone: string;
 };
 
+export type GoogleCalendarStudyEventInput = GoogleCalendarMeetingInput & {
+  eventId: string;
+  location?: string | null;
+  recurrence?: string[];
+  blockId: string;
+};
+
 export type CalendarConnectOptions = {
   taskId?: string;
   enableAutoSync?: boolean;
@@ -83,6 +90,19 @@ class CalendarAuthorizationError extends Error {
     super(message);
     this.name = "CalendarAuthorizationError";
   }
+}
+
+class GoogleCalendarHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Google Calendar API request failed: ${status}`);
+    this.name = "GoogleCalendarHttpError";
+  }
+}
+
+function isGoogleStatus(error: unknown, status: number): boolean {
+  return error instanceof GoogleCalendarHttpError
+    ? error.status === status
+    : error instanceof Error && error.message.endsWith(`: ${status}`);
 }
 
 export function calendarConfigured(): boolean {
@@ -510,6 +530,27 @@ export function buildGoogleCalendarMeeting(input: GoogleCalendarMeetingInput) {
   };
 }
 
+export function buildGoogleCalendarStudyEvent(input: GoogleCalendarStudyEventInput) {
+  const start = DateTime.fromJSDate(input.startAt).setZone(input.timezone);
+  const end = DateTime.fromJSDate(input.endAt).setZone(input.timezone);
+  if (!start.isValid || !end.isValid || end <= start) throw new Error("The timetable block time is invalid.");
+  return {
+    summary: input.title,
+    description: input.details ?? "",
+    location: input.location ?? undefined,
+    start: { dateTime: start.toISO(), timeZone: input.timezone },
+    end: { dateTime: end.toISO(), timeZone: input.timezone },
+    ...(input.recurrence?.length ? { recurrence: input.recurrence } : {}),
+    extendedProperties: {
+      private: {
+        threadwise: "true",
+        threadwiseKind: "study-schedule",
+        threadwiseStudyBlockId: input.blockId,
+      },
+    },
+  };
+}
+
 function googleRecurrenceRule(rule: RecurrenceRule, dueAt: DateTime): string {
   if (rule === RecurrenceRule.DAILY) return "RRULE:FREQ=DAILY";
   if (rule === RecurrenceRule.WEEKLY) return `RRULE:FREQ=WEEKLY;BYDAY=${dueAt.toFormat("ccc").slice(0, 2).toUpperCase()}`;
@@ -584,10 +625,65 @@ async function googleRequest<T>(accessToken: string, url: string, init: RequestI
   if (!response.ok) {
     if (response.status === 401) throw new CalendarAuthorizationError();
     if (response.status === 403) throw new Error("Google Calendar denied this action. Reconnect Calendar and approve event access.");
-    throw new Error(`Google Calendar API request failed: ${response.status}`);
+    throw new GoogleCalendarHttpError(response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+export async function upsertStudyEventInGoogleCalendar(
+  userId: string,
+  input: GoogleCalendarStudyEventInput,
+): Promise<{ created: boolean; eventId: string; eventUrl: string }> {
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
+  if (!connection) throw new Error("Connect Google Calendar first.");
+  const accessToken = await validAccessToken(connection);
+  const eventUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(input.eventId)}`;
+  const payload = buildGoogleCalendarStudyEvent(input);
+  let created = false;
+  let response: GoogleCalendarEventResponse;
+
+  try {
+    response = await googleRequest<GoogleCalendarEventResponse>(accessToken, eventUrl, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (!isGoogleStatus(error, 404)) throw error;
+    created = true;
+    try {
+      response = await googleRequest<GoogleCalendarEventResponse>(
+        accessToken,
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        { method: "POST", body: JSON.stringify({ id: input.eventId, ...payload }) },
+      );
+    } catch (createError) {
+      if (!isGoogleStatus(createError, 409)) throw createError;
+      created = false;
+      response = await googleRequest<GoogleCalendarEventResponse>(accessToken, eventUrl, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+    }
+  }
+
+  if (!response.id || !response.htmlLink) throw new Error("Google Calendar did not return an event link.");
+  return { created, eventId: response.id, eventUrl: response.htmlLink };
+}
+
+export async function removeStudyEventFromGoogleCalendar(userId: string, eventId: string): Promise<void> {
+  const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
+  if (!connection) throw new Error("Reconnect Google Calendar before removing this event.");
+  const accessToken = await validAccessToken(connection);
+  try {
+    await googleRequest<void>(
+      accessToken,
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { method: "DELETE" },
+    );
+  } catch (error) {
+    if (!isGoogleStatus(error, 404)) throw error;
+  }
 }
 
 function calendarReconnectMessage(error: unknown): string {

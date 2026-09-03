@@ -16,6 +16,7 @@ import { privateStudyConfig } from "../config/env";
 import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
 import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
+import { queueStudyCalendarBlockSync } from "./studyCalendar";
 
 const DEFAULT_MODULES = [
   { code: "CS2100", name: "Computer Organisation", color: "#2C7A7B" },
@@ -1048,6 +1049,7 @@ export async function addStudyScheduleBlock(
     },
   });
   await auditStudy(workspace.ownerUserId, "study.schedule.created", { workspaceId: workspace.id, blockId: block.id, label: block.label });
+  await queueStudyCalendarBlockSync(workspace, block.id);
   return block;
 }
 
@@ -1142,6 +1144,7 @@ export async function updateStudyScheduleBlock(
     defaultOriginId: updated.defaultOriginId,
     travelBufferMinutes: updated.travelBufferMinutes,
   });
+  await queueStudyCalendarBlockSync(workspace, updated.id);
   return updated;
 }
 
@@ -1193,7 +1196,8 @@ export async function archiveStudyScheduleBlock(
   if (!block) throw new StudyModeError("That schedule block was not found.", "not_found");
   const scope = input.scope ?? "series";
   const data = studyScheduleDeleteMutation(block, input);
-  await prisma.studyScheduleBlock.update({ where: { id: block.id }, data });
+  const updated = await prisma.studyScheduleBlock.update({ where: { id: block.id }, data });
+  await queueStudyCalendarBlockSync(workspace, block.id, updated.active ? "UPSERT" : "DELETE");
   await auditStudy(workspace.ownerUserId, "study.schedule.removed", { workspaceId: workspace.id, blockId, scope, weekNumber: input.weekNumber });
 }
 

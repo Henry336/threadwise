@@ -17,7 +17,7 @@ import {
   isTimedPracticeMissing,
   toCsv,
 } from "./study";
-import { buildStudyReminderDedupeKey, studyReminderGate } from "./studyReminders";
+import { buildStudyReminderDedupeKey, isAbandonedStudyReminderClaim, studyOccurrenceDateRange, studyReminderGate, studyScheduleFirstAlertAt, studyScheduleNextAlertAt } from "./studyReminders";
 
 describe("private Study Mode rules", () => {
   const config = { ownerTelegramId: "111", allowedChatId: "-222" };
@@ -96,6 +96,37 @@ describe("Study Mode reminders and exports", () => {
     const second = buildStudyReminderDedupeKey("workspace", StudyReminderKind.MISTAKE_REATTEMPT, "mistake", new Date(scheduledFor), "Asia/Singapore");
     expect(first).toBe(second);
     expect(first).toContain("2026-08-04");
+  });
+
+  it("uses a 45-minute minimum and moves earlier for a longer journey", () => {
+    const starts = new Date("2026-09-08T02:00:00.000Z");
+    expect(studyScheduleFirstAlertAt(starts).toISOString()).toBe("2026-09-08T01:15:00.000Z");
+    expect(studyScheduleFirstAlertAt(starts, new Date("2026-09-08T01:05:00.000Z")).toISOString()).toBe("2026-09-08T01:05:00.000Z");
+    expect(studyScheduleFirstAlertAt(starts, new Date("2026-09-08T01:30:00.000Z")).toISOString()).toBe("2026-09-08T01:15:00.000Z");
+  });
+
+  it("allows exactly three five-minute follow-ups after the initial alert", () => {
+    const sentAt = new Date("2026-09-08T01:15:00.000Z");
+    expect(studyScheduleNextAlertAt(sentAt, 1)?.toISOString()).toBe("2026-09-08T01:20:00.000Z");
+    expect(studyScheduleNextAlertAt(sentAt, 3)?.toISOString()).toBe("2026-09-08T01:20:00.000Z");
+    expect(studyScheduleNextAlertAt(sentAt, 4)).toBeUndefined();
+  });
+
+  it("recovers only scheduler claims that remained unfinished beyond the concurrency grace period", () => {
+    const now = new Date("2026-09-08T01:20:00.000Z");
+    expect(isAbandonedStudyReminderClaim(new Date("2026-09-08T01:18:00.000Z"), now)).toBe(true);
+    expect(isAbandonedStudyReminderClaim(new Date("2026-09-08T01:18:01.000Z"), now)).toBe(false);
+  });
+
+  it("queries normalized occurrence dates correctly in zones west of UTC and across DST", () => {
+    expect(studyOccurrenceDateRange(new Date("2026-03-08T06:30:00.000Z"), "America/New_York")).toEqual({
+      gte: new Date("2026-03-08T00:00:00.000Z"),
+      lt: new Date("2026-03-09T00:00:00.000Z"),
+    });
+    expect(studyOccurrenceDateRange(new Date("2026-03-08T04:30:00.000Z"), "America/New_York")).toEqual({
+      gte: new Date("2026-03-07T00:00:00.000Z"),
+      lt: new Date("2026-03-08T00:00:00.000Z"),
+    });
   });
 
   it("escapes commas, quotes, and newlines for spreadsheet imports", () => {

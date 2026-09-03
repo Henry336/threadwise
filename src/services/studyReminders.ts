@@ -27,6 +27,8 @@ type Candidate = {
   text: string;
   keyboard?: InlineKeyboard;
   travelStateId?: string;
+  sequenceId?: string;
+  sequenceAttempt?: number;
 };
 
 export type StudyReminderRun = {
@@ -71,24 +73,34 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
     await recordReminderHealth(workspace, "UNSAFE_CHAT", result, now);
     return result;
   }
-  if (studyReminderGate(workspace, now, 0) === "quiet") {
-    result.quiet = true;
-    await recordReminderHealth(workspace, "QUIET_HOURS", result, now);
-    return result;
-  }
-  const candidates = await collectStudyReminderCandidates(workspace, now);
+  const quiet = studyReminderGate(workspace, now, 0) === "quiet";
+  result.quiet = quiet;
+  const candidates = (await collectStudyReminderCandidates(workspace, now))
+    .filter((candidate) => !quiet || isTimetableCandidate(candidate));
   result.candidates = candidates.length;
   const dayStart = startOfUserDay(now, workspace.timezone);
-  let sentToday = await prisma.studyReminderDelivery.count({
-    where: { workspaceId: workspace.id, sentAt: { gte: dayStart, lte: now } },
-  });
+  const occurrenceRange = studyOccurrenceDateRange(now, workspace.timezone);
+  const [nonTimetableDeliveries, admittedSequences] = await Promise.all([
+    prisma.studyReminderDelivery.count({
+      where: {
+        workspaceId: workspace.id,
+        sentAt: { gte: dayStart, lte: now },
+        kind: { notIn: [StudyReminderKind.CLASS_DEPARTURE, StudyReminderKind.STUDY_BLOCK] },
+      },
+    }),
+    prisma.studyScheduleReminderSequence.count({
+      where: { workspaceId: workspace.id, occurrenceDate: occurrenceRange, attemptCount: { gt: 0 } },
+    }),
+  ]);
+  let sentToday = nonTimetableDeliveries + admittedSequences;
   for (const candidate of candidates) {
-    if (studyReminderGate(workspace, now, sentToday) === "capped") {
+    const alreadyAdmitted = candidate.sequenceAttempt !== undefined && candidate.sequenceAttempt > 0;
+    if (!alreadyAdmitted && sentToday >= workspace.maxRemindersPerDay) {
       result.capped += 1;
       continue;
     }
     const dedupeKey = buildStudyReminderDedupeKey(workspace.id, candidate.kind, candidate.entityKey, candidate.scheduledFor, workspace.timezone);
-    const claimed = await claimDelivery(workspace, candidate, dedupeKey);
+    const claimed = await claimDelivery(workspace, candidate, dedupeKey, now);
     if (!claimed) {
       result.deduplicated += 1;
       continue;
@@ -104,15 +116,40 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
       });
       await markCandidateDelivered(candidate, now);
       result.sent += 1;
-      sentToday += 1;
+      if (!alreadyAdmitted) sentToday += 1;
     } catch (error) {
       result.failed += 1;
       await prisma.studyReminderDelivery.delete({ where: { id: claimed.id } }).catch(() => undefined);
       logger.error("Study reminder delivery failed.", { kind: candidate.kind, entityKey: candidate.entityKey, error: String(error) });
     }
   }
-  await recordReminderHealth(workspace, result.failed > 0 ? "DELIVERY_ERRORS" : "READY", result, now);
+  await recordReminderHealth(workspace, result.failed > 0 ? "DELIVERY_ERRORS" : quiet && !result.sent ? "QUIET_HOURS" : "READY", result, now);
   return result;
+}
+
+export function studyScheduleFirstAlertAt(startsAt: Date, leaveAt?: Date | null): Date {
+  const minimum = DateTime.fromJSDate(startsAt).minus({ minutes: 45 });
+  if (!leaveAt) return minimum.toJSDate();
+  const departure = DateTime.fromJSDate(leaveAt);
+  return (departure < minimum ? departure : minimum).toJSDate();
+}
+
+export function studyScheduleNextAlertAt(sentAt: Date, deliveredAttemptCount: number): Date | undefined {
+  return deliveredAttemptCount >= 4 ? undefined : DateTime.fromJSDate(sentAt).plus({ minutes: 5 }).toJSDate();
+}
+
+export function isAbandonedStudyReminderClaim(createdAt: Date, now: Date): boolean {
+  return createdAt.getTime() <= now.getTime() - 2 * 60_000;
+}
+
+export function studyOccurrenceDateRange(now: Date, timezone: string): { gte: Date; lt: Date } {
+  const key = DateTime.fromJSDate(now).setZone(timezone).toISODate() ?? now.toISOString().slice(0, 10);
+  const gte = new Date(`${key}T00:00:00.000Z`);
+  return { gte, lt: new Date(gte.getTime() + 86_400_000) };
+}
+
+function isTimetableCandidate(candidate: Candidate): boolean {
+  return candidate.kind === StudyReminderKind.CLASS_DEPARTURE || candidate.kind === StudyReminderKind.STUDY_BLOCK;
 }
 
 async function recordReminderHealth(
@@ -281,95 +318,90 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
     include: { module: true },
   });
   for (const block of blocks) {
-      const occurrenceDate = startsOnCalendarDate(local);
-      const usesCalendarRecurrence = Boolean(block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length);
-      if (usesCalendarRecurrence && !studyScheduleOccursOnDate(block, occurrenceDate)) continue;
-      if (!usesCalendarRecurrence && ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek))) continue;
-      if (!usesCalendarRecurrence && block.excludedWeeks.includes(weekNumber)) continue;
-      const clock = parseClock(block.startTime);
-      if (!clock) continue;
-      const starts = local.startOf("day").set(clock);
-      if (block.destinationStopId && block.venueName) {
-        if (isStudyTravelMuted(workspace, now)) continue;
-        // Consult Improved NextBus only close to departure. This keeps the
-        // minute-level reminder pass light while still using current arrivals.
-        if (local < starts.minus({ minutes: 150 }) || local > starts.plus({ minutes: 15 })) continue;
-        let plan: Awaited<ReturnType<typeof buildStudyDeparturePlan>>;
-        try {
-          plan = await buildStudyDeparturePlan(workspace, block.id, { startsAt: starts.toUTC().toJSDate() });
-        } catch (error) {
-          await prisma.studyTravelReminderState.upsert({
-            where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
-            update: { status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: error instanceof Error ? error.message.slice(0, 1_000) : "Travel route unavailable." },
-            create: { workspaceId: workspace.id, blockId: block.id, occurrenceDate, status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: error instanceof Error ? error.message.slice(0, 1_000) : "Travel route unavailable." },
-          });
-          continue;
-        }
+    if (!workspace.studyBlockRemindersEnabled) continue;
+    if (isStudyTravelMuted(workspace, now)) continue;
+    const occurrenceDate = startsOnCalendarDate(local);
+    const usesCalendarRecurrence = Boolean(block.recurrenceStartDate || block.recurrenceEndDate || block.excludedDates.length);
+    if (usesCalendarRecurrence && !studyScheduleOccursOnDate(block, occurrenceDate)) continue;
+    if (!usesCalendarRecurrence && ((block.startWeek && weekNumber < block.startWeek) || (block.endWeek && weekNumber > block.endWeek))) continue;
+    if (!usesCalendarRecurrence && block.excludedWeeks.includes(weekNumber)) continue;
+    const clock = parseClock(block.startTime);
+    if (!clock) continue;
+    const starts = local.startOf("day").set(clock);
+    if (local >= starts) {
+      await stopExpiredScheduleSequence(block.id, occurrenceDate, now);
+      continue;
+    }
+    if (local < starts.minus({ hours: 4 })) continue;
+
+    const existingSequence = await prisma.studyScheduleReminderSequence.findUnique({
+      where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
+    });
+    if (existingSequence?.acknowledgedAt || existingSequence?.stoppedAt || (existingSequence?.attemptCount ?? 0) >= 4) continue;
+    if (existingSequence?.nextScheduledFor && now < existingSequence.nextScheduledFor) continue;
+
+    let firstAlert = DateTime.fromJSDate(studyScheduleFirstAlertAt(starts.toJSDate())).setZone(workspace.timezone);
+    let travelStateId: string | undefined;
+    let routeLines: string[] = [];
+    const hasTravel = Boolean(block.destinationStopId && block.venueName);
+    if (hasTravel) {
+      try {
+        const plan = await buildStudyDeparturePlan(workspace, block.id, { startsAt: starts.toUTC().toJSDate() });
         const leaveAt = DateTime.fromJSDate(plan.leaveAt).setZone(workspace.timezone);
+        firstAlert = DateTime.fromJSDate(studyScheduleFirstAlertAt(starts.toJSDate(), leaveAt.toJSDate())).setZone(workspace.timezone);
         const travelState = await prisma.studyTravelReminderState.upsert({
           where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
           update: {
-            status: "READY",
-            scheduledFor: starts.toUTC().toJSDate(),
-            leaveAt: plan.leaveAt,
-            originName: plan.journey.origin.name,
-            boardingStop: plan.journey.boardingStop.title,
-            services: plan.journey.services,
-            live: plan.live,
-            lastError: plan.fallbackReason ?? null,
+            status: "READY", scheduledFor: starts.toUTC().toJSDate(), leaveAt: plan.leaveAt,
+            originName: plan.journey.origin.name, boardingStop: plan.journey.boardingStop.title,
+            services: plan.journey.services, live: plan.live, lastError: plan.fallbackReason ?? null,
           },
           create: {
-            workspaceId: workspace.id,
-            blockId: block.id,
-            occurrenceDate,
-            status: "READY",
-            scheduledFor: starts.toUTC().toJSDate(),
-            leaveAt: plan.leaveAt,
-            originName: plan.journey.origin.name,
-            boardingStop: plan.journey.boardingStop.title,
-            services: plan.journey.services,
-            live: plan.live,
-            lastError: plan.fallbackReason ?? null,
+            workspaceId: workspace.id, blockId: block.id, occurrenceDate, status: "READY",
+            scheduledFor: starts.toUTC().toJSDate(), leaveAt: plan.leaveAt,
+            originName: plan.journey.origin.name, boardingStop: plan.journey.boardingStop.title,
+            services: plan.journey.services, live: plan.live, lastError: plan.fallbackReason ?? null,
           },
         });
-        if (local < leaveAt || local > starts.plus({ minutes: 15 })) continue;
+        travelStateId = travelState.id;
         const service = plan.journey.services.length ? plan.journey.services.join(" → ") : "Use the usual route";
-        candidates.push({
-          kind: StudyReminderKind.CLASS_DEPARTURE,
-          entityKey: `${block.id}:${starts.toISODate()}`,
-          scheduledFor: plan.leaveAt,
-          text: [
-            bold(`Leave by ${leaveAt.toFormat("h:mm a")}`),
-            `Walk ~${plan.journey.firstWalkMinutes ?? 0} min to ${h(plan.journey.boardingStop.title)}`,
-            `${h(service)}${plan.live && plan.journey.waitMinutes !== undefined ? ` · ${plan.journey.waitMinutes} min` : ""}`,
-            plan.journey.alightStop ? `Alight at ${h(plan.journey.alightStop.title)}` : undefined,
-            plan.journey.destinationPlace
-              ? `Walk ~${plan.journey.finalWalkMinutes ?? 0} min to ${h(plan.journey.destinationPlace.displayName)}`
-              : undefined,
-            plan.live && plan.journey.waitMinutes !== undefined
-              ? `Live route · ~${Math.max(1, plan.journey.totalMinutes ?? 30)} min`
-              : `Estimated route · allow ${Math.max(1, plan.journey.totalMinutes ?? 30) + block.travelBufferMinutes} min`,
-            `${block.module ? `${h(block.module.code)} · ` : ""}${starts.toFormat("h:mm a")}`,
-            plan.live ? undefined : "Live buses unavailable · normal estimate used",
-          ].filter(Boolean).join("\n"),
-          keyboard: new InlineKeyboard()
-            .text("Refresh", `study:travel:route:${block.id}`).text("Route details", `study:travel:details:${block.id}`).row()
-            .text("Change origin", `study:travel:change:${block.id}`).row()
-            .text("I’m here", `study:travel:arrived:${block.id}`).text("Mute today", "study:travel:mute"),
-          travelStateId: travelState.id,
+        routeLines = [
+          `Leave by ${bold(leaveAt.toFormat("h:mm a"))}`,
+          `Walk ~${plan.journey.firstWalkMinutes ?? 0} min to ${h(plan.journey.boardingStop.title)}`,
+          `${h(service)}${plan.live && plan.journey.waitMinutes !== undefined ? ` · ${plan.journey.waitMinutes} min` : ""}`,
+          plan.journey.alightStop ? `Alight at ${h(plan.journey.alightStop.title)}` : "",
+        ].filter(Boolean);
+      } catch (error) {
+        await prisma.studyTravelReminderState.upsert({
+          where: { blockId_occurrenceDate: { blockId: block.id, occurrenceDate } },
+          update: { status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: "Live route unavailable; using the 45-minute reminder." },
+          create: { workspaceId: workspace.id, blockId: block.id, occurrenceDate, status: "FAILED", scheduledFor: starts.toUTC().toJSDate(), lastError: "Live route unavailable; using the 45-minute reminder." },
         });
-        continue;
       }
-      if (!workspace.studyBlockRemindersEnabled) continue;
-      const remindAt = starts.minus({ minutes: block.reminderLeadMinutes });
-      if (local < remindAt || local > starts.plus({ minutes: 30 })) continue;
-      candidates.push({
-        kind: StudyReminderKind.STUDY_BLOCK,
-        entityKey: `${block.id}:${starts.toISODate()}`,
-        scheduledFor: remindAt.toUTC().toJSDate(),
-        text: [bold(block.label), block.module ? `${block.module.code} · ${starts.toFormat("h:mm a")}` : starts.toFormat("h:mm a")].join("\n"),
-        keyboard: block.module ? new InlineKeyboard().text("Start session", `study:session:module:${block.module.id}`) : undefined,
-      });
+    }
+
+    const sequence = await ensureScheduleSequence(workspace.id, block.id, occurrenceDate, firstAlert.toUTC().toJSDate());
+    if (sequence.acknowledgedAt || sequence.stoppedAt || sequence.attemptCount >= 4 || !sequence.nextScheduledFor) continue;
+    if (now < sequence.nextScheduledFor) continue;
+    const followUp = sequence.attemptCount > 0;
+    const keyboard = new InlineKeyboard().text("Got it", `study:schedule:ack:${sequence.id}`);
+    if (hasTravel) keyboard.text("I’m here", `study:travel:arrived:${block.id}`).row().text("Route details", `study:travel:details:${block.id}`);
+    else if (block.module) keyboard.text("Start session", `study:session:module:${block.module.id}`);
+    keyboard.row().text("Mute timetable today", "study:schedule:mute");
+    candidates.push({
+      kind: hasTravel ? StudyReminderKind.CLASS_DEPARTURE : StudyReminderKind.STUDY_BLOCK,
+      entityKey: `${block.id}:${starts.toISODate()}:attempt:${sequence.attemptCount}`,
+      scheduledFor: sequence.nextScheduledFor,
+      text: [
+        bold(followUp ? `Reminder ${sequence.attemptCount + 1} of 4 · ${block.label}` : block.label),
+        `${block.module ? `${h(block.module.code)} · ` : ""}${starts.toFormat("h:mm a")}`,
+        ...routeLines,
+      ].join("\n"),
+      keyboard,
+      travelStateId,
+      sequenceId: sequence.id,
+      sequenceAttempt: sequence.attemptCount,
+    });
   }
   if (weekNumber >= workspace.timedPracticeStartWeek && local.weekday === 7 && local.hour >= 18) {
     const range = academicWeekRange(workspace, weekNumber);
@@ -442,7 +474,7 @@ export function buildStudyReminderDedupeKey(
   return `${workspaceId}:${kind}:${entityKey}:${localDate}`;
 }
 
-async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, dedupeKey: string) {
+async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, dedupeKey: string, now: Date) {
   try {
     return await prisma.studyReminderDelivery.create({
       data: {
@@ -455,12 +487,47 @@ async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, de
       },
     });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return undefined;
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      if (candidate.sequenceId) await recoverAbandonedScheduleClaim(candidate, dedupeKey, now);
+      return undefined;
+    }
     throw error;
   }
 }
 
+async function recoverAbandonedScheduleClaim(candidate: Candidate, dedupeKey: string, now: Date): Promise<void> {
+  const existing = await prisma.studyReminderDelivery.findUnique({ where: { dedupeKey } });
+  if (!existing || existing.sentAt || !isAbandonedStudyReminderClaim(existing.createdAt, now)) return;
+  const previousAttempt = candidate.sequenceAttempt ?? 0;
+  const nextAttempt = previousAttempt + 1;
+  await prisma.studyScheduleReminderSequence.updateMany({
+    where: {
+      id: candidate.sequenceId,
+      acknowledgedAt: null,
+      stoppedAt: null,
+      attemptCount: previousAttempt,
+    },
+    data: {
+      attemptCount: nextAttempt,
+      nextScheduledFor: studyScheduleNextAlertAt(now, nextAttempt) ?? null,
+      stoppedAt: nextAttempt >= 4 ? now : null,
+    },
+  });
+}
+
 async function markCandidateDelivered(candidate: Candidate, now: Date): Promise<void> {
+  if (candidate.sequenceId) {
+    const nextAttempt = (candidate.sequenceAttempt ?? 0) + 1;
+    await prisma.studyScheduleReminderSequence.updateMany({
+      where: { id: candidate.sequenceId, acknowledgedAt: null, stoppedAt: null, attemptCount: candidate.sequenceAttempt ?? 0 },
+      data: {
+        attemptCount: nextAttempt,
+        lastSentAt: now,
+        nextScheduledFor: studyScheduleNextAlertAt(now, nextAttempt) ?? null,
+        stoppedAt: nextAttempt >= 4 ? now : null,
+      },
+    });
+  }
   if (candidate.travelStateId) {
     await prisma.studyTravelReminderState.update({ where: { id: candidate.travelStateId }, data: { status: "SENT", sentAt: now } });
   }
@@ -470,6 +537,91 @@ async function markCandidateDelivered(candidate: Candidate, now: Date): Promise<
   if (candidate.kind === StudyReminderKind.MISTAKE_REATTEMPT) {
     await prisma.studyMistake.updateMany({ where: { id: candidate.entityKey, status: StudyMistakeStatus.OPEN }, data: { status: StudyMistakeStatus.REATTEMPT_DUE } });
   }
+}
+
+async function ensureScheduleSequence(
+  workspaceId: string,
+  blockId: string,
+  occurrenceDate: Date,
+  firstScheduledFor: Date,
+) {
+  const existing = await prisma.studyScheduleReminderSequence.findUnique({
+    where: { blockId_occurrenceDate: { blockId, occurrenceDate } },
+  });
+  if (!existing) {
+    return prisma.studyScheduleReminderSequence.create({
+      data: { workspaceId, blockId, occurrenceDate, firstScheduledFor, nextScheduledFor: firstScheduledFor },
+    });
+  }
+  if (existing.attemptCount === 0 && !existing.acknowledgedAt && !existing.stoppedAt
+    && existing.firstScheduledFor.getTime() !== firstScheduledFor.getTime()) {
+    return prisma.studyScheduleReminderSequence.update({
+      where: { id: existing.id },
+      data: { firstScheduledFor, nextScheduledFor: firstScheduledFor },
+    });
+  }
+  return existing;
+}
+
+async function stopExpiredScheduleSequence(blockId: string, occurrenceDate: Date, now: Date): Promise<void> {
+  await prisma.studyScheduleReminderSequence.updateMany({
+    where: { blockId, occurrenceDate, acknowledgedAt: null, stoppedAt: null },
+    data: { stoppedAt: now, nextScheduledFor: null },
+  });
+}
+
+export async function acknowledgeStudyScheduleReminder(
+  workspaceId: string,
+  sequenceId: string,
+  now = new Date(),
+): Promise<boolean> {
+  const result = await prisma.studyScheduleReminderSequence.updateMany({
+    where: { id: sequenceId, workspaceId, acknowledgedAt: null, stoppedAt: null },
+    data: { acknowledgedAt: now, nextScheduledFor: null },
+  });
+  return result.count > 0;
+}
+
+export async function acknowledgeStudyScheduleBlockOccurrence(
+  workspaceId: string,
+  blockId: string,
+  now = new Date(),
+): Promise<void> {
+  const timezone = (await prisma.studyWorkspace.findUniqueOrThrow({ where: { id: workspaceId } })).timezone;
+  const occurrenceRange = studyOccurrenceDateRange(now, timezone);
+  await prisma.studyScheduleReminderSequence.updateMany({
+    where: { workspaceId, blockId, occurrenceDate: occurrenceRange, acknowledgedAt: null, stoppedAt: null },
+    data: { acknowledgedAt: now, nextScheduledFor: null },
+  });
+}
+
+export async function acknowledgeStudyScheduleModuleOccurrence(
+  workspace: Pick<StudyWorkspace, "id" | "timezone">,
+  moduleId: string,
+  now = new Date(),
+): Promise<void> {
+  const occurrenceRange = studyOccurrenceDateRange(now, workspace.timezone);
+  await prisma.studyScheduleReminderSequence.updateMany({
+    where: {
+      workspaceId: workspace.id,
+      block: { moduleId },
+      occurrenceDate: occurrenceRange,
+      acknowledgedAt: null,
+      stoppedAt: null,
+    },
+    data: { acknowledgedAt: now, nextScheduledFor: null },
+  });
+}
+
+export async function muteStudyScheduleRemindersForDay(
+  workspace: Pick<StudyWorkspace, "id" | "timezone">,
+  now = new Date(),
+): Promise<void> {
+  const occurrenceRange = studyOccurrenceDateRange(now, workspace.timezone);
+  await prisma.studyScheduleReminderSequence.updateMany({
+    where: { workspaceId: workspace.id, occurrenceDate: occurrenceRange, acknowledgedAt: null, stoppedAt: null },
+    data: { stoppedAt: now, nextScheduledFor: null },
+  });
 }
 
 function parseClock(value: string): { hour: number; minute: number } | undefined {

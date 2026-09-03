@@ -43,6 +43,8 @@ import {
 } from "../services/study";
 import { buildStudyAttentionSnapshot } from "../services/studyAttention";
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
+import { studyCalendarSnapshot } from "../services/studyCalendar";
+import { acknowledgeStudyScheduleModuleOccurrence } from "../services/studyReminders";
 import { assessStudyDeadline } from "../services/studyDeadlineTrust";
 import { importStudyNusmodsTimetable } from "../services/studyNusmods";
 import {
@@ -378,10 +380,11 @@ export async function requireDashboardStudyWorkspace(
 }
 
 export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now = new Date()) {
-  const [dashboard, attention, canvas] = await Promise.all([
+  const [dashboard, attention, canvas, calendar] = await Promise.all([
     buildStudyDashboard(workspace, now),
     buildStudyAttentionSnapshot(workspace, now, 12),
     studyCanvasStatus(workspace.id),
+    studyCalendarSnapshot(workspace),
   ]);
   const [modules, inactiveModules, items, resources, mistakes] = await Promise.all([
     prisma.studyModule.findMany({
@@ -462,6 +465,7 @@ export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now =
   const summaryByModule = new Map(dashboard.modules.map((module) => [module.id, module]));
   return {
     generatedAt: now,
+    calendar,
     workspace: studyWorkspaceView(workspace),
     weekNumber: dashboard.weekNumber,
     week: dashboard.week,
@@ -1039,7 +1043,9 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
 }
 
 export async function startDashboardStudySession(workspace: StudyWorkspace, input: z.infer<typeof studySessionStartSchema>) {
-  return startStudySession(workspace, input.moduleId, input.method, input.itemId, input);
+  const session = await startStudySession(workspace, input.moduleId, input.method, input.itemId, input);
+  await acknowledgeStudyScheduleModuleOccurrence(workspace, input.moduleId);
+  return session;
 }
 
 export async function stopDashboardStudySession(workspace: StudyWorkspace, input: z.infer<typeof studySessionStopSchema>) {

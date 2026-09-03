@@ -6,6 +6,15 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-04 (Codex, Study timetable release in progress):** Implemented an explicit one-way Study
+  timetable mirror to primary Google Calendar using the existing encrypted OAuth connection, stable
+  event IDs, durable links, bounded retry, and reconciliation. Added one occurrence reminder sequence
+  with a 45-minute minimum/earlier travel departure, three five-minute follow-ups, acknowledgement and
+  daily mute, logical cap accounting, and restart-safe attempt deduplication. The paired dashboard adds
+  consent/status controls and accessible overlap warnings with vertical lanes. See
+  `PROJECT_CONTEXT.md` and `docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md` for the active validation and
+  backend-first release checkpoint.
+
 - **2026-09-03 (Codex, Phase 3 released):** Added actor/chat-bound natural corrections
   for pending Personal/Group captures and actor-bound Study corrections that retain module context.
   Private captures saved within ten minutes can be reclassified through one reversible audit action;
@@ -302,6 +311,11 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-09-04 (Codex):** Added the v0.35.0 Study Calendar/repeated-alert persistence and services,
+  owner-gated dashboard endpoints, Google event reconciliation/privacy mapping, Telegram sequence
+  actions, focused recurrence/DST/restart tests, and paired timetable UI. Final release verification is
+  in progress; deploy backend migration/runtime before dashboard and confirm exact live commits.
 
 - **2026-09-03 (Codex, Phase 1 released):** Constrained Today task capture to `/todo`,
   `＋ Add tasks` replies, and exact receiver-bound Add-more replies. Removed the action-verb catch-all,

@@ -77,6 +77,11 @@ const workspace: StudyWorkspace = {
   maxRemindersPerDay: 4,
   timedPracticeStartWeek: 4,
   studyBlockRemindersEnabled: false,
+  calendarSyncEnabled: false,
+  calendarSyncStatus: "DISCONNECTED",
+  calendarLastAttemptAt: null,
+  calendarLastSuccessfulAt: null,
+  calendarLastError: null,
   createdAt: now,
   updatedAt: now,
 };

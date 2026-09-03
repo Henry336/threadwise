@@ -63,4 +63,26 @@ describe("Google Calendar integration", () => {
       extendedProperties: { private: { threadwiseKind: "group-meeting" } },
     });
   });
+
+  it("builds a Study event without sharing travel-private fields", async () => {
+    const { buildGoogleCalendarStudyEvent } = await import("./googleCalendar");
+    const event = buildGoogleCalendarStudyEvent({
+      eventId: "st0123456789abcdef",
+      blockId: "block-1",
+      title: "CS2102 Tutorial",
+      details: "CS2102 · Database Systems\nManaged by Threadwise.",
+      location: "COM3-01-20",
+      startAt: new Date("2026-09-07T06:00:00.000Z"),
+      endAt: new Date("2026-09-07T07:00:00.000Z"),
+      timezone: "Asia/Singapore",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20261130T155959Z", "EXDATE;TZID=Asia/Singapore:20260921T140000"],
+    });
+    expect(event).toMatchObject({
+      summary: "CS2102 Tutorial",
+      location: "COM3-01-20",
+      recurrence: expect.arrayContaining(["RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20261130T155959Z"]),
+      extendedProperties: { private: { threadwiseKind: "study-schedule", threadwiseStudyBlockId: "block-1" } },
+    });
+    expect(JSON.stringify(event)).not.toMatch(/origin|coordinate|route|preparation/iu);
+  });
 });

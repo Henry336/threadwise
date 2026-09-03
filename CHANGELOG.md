@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Study timetable Calendar mirror, bounded alerts, and conflict visibility (v0.35.0; 2026-09-04)
+- Added an explicit owner-gated, one-way mirror from the canonical Study timetable to the user's
+  primary Google Calendar. Stable event IDs, private extended properties, durable block links,
+  patch-first upserts, bounded retries, and periodic reconciliation prevent duplicate series and
+  recover provider edits, deletion, restarts, and ambiguous create outcomes.
+- Added occurrence-scoped timetable reminder sequences. Alerts start at the earlier of the calculated
+  departure and 45 minutes before class, send at most three five-minute follow-ups, stop on
+  acknowledgement/session arrival/day mute, and count once against the Study daily cap.
+- Added additive Calendar-link, synchronization-state, and schedule-reminder-sequence persistence.
+  Calendar payloads exclude origins, coordinates, routes, buffers, and preparation notes.
+- Added direct recurrence/DST/privacy/restart tests and the operational/API contract in
+  `docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`. The paired dashboard adds explicit consent, status/actions,
+  accessible overlap warnings, and side-by-side vertical conflict lanes.
+- Final local gates pass at 1038 backend tests with 6 intentional skips, 159 security checks, Prisma,
+  type/build, secret scan, and two zero-finding dependency audits.
+
 ### Capture correction and intent regression hardening (v0.34.0; released 2026-09-03)
 - Added natural correction phrases for the actor's latest unexpired capture review, including
   `Save that as a note instead`, `That was an idea, not a task`, and timed Reminder corrections.

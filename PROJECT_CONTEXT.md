@@ -7,7 +7,35 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — capture correction and regression hardening released (2026-09-03 SGT)
+## Active checkpoint — Study timetable synchronization release in progress (2026-09-04 SGT)
+
+- Objective: release the owner-requested one-way Google Calendar mirror, bounded occurrence reminders,
+  and visible/non-blocking overlap handling while preserving Threadwise as the source of truth.
+- Backend implementation: additive workspace sync state, one durable Calendar link per schedule block,
+  deterministic Google event IDs, patch/create-conflict recovery, six-attempt retry, 15-minute
+  reconciliation, weekly RRULE/EXDATE mapping, and the three owner-gated Study Calendar endpoints.
+- Privacy boundary: existing encrypted server-side Google OAuth storage is reused. Calendar receives
+  only title, module, time/recurrence, venue, and a private block reference. Origin, coordinates, route,
+  preparation, tokens, and Calendar bodies stay out of DTOs and logs.
+- Reminder implementation: one durable sequence per block occurrence, earlier-of-departure-or-45-minute
+  initial scheduling, three five-minute follow-ups, logical one-slot daily accounting, attempt-specific
+  deduplication, restart recovery, acknowledgement/arrival/session/mute closure, quiet-hour exception
+  only for explicit timetable alerts, and no post-start backfill.
+- Paired dashboard: explicit branded consent/status dialog, OAuth return-and-resume, Sync now/Stop
+  actions, conflict badges and accessible warning copy in every orientation, persistent mobile detail
+  warnings, side-by-side vertical lanes, and post-save overlap confirmation.
+- Current evidence: Prisma validation/generation, backend typecheck/build, 138 backend files with 1038
+  passing tests and 6 intentional skips, 159 security checks, tracked-secret scan, and both zero-finding
+  dependency audits are green. Dashboard typecheck/lint/build, 195 unit tests, 91 security checks,
+  19 browser passes with 7 intentional device/fixture skips, tracked-secret scan, and both zero-finding
+  dependency audits are green. The first concurrent backend run produced two setup timeouts; both
+  passed alone and the complete single-worker rerun passed. Final commit/push/deployment verification
+  remains before this checkpoint closes.
+- Operational/API contract: `docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`. Release order is additive backend
+  migration and backend first, then dashboard. Calendar synchronization remains off until the owner
+  explicitly enables it.
+
+## Previous checkpoint — capture correction and regression hardening released (2026-09-03 SGT)
 
 - Objective: complete intent-recovery Phase 3 without reopening the broad TODO interceptor. Natural
   correction language must apply only to a clearly referenced recent capture; ordinary mentions of

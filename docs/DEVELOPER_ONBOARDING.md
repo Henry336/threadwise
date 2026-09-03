@@ -1,6 +1,6 @@
 # Threadwise developer onboarding
 
-Updated: 2026-09-03 SGT
+Updated: 2026-09-04 SGT
 
 This is the shortest reliable path from a fresh clone to a safe change. Threadwise spans two repos:
 
@@ -171,6 +171,9 @@ into the same commit.
 ## Deployment and migrations
 
 - Render hosts the backend. Its pre-deploy step applies additive migrations before the new runtime.
+- For Study Calendar releases, follow `docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`: deploy its additive
+  schema/backend first, verify health, and only then deploy the dashboard consumer. Synchronization is
+  opt-in; do not enable it through a migration or silently enable timetable reminders.
 - `/health` exposes the short runtime commit; verify it after release.
 - Vercel hosts the dashboard; never put secrets in `NEXT_PUBLIC_*` variables.
 - Content-encryption migration/inspection commands are intentionally separate from ordinary deploys.

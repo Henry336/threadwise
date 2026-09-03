@@ -3,6 +3,9 @@ import { assertTodayFoundationAccess } from "./today";
 import type { DashboardWorkspaceScope } from "./workspaces";
 import { getStudyAnalysis, requestStudyAnalysis } from "../services/studyAnalysis";
 import { reviewStudyNoteEditSuggestion } from "../services/studyNoteEditSuggestions";
+import { DASHBOARD_URL } from "../bot/links";
+import { createCalendarConnectUrl } from "../services/googleCalendar";
+import { stopStudyCalendarSync, studyCalendarSnapshot, syncStudyTimetable } from "../services/studyCalendar";
 import {
   archiveDashboardStudyItem,
   archiveDashboardStudyResource,
@@ -101,6 +104,25 @@ export function registerStudyDashboardRoutes(
     const workspace = await requireDashboardStudyWorkspace(scope);
     return { study: await getDashboardStudySnapshot(workspace) };
   }, "study_snapshot"));
+
+  server.post("/api/v1/dashboard/study/calendar/connect", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    const returnTo = new URL("/dashboard?view=study-timetable&resume=study-calendar-sync", DASHBOARD_URL).toString();
+    return {
+      url: await createCalendarConnectUrl(workspace.ownerUserId, workspace.ownerTelegramId, { returnTo }),
+    };
+  }, "study_calendar_connect"));
+
+  server.post("/api/v1/dashboard/study/calendar/sync", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    return { calendar: await syncStudyTimetable(workspace) };
+  }, "study_calendar_sync"));
+
+  server.post("/api/v1/dashboard/study/calendar/stop", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    const workspace = await requireDashboardStudyWorkspace(scope);
+    await stopStudyCalendarSync(workspace);
+    return { calendar: await studyCalendarSnapshot(await requireDashboardStudyWorkspace(scope)) };
+  }, "study_calendar_stop"));
 
   server.post("/api/v1/dashboard/study/modules", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     const workspace = await requireDashboardStudyWorkspace(scope);

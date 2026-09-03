@@ -1,8 +1,8 @@
 # Architecture Notes
 
-Updated: 2026-09-03
+Updated: 2026-09-04
 
-Current backend release: v0.32.1
+Current backend release: v0.35.0
 
 Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
 one domain without reshaping the whole product. Several legacy composition modules remain large; use
@@ -165,6 +165,22 @@ parent boundary; its file owns only Study path/schema/service wiring.
 Canvas course identity is anchored to the provider course id plus retained term id/name/date metadata; a matching human-readable module code is not sufficient evidence that two terms are the same. Clearly out-of-semester courses are skipped with reason-coded sync diagnostics. `studyDeadlineTrust.ts` independently classifies each Canvas deadline against its Canvas term and configured Study semester. A suspicious or missing-provider deadline stays visible for manual confirmation but is excluded from overdue totals, module traffic-light deadline pressure, timetable deadline lanes, weekly previews, and urgent reminder candidates.
 
 `studyNusmods.ts` is the deterministic timetable-import boundary. It parses only canonical NUSMods semester share URLs, derives the academic year from the configured Study semester, fetches the selected modules from the public NUSMods API, matches the exact lesson type and class number, and upserts recurring blocks with `source=NUSMODS` plus stable source references. A re-import reconciles only that source namespace: stale NUSMods selections are deactivated, while manual schedule blocks are never rewritten. Published venue labels are passed through `studyTransit.ts`; a resolved venue enables the existing live-journey and class-departure pipeline, while an unresolved venue stays visible and produces an explicit import warning.
+
+`studyCalendar.ts` is a separate one-way provider boundary over the same schedule records. Enabling sync
+creates one durable `StudyScheduleCalendarLink` per block with a deterministic Google event ID. Local
+mutations remain canonical and only enqueue UPSERT/DELETE work; patch-first provider writes, create-
+conflict recovery, bounded exponential retry, and 15-minute reconciliation converge repeated/concurrent
+requests on one event and replace Google-side changes. RRULE/EXDATE values represent recurrence and
+occurrence deletion. Existing encrypted OAuth credentials are reused, while event bodies, tokens,
+origins, coordinates, routes, buffers, and preparation notes never enter browser DTOs or logs.
+
+`studyReminders.ts` models timetable interruption as one `StudyScheduleReminderSequence` per occurrence.
+The first schedule is the earlier of start-minus-45-minutes and the live departure time. An admitted
+sequence has at most four attempt-specific deliveries, five minutes apart, and consumes one logical
+daily slot. Acknowledgement, arrival, a matching Study session, or daily timetable mute closes it;
+route details do not. Explicit timetable alerts alone may cross Study quiet hours, and no alert is
+backfilled after start. An abandoned claim advances after a bounded grace period rather than leaving
+the sequence stuck or creating an unbounded resend loop.
 
 Study write routing is explicit. `activeModuleId` plus `activeModuleUntil` form a visible ten-minute
 capture context, not an indefinite default. Switching modules restarts the window; ordinary captures

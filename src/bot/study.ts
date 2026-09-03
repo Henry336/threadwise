@@ -53,6 +53,7 @@ import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
 import { truncate } from "../utils/text";
 import { userFacingError } from "./errorResponses";
+import { acknowledgeStudyScheduleModuleOccurrence } from "../services/studyReminders";
 import { groupDashboardUrl } from "./links";
 import { privateStudyConfig } from "../config/env";
 import {
@@ -444,6 +445,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       const payload = conversation?.kind === "session" ? studyConversationPayload(conversation.payload) : {};
       const itemId = typeof payload.itemId === "string" ? payload.itemId : undefined;
       const session = await startStudySession(workspace, module.id, method, itemId);
+      await acknowledgeStudyScheduleModuleOccurrence(workspace, module.id);
       await clearStudyConversation(workspace.id);
       await editOrReplyHtml(ctx, [bold(`${module.code} session started`), h(method), "Use /study stop when finished."].join("\n"), { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
       return;
@@ -709,6 +711,7 @@ async function handleStartCommand(ctx: Context, workspace: StudyWorkspace, args:
   const module = await findStudyModule(workspace.id, moduleRef ?? "");
   if (!methodValue) return showSessionMethods(ctx, workspace, module.id, false);
   const session = await startStudySession(workspace, module.id, methodValue);
+  await acknowledgeStudyScheduleModuleOccurrence(workspace, module.id);
   await replyHtml(ctx, [bold(`${module.code} session started`), h(session.method), "Use /study stop when finished."].join("\n"), { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
 }
 

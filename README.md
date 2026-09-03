@@ -4,7 +4,7 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.34.0**
+Current backend release: **v0.35.0**
 
 Documentation verified against the backend and dashboard: **2026-09-03**
 
@@ -507,6 +507,21 @@ Study Mode is a private academic operating system inside the existing Threadwise
 The authenticated web dashboard exposes Study Mode only while this exact group workspace is selected. Its dedicated navigation is **Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings**. Timetable combines recurring module blocks, planned study work, deadlines, and class-travel configuration; saved travel origins remain under Settings. Personal workspaces and every other group keep their existing interface and cannot discover the Study routes. Direct URLs and API calls return the same opaque not-found response unless the signed Telegram principal, configured owner, configured chat, current Telegram membership, and active database binding all agree.
 
 Telegram and the Study dashboard share the same records rather than synchronizing two copies. Captures and Canvas changes appear through server-sent event reconciliation; dashboard edits are immediately visible when the bot next queries the item. Module selection, mastery, work status, notes, pinned images, mistake records, weekly plans, sessions, Canvas review decisions, origins, and schedule blocks all use the same domain services.
+
+From Timetable, the owner may explicitly enable a one-way mirror into their primary Google Calendar.
+Threadwise remains authoritative: repeat synchronization patches the same deterministic event, weekly
+recurrence and exclusions are preserved, and Google-side edits/deletions are corrected on reconciliation.
+The consent screen states the data boundary before OAuth. Only title, module, time/recurrence, venue,
+and a Threadwise block reference leave the service; travel origins, coordinates, routes, buffers, and
+preparation notes do not. Stopping synchronization leaves existing Google events intact.
+
+Timetable reminders are occurrence sequences, distinct from casual reminders. With the existing master
+setting enabled, the first alert is at least 45 minutes early or earlier when the live journey requires
+it, followed by no more than three five-minute prompts until acknowledged. `Got it`, `I'm here`, the
+matching Study session, or a day mute closes the occurrence. One sequence consumes one daily Study
+reminder slot and never backfills after the block starts. See
+[`docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`](docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md) for API, privacy,
+failure, migration, and rollback details.
 
 Deep Work is a persistent Study companion rather than a route that hides the rest of the workspace. An active session keeps its timer and controls available while the owner opens Timetable, Work, Modules, Library, or Search. Sessions may record a focus structure, one or more techniques, a custom topic, linked notes/images/files, exact start and end times, and a written outcome. Completed records can be corrected or archived without deleting the underlying evidence. AI-generated study analysis is intentionally outside this phase and is not required for capture, timing, or recall.
 

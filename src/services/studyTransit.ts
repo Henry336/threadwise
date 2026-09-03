@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { academicWeekNumber, StudyModeError } from "./study";
+import { queueStudyCalendarBlockSync } from "./studyCalendar";
 
 export type TransitCoordinates = { latitude: number; longitude: number };
 export type TransitStop = {
@@ -494,6 +495,7 @@ export async function configureStudyScheduleTravel(
     destinationStopId: stop.id,
     travelBufferMinutes,
   });
+  await queueStudyCalendarBlockSync(workspace, block.id);
   return requireTravelBlock(workspace.id, block.id);
 }
 
@@ -501,6 +503,7 @@ export async function setStudyScheduleDestinationLabel(workspace: StudyWorkspace
   const block = await requireTravelBlock(workspace.id, blockId);
   const venueName = label.replace(/\s+/g, " ").trim().slice(0, 200);
   await prisma.studyScheduleBlock.update({ where: { id: block.id }, data: { venueId: null, venueName: venueName || null, destinationStopId: null } });
+  await queueStudyCalendarBlockSync(workspace, block.id);
   return requireTravelBlock(workspace.id, block.id);
 }
 
@@ -511,6 +514,7 @@ export async function clearStudyScheduleTravel(workspace: StudyWorkspace, blockI
     data: { venueId: null, venueName: null, destinationStopId: null, defaultOriginId: null },
   });
   await auditOrigin(workspace, "study.schedule.travel_cleared", block.id, { label: block.label });
+  await queueStudyCalendarBlockSync(workspace, block.id);
   return requireTravelBlock(workspace.id, block.id);
 }
 

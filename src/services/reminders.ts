@@ -8,6 +8,7 @@ import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageForm
 import { reminderActionsKeyboard } from "../bot/keyboards";
 import type { TaskAssigneeInfo } from "./tasks";
 import { runStudyReminderPass } from "./studyReminders";
+import { runPendingStudyCalendarSyncs } from "./studyCalendar";
 import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
 import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule } from "./taskReminderSchedules";
 
@@ -287,6 +288,11 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     } catch (error) {
       run.studyRemindersFailed += 1;
       logger.error("Study reminder pass failed without interrupting normal reminders.", { error: String(error) });
+    }
+    try {
+      await runPendingStudyCalendarSyncs(now);
+    } catch (error) {
+      logger.warn("Study Calendar retry pass failed without interrupting reminders.", { error: String(error) });
     }
     run.lastFinishedAt = new Date().toISOString();
     reminderDiagnostics = run;

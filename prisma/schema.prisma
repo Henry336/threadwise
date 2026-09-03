@@ -448,6 +448,11 @@ model StudyWorkspace {
   lastReminderCheckAt        DateTime?
   lastReminderStatus         String?
   lastReminderSummary        Json?
+  calendarSyncEnabled        Boolean   @default(false)
+  calendarSyncStatus         String    @default("DISCONNECTED")
+  calendarLastAttemptAt      DateTime?
+  calendarLastSuccessfulAt   DateTime?
+  calendarLastError          String?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -463,6 +468,8 @@ model StudyWorkspace {
   conversation          StudyConversation?
   reminderDeliveries    StudyReminderDelivery[]
   travelReminderStates  StudyTravelReminderState[]
+  calendarLinks         StudyScheduleCalendarLink[]
+  scheduleReminderSequences StudyScheduleReminderSequence[]
   resources             StudyResource[]
   noteRevisions         StudyResourceRevision[]
   noteLinks             StudyNoteLink[]
@@ -712,10 +719,56 @@ model StudyScheduleBlock {
   module        StudyModule?               @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   defaultOrigin StudyLocationOrigin?       @relation(fields: [defaultOriginId], references: [id], onDelete: SetNull)
   travelStates  StudyTravelReminderState[]
+  calendarLink  StudyScheduleCalendarLink?
+  reminderSequences StudyScheduleReminderSequence[]
 
   @@unique([workspaceId, source, sourceRef])
   @@index([workspaceId, active, dayOfWeek])
   @@index([defaultOriginId])
+}
+
+model StudyScheduleCalendarLink {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  blockId       String    @unique
+  eventId       String    @unique
+  eventUrl      String?
+  operation     String    @default("UPSERT")
+  status        String    @default("PENDING")
+  syncHash      String?
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  lastSyncedAt  DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace StudyWorkspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  block     StudyScheduleBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, nextAttemptAt])
+}
+
+model StudyScheduleReminderSequence {
+  id                String    @id @default(uuid())
+  workspaceId       String
+  blockId           String
+  occurrenceDate    DateTime
+  firstScheduledFor DateTime
+  nextScheduledFor  DateTime?
+  attemptCount      Int       @default(0)
+  lastSentAt        DateTime?
+  acknowledgedAt    DateTime?
+  stoppedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace StudyWorkspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  block     StudyScheduleBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@unique([blockId, occurrenceDate])
+  @@index([workspaceId, nextScheduledFor])
 }
 
 model StudyResource {

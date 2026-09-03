@@ -85,6 +85,12 @@ import {
   type StudyPlace,
   type StudyOriginPlaceCandidate,
 } from "../services/studyTransit";
+import {
+  acknowledgeStudyScheduleBlockOccurrence,
+  acknowledgeStudyScheduleModuleOccurrence,
+  acknowledgeStudyScheduleReminder,
+  muteStudyScheduleRemindersForDay,
+} from "../services/studyReminders";
 import { ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, editOrReplyHtml, h, replyHtml } from "../utils/html";
@@ -711,7 +717,19 @@ export async function handleExtendedStudyCallback(
   }
   if (data === "study:travel:mute") {
     await muteStudyTravelForToday(workspace);
+    await muteStudyScheduleRemindersForDay(workspace);
     await showTravelHub(ctx, workspace, true);
+    return true;
+  }
+  if (parts[1] === "schedule" && parts[2] === "ack" && parts[3]) {
+    const acknowledged = await acknowledgeStudyScheduleReminder(workspace.id, parts[3]);
+    await editOrReplyHtml(ctx, acknowledged ? `${bold("Got it")}\nThis occurrence will stay quiet.` : "This reminder was already closed.");
+    return true;
+  }
+  if (data === "study:schedule:mute") {
+    await muteStudyTravelForToday(workspace);
+    await muteStudyScheduleRemindersForDay(workspace);
+    await editOrReplyHtml(ctx, `${bold("Timetable muted for today")}\nOther Threadwise reminders still follow your normal settings.`);
     return true;
   }
   if (data === "study:travel:resume") {
@@ -751,6 +769,7 @@ export async function handleExtendedStudyCallback(
   if (parts[1] === "travel" && parts[2] === "arrived" && parts[3]) {
     await clearTemporaryStudyOrigin(workspace);
     await markStudyTravelArrived(workspace, parts[3]);
+    await acknowledgeStudyScheduleBlockOccurrence(workspace.id, parts[3]);
     await editOrReplyHtml(ctx, `${bold("You’re here")}\nTravel reminder closed.`, { reply_markup: new InlineKeyboard().text("Travel", "study:travel") });
     return true;
   }
@@ -931,6 +950,7 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
     case "start_session": {
       const module = await resolveIntentModule(workspace, intent.moduleReference) ?? await requireActiveStudyModule(workspace);
       const session = await startStudySession(workspace, module.id, "Focused study");
+      await acknowledgeStudyScheduleModuleOccurrence(workspace, module.id);
       await replyHtml(ctx, `${bold(`${module.code} session started`)}\nFocused study`, { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
       void session;
       return;
