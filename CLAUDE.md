@@ -6,13 +6,14 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-09-03 (Codex, Phase 3 in release validation):** Added actor/chat-bound natural corrections
+- **2026-09-03 (Codex, Phase 3 released):** Added actor/chat-bound natural corrections
   for pending Personal/Group captures and actor-bound Study corrections that retain module context.
   Private captures saved within ten minutes can be reclassified through one reversible audit action;
   shared post-save conversion remains fail-closed because historical create logs lack member actor
   provenance. The named acceptance matrix protects ambiguity, active-flow precedence, batch parsing,
-  replay, expiry, note sessions, and Undo. Version staged as v0.34.0; replace this checkpoint with exact
-  PR, merge, deployment, health, and validation evidence after release.
+  replay, expiry, note sessions, and Undo. The 1029/6 suite and 159 security checks are green; PR `#30`
+  merged as `c1a6aaeae765`, and Render deployment `dep-dacima9t0dsc73di05dg` plus public health confirm
+  v0.34.0 at that exact commit. No migration or dashboard release was needed.
 
 - **2026-09-03 (Codex, Phase 2 released):** Replaced classifier-only auto-save for ordinary
   Personal/Group prose with an actor-bound review card whose inferred Task/Reminder/Note/Idea type can be

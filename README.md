@@ -4,7 +4,7 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.34.0** (release pending)
+Current backend release: **v0.34.0**
 
 Documentation verified against the backend and dashboard: **2026-09-03**
 
@@ -24,8 +24,8 @@ New-developer map: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
 
 Current code/UI/security audit: [docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md](docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md)
 
-The unified capture-review backend is live at runtime commit `25d3e2f59a71`. Phase 3 capture
-corrections are currently in release validation. The latest dashboard runtime remains `7bf90df1a75a`; this work requires no dashboard
+The complete intent-recovery release is live at runtime commit `c1a6aaeae765`. Phase 3 adds
+reversible natural capture corrections. The latest dashboard runtime remains `7bf90df1a75a`; this work required no dashboard
 change.
 
 Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)

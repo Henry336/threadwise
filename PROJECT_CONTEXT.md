@@ -7,7 +7,7 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — capture correction and regression hardening (2026-09-03 SGT)
+## Active checkpoint — capture correction and regression hardening released (2026-09-03 SGT)
 
 - Objective: complete intent-recovery Phase 3 without reopening the broad TODO interceptor. Natural
   correction language must apply only to a clearly referenced recent capture; ordinary mentions of
@@ -28,8 +28,14 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Acceptance evidence: the named Phase 3 matrix and focused parser/service tests cover explicit
   reminders and deadlines, idea/task overlap, ordinary conversation, actor/chat isolation, expired
   reviews, callback replay, durable note sessions, Study ambiguity/module preservation, newline
-  batches, commas within tasks, and reversible post-save correction. Full release evidence and exact
-  runtime commit will replace this implementation checkpoint after CI and deployment verification.
+  batches, commas within tasks, and reversible post-save correction. The complete backend suite passes
+  1029 tests with 6 intentional skips; 159 security-assurance checks, TypeScript type/build, Prisma
+  validation, tracked-secret scan, diff check, and production/complete dependency audits are green with
+  zero vulnerabilities. PR `#30` passed GitHub validation and merged as
+  `c1a6aaeae7656728590d35d7be9d33a5957a3607`. Render deployment
+  `dep-dacima9t0dsc73di05dg` completed live, and public `/health` returns HTTP 200 with v0.34.0 and
+  exact commit prefix `c1a6aaeae765`. No migration, dashboard change, secret/provider change, paid
+  service, or production-content rewrite was required.
 
 ## Previous checkpoint — unified capture review released (2026-09-03 SGT)
 

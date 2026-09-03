@@ -849,3 +849,10 @@ durably member-bound. Study keeps its native module types instead of mapping Ide
 **Why:** This closes the user-visible correction loop without restoring classifier auto-save or
 creating a cross-member authorization hazard. The copy teaches one natural phrase inside progressive
 disclosure, so no new always-visible button is added.
+
+**Outcome/evidence:** The complete backend suite passes 1,029 tests with six intentional skips, plus
+159 security checks, type/build/Prisma/scans, and zero-finding dependency audits. PR #30 merged as
+`c1a6aaeae765`; Render deployment `dep-dacima9t0dsc73di05dg` and public health confirm v0.34.0 live.
+
+**Follow-up:** Live-test one pending correction and one private post-save correction followed by Undo.
+Do not extend post-save correction to shared chats until create provenance is member-bound.

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Capture correction and intent regression hardening (v0.34.0; release pending)
+### Capture correction and intent regression hardening (v0.34.0; released 2026-09-03)
 - Added natural correction phrases for the actor's latest unexpired capture review, including
   `Save that as a note instead`, `That was an idea, not a task`, and timed Reminder corrections.
   Personal and Group reviews are bound to the exact actor and chat; Study corrections are bound to
@@ -16,6 +16,8 @@
 - Added an executable capture-routing acceptance matrix covering explicit reminders/tasks,
   note/idea overlap, ordinary questions and prose, Study ambiguity, newline batches, comma
   preservation, actor/chat ownership, expiry, callback replay, durable note sessions, and Undo.
+- Released through PR `#30` at merge `c1a6aaeae765`; Render deployment
+  `dep-dacima9t0dsc73di05dg` is live and public health confirms the exact v0.34.0 runtime.
 
 ### Unified capture review (v0.33.0; released 2026-09-03)
 - Replaced classifier-only auto-save with a review-before-save card for ordinary Personal and Group
