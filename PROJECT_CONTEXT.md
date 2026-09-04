@@ -7,6 +7,26 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — dashboard UML rendering and editing (2026-09-04 SGT)
+
+- Objective: restore visible UML text without weakening the existing strict local Mermaid boundary,
+  then reduce syntax friction without introducing a free-form parser or non-portable filed notes.
+- Dashboard implementation: Mermaid emits native SVG text so DOMPurify can continue removing HTML
+  `foreignObject` labels. The shared Study/Personal rich editor detects diagram kinds, supports bounded
+  line-oriented aliases for headers, class members/relationships, sequence messages, and state
+  transitions, and exposes a compact layout menu only for flow/class/state diagrams.
+- Portability/typing boundary: previews understand shorthand immediately; passive encrypted draft
+  autosave preserves the active shorthand and selection. Done and final Save normalize recognized
+  aliases and layout choices into ordinary Mermaid. Unknown or malformed alias-like lines are preserved
+  and receive a line-specific hint rather than being guessed.
+- Data/security boundary: dashboard-only v0.10.1; no backend route, schema, migration, provider, secret,
+  database content, remote renderer, or new trust boundary. Mermaid budgets, timeout, strict mode,
+  configuration-directive rejection, and SVG sanitization remain active.
+- Validation/release state: dashboard `5e598e993af7debe40e15c01d9855d108346ee14` is on `main` and
+  completed Vercel deployment `8kdgg4fHEnhE63eYK9GvZrxC5fRw`. Post-merge gates passed: 202 unit
+  tests, typecheck, lint, production build, and 22 browser tests with 8 intentional device-scope skips.
+  A post-deployment hosted Chromium run also passed the shared Study/Individual UML editor flow.
+
 ## Active checkpoint — Study timetable synchronization released (2026-09-04 SGT)
 
 - Objective: release the owner-requested one-way Google Calendar mirror, bounded occurrence reminders,
