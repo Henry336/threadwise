@@ -136,7 +136,9 @@ export function startVoiceCaptureRecoveryLoop(bot: Bot, ai: AiProvider, botToken
     }
   };
   void tick();
-  return setInterval(() => void tick(), 5_000);
+  // Voice submissions are processed immediately in their handler. This is a
+  // restart-recovery sweep, not a hot queue poll.
+  return setInterval(() => void tick(), 60_000);
 }
 
 export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> {

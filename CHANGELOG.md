@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Emergency outbound-bandwidth hotfix (v0.35.1)
+- Replaced the always-on one-second general and Study image-batch database polling with immediate,
+  upload-triggered processing plus one five-minute restart-recovery sweep. Normal album review remains
+  prompt after the existing 1.8-second settle window.
+- Added single-flight guards so timer wakes cannot overlap a slow external-database pass.
+- Changed voice recovery from five-second polling to a one-minute restart sweep; normal voice capture
+  remains processed directly by its incoming-message handler.
+- Reduced the server-side Study analysis idle poll configured on Render from every 10 seconds to every
+  60 seconds. No schema, stored data, user-visible feature, or provider credential changed.
+- This reduces the two dominant idle image-worker passes from 86,400 each per day to 288 each per day,
+  a 99.67% reduction, while preserving event-driven processing for new work.
+
 ### Study timetable Calendar mirror, bounded alerts, and conflict visibility (v0.35.0; released 2026-09-04)
 - Added an explicit owner-gated, one-way mirror from the canonical Study timetable to the user's
   primary Google Calendar. Stable event IDs, private extended properties, durable block links,

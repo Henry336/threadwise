@@ -6,6 +6,12 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-08 (Codex, emergency bandwidth hotfix):** Replaced the August image-batch workers'
+  unconditional one-second external-Postgres polling with upload-triggered processing and five-minute,
+  single-flight restart recovery. Voice recovery now sweeps every minute and Render's idle Study-analysis
+  poll is one minute. This removes 99.67% of the two dominant idle passes without delaying normal image
+  capture. Exact incident and release evidence is tracked in `PROJECT_CONTEXT.md`.
+
 - **2026-09-04 (Codex, Study timetable release):** Implemented an explicit one-way Study
   timetable mirror to primary Google Calendar using the existing encrypted OAuth connection, stable
   event IDs, durable links, bounded retry, and reconciliation. Added one occurrence reminder sequence

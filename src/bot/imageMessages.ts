@@ -26,6 +26,7 @@ import {
   imageUploadBatchCaptionKeyboard,
   imageUploadBatchKeyboard,
   registerImageUploadBatchItem,
+  scheduleImageUploadBatchProcessing,
   saveImageUploadBatch,
 } from "../services/imageUploadBatches";
 
@@ -86,6 +87,7 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
       ...target,
       caption: storedCaption,
     });
+    scheduleImageUploadBatchProcessing(ctx.api);
     return;
   }
   if (intent === "choose" || intent === "store" || intent === "store-extract") {

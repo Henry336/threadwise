@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { ImageUploadBatchStatus } from "@prisma/client";
-import type { Bot } from "grammy";
+import type { Api, Bot } from "grammy";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { bold, code, h } from "../utils/html";
@@ -8,8 +8,12 @@ import { nextPublicId } from "./publicIds";
 
 export const IMAGE_UPLOAD_BATCH_SETTLE_MS = 1_800;
 export const IMAGE_UPLOAD_BATCH_TTL_MS = 24 * 60 * 60_000;
-export const IMAGE_UPLOAD_BATCH_POLL_MS = 1_000;
+// New albums wake the processor directly. This interval is only a restart/error
+// recovery sweep; polling an external database every second wastes bandwidth.
+export const IMAGE_UPLOAD_BATCH_POLL_MS = 5 * 60_000;
 const IMAGE_UPLOAD_BATCH_LEASE_MS = 30_000;
+let activeImageUploadBatchPass: Promise<void> | undefined;
+type TelegramApiClient = { api: Api };
 
 export type ImageUploadBatchInput = {
   userId: string;
@@ -315,7 +319,22 @@ export function startImageUploadBatchLoop(bot: Bot, pollMs = IMAGE_UPLOAD_BATCH_
   return timer;
 }
 
-export async function processImageUploadBatches(bot: Bot, now = new Date()): Promise<void> {
+export function scheduleImageUploadBatchProcessing(api: Api, delayMs = IMAGE_UPLOAD_BATCH_SETTLE_MS + 100): NodeJS.Timeout {
+  const timer = setTimeout(() => void processImageUploadBatches({ api }), Math.max(0, delayMs));
+  timer.unref?.();
+  return timer;
+}
+
+export function processImageUploadBatches(bot: TelegramApiClient, now = new Date()): Promise<void> {
+  if (activeImageUploadBatchPass) return activeImageUploadBatchPass;
+  const pass = processImageUploadBatchesOnce(bot, now).finally(() => {
+    if (activeImageUploadBatchPass === pass) activeImageUploadBatchPass = undefined;
+  });
+  activeImageUploadBatchPass = pass;
+  return pass;
+}
+
+async function processImageUploadBatchesOnce(bot: TelegramApiClient, now: Date): Promise<void> {
   try {
     await recoverExpiredLeases(now);
     await expireBatches(bot, now);
@@ -384,7 +403,7 @@ async function recoverExpiredLeases(now: Date) {
   });
 }
 
-async function expireBatches(bot: Bot, now: Date) {
+async function expireBatches(bot: TelegramApiClient, now: Date) {
   const expired = await prisma.pendingImageUploadBatch.findMany({
     where: {
       expiresAt: { lte: now },

@@ -105,6 +105,7 @@ import {
   findStudyCaptureBatch,
   ignoreStudyCaptureBatch,
   registerStudyImageCapture,
+  scheduleStudyCaptureBatchProcessing,
   releaseStudyCaptureBatch,
   setStudyCaptureBatchModule,
   setStudyCaptureBatchReviewMessage,
@@ -1105,6 +1106,7 @@ async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: 
       sourceSenderTelegramId: media.sourceSenderTelegramId,
       sourceSentAt: media.sourceSentAt,
     });
+    scheduleStudyCaptureBatchProcessing(ctx.api);
     return;
   }
   const pending = await createStudyPendingCapture(workspace, {

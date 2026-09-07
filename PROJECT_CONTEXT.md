@@ -7,6 +7,21 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — emergency Render bandwidth hotfix (2026-09-08 SGT)
+
+- Incident: Render reported roughly 7.9 GB of service-initiated outbound traffic versus about 133 MB
+  of HTTP responses. The dominant code-level cause was two image-batch processors added in August that
+  each ran a multi-query Supabase sweep every second even while idle; slow passes could also overlap.
+- Remediation: general and Study image uploads now wake their processors directly after the existing
+  settle window. Five-minute periodic passes exist only for restart/error recovery and are protected by
+  per-worker single-flight guards. Voice recovery is one minute instead of five seconds, and the Render
+  Study-analysis idle poll is one minute instead of ten seconds.
+- Expected effect: the two dominant idle passes fall from 172,800 combined passes/day to 576/day
+  (99.67% fewer). New image and voice submissions remain handled immediately through their inbound
+  paths. No database migration, content rewrite, or credential change is involved.
+- Release state: implementation and production validation are in progress; replace this line with the
+  exact commit, Render deployment, health response, and first available bandwidth evidence.
+
 ## Active checkpoint — dashboard UML rendering and editing (2026-09-04 SGT)
 
 - Objective: restore visible UML text without weakening the existing strict local Mermaid boundary,

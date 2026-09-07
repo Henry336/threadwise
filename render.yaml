@@ -27,7 +27,7 @@ services:
       - key: OPENAI_MODEL_FALLBACKS
         value: gpt-5.5,gpt-5.4,gpt-5.4-nano
       - key: STUDY_ANALYSIS_POLL_MS
-        value: "10000"
+        value: "60000"
       - key: STUDY_ANALYSIS_TIMEOUT_MS
         value: "90000"
       - key: STUDY_ANALYSIS_LEASE_SECONDS

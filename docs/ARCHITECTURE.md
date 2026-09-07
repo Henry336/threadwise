@@ -107,6 +107,14 @@ Group routing lives in `src/bot/groupRouting.ts`. Slash commands are explicit. O
 
 Group TODO import is a durable preview-and-commit workflow rather than a loop that creates one task per line immediately. `src/services/taskImports.ts` parses the bounded list, resolves unambiguous active-member usernames/display names, preserves recognizable team-owner labels, leaves ordinary parenthetical details untouched, interprets dates in the group timezone, and stores `PendingTaskImport` plus ordered `PendingTaskImportItem` rows. Telegram exposes the complete ordered review as six-task pages by editing one compact message; import and cancel still act on the review as a whole. The authenticated dashboard is an optional details editor, where the sender or a freshly verified group owner/admin may change inclusion, title, assignees, team owner, due time, and initial Open/Done status. Reviewed assignees enter task creation as structured data rather than being re-parsed from synthetic text entities. Import claims the review, refreshes that lease between rows, creates each task through the existing task service, records per-row success/failure, and leaves failed rows retryable. The source-row id is also unique on the created task, making callbacks and interrupted retries idempotent even across competing recovery attempts.
 
+General and Study image albums use event-driven batch settlement. Each inbound Telegram image persists
+first and schedules one processing wake after the short album settle window. Periodic five-minute passes
+exist only to recover durable work after a process restart or transient failure, and each processor is
+single-flight so a slow external-database round trip cannot overlap the next wake. Do not replace this
+with sub-minute idle polling: production PostgreSQL is external to Render, so every query contributes
+to service-initiated outbound bandwidth. Voice capture follows the same principle: the message handler
+does normal processing and the minute loop is recovery-only.
+
 Forum groups can optionally create one dedicated Threadwise topic. Creation is admin-only and persists the Telegram topic id on `GroupWorkspace`; it is an organizational convention, not an alternate data scope or a requirement for group features.
 
 `ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { StudyCaptureBatchStatus, type StudyWorkspace } from "@prisma/client";
-import type { Bot } from "grammy";
+import type { Api, Bot } from "grammy";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { bold, h } from "../utils/html";
@@ -8,8 +8,12 @@ import { StudyModeError } from "./study";
 
 export const STUDY_CAPTURE_BATCH_SETTLE_MS = 1_800;
 export const STUDY_CAPTURE_BATCH_TTL_MS = 5 * 60_000;
-export const STUDY_CAPTURE_BATCH_POLL_MS = 1_000;
+// New captures wake the processor directly. This interval only recovers work
+// after restarts or transient errors, so it must not hammer external Postgres.
+export const STUDY_CAPTURE_BATCH_POLL_MS = 5 * 60_000;
 const STUDY_CAPTURE_BATCH_LEASE_MS = 30_000;
+let activeStudyCaptureBatchPass: Promise<void> | undefined;
+type TelegramApiClient = { api: Api };
 
 export type StudyImageCaptureInput = {
   moduleId?: string;
@@ -229,7 +233,22 @@ export function startStudyCaptureBatchLoop(bot: Bot, pollMs = STUDY_CAPTURE_BATC
   return timer;
 }
 
-export async function processStudyCaptureBatches(bot: Bot, now = new Date()): Promise<void> {
+export function scheduleStudyCaptureBatchProcessing(api: Api, delayMs = STUDY_CAPTURE_BATCH_SETTLE_MS + 100): NodeJS.Timeout {
+  const timer = setTimeout(() => void processStudyCaptureBatches({ api }), Math.max(0, delayMs));
+  timer.unref?.();
+  return timer;
+}
+
+export function processStudyCaptureBatches(bot: TelegramApiClient, now = new Date()): Promise<void> {
+  if (activeStudyCaptureBatchPass) return activeStudyCaptureBatchPass;
+  const pass = processStudyCaptureBatchesOnce(bot, now).finally(() => {
+    if (activeStudyCaptureBatchPass === pass) activeStudyCaptureBatchPass = undefined;
+  });
+  activeStudyCaptureBatchPass = pass;
+  return pass;
+}
+
+async function processStudyCaptureBatchesOnce(bot: TelegramApiClient, now: Date): Promise<void> {
   try {
     await recoverExpiredBatchLeases(now);
     await expireStudyCaptureBatches(bot, now);
@@ -307,7 +326,7 @@ async function recoverExpiredBatchLeases(now: Date) {
   });
 }
 
-async function expireStudyCaptureBatches(bot: Bot, now: Date) {
+async function expireStudyCaptureBatches(bot: TelegramApiClient, now: Date) {
   const expired = await prisma.studyPendingCaptureBatch.findMany({
     where: {
       expiresAt: { lte: now },

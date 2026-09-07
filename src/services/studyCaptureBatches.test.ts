@@ -178,6 +178,20 @@ describe("durable Study image batches", () => {
     }));
   });
 
+  it("coalesces overlapping recovery passes into one database sweep", async () => {
+    let release!: (value: { count: number }) => void;
+    db.studyPendingCaptureBatch.updateMany.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const bot = { api: { getChatMemberCount: vi.fn(), sendMessage: vi.fn(), deleteMessage: vi.fn() } } as any;
+
+    const first = processStudyCaptureBatches(bot, new Date());
+    const second = processStudyCaptureBatches(bot, new Date());
+
+    expect(second).toBe(first);
+    expect(db.studyPendingCaptureBatch.updateMany).toHaveBeenCalledTimes(1);
+    release({ count: 0 });
+    await first;
+  });
+
   it("deletes an expired review menu and removes its pending items", async () => {
     const now = new Date();
     const expired = {

@@ -184,6 +184,20 @@ describe("durable general image upload batches", () => {
     }));
   });
 
+  it("coalesces overlapping recovery passes into one database sweep", async () => {
+    let release!: (value: { count: number }) => void;
+    db.pendingImageUploadBatch.updateMany.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const bot = { api: { sendMessage: vi.fn(), deleteMessage: vi.fn() } } as any;
+
+    const first = processImageUploadBatches(bot, new Date());
+    const second = processImageUploadBatches(bot, new Date());
+
+    expect(second).toBe(first);
+    expect(db.pendingImageUploadBatch.updateMany).toHaveBeenCalledTimes(1);
+    release({ count: 0 });
+    await first;
+  });
+
   it("applies one shared caption to every pending image", async () => {
     db.pendingImageUploadBatch.findFirst.mockResolvedValue({
       id: "batch-1",
