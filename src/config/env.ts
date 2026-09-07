@@ -32,7 +32,9 @@ const envSchema = z.object({
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_MODEL_FALLBACKS: z.string().default("gpt-5.5,gpt-5.4,gpt-5.4-nano"),
   GEMINI_API_KEY: optional(z.string().min(8)),
-  STUDY_ANALYSIS_POLL_MS: z.coerce.number().int().min(5_000).max(60_000).default(10_000),
+  // Keep the durable queue responsive without continuously churning the remote database.
+  // Explicit hosting configuration may lower this, but production-safe defaults must stand alone.
+  STUDY_ANALYSIS_POLL_MS: z.coerce.number().int().min(5_000).max(60_000).default(60_000),
   STUDY_ANALYSIS_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(180_000).default(90_000),
   STUDY_ANALYSIS_LEASE_SECONDS: z.coerce.number().int().min(60).max(600).default(180),
   STUDY_ANALYSIS_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1_024).max(16_384).default(8_192),

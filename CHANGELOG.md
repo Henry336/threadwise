@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Hosting-independent polling hardening (v0.35.2)
+- Raised the Study analysis queue's application default from 10 seconds to 60 seconds, so a manually
+  managed Render service cannot silently fall back to an unnecessarily frequent external-database poll
+  when its Blueprint environment value is absent.
+
 ### Emergency outbound-bandwidth hotfix (v0.35.1)
 - Replaced the always-on one-second general and Study image-batch database polling with immediate,
   upload-triggered processing plus one five-minute restart-recovery sweep. Normal album review remains
