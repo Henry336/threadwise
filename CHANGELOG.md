@@ -6,6 +6,8 @@
 - Raised the Study analysis queue's application default from 10 seconds to 60 seconds, so a manually
   managed Render service cannot silently fall back to an unnecessarily frequent external-database poll
   when its Blueprint environment value is absent.
+- Released as `8590059e1829` through Render deployment `dep-dafhlbnavr4c73c5mj50`; the production
+  health endpoint reports version `0.35.2` at that exact commit.
 
 ### Emergency outbound-bandwidth hotfix (v0.35.1)
 - Replaced the always-on one-second general and Study image-batch database polling with immediate,
@@ -18,6 +20,8 @@
   60 seconds. No schema, stored data, user-visible feature, or provider credential changed.
 - This reduces the two dominant idle image-worker passes from 86,400 each per day to 288 each per day,
   a 99.67% reduction, while preserving event-driven processing for new work.
+- The first production release was `6db3806f8d59` through `dep-dafhifjbc2fs73d9vi0g`, superseded by
+  the v0.35.2 default-hardening deployment above.
 
 ### Study timetable Calendar mirror, bounded alerts, and conflict visibility (v0.35.0; released 2026-09-04)
 - Added an explicit owner-gated, one-way mirror from the canonical Study timetable to the user's

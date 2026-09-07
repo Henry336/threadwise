@@ -19,8 +19,10 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 - Expected effect: the two dominant idle passes fall from 172,800 combined passes/day to 576/day
   (99.67% fewer). New image and voice submissions remain handled immediately through their inbound
   paths. No database migration, content rewrite, or credential change is involved.
-- Release state: implementation and production validation are in progress; replace this line with the
-  exact commit, Render deployment, health response, and first available bandwidth evidence.
+- Release state: backend commit `8590059e18296c3a516ab4fef5baa6c86fe760f3` is live through Render
+  deployment `dep-dafhlbnavr4c73c5mj50`. The public `/health` check returned `ok: true`, version
+  `0.35.2`, and commit `8590059e1829` at 2026-09-08 04:14 SGT. Render's cumulative monthly usage will
+  not decrease; confirm the reduction from newly generated hourly bandwidth points once metrics settle.
 
 ## Active checkpoint — dashboard UML rendering and editing (2026-09-04 SGT)
 
