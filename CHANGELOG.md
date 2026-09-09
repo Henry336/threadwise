@@ -12,6 +12,9 @@
   the reminder text without buttons and advances the schedule instead of retrying indefinitely.
 - Added focused regression coverage for group-safe reminder controls, invalid-button classification,
   and bounded Study dedupe preflight.
+- Released as `6a3e730513d5` through Render deployment `dep-dagdj82jnfac73f2rt00`; production health
+  reports version `0.35.3`, and the first three post-handover reminder cycles emitted neither confirmed
+  failure signature.
 
 ### Hosting-independent polling hardening (v0.35.2)
 - Raised the Study analysis queue's application default from 10 seconds to 60 seconds, so a manually

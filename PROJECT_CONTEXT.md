@@ -21,8 +21,12 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   unique constraint for races and abandoned-claim recovery. Reminder cards use a group-safe HTTPS link;
   Telegram invalid-button failures fall back to text-only delivery rather than re-entering the retry
   loop.
-- Release state: implementation validation and production deployment are in progress. Record the exact
-  commit, Render deployment, health response, and first completed post-release hourly metrics here.
+- Release state: backend commit `6a3e730513d53afcfcb2845509bab5613675558a` is live through Render
+  deployment `dep-dagdj82jnfac73f2rt00`. The public `/health` check returned `ok: true`, version
+  `0.35.3`, and commit `6a3e730513d5` at 2026-09-09 12:01 SGT. Duplicate-key lines were confined to
+  the rolling handover window; three subsequent live reminder cycles through 12:05 SGT produced zero
+  Study duplicate-insert errors, zero invalid-button errors, and zero normal-reminder failures. Hourly
+  Render bandwidth points arrive later; the active bandwidth monitor remains the release guard.
 
 ## Active checkpoint — emergency Render bandwidth hotfix (2026-09-08 SGT)
 
