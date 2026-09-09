@@ -381,7 +381,17 @@ export function groupTaskActionsKeyboard(
 
 export function reminderActionsKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
-  return taskActionsKeyboard(task, true, includeCollaboration, true)
+  // Reminder destinations can be either a private chat or a group. Telegram
+  // rejects Mini App (`web_app`) buttons outside private chats with
+  // BUTTON_TYPE_INVALID, so reminder cards must use a normal HTTPS link.
+  const keyboard = new InlineKeyboard()
+    .text("✅ Done", `task:done:${taskId}`)
+    .text("⏰ Snooze", `task:snooze:${taskId}`)
+    .row()
+    .url("View task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }))
+    .text("‹ Tasks", "menu:tasks");
+  void includeCollaboration;
+  return keyboard
     .row()
     .text("Dismiss reminders", `task:dismiss-reminders:${taskId}`);
 }

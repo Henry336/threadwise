@@ -7,6 +7,23 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Active checkpoint — reminder egress-loop containment (2026-09-09 SGT)
+
+- Trigger: after the v0.35.2 worker hotfix reduced service-initiated traffic from roughly 60–80 MB/hour
+  to about 8–9 MB/hour, completed Render points rose to 21.20, 33.28, 33.58, and 27.79 MB/hour between
+  07:00 and 11:00 SGT on 2026-09-09. Production health and the deployed commit did not change.
+- Confirmed causes: incident-window application logs contained hundreds of
+  `studyReminderDelivery.create()` unique-key failures. Persistent Study candidates were deduplicated
+  by deliberately attempting the same unique insert every minute. The same window also contained
+  repeated normal-reminder failures because a group message used Telegram's private-chat-only Mini App
+  button (`BUTTON_TYPE_INVALID`) and retried every 15 minutes.
+- Remediation: Study candidates now bulk-read existing dedupe keys before inserts while preserving the
+  unique constraint for races and abandoned-claim recovery. Reminder cards use a group-safe HTTPS link;
+  Telegram invalid-button failures fall back to text-only delivery rather than re-entering the retry
+  loop.
+- Release state: implementation validation and production deployment are in progress. Record the exact
+  commit, Render deployment, health response, and first completed post-release hourly metrics here.
+
 ## Active checkpoint — emergency Render bandwidth hotfix (2026-09-08 SGT)
 
 - Incident: Render reported roughly 7.9 GB of service-initiated outbound traffic versus about 133 MB

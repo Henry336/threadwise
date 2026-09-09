@@ -217,10 +217,20 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       });
 
       try {
-        const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, {
-          ...HTML_REPLY,
-          reply_markup: reminderActionsKeyboard(task)
-        });
+        let delivery;
+        try {
+          delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, {
+            ...HTML_REPLY,
+            reply_markup: reminderActionsKeyboard(task)
+          });
+        } catch (error) {
+          if (!isInvalidReminderButtonError(error)) throw error;
+          // A malformed or context-incompatible action must not turn a due
+          // reminder into an unbounded retry loop. Preserve the reminder text
+          // and advance its schedule even if Telegram rejects the keyboard.
+          logger.warn("Reminder actions were rejected; delivering without buttons.", { taskId: task.id });
+          delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, HTML_REPLY);
+        }
         const sentMessage = delivery.message;
         const deliveredChatId = delivery.chatId;
 
@@ -1009,4 +1019,8 @@ export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {
 
   void runReminderPass(bot, "initial").catch((error) => logger.error("Initial reminder pass failed.", { error: String(error) }));
   return interval;
+}
+
+export function isInvalidReminderButtonError(error: unknown): boolean {
+  return String(error).includes("BUTTON_TYPE_INVALID");
 }

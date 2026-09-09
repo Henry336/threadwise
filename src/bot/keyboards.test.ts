@@ -33,6 +33,19 @@ describe("interactive keyboard navigation", () => {
     expect(JSON.stringify(keyboard.inline_keyboard)).toContain("kind=task");
   });
 
+  it("uses a group-safe HTTPS link on reminder cards", () => {
+    const keyboard = reminderActionsKeyboard("task-row-id");
+    const buttons = keyboard.inline_keyboard.flat();
+    expect(buttons).toContainEqual(expect.objectContaining({ text: "View task ↗", url: expect.stringMatching(/^https:\/\//) }));
+    expect(buttons).not.toContainEqual(expect.objectContaining({ web_app: expect.anything() }));
+    expect(callbackData(keyboard)).toEqual([
+      "task:done:task-row-id",
+      "task:snooze:task-row-id",
+      "menu:tasks",
+      "task:dismiss-reminders:task-row-id",
+    ]);
+  });
+
   it("uses contextual group actions without accept, block, decline, or handoff", () => {
     const workspaceId = "workspace-1";
     expect(callbackData(groupTaskActionsKeyboard("task-1", "unassigned", workspaceId))).toEqual([

@@ -78,6 +78,11 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
   const candidates = (await collectStudyReminderCandidates(workspace, now))
     .filter((candidate) => !quiet || isTimetableCandidate(candidate));
   result.candidates = candidates.length;
+  const preparedCandidates = candidates.map((candidate) => ({
+    candidate,
+    dedupeKey: buildStudyReminderDedupeKey(workspace.id, candidate.kind, candidate.entityKey, candidate.scheduledFor, workspace.timezone),
+  }));
+  const existingDeliveries = await loadExistingStudyReminderDeliveries(preparedCandidates.map(({ dedupeKey }) => dedupeKey));
   const dayStart = startOfUserDay(now, workspace.timezone);
   const occurrenceRange = studyOccurrenceDateRange(now, workspace.timezone);
   const [nonTimetableDeliveries, admittedSequences] = await Promise.all([
@@ -93,13 +98,20 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
     }),
   ]);
   let sentToday = nonTimetableDeliveries + admittedSequences;
-  for (const candidate of candidates) {
+  for (const { candidate, dedupeKey } of preparedCandidates) {
+    const existingDelivery = existingDeliveries.get(dedupeKey);
+    if (existingDelivery) {
+      if (candidate.sequenceId && !existingDelivery.sentAt && isAbandonedStudyReminderClaim(existingDelivery.createdAt, now)) {
+        await recoverAbandonedScheduleClaim(candidate, dedupeKey, now, existingDelivery);
+      }
+      result.deduplicated += 1;
+      continue;
+    }
     const alreadyAdmitted = candidate.sequenceAttempt !== undefined && candidate.sequenceAttempt > 0;
     if (!alreadyAdmitted && sentToday >= workspace.maxRemindersPerDay) {
       result.capped += 1;
       continue;
     }
-    const dedupeKey = buildStudyReminderDedupeKey(workspace.id, candidate.kind, candidate.entityKey, candidate.scheduledFor, workspace.timezone);
     const claimed = await claimDelivery(workspace, candidate, dedupeKey, now);
     if (!claimed) {
       result.deduplicated += 1;
@@ -474,6 +486,30 @@ export function buildStudyReminderDedupeKey(
   return `${workspaceId}:${kind}:${entityKey}:${localDate}`;
 }
 
+type ExistingStudyReminderDelivery = {
+  dedupeKey: string;
+  createdAt: Date;
+  sentAt: Date | null;
+};
+
+/**
+ * Preflight all candidate keys in one read before attempting inserts. The
+ * unique constraint remains the race-safe authority, but known duplicates no
+ * longer generate a failed external Postgres write and a multi-line Prisma
+ * error every minute for the lifetime of an overdue Study item.
+ */
+export async function loadExistingStudyReminderDeliveries(
+  dedupeKeys: string[],
+): Promise<Map<string, ExistingStudyReminderDelivery>> {
+  const uniqueKeys = [...new Set(dedupeKeys)];
+  if (!uniqueKeys.length) return new Map();
+  const existing = await prisma.studyReminderDelivery.findMany({
+    where: { dedupeKey: { in: uniqueKeys } },
+    select: { dedupeKey: true, createdAt: true, sentAt: true },
+  });
+  return new Map(existing.map((delivery) => [delivery.dedupeKey, delivery]));
+}
+
 async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, dedupeKey: string, now: Date) {
   try {
     return await prisma.studyReminderDelivery.create({
@@ -495,8 +531,13 @@ async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, de
   }
 }
 
-async function recoverAbandonedScheduleClaim(candidate: Candidate, dedupeKey: string, now: Date): Promise<void> {
-  const existing = await prisma.studyReminderDelivery.findUnique({ where: { dedupeKey } });
+async function recoverAbandonedScheduleClaim(
+  candidate: Candidate,
+  dedupeKey: string,
+  now: Date,
+  knownExisting?: ExistingStudyReminderDelivery,
+): Promise<void> {
+  const existing = knownExisting ?? await prisma.studyReminderDelivery.findUnique({ where: { dedupeKey } });
   if (!existing || existing.sentAt || !isAbandonedStudyReminderClaim(existing.createdAt, now)) return;
   const previousAttempt = candidate.sequenceAttempt ?? 0;
   const nextAttempt = previousAttempt + 1;

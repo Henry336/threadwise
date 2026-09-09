@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Reminder egress-loop containment (v0.35.3)
+- Preflights all Study reminder dedupe keys in one bounded read before attempting delivery claims.
+  Restart-safe uniqueness remains authoritative, but already-delivered overdue and housekeeping
+  candidates no longer generate expected failed Postgres inserts and multi-line Prisma errors every
+  minute.
+- Uses a normal HTTPS dashboard link on reminder cards so the same keyboard is valid in private and
+  group chats. If Telegram ever rejects reminder actions again, Threadwise falls back to delivering
+  the reminder text without buttons and advances the schedule instead of retrying indefinitely.
+- Added focused regression coverage for group-safe reminder controls, invalid-button classification,
+  and bounded Study dedupe preflight.
+
 ### Hosting-independent polling hardening (v0.35.2)
 - Raised the Study analysis queue's application default from 10 seconds to 60 seconds, so a manually
   managed Render service cannot silently fall back to an unnecessarily frequent external-database poll

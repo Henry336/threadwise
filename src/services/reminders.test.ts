@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, isInvalidReminderButtonError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -237,5 +237,10 @@ describe("reminder policy", () => {
       cappedByDailyLimit: 0,
       failedDeliveries: 0
     });
+  });
+
+  it("only falls back to text delivery for Telegram's invalid-button response", () => {
+    expect(isInvalidReminderButtonError(new Error("400: Bad Request: BUTTON_TYPE_INVALID"))).toBe(true);
+    expect(isInvalidReminderButtonError(new Error("429: Too Many Requests"))).toBe(false);
   });
 });

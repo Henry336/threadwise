@@ -6,6 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-09 (Codex, reminder egress containment):** Render monitoring caught a renewed outbound
+  spike without a deployment change. Logs traced it to periodic Study dedupe implemented as repeated
+  unique-key insert failures, plus group reminder cards using a private-only Telegram Mini App button.
+  Study claims now preflight known keys in one read, reminder links are group-safe, and invalid-button
+  failures degrade to text delivery instead of retrying forever. Release evidence is tracked in
+  `PROJECT_CONTEXT.md`.
+
 - **2026-09-08 (Codex, emergency bandwidth hotfix):** Replaced the August image-batch workers'
   unconditional one-second external-Postgres polling with upload-triggered processing and five-minute,
   single-flight restart recovery. Voice recovery now sweeps every minute and Render's idle Study-analysis
