@@ -53,6 +53,27 @@ success advance. Sample only aggregate query counters, status counts, and machin
 
 ## Monitoring and billing interpretation
 
+### Release evidence
+
+Backend `01ff7a8859e8` / v0.35.4 became live on Render deployment `dep-daiiv1ss728c73ajo9i0` at
+2026-09-12 18:56:51 SGT. Dashboard `5ecfe5f` / v0.10.2 completed Vercel production deployment
+`GxYo33JapaJyzZuZxJp8GCKnUvym` at 18:59:34 SGT. Backend health confirms the exact release.
+
+Live pending counts declined 49 -> 33 -> 25 -> 9 -> 1 -> 0. By 19:02 SGT, the workspace correctly
+reported SYNCED: 32 active series synced, 17 inactive/deleted series removed, zero failed/pending,
+no next retry, and last success 19:01:37 SGT. Local timetable records were preserved. A 55-second
+aggregate database sample during recovery no longer contained the original 49-link upsert sweep.
+
+Final gates: backend 1055 passed/6 intentional skips, dashboard 210 passed, browser 20 passed/6
+intentional platform skips, types/builds/lint/secret scans passed. An initial concurrent full-suite
+run had three unrelated backend timeouts; bounded-worker rerun passed without increasing timeouts.
+
+The last five complete pre-release NAT points averaged 14.213 MB/h. Post-release complete hourly data
+was not yet published at handoff. Query-count savings and queue recovery are verified, but total network
+savings and staying within the monthly allowance still require that measurement.
+
+### Interpretation
+
 Render labels hourly points with the END of the measurement hour and publishes about an hour later.
 Use complete windows, recording timestamps in Asia/Singapore. Compare NAT/service-initiated traffic
 against both the recent ~14.3 MB/hour idle floor and the earlier 8–9 MB/hour post-first-fix baseline.

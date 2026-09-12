@@ -14,6 +14,9 @@
   opaque SHA-256 values rather than serialized metadata. Paired dashboard v0.10.2 pauses hidden tabs.
 - Adds elapsed-time queue lifecycle and realtime query-budget regressions. No migration, credential,
   retention, or user-data changes. Production bandwidth improvement still requires completed-hour data.
+- Released backend `01ff7a8859e8` via Render `dep-daiiv1ss728c73ajo9i0`, followed by dashboard `5ecfe5f`
+  via Vercel `GxYo33JapaJyzZuZxJp8GCKnUvym`. Live queue recovered from 49 pending to zero, with no
+  failures; 32 active series synced and 17 already-deleted series removed from the Google mirror.
 
 ### Reminder egress-loop containment (v0.35.3)
 - Preflights all Study reminder dedupe keys in one bounded read before attempting delivery claims.

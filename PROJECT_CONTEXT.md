@@ -9,19 +9,31 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — Calendar/realtime egress repair (2026-09-12 SGT)
 
-- User authorized implementing the confirmed findings. Backend v0.35.4 and dashboard v0.10.2 are
-  being validated locally; **not yet deployed**. See `docs/BANDWIDTH_REPAIR_2026-09-12.md`.
+- **Released:** backend v0.35.4 `01ff7a8859e8fa0a1350b241ffc7137515719608` is live through Render
+  `dep-daiiv1ss728c73ajo9i0` (2026-09-12 18:56:51 SGT); health returns HTTP 200, ok=true, v0.35.4,
+  exact commit prefix. Dashboard v0.10.2 `5ecfe5fe6edc887505aaa6b5111d892180dba6bc` completed Vercel
+  production deployment `GxYo33JapaJyzZuZxJp8GCKnUvym` at 18:59:34 SGT (GitHub deployment 6408863371).
+  See `docs/BANDWIDTH_REPAIR_2026-09-12.md`.
 - Calendar now claims and bulk-queues reconciliation atomically, preserves pending/backoff, guards
   in-flight completion against newer edits, coalesces process-local drains, and reports truthful
   pending/failed/exhausted states. No migration is required.
 - Realtime revision cadence is 30 seconds, diagnostic-only Study timestamps are excluded, and revisions
   are opaque hashes. Both browser shells share hidden/offline disconnect and five-minute fallback.
 - Validation: backend 1055 passed/6 intentional skips with two workers and unchanged timeout limits
-  (the first concurrent run had three unrelated timeouts); dashboard 209 passed, plus the added
-  trailing-content-refresh regression passed (8 lifecycle tests). Both types/builds, dashboard lint,
-  and tracked-secret scans pass. Local browser gates: 20 passed/6 intentional platform skips.
-- Publication follows a final rebuild of the trailing-refresh refinement. Confirm live health and queue
-  aggregate progress; completed hourly NAT results are still required before claiming egress resolved.
+  (the first concurrent run had three unrelated timeouts); final dashboard 210 passed, including eight
+  lifecycle tests. Both types/builds, dashboard lint, and tracked-secret scans pass. Final rebuilt local
+  browser gates: 20 passed/6 intentional platform skips. No GitHub Actions run exists for these exact
+  direct-main commits; local gates and provider deployment status are the recorded evidence.
+- Live aggregate proof: pending links declined 49 -> 33 -> 25 -> 9 -> 1 -> 0. At 19:02 SGT the
+  workspace is SYNCED, with 32 SYNCED active series, 17 REMOVED inactive series, zero failed/pending,
+  and last success 19:01:37 SGT. These removals fulfill already-saved timetable deletions; local records
+  were not deleted. A 55-second database sample no longer showed the 49-link INSERT/upsert sweep.
+- The last five completed pre-release NAT hours averaged 14.213 MB/h; a completed post-release hourly
+  point is not available yet. Do not claim a measured network reduction or that the monthly allowance
+  is guaranteed. New backend poll passes are 91.7% fewer by design/test; this is not 91.7% less total traffic.
+- Reload open dashboard tabs to activate v0.10.2's hidden/offline disconnect. Existing watch prompts
+  should treat the above deployments as intentional superseding releases. The automation view/update
+  tool reported unavailable on this host, so its saved prompt was not edited; this ledger is current.
 
 ## Previous checkpoint — reminder egress-loop containment (2026-09-09 SGT)
 
