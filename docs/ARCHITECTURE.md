@@ -1,8 +1,20 @@
 # Architecture Notes
 
-Updated: 2026-09-04
+Updated: 2026-09-12
 
-Current backend release: v0.35.0
+Current backend target: v0.35.4 (deployment evidence in PROJECT_CONTEXT.md)
+
+### Background synchronization budgets
+
+Calendar reconciliation claims and bulk-queues stale enabled workspaces atomically, preserving existing
+pending/retry work. Drains use stable cutoffs, local single-flight, and version-guarded completion.
+See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `BANDWIDTH_REPAIR_2026-09-12.md`.
+
+Dashboard realtime shares one watcher per Telegram owner and checks compact revisions every 30 seconds.
+Study diagnostic heartbeat timestamps are excluded; semantic settings/content/status still invalidate.
+Revisions are opaque hashes. Visible clients reconcile additionally every five minutes and disconnect
+when hidden/offline; explicit user mutations refresh immediately. This is bounded polling, not a
+database change-feed, and new external edits may take up to 30 seconds to appear.
 
 Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
 one domain without reshaping the whole product. Several legacy composition modules remain large; use

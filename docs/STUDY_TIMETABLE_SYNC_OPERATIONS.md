@@ -1,6 +1,6 @@
 # Study timetable synchronization and reminder operations
 
-Updated: 2026-09-04 SGT
+Updated: 2026-09-12 SGT
 
 This runbook covers the owner-gated one-way Google Calendar mirror and occurrence-based Study timetable
 reminders. Threadwise PostgreSQL records remain authoritative. The Calendar mirror is opt-in, and it
@@ -31,6 +31,13 @@ timestamp, and a safe error. OAuth/access tokens and event payloads never enter 
   This recovers both manual provider deletion and ambiguous timeout-after-create outcomes.
 - Reconciliation requeues enabled workspaces at most once per 15-minute window. Google edits are
   replaced with the Threadwise representation; manual Google deletions are recreated.
+  The workspace claim and bulk enqueue are atomic. Only settled SYNCED links are requeued; existing
+  PENDING/FAILED links keep their timestamps/attempts. Empty workspaces settle without provider calls.
+  Never call the user-edit upsert helper from this sweep: that previously caused perpetual deadline
+  postponement and 49 redundant writes/minute. The captured scheduler time is the enqueue cutoff.
+- Workspace drains are single-flight within the process. Link completion uses an updatedAt guard so
+  a newer edit remains pending. Stable provider IDs retain retry safety across restarts. Multiple
+  application replicas may issue idempotent provider requests; this is not a distributed provider lock.
 - Retries are bounded to six attempts with exponential delay capped at 60 minutes. Stored errors are
   machine-safe codes; the workspace snapshot exposes only actionable generic copy.
 - Single blocks produce one event. Weekly blocks use RRULE plus EXDATE values for occurrence/week
@@ -83,6 +90,8 @@ Do not delete mirrored Google events as part of rollback.
 - `CALENDAR_PROVIDER_UNAVAILABLE`: leave sync enabled and allow bounded retry/reconciliation.
 - Pending/failed counts that do not clear after six retries: inspect only link status, attempt timestamps,
   and safe codes; do not dump event bodies or decrypted connection rows.
+  Exhausted attempts require resolving authorization/provider issues and selecting Sync now. They are
+  not automatically reset by reconciliation. See `BANDWIDTH_REPAIR_2026-09-12.md` for incident evidence.
 - Reminder sequence stalled at one attempt: inspect sequence timestamps and its attempt-specific
   `StudyReminderDelivery`; never replay all reminders manually.
 
@@ -94,3 +103,8 @@ travel departure, four-message ceiling, abandoned-claim grace, acknowledgement/m
 hour exception, logical daily cap, and no post-start backfill. Dashboard tests cover strict overlap
 intersection, adjacency, recurrence exceptions, all orientations, accessible labels/tooltips, touch
 details, responsive styling, OAuth resume, and the BFF allowlist.
+
+`studyCalendar.queue.test.ts` additionally executes elapsed-time scheduler passes against stateful
+database/provider fakes: a 49-link drain, the production false-SYNCED state, retry exhaustion, concurrent
+drains, in-flight edits, missing links, removed series, disabled sync, and empty workspaces. These mocks
+do not replace a real PostgreSQL isolation test or live provider check.

@@ -6,6 +6,12 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-12 (Codex, validating egress repair):** v0.35.4 repairs Calendar reconciliation starvation
+  with an atomic bulk enqueue and preserved backoff, guarded completions, process-local single-flight,
+  and truthful queue status. Dashboard revisions use 30-second polling and exclude diagnostic-only
+  Study writes. Paired dashboard v0.10.2 disconnects hidden tabs. Tests and release evidence are in
+  `PROJECT_CONTEXT.md`; `docs/BANDWIDTH_REPAIR_2026-09-12.md` records the measured cause and limits.
+
 - **2026-09-09 (Codex, reminder egress containment):** Render monitoring caught a renewed outbound
   spike without a deployment change. Logs traced it to periodic Study dedupe implemented as repeated
   unique-key insert failures, plus group reminder cards using a private-only Telegram Mini App button.
@@ -326,6 +332,19 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
   Keep entries short: date, who, what changed, current state. Newest first.
 
 ## Working log
+
+- **2026-09-12 (Codex, implementation):** Implemented Calendar queue/realtime egress repairs and
+  stateful elapsed-time/query-budget regressions. Updated runbook, architecture, changelog, and project
+  context. No migration, credential, or retention changes. Full validation/publication in progress;
+  do not treat local passing tests as proof of production bandwidth reduction.
+
+- **2026-09-12 (Codex, read-only egress investigation):** Reproduced Calendar queue starvation caused
+  by resetting nextAttemptAt after the scheduler cutoff while leaving workspace status SYNCED. Live
+  aggregate inspection confirms 49 pending/zero-attempt links and repeated 49-link writes; three
+  synthetic passes made 147 writes and processed none. Measured dashboard revision at 15 SELECTs
+  every 2.5 seconds and identified hidden-tab polling plus diagnostic-triggered refreshes. See the
+  updated PROJECT_CONTEXT checkpoint and linked local report. No production changes or deployment;
+  prior reminder-error fixes did not establish the full egress cause.
 
 - **2026-09-04 (Codex):** Released the v0.35.0 Study Calendar/repeated-alert persistence and services,
   owner-gated dashboard endpoints, Google event reconciliation/privacy mapping, Telegram sequence

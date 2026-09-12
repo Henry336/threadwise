@@ -7,7 +7,42 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — reminder egress-loop containment (2026-09-09 SGT)
+## Active checkpoint — Calendar/realtime egress repair (2026-09-12 SGT)
+
+- User authorized implementing the confirmed findings. Backend v0.35.4 and dashboard v0.10.2 are
+  being validated locally; **not yet deployed**. See `docs/BANDWIDTH_REPAIR_2026-09-12.md`.
+- Calendar now claims and bulk-queues reconciliation atomically, preserves pending/backoff, guards
+  in-flight completion against newer edits, coalesces process-local drains, and reports truthful
+  pending/failed/exhausted states. No migration is required.
+- Realtime revision cadence is 30 seconds, diagnostic-only Study timestamps are excluded, and revisions
+  are opaque hashes. Both browser shells share hidden/offline disconnect and five-minute fallback.
+- Validation: backend 1055 passed/6 intentional skips with two workers and unchanged timeout limits
+  (the first concurrent run had three unrelated timeouts); dashboard 209 passed, plus the added
+  trailing-content-refresh regression passed (8 lifecycle tests). Both types/builds, dashboard lint,
+  and tracked-secret scans pass. Local browser gates: 20 passed/6 intentional platform skips.
+- Publication follows a final rebuild of the trailing-refresh refinement. Confirm live health and queue
+  aggregate progress; completed hourly NAT results are still required before claiming egress resolved.
+
+## Previous checkpoint — reminder egress-loop containment (2026-09-09 SGT)
+
+### 2026-09-12 read-only investigation supersedes the causal conclusion below
+
+- Production remains v0.35.3. Confirmed Calendar reconciliation starvation: each pass captures `now`,
+  then requeues all existing links with later `new Date()` retry times and queries only retries due by
+  the earlier `now`. Workspace remains SYNCED, so the same 49 links are reset every minute forever.
+- Live read-only inspection found 49/49 links PENDING with zero attempts while workspace says SYNCED;
+  last successful sync was 2026-09-11 01:10:23 UTC. A synthetic reproduction against compiled code
+  made 147 upserts across three passes and processed zero workspaces. This needs a queue lifecycle fix.
+- Dashboard revision executes 15 SELECTs every 2.5 seconds per connected owner, verified using actual
+  read-only queries (3,448 SQL bytes/check). Both shells retain live connections and minute snapshot
+  refreshes when hidden. Reminder diagnostic updates also invalidate StudyWorkspace.updatedAt.
+- The prior errors were real, but their causal share of egress was not established. No current packet
+  attribution is available; SSH authentication was rejected. Do not call the incident resolved.
+- Render hourly timestamps mark the end of the previous measurement hour. The old 8–9 MB/hour floor
+  already projects above the 5 GB/month allowance. Current public bandwidth overage is $0.15/GB;
+  previous alarm wording overstated financial urgency without checking invoices.
+- Full evidence and remediation order: `D:/CodexData/Temp/THREADWISE_BANDWIDTH_INVESTIGATION_2026-09-12.md`.
+  This inspection changed no production settings/data/runtime and deployed no fix.
 
 - Trigger: after the v0.35.2 worker hotfix reduced service-initiated traffic from roughly 60–80 MB/hour
   to about 8–9 MB/hour, completed Render points rose to 21.20, 33.28, 33.58, and 27.79 MB/hour between

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Calendar queue and dashboard egress repair (v0.35.4)
+- Atomically claims stale Calendar workspaces and bulk-queues only settled links, preserving pending
+  work and failed-job backoff. The scheduler uses one cutoff throughout instead of postponing all
+  existing links beyond that cutoff every minute. Already removed series are not requeued.
+- Coalesces same-process Calendar drains and conditionally settles only the link version read before
+  contacting Google, preserving edits made while requests are in flight. Status counts override stale
+  success flags; exhausted retries explicitly ask for connection review and Sync now.
+- Reduces owner-shared dashboard revision polling from 2.5 to 30 seconds (91.7% fewer recurring passes).
+  Semantic Study settings replace its diagnostic updatedAt timestamp in the revision; revisions are
+  opaque SHA-256 values rather than serialized metadata. Paired dashboard v0.10.2 pauses hidden tabs.
+- Adds elapsed-time queue lifecycle and realtime query-budget regressions. No migration, credential,
+  retention, or user-data changes. Production bandwidth improvement still requires completed-hour data.
+
 ### Reminder egress-loop containment (v0.35.3)
 - Preflights all Study reminder dedupe keys in one bounded read before attempting delivery claims.
   Restart-safe uniqueness remains authoritative, but already-delivered overdue and housekeeping

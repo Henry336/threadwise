@@ -49,7 +49,10 @@ export async function studyCalendarSnapshot(workspace: StudyWorkspace): Promise<
     reconnectRequired: connection.reconnectRequired,
     email: connection.email,
     enabled: workspace.calendarSyncEnabled,
-    status: workspace.calendarSyncStatus,
+    // Old workers could leave SYNCED on a workspace with unfinished links. Never
+    // report success from the workspace flag alone (also covers an in-flight edit).
+    status: !workspace.calendarSyncEnabled ? workspace.calendarSyncStatus
+      : count("FAILED") ? "FAILED" : count("PENDING") ? "PENDING" : workspace.calendarSyncStatus,
     syncedBlocks: count("SYNCED"),
     pendingBlocks: count("PENDING"),
     failedBlocks: count("FAILED"),
@@ -64,7 +67,7 @@ export async function queueStudyCalendarBlockSync(
   operation: "UPSERT" | "DELETE" = "UPSERT",
 ): Promise<void> {
   if (!workspace.calendarSyncEnabled) return;
-  await prisma.studyScheduleCalendarLink.upsert({
+  await prisma.$transaction([prisma.studyScheduleCalendarLink.upsert({
     where: { blockId },
     create: {
       workspaceId: workspace.id,
@@ -77,10 +80,13 @@ export async function queueStudyCalendarBlockSync(
       operation,
       status: "PENDING",
       attemptCount: 0,
-      nextAttemptAt: new Date(),
+      nextAttemptAt: null,
       lastError: null,
     },
-  });
+  }), prisma.studyWorkspace.updateMany({
+    where: { id: workspace.id, calendarSyncEnabled: true },
+    data: { calendarSyncStatus: "PENDING", calendarLastError: null },
+  })]);
 }
 
 export async function stopStudyCalendarSync(workspace: StudyWorkspace): Promise<void> {
@@ -140,8 +146,35 @@ export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3):
     take: limit,
   });
   for (const workspace of staleWorkspaces) {
-    const blocks = await prisma.studyScheduleBlock.findMany({ where: { workspaceId: workspace.id }, select: { id: true, active: true } });
-    for (const block of blocks) await queueStudyCalendarBlockSync(workspace, block.id, block.active ? "UPSERT" : "DELETE");
+    // Claim and enqueue in one transaction: another scheduler cannot requeue a
+    // partially drained workspace, and a crash cannot strand a claim without work.
+    // Existing PENDING/FAILED links retain their due time and bounded backoff.
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.studyWorkspace.updateMany({
+        where: {
+          id: workspace.id, calendarSyncEnabled: true, calendarSyncStatus: "SYNCED",
+          OR: [{ calendarLastSuccessfulAt: null }, { calendarLastSuccessfulAt: { lte: reconciliationCutoff } }],
+        },
+        data: { calendarSyncStatus: "PENDING" },
+      });
+      if (!claimed.count) return;
+      await tx.studyScheduleCalendarLink.updateMany({
+        where: { workspaceId: workspace.id, status: "SYNCED" },
+        data: { status: "PENDING", attemptCount: 0, nextAttemptAt: now, lastError: null },
+      });
+      const blocks = await tx.studyScheduleBlock.findMany({
+        where: { workspaceId: workspace.id, active: true, calendarLink: null },
+        select: { id: true },
+      });
+      if (blocks.length) await tx.studyScheduleCalendarLink.createMany({
+        data: blocks.map((block) => ({
+          workspaceId: workspace.id, blockId: block.id,
+          eventId: deterministicStudyEventId(block.id), operation: "UPSERT", status: "PENDING",
+          nextAttemptAt: now,
+        })),
+        skipDuplicates: true,
+      });
+    });
   }
   const links = await prisma.studyScheduleCalendarLink.findMany({
     where: {
@@ -154,11 +187,24 @@ export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3):
     distinct: ["workspaceId"],
     take: limit,
   });
-  for (const link of links) await processStudyCalendarQueueForWorkspace(link.workspaceId, 8, now);
-  return links.length + staleWorkspaces.length;
+  // Include newly claimed empty workspaces so they can settle back to SYNCED.
+  const workspaceIds = new Set([...links.map((link) => link.workspaceId), ...staleWorkspaces.map((workspace) => workspace.id)]);
+  for (const workspaceId of workspaceIds) await processStudyCalendarQueueForWorkspace(workspaceId, 8, now);
+  return workspaceIds.size;
 }
 
+// Coalesce manual sync and scheduler passes within this service instance. Durable
+// pending records survive restarts; deterministic provider IDs remain the retry key.
+const processingWorkspaces = new Map<string, Promise<void>>();
 async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit: number, now = new Date()): Promise<void> {
+  const existing = processingWorkspaces.get(workspaceId);
+  if (existing) return existing;
+  const running = drainStudyCalendarQueue(workspaceId, limit, now);
+  processingWorkspaces.set(workspaceId, running);
+  try { await running; } finally { processingWorkspaces.delete(workspaceId); }
+}
+
+async function drainStudyCalendarQueue(workspaceId: string, limit: number, now: Date): Promise<void> {
   const workspace = await prisma.studyWorkspace.findUnique({ where: { id: workspaceId } });
   if (!workspace?.calendarSyncEnabled) return;
   const links = await prisma.studyScheduleCalendarLink.findMany({
@@ -172,7 +218,6 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
     take: limit,
   });
 
-  let failed = 0;
   for (const link of links) {
     try {
       const block = await prisma.studyScheduleBlock.findUnique({
@@ -181,8 +226,8 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
       });
       if (!block || !block.active || link.operation === "DELETE") {
         await removeStudyEventFromGoogleCalendar(workspace.ownerUserId, link.eventId);
-        await prisma.studyScheduleCalendarLink.update({
-          where: { id: link.id },
+        await prisma.studyScheduleCalendarLink.updateMany({
+          where: { id: link.id, updatedAt: link.updatedAt },
           data: { status: "REMOVED", lastSyncedAt: now, lastAttemptAt: now, lastError: null, nextAttemptAt: null },
         });
         continue;
@@ -191,8 +236,10 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
       const input = buildStudyCalendarEventInput(workspace, block, link.eventId);
       const syncHash = crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
       const synced = await upsertStudyEventInGoogleCalendar(workspace.ownerUserId, input);
-      await prisma.studyScheduleCalendarLink.update({
-        where: { id: link.id },
+      // A local edit can enqueue a newer version during the provider request.
+      // Only settle the version we read; leave newer work pending for the next pass.
+      await prisma.studyScheduleCalendarLink.updateMany({
+        where: { id: link.id, updatedAt: link.updatedAt },
         data: {
           status: "SYNCED",
           operation: "UPSERT",
@@ -206,10 +253,9 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
         },
       });
     } catch (error) {
-      failed += 1;
       const attemptCount = link.attemptCount + 1;
-      await prisma.studyScheduleCalendarLink.update({
-        where: { id: link.id },
+      await prisma.studyScheduleCalendarLink.updateMany({
+        where: { id: link.id, updatedAt: link.updatedAt },
         data: {
           status: "FAILED",
           attemptCount,
@@ -223,16 +269,22 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
     }
   }
 
-  const remaining = await prisma.studyScheduleCalendarLink.count({
+  const pending = await prisma.studyScheduleCalendarLink.groupBy({
+    by: ["status", "attemptCount"],
     where: { workspaceId, status: { in: ["PENDING", "FAILED"] } },
+    _count: { _all: true },
   });
-  await prisma.studyWorkspace.update({
-    where: { id: workspaceId },
+  const remaining = pending.reduce((total, group) => total + group._count._all, 0);
+  const failed = pending.some((group) => group.status === "FAILED");
+  const exhausted = pending.some((group) => group.status === "FAILED" && group.attemptCount >= MAX_RETRY_ATTEMPTS);
+  await prisma.studyWorkspace.updateMany({
+    where: { id: workspaceId, calendarSyncEnabled: true },
     data: {
       calendarSyncStatus: remaining ? (failed ? "FAILED" : "PENDING") : "SYNCED",
       calendarLastAttemptAt: now,
       calendarLastSuccessfulAt: remaining ? undefined : now,
-      calendarLastError: failed ? "Some timetable blocks could not be synced. Threadwise will retry automatically." : null,
+      calendarLastError: exhausted ? "Some blocks need attention. Check the Calendar connection, then select Sync now to retry."
+        : failed ? "Some timetable blocks could not be synced. Threadwise will retry automatically." : null,
     },
   });
 }

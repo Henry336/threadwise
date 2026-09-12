@@ -1,9 +1,13 @@
 import type { PrismaClient } from "@prisma/client";
+import { createHash } from "crypto";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { DashboardUserNotFoundError } from "./snapshot";
 
-const CHANGE_POLL_INTERVAL_MS = 2_500;
+// One watcher per owner, not per tab. Cross-device/Telegram changes arrive within
+// 30 seconds; same-page mutations already refresh immediately. At most 120
+// revision passes/hour replaces 1,440 expensive external-Postgres passes.
+const CHANGE_POLL_INTERVAL_MS = 30_000;
 
 export type DashboardChangeEvent =
   | { type: "ready"; revision: string }
@@ -52,6 +56,7 @@ async function checkWatcher(telegramId: string): Promise<void> {
   watcher.checking = true;
   try {
     const next = await dashboardRevision(telegramId);
+    if (watchers.get(telegramId) !== watcher) return;
     if (!watcher.revision) {
       watcher.revision = next;
       emit(watcher, { type: "ready", revision: next });
@@ -82,7 +87,14 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
       settings: { select: { updatedAt: true } },
       calendarConnection: { select: { updatedAt: true } },
       microsoftConnection: { select: { updatedAt: true } },
-      studyWorkspace: { select: { id: true, updatedAt: true } }
+      studyWorkspace: { select: {
+        id: true, semesterName: true, semesterStartDate: true, timezone: true, active: true,
+        weeklyReviewDay: true, weeklyReviewTime: true, weeklyPreviewDay: true, weeklyPreviewTime: true,
+        quietHoursStart: true, quietHoursEnd: true, maxRemindersPerDay: true, timedPracticeStartWeek: true,
+        studyBlockRemindersEnabled: true, canvasSyncEnabled: true,
+        activeModuleId: true, activeModuleUntil: true, activeOriginId: true, activeOriginUntil: true,
+        travelMutedUntil: true, calendarSyncEnabled: true, calendarSyncStatus: true, calendarLastError: true,
+      } }
     }
   });
   if (!user) throw new DashboardUserNotFoundError();
@@ -108,7 +120,7 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
       ])
     : undefined;
 
-  return JSON.stringify([
+  return createHash("sha256").update(JSON.stringify([
     stamp(user.updatedAt),
     stamp(user.settings?.updatedAt),
     stamp(user.calendarConnection?.updatedAt),
@@ -120,9 +132,11 @@ export async function dashboardRevision(telegramId: string, database: PrismaClie
     aggregateStamp(expenses),
     aggregateStamp(availability),
     aggregateStamp(taskImports),
-    stamp(user.studyWorkspace?.updatedAt),
+    // Deliberately exclude updatedAt and diagnostic timestamps: the reminder
+    // health heartbeat writes them every minute without changing user content.
+    user.studyWorkspace,
     ...(study ? [aggregateStamp(study[0]), stamp(study[1]?.updatedAt), `${study[2]._count}:${stamp(study[2]._max.createdAt)}`] : [])
-  ]);
+  ])).digest("hex");
 }
 
 function aggregateStamp(value: { _count: number; _max: { updatedAt: Date | null } }): string {
