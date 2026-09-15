@@ -7,7 +7,7 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — idle Calendar replay containment (2026-09-15 SGT)
+## Active checkpoint — released Calendar/Canvas idle-egress containment (2026-09-15 SGT)
 
 - **Follow-on Canvas finding:** the first post-v0.35.5 database sample overlapped an automatic Canvas
   sync and rose to 1,420 statements/55 seconds and 31.90 MB/h of SQL text at that instantaneous rate.
@@ -19,8 +19,15 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   one bulk update, preloads existing course materials, skips unchanged extracted-text upserts, and
   bulk-updates material freshness. Source changes, local overrides, missing recovery, and deactivation
   remain intact. Focused containment tests pass 16/16; the complete suite passes 1057/6 skipped, with
-  typecheck/build, tracked-secret scan, and zero-finding production/full dependency audits. Release and
-  a completed post-release Canvas sample remain pending.
+  typecheck/build, tracked-secret scan, and zero-finding production/full dependency audits. A completed
+  post-release Canvas sample remains pending.
+- **Released:** final backend v0.35.6 runtime `c50611b36a5058cc0f441199a1f09c6398b73cde`
+  is live through Render deployment `dep-dakabkek1f9s73fu7dog` (2026-09-15 09:58:03 SGT).
+  Public health returns HTTP 200, `ok=true`, v0.35.6, and exact commit prefix `c50611b36a50`.
+  The Calendar handover queue is settled at 49 links, zero pending/failures, with no retry timestamps.
+  A post-release idle sample measured 133 statements/55 seconds and 2.50 MB/h of SQL text, down from
+  the earlier 239 statements and 3.12 MB/h sample. The next natural Canvas sync is scheduled for
+  10:17:46 SGT; its completed sample and delayed Render hourly metrics remain the monitoring gate.
 - A read-only production inspection confirmed the v0.35.4 queue was functionally healthy but wasteful:
   every 15 minutes it deliberately requeued and PATCHed all 49 unchanged timetable links. At
   2026-09-15 09:25 SGT the workspace was SYNCED with 49 zero-attempt links and a just-advanced
@@ -36,8 +43,8 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   retries remain immediate/bounded) and visible dashboard revision checks from 30 seconds to two minutes
   (same-page mutations remain immediate). Focused regressions pass 17/17; the complete suite passes
   1056/6 skipped, with typecheck/build, tracked-secret scan, and zero-finding production/full dependency
-  audits. Sharp 0.35.4 and Vitest 4.1.11 close advisories found during the gate. Commit, push, Render
-  deployment, and completed-hour measurement are still required at this checkpoint.
+  audits. Sharp 0.35.4 and Vitest 4.1.11 close advisories found during the gate. Completed-hour Render
+  measurement is still required; do not infer billed-bandwidth recovery from the instantaneous SQL sample.
 
 ## Previous checkpoint — Calendar/realtime egress repair (2026-09-12 SGT)
 

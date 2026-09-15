@@ -39,6 +39,17 @@ Actual Canvas source changes and missing/deactivation behavior still persist nor
 The final v0.35.6 gate passes 1,057 tests with 6 intentional skips, focused containment tests 16/16,
 typecheck, production build, tracked-secret scan, and zero-finding production/full dependency audits.
 
+## Release evidence
+
+Final runtime `c50611b36a5058cc0f441199a1f09c6398b73cde` became live as v0.35.6 through Render
+deployment `dep-dakabkek1f9s73fu7dog` at 09:58:03 SGT on September 15. Public health returned HTTP 200,
+`ok=true`, v0.35.6, and the exact commit prefix. The Calendar queue settled with 49 links and zero
+pending/failing rows. A post-release idle sample measured 133 statements over 55 seconds and an
+estimated 2.50 MB/h of SQL text, versus 239 statements and 3.12 MB/h before this release.
+
+The next natural Canvas run was due at 10:17:46 SGT. Its no-op behavior and at least two completed,
+delayed Render hourly points remain required evidence; the idle SQL delta is not a billing metric.
+
 ## Release gate
 
 Focused queue/realtime tests pass 17/17. The complete suite passes 1,056 tests with 6 intentional skips;
