@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Study Calendar weekday correction (v0.35.7)
+- Converts the persisted semester-start instant into the workspace-local calendar date before deriving
+  weekly Google events. A Monday stored as Sunday UTC no longer moves Tuesday/Wednesday classes to
+  Monday/Tuesday in Google Calendar.
+- Adds explicit Singapore Tuesday/Wednesday and New York DST regressions. Date-only recurrence
+  exceptions retain their existing UTC-key semantics.
+- Prefixes Calendar payload hashes with `calendar-v2`; the scheduler queues legacy synced links once
+  so existing Google events are patched promptly, then returns to the daily provider reconciliation
+  cadence. No migration, OAuth scope, Calendar content, or dashboard change is required.
+
 ### Canvas no-op synchronization containment (v0.35.6)
 - Stops rewriting the full Study item and Canvas assignment when the provider representation is
   unchanged. One bounded freshness update replaces one transaction per unchanged assignment.

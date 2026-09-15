@@ -41,6 +41,8 @@ function matches(row: Row, where: Row = {}): boolean {
         if (op === "in") return wanted.includes(actual);
         if (op === "lte") return actual != null && actual <= wanted;
         if (op === "lt") return actual < wanted;
+        if (op === "startsWith") return typeof actual === "string" && actual.startsWith(wanted);
+        if (op === "not") return !matches({ value: actual }, { value: wanted });
         throw new Error(`Unhandled predicate ${op}`);
       });
     }
@@ -64,7 +66,8 @@ function seed(count = 49, status = "SYNCED") {
   }));
   links = blocks.map((block) => ({
     id: `link-${block.id}`, blockId: block.id, eventId: `event-${block.id}`, workspaceId: "workspace",
-    status, operation: "UPSERT", attemptCount: 0, nextAttemptAt: null, updatedAt: new Date(epoch.getTime() - 60_000),
+    status, operation: "UPSERT", attemptCount: 0, nextAttemptAt: null,
+    syncHash: "calendar-v2:existing", updatedAt: new Date(epoch.getTime() - 60_000),
   }));
 }
 
@@ -128,6 +131,17 @@ describe("Study Calendar durable queue lifecycle", () => {
     await runPendingStudyCalendarSyncs(epoch);
     expect(mocks.upsert).not.toHaveBeenCalled();
     expect(bulkQueues).toBe(0);
+  });
+
+  it("repairs legacy calendar payloads once without restarting periodic replay", async () => {
+    workspace.calendarLastSuccessfulAt = new Date(epoch.getTime() - 2 * 60 * 60_000);
+    links[0]!.syncHash = "legacy-hash";
+    await runPendingStudyCalendarSyncs(epoch);
+    expect(mocks.upsert).toHaveBeenCalledTimes(1);
+    expect(links[0]!.syncHash).toMatch(/^calendar-v2:/u);
+
+    await runPendingStudyCalendarSyncs(new Date());
+    expect(mocks.upsert).toHaveBeenCalledTimes(1);
   });
 
   it("recovers the production-shaped false-SYNCED workspace without changing pending due times", async () => {

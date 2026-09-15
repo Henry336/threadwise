@@ -7,7 +7,26 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — released Calendar/Canvas idle-egress containment (2026-09-15 SGT)
+## Active checkpoint — Study Calendar weekday correction (2026-09-15 SGT)
+
+- **Reported symptom:** a Tuesday block appeared on Monday in Google Calendar, and Wednesday appeared
+  on Tuesday. The timetable weekday field remains correct and validated as ISO 1–7.
+- **Confirmed cause:** Study setup persists semester Monday midnight as a UTC instant. In
+  Asia/Singapore, `2026-09-07 00:00 +08:00` is `2026-09-06T16:00Z`. Calendar sync extracted the UTC
+  date key (`Sunday`) before adding `dayOfWeek - 1`, shifting the entire mirror one day earlier. The
+  old test fixture incorrectly used UTC midnight and therefore hid the production representation.
+- **Correction:** `calendarDateInZone` now converts the persisted instant to the workspace timezone
+  before taking `startOf("day")`. Date-only recurrence fields/exclusions remain UTC calendar keys.
+  `calendar-v2` sync hashes identify existing legacy event payloads and queue them exactly once; after
+  those bounded repairs drain, unchanged events retain the 24-hour reconciliation cadence.
+- **Evidence so far:** focused Calendar tests pass 16/16; complete Vitest passes 1060/6 skipped;
+  typecheck, a clean alternate-output production build, tracked-secret scan, and production/full
+  dependency audits pass with zero findings. Singapore Tuesday/Wednesday and New York DST expectations
+  are explicit. The ordinary local `dist` tree was locked by Windows and returned EPERM, so compilation
+  was repeated successfully into a fresh temporary output directory; the hosted Render build remains
+  the release gate.
+
+## Previous checkpoint — released Calendar/Canvas idle-egress containment (2026-09-15 SGT)
 
 - **Follow-on Canvas finding:** the first post-v0.35.5 database sample overlapped an automatic Canvas
   sync and rose to 1,420 statements/55 seconds and 31.90 MB/h of SQL text at that instantaneous rate.
