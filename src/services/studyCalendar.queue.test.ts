@@ -54,7 +54,7 @@ function update(row: Row, data: Row) {
 function seed(count = 49, status = "SYNCED") {
   workspace = {
     id: "workspace", ownerUserId: "owner", calendarSyncEnabled: true, calendarSyncStatus: "SYNCED",
-    calendarLastSuccessfulAt: new Date(epoch.getTime() - 60 * 60_000), timezone: "Asia/Singapore",
+    calendarLastSuccessfulAt: new Date(epoch.getTime() - 25 * 60 * 60_000), timezone: "Asia/Singapore",
     semesterStartDate: new Date("2026-09-07"),
   };
   blocks = Array.from({ length: count }, (_, index) => ({
@@ -121,6 +121,13 @@ describe("Study Calendar durable queue lifecycle", () => {
     expect(workspace.calendarSyncStatus).toBe("SYNCED");
     await runPendingStudyCalendarSyncs(new Date());
     expect(mocks.upsert).toHaveBeenCalledTimes(49);
+  });
+
+  it("does not replay an unchanged timetable during the daily reconciliation window", async () => {
+    workspace.calendarLastSuccessfulAt = new Date(epoch.getTime() - 23 * 60 * 60_000);
+    await runPendingStudyCalendarSyncs(epoch);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(bulkQueues).toBe(0);
   });
 
   it("recovers the production-shaped false-SYNCED workspace without changing pending due times", async () => {

@@ -11,6 +11,11 @@ import {
 
 const MAX_RETRY_ATTEMPTS = 6;
 const INITIAL_SYNC_BATCH_SIZE = 12;
+// Local edits enqueue their exact block immediately. A full provider reconciliation
+// exists only to repair Google-side deletion or edits, so replaying every unchanged
+// event every 15 minutes wastes database and provider bandwidth. Once per day keeps
+// that repair guarantee without turning an idle timetable into continuous traffic.
+const PROVIDER_RECONCILIATION_INTERVAL_HOURS = 24;
 const GOOGLE_WEEKDAYS = ["", "MO", "TU", "WE", "TH", "FR", "SA", "SU"] as const;
 
 type CalendarBlock = StudyScheduleBlock & { module: { code: string; name: string } | null };
@@ -136,7 +141,9 @@ export async function syncStudyTimetable(workspace: StudyWorkspace): Promise<Stu
 }
 
 export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3): Promise<number> {
-  const reconciliationCutoff = DateTime.fromJSDate(now).minus({ minutes: 15 }).toJSDate();
+  const reconciliationCutoff = DateTime.fromJSDate(now)
+    .minus({ hours: PROVIDER_RECONCILIATION_INTERVAL_HOURS })
+    .toJSDate();
   const staleWorkspaces = await prisma.studyWorkspace.findMany({
     where: {
       calendarSyncEnabled: true,

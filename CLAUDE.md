@@ -6,6 +6,12 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-15 (Codex, idle-egress containment in progress):** Production evidence showed the healthy
+  Calendar queue still replaying all 49 unchanged Google events every 15 minutes. v0.35.5 changes full
+  provider integrity reconciliation to daily while preserving immediate local edit queues and bounded
+  retries, and changes owner-shared dashboard revision polling from 30 seconds to two minutes while
+  preserving immediate same-page refresh. Evidence and release state are in `PROJECT_CONTEXT.md`.
+
 - **2026-09-12 (Codex, released egress repair):** v0.35.4 repairs Calendar reconciliation starvation
   with an atomic bulk enqueue and preserved backoff, guarded completions, process-local single-flight,
   and truthful queue status. Dashboard revisions use 30-second polling and exclude diagnostic-only

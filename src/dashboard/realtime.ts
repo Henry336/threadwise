@@ -5,9 +5,10 @@ import { logger } from "../logger";
 import { DashboardUserNotFoundError } from "./snapshot";
 
 // One watcher per owner, not per tab. Cross-device/Telegram changes arrive within
-// 30 seconds; same-page mutations already refresh immediately. At most 120
-// revision passes/hour replaces 1,440 expensive external-Postgres passes.
-const CHANGE_POLL_INTERVAL_MS = 30_000;
+// Same-page mutations refresh immediately. Cross-device/Telegram changes can wait
+// up to two minutes; this caps an open dashboard at 31 external-Postgres revision
+// passes/hour instead of keeping the database busy twice per minute while idle.
+const CHANGE_POLL_INTERVAL_MS = 2 * 60_000;
 
 export type DashboardChangeEvent =
   | { type: "ready"; revision: string }

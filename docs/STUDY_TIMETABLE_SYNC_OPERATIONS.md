@@ -1,6 +1,6 @@
 # Study timetable synchronization and reminder operations
 
-Updated: 2026-09-12 SGT
+Updated: 2026-09-15 SGT
 
 This runbook covers the owner-gated one-way Google Calendar mirror and occurrence-based Study timetable
 reminders. Threadwise PostgreSQL records remain authoritative. The Calendar mirror is opt-in, and it
@@ -29,12 +29,14 @@ timestamp, and a safe error. OAuth/access tokens and event payloads never enter 
   failure never rolls back the timetable change.
 - The queue patches first, creates only after Google returns 404, and patches after create-conflict 409.
   This recovers both manual provider deletion and ambiguous timeout-after-create outcomes.
-- Reconciliation requeues enabled workspaces at most once per 15-minute window. Google edits are
+- Provider reconciliation requeues enabled workspaces at most once per 24-hour window. Google edits are
   replaced with the Threadwise representation; manual Google deletions are recreated.
   The workspace claim and bulk enqueue are atomic. Only settled SYNCED links are requeued; existing
   PENDING/FAILED links keep their timestamps/attempts. Empty workspaces settle without provider calls.
   Never call the user-edit upsert helper from this sweep: that previously caused perpetual deadline
-  postponement and 49 redundant writes/minute. The captured scheduler time is the enqueue cutoff.
+  postponement and 49 redundant writes/minute. Never shorten the integrity window without measured
+  need: the former 15-minute schedule replayed all 49 unchanged provider events four times per hour.
+  The captured scheduler time is the enqueue cutoff.
 - Workspace drains are single-flight within the process. Link completion uses an updatedAt guard so
   a newer edit remains pending. Stable provider IDs retain retry safety across restarts. Multiple
   application replicas may issue idempotent provider requests; this is not a distributed provider lock.

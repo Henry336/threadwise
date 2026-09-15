@@ -7,7 +7,27 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
-## Active checkpoint — Calendar/realtime egress repair (2026-09-12 SGT)
+## Active checkpoint — idle Calendar replay containment (2026-09-15 SGT)
+
+- A read-only production inspection confirmed the v0.35.4 queue was functionally healthy but wasteful:
+  every 15 minutes it deliberately requeued and PATCHed all 49 unchanged timetable links. At
+  2026-09-15 09:25 SGT the workspace was SYNCED with 49 zero-attempt links and a just-advanced
+  `calendarLastSuccessfulAt`, proving the full provider replay was still active.
+- Render's latest published completed NAT sequence rose from the prior 9 MB/h floor to 15.16–21.13 MB/h
+  for several 2026-09-14 daytime hours. Health remained HTTP 200 on v0.35.4 and deploy
+  `dep-daiiv1ss728c73ajo9i0`; no unexpected deployment caused the rise. Later NAT points were absent
+  while HTTP points continued, so do not treat the chart tail as a verified zero or final recovery.
+- A safe 55-second `pg_stat_statements` delta observed 239 statements and an estimated 3.12 MB/h of SQL
+  text before protocol/TLS. This supports reducing idle database polling, but does not attribute every
+  Render byte. No credentials, content, coordinates, or query parameters were read or retained.
+- v0.35.5 changes unchanged provider reconciliation from 15 minutes to 24 hours (local edits and failed
+  retries remain immediate/bounded) and visible dashboard revision checks from 30 seconds to two minutes
+  (same-page mutations remain immediate). Focused regressions pass 17/17; the complete suite passes
+  1056/6 skipped, with typecheck/build, tracked-secret scan, and zero-finding production/full dependency
+  audits. Sharp 0.35.4 and Vitest 4.1.11 close advisories found during the gate. Commit, push, Render
+  deployment, and completed-hour measurement are still required at this checkpoint.
+
+## Previous checkpoint — Calendar/realtime egress repair (2026-09-12 SGT)
 
 - **Released:** backend v0.35.4 `01ff7a8859e8fa0a1350b241ffc7137515719608` is live through Render
   `dep-daiiv1ss728c73ajo9i0` (2026-09-12 18:56:51 SGT); health returns HTTP 200, ok=true, v0.35.4,

@@ -1,20 +1,22 @@
 # Architecture Notes
 
-Updated: 2026-09-12
+Updated: 2026-09-15
 
-Current backend release: v0.35.4 (deployment evidence in PROJECT_CONTEXT.md)
+Current backend release: v0.35.5 (deployment evidence in PROJECT_CONTEXT.md)
 
 ### Background synchronization budgets
 
 Calendar reconciliation claims and bulk-queues stale enabled workspaces atomically, preserving existing
-pending/retry work. Drains use stable cutoffs, local single-flight, and version-guarded completion.
+pending/retry work. Local edits queue immediately; unchanged provider events are integrity-checked once
+per day rather than replayed every 15 minutes. Drains use stable cutoffs, local single-flight, and
+version-guarded completion.
 See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `BANDWIDTH_REPAIR_2026-09-12.md`.
 
-Dashboard realtime shares one watcher per Telegram owner and checks compact revisions every 30 seconds.
+Dashboard realtime shares one watcher per Telegram owner and checks compact revisions every two minutes.
 Study diagnostic heartbeat timestamps are excluded; semantic settings/content/status still invalidate.
 Revisions are opaque hashes. Visible clients reconcile additionally every five minutes and disconnect
 when hidden/offline; explicit user mutations refresh immediately. This is bounded polling, not a
-database change-feed, and new external edits may take up to 30 seconds to appear.
+database change-feed, and new external edits may take up to two minutes to appear.
 
 Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
 one domain without reshaping the whole product. Several legacy composition modules remain large; use
@@ -189,7 +191,7 @@ Canvas course identity is anchored to the provider course id plus retained term 
 `studyCalendar.ts` is a separate one-way provider boundary over the same schedule records. Enabling sync
 creates one durable `StudyScheduleCalendarLink` per block with a deterministic Google event ID. Local
 mutations remain canonical and only enqueue UPSERT/DELETE work; patch-first provider writes, create-
-conflict recovery, bounded exponential retry, and 15-minute reconciliation converge repeated/concurrent
+conflict recovery, bounded exponential retry, and daily provider reconciliation converge repeated/concurrent
 requests on one event and replace Google-side changes. RRULE/EXDATE values represent recurrence and
 occurrence deletion. Existing encrypted OAuth credentials are reused, while event bodies, tokens,
 origins, coordinates, routes, buffers, and preparation notes never enter browser DTOs or logs.

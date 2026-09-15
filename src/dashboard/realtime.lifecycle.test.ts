@@ -25,14 +25,14 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup.forEach((stop) => stop()); vi.useRealTimers(); });
 describe("dashboard live-sync egress budget", () => {
-  it("shares one watcher per owner and limits a visible hour to 121 checks including initial", async () => {
+  it("shares one watcher per owner and limits a visible hour to 31 checks including initial", async () => {
     cleanup.push(subscribeDashboardChanges("owner", vi.fn())); cleanup.push(subscribeDashboardChanges("owner", vi.fn()));
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(mock.user).toHaveBeenCalledTimes(121);
-    expect(mock.aggregate).toHaveBeenCalledTimes(121 * 7);
+    expect(mock.user).toHaveBeenCalledTimes(31);
+    expect(mock.aggregate).toHaveBeenCalledTimes(31 * 7);
     cleanup.forEach((stop) => stop()); cleanup = [];
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(mock.user).toHaveBeenCalledTimes(121);
+    expect(mock.user).toHaveBeenCalledTimes(31);
   });
   it("ignores diagnostic-only writes but detects semantic settings and Calendar status changes", async () => {
     const before = await dashboardRevision("owner");
@@ -47,8 +47,8 @@ describe("dashboard live-sync egress budget", () => {
     let release!: (value: unknown) => void;
     mock.user.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
     cleanup.push(subscribeDashboardChanges("slow", vi.fn()));
-    await vi.advanceTimersByTimeAsync(90_000); expect(mock.user).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3 * 60_000); expect(mock.user).toHaveBeenCalledTimes(1);
     release({ id: "owner", updatedAt: new Date("2026-09-01") });
-    await vi.advanceTimersByTimeAsync(30_000); expect(mock.user).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2 * 60_000); expect(mock.user).toHaveBeenCalledTimes(2);
   });
 });

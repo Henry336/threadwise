@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Calendar and dashboard idle-egress containment (v0.35.5)
+- Reduces unchanged Study timetable provider reconciliation from every 15 minutes to once per day.
+  Local edits still enqueue immediately, failed jobs preserve bounded retry, and the daily integrity
+  pass still repairs Google-side edits or deletions.
+- Reduces visible-dashboard revision polling from every 30 seconds to every two minutes. Same-page
+  mutations still refresh immediately; cross-device and Telegram changes remain eventually consistent.
+- Adds query-budget regressions proving a 49-block timetable is not replayed inside the daily integrity
+  window and one owner uses at most 31 revision checks in a visible hour.
+- Updates Sharp to 0.35.4 and Vitest to 4.1.11 after the release audit identified fixed upstream
+  advisories; both production and full dependency audits are clean.
+
 ### Calendar queue and dashboard egress repair (v0.35.4)
 - Atomically claims stale Calendar workspaces and bulk-queues only settled links, preserving pending
   work and failed-job backoff. The scheduler uses one cutoff throughout instead of postponing all
