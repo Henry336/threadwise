@@ -9,7 +9,9 @@ function workspace(overrides: Partial<StudyWorkspace> = {}): StudyWorkspace {
     ownerTelegramId: "111",
     boundChatId: "-222",
     timezone: "Asia/Singapore",
-    semesterStartDate: new Date("2026-09-07T00:00:00.000Z"),
+    // Monday midnight in Asia/Singapore. Persisted dates are instants, not UTC
+    // date-only keys, so this is Sunday in UTC.
+    semesterStartDate: new Date("2026-09-06T16:00:00.000Z"),
     ...overrides,
   } as StudyWorkspace;
 }
@@ -71,6 +73,20 @@ describe("Study Calendar identity", () => {
     expect(JSON.stringify(input)).not.toMatch(/origin|coordinate|route|preparation/iu);
   });
 
+  it.each([
+    [2, "TU", "2026-09-08T06:00:00.000Z"],
+    [3, "WE", "2026-09-09T06:00:00.000Z"],
+  ])("keeps weekday %i on its workspace-local calendar day", (dayOfWeek, googleDay, expectedStart) => {
+    const input = buildStudyCalendarEventInput(
+      workspace(),
+      block({ dayOfWeek }),
+      "stable-event-id",
+    );
+
+    expect(input.startAt.toISOString()).toBe(expectedStart);
+    expect(input.recurrence[0]).toContain(`BYDAY=${googleDay}`);
+  });
+
   it("uses a single event when an occurrence starts and ends on the same date", () => {
     const oneDay = new Date("2026-09-09T00:00:00.000Z");
     const input = buildStudyCalendarEventInput(workspace(), block({
@@ -89,7 +105,8 @@ describe("Study Calendar identity", () => {
   it("preserves local wall-clock time through a daylight-saving transition", () => {
     const input = buildStudyCalendarEventInput(workspace({
       timezone: "America/New_York",
-      semesterStartDate: new Date("2026-03-02T00:00:00.000Z"),
+      // Monday midnight in New York before the DST transition.
+      semesterStartDate: new Date("2026-03-02T05:00:00.000Z"),
     }), block({ startTime: "09:00", endTime: "10:00", endWeek: 3 }), "stable-event-id");
 
     expect(input.timezone).toBe("America/New_York");

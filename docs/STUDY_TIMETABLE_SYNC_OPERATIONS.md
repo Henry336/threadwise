@@ -44,6 +44,13 @@ timestamp, and a safe error. OAuth/access tokens and event payloads never enter 
   machine-safe codes; the workspace snapshot exposes only actionable generic copy.
 - Single blocks produce one event. Weekly blocks use RRULE plus EXDATE values for occurrence/week
   exclusions. Shortening a series patches its end; deactivating the entire series removes the event.
+- Semester start is stored as an instant representing local midnight. Always convert that instant into
+  `workspace.timezone` before deriving its calendar date; never slice the UTC date. By contrast,
+  recurrence start/end and excluded occurrence values are date-only UTC keys. These two semantics must
+  remain separate. Singapore positive-offset and a DST-observing zone are mandatory regressions.
+- Calendar sync hashes carry a payload-version prefix. A version change queues legacy `SYNCED` links
+  once, allowing a date-semantic correction to patch existing provider events without shortening the
+  24-hour integrity interval or continually replaying unchanged events.
 
 Calendar payloads contain only title, module label, time/recurrence, venue, and a private Threadwise
 block reference. Never add saved origins, coordinates, boarding stops, services, routes, travel buffers,

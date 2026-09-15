@@ -16,6 +16,10 @@ const INITIAL_SYNC_BATCH_SIZE = 12;
 // event every 15 minutes wastes database and provider bandwidth. Once per day keeps
 // that repair guarantee without turning an idle timetable into continuous traffic.
 const PROVIDER_RECONCILIATION_INTERVAL_HOURS = 24;
+// Prefix hashes with the calendar payload version. This lets a release repair
+// already-synced Google events once when event-date semantics change, without
+// returning to periodic provider replay.
+const CALENDAR_PAYLOAD_VERSION = "calendar-v2";
 const GOOGLE_WEEKDAYS = ["", "MO", "TU", "WE", "TH", "FR", "SA", "SU"] as const;
 
 type CalendarBlock = StudyScheduleBlock & { module: { code: string; name: string } | null };
@@ -141,6 +145,32 @@ export async function syncStudyTimetable(workspace: StudyWorkspace): Promise<Stu
 }
 
 export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3): Promise<number> {
+  const legacyLinks = await prisma.studyScheduleCalendarLink.findMany({
+    where: {
+      workspace: { calendarSyncEnabled: true },
+      status: "SYNCED",
+      syncHash: { not: { startsWith: `${CALENDAR_PAYLOAD_VERSION}:` } },
+    },
+    select: { workspaceId: true },
+    distinct: ["workspaceId"],
+    take: limit,
+  });
+  for (const { workspaceId } of legacyLinks) {
+    await prisma.$transaction(async (tx) => {
+      await tx.studyScheduleCalendarLink.updateMany({
+        where: {
+          workspaceId,
+          status: "SYNCED",
+          syncHash: { not: { startsWith: `${CALENDAR_PAYLOAD_VERSION}:` } },
+        },
+        data: { status: "PENDING", attemptCount: 0, nextAttemptAt: now, lastError: null },
+      });
+      await tx.studyWorkspace.updateMany({
+        where: { id: workspaceId, calendarSyncEnabled: true },
+        data: { calendarSyncStatus: "PENDING", calendarLastError: null },
+      });
+    });
+  }
   const reconciliationCutoff = DateTime.fromJSDate(now)
     .minus({ hours: PROVIDER_RECONCILIATION_INTERVAL_HOURS })
     .toJSDate();
@@ -195,7 +225,11 @@ export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3):
     take: limit,
   });
   // Include newly claimed empty workspaces so they can settle back to SYNCED.
-  const workspaceIds = new Set([...links.map((link) => link.workspaceId), ...staleWorkspaces.map((workspace) => workspace.id)]);
+  const workspaceIds = new Set([
+    ...links.map((link) => link.workspaceId),
+    ...staleWorkspaces.map((workspace) => workspace.id),
+    ...legacyLinks.map((link) => link.workspaceId),
+  ]);
   for (const workspaceId of workspaceIds) await processStudyCalendarQueueForWorkspace(workspaceId, 8, now);
   return workspaceIds.size;
 }
@@ -241,7 +275,7 @@ async function drainStudyCalendarQueue(workspaceId: string, limit: number, now: 
       }
 
       const input = buildStudyCalendarEventInput(workspace, block, link.eventId);
-      const syncHash = crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+      const syncHash = `${CALENDAR_PAYLOAD_VERSION}:${crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex")}`;
       const synced = await upsertStudyEventInGoogleCalendar(workspace.ownerUserId, input);
       // A local edit can enqueue a newer version during the provider request.
       // Only settle the version we read; leave newer work pending for the next pass.
@@ -349,8 +383,11 @@ function recurrenceEnd(workspace: StudyWorkspace, block: StudyScheduleBlock): Da
 }
 
 function calendarDateInZone(value: Date, timezone: string): DateTime {
-  const key = DateTime.fromJSDate(value, { zone: "utc" }).toISODate();
-  return key ? DateTime.fromISO(key, { zone: timezone }) : DateTime.fromJSDate(value, { zone: timezone }).startOf("day");
+  // semesterStartDate is an instant representing midnight in the workspace's
+  // timezone. In positive-offset zones that instant belongs to the previous UTC
+  // date (for example Monday 00:00 Singapore is Sunday 16:00 UTC). Extracting
+  // the UTC date therefore shifted every mirrored event one day earlier.
+  return DateTime.fromJSDate(value).setZone(timezone).startOf("day");
 }
 
 function alignToWeekday(date: DateTime, dayOfWeek: number): DateTime {
