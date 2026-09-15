@@ -23,8 +23,13 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
   typecheck, a clean alternate-output production build, tracked-secret scan, and production/full
   dependency audits pass with zero findings. Singapore Tuesday/Wednesday and New York DST expectations
   are explicit. The ordinary local `dist` tree was locked by Windows and returned EPERM, so compilation
-  was repeated successfully into a fresh temporary output directory; the hosted Render build remains
-  the release gate.
+  was repeated successfully into a fresh temporary output directory; the hosted Render build also passed.
+- **Released:** PR #31 merged as `81a6f5becc75ce5b6b55084892de2a69ddc4ea9f` and Render deployment
+  `dep-dakb8rk9v7es73dfm58g` became live at 2026-09-15 11:00:24 SGT. Public health returns HTTP 200,
+  `ok=true`, v0.35.7, and exact commit prefix `81a6f5becc75`. The bounded compatibility repair drained
+  at eight events per scheduler pass and settled at 2026-09-15 11:03:14 SGT: 32 active links SYNCED,
+  17 inactive links REMOVED, zero PENDING, zero FAILED, zero retries. This confirms existing Google
+  events were patched and the queue did not disturb deleted series.
 
 ## Previous checkpoint — released Calendar/Canvas idle-egress containment (2026-09-15 SGT)
 

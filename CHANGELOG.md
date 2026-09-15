@@ -11,6 +11,8 @@
 - Prefixes Calendar payload hashes with `calendar-v2`; the scheduler queues legacy synced links once
   so existing Google events are patched promptly, then returns to the daily provider reconciliation
   cadence. No migration, OAuth scope, Calendar content, or dashboard change is required.
+- Released merge `81a6f5becc75` through Render deployment `dep-dakb8rk9v7es73dfm58g`; v0.35.7 health
+  is green and the repair completed with 32 synced, 17 removed, and zero pending/failed links.
 
 ### Canvas no-op synchronization containment (v0.35.6)
 - Stops rewriting the full Study item and Canvas assignment when the provider representation is

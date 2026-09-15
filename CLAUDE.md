@@ -6,12 +6,13 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
-- **2026-09-15 (Codex, Calendar weekday hotfix prepared):** v0.35.7 fixes a production-visible
+- **2026-09-15 (Codex, released Calendar weekday hotfix):** v0.35.7 fixes a production-visible
   timezone conversion that mirrored every Study block one day early when the semester's local
   Monday midnight was the previous UTC date. Calendar event construction now derives the semester
   date in the workspace timezone. Versioned sync hashes requeue legacy mirrored events exactly once,
   preserving the 24-hour integrity interval afterward. Singapore weekday and New York DST regressions
-  are in `src/services/studyCalendar.test.ts`; release evidence is tracked in `PROJECT_CONTEXT.md`.
+  are in `src/services/studyCalendar.test.ts`. Merge `81a6f5becc75` is live through Render deployment
+  `dep-dakb8rk9v7es73dfm58g`; the automatic repair settled all 32 active series with zero failures.
 
 - **2026-09-15 (Codex, released Canvas no-op containment):** A post-release query sample caught the
   automatic Canvas mirror rewriting unchanged assignments, Study items, weeks, and large extracted-text
