@@ -9,6 +9,18 @@ before stopping. Never store secrets, tokens, embedded images, or large tool out
 
 ## Active checkpoint — idle Calendar replay containment (2026-09-15 SGT)
 
+- **Follow-on Canvas finding:** the first post-v0.35.5 database sample overlapped an automatic Canvas
+  sync and rose to 1,420 statements/55 seconds and 31.90 MB/h of SQL text at that instantaneous rate.
+  The dominant queries were repeated `StudyCanvasMaterial` inserts carrying extracted text,
+  `StudyCanvasAssignment`/`StudyItem` writes, and per-assignment `StudyWeek` upserts. The sync rewrote
+  provider-identical records every 30 minutes; this is a stronger match for the daytime bandwidth
+  bursts than Calendar alone.
+- v0.35.6 skips provider-identical assignment/item transactions, replaces assignment freshness with
+  one bulk update, preloads existing course materials, skips unchanged extracted-text upserts, and
+  bulk-updates material freshness. Source changes, local overrides, missing recovery, and deactivation
+  remain intact. Focused containment tests pass 16/16; the complete suite passes 1057/6 skipped, with
+  typecheck/build, tracked-secret scan, and zero-finding production/full dependency audits. Release and
+  a completed post-release Canvas sample remain pending.
 - A read-only production inspection confirmed the v0.35.4 queue was functionally healthy but wasteful:
   every 15 minutes it deliberately requeued and PATCHed all 49 unchanged timetable links. At
   2026-09-15 09:25 SGT the workspace was SYNCED with 49 zero-attempt links and a just-advanced

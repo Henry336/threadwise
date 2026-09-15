@@ -2,7 +2,7 @@
 
 Updated: 2026-09-15
 
-Current backend release: v0.35.5 (deployment evidence in PROJECT_CONTEXT.md)
+Current backend release: v0.35.6 (deployment evidence in PROJECT_CONTEXT.md)
 
 ### Background synchronization budgets
 

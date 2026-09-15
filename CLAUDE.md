@@ -6,6 +6,12 @@ then follow the pointers below.
 
 ## Latest implementation checkpoint
 
+- **2026-09-15 (Codex, Canvas no-op containment in progress):** A post-release query sample caught the
+  automatic Canvas mirror rewriting unchanged assignments, Study items, weeks, and large extracted-text
+  material rows every 30 minutes. v0.35.6 adds semantic no-op persistence and bounded bulk freshness
+  updates while preserving provider changes, overrides, missing recovery, and deactivation. Evidence
+  and release state are in `PROJECT_CONTEXT.md`.
+
 - **2026-09-15 (Codex, idle-egress containment in progress):** Production evidence showed the healthy
   Calendar queue still replaying all 49 unchanged Google events every 15 minutes. v0.35.5 changes full
   provider integrity reconciliation to daily while preserving immediate local edit queues and bounded

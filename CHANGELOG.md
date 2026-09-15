@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Canvas no-op synchronization containment (v0.35.6)
+- Stops rewriting the full Study item and Canvas assignment when the provider representation is
+  unchanged. One bounded freshness update replaces one transaction per unchanged assignment.
+- Preloads a course's existing material metadata and skips large extracted-text upserts when the
+  canonical fields and content hash are unchanged. Material last-seen freshness is updated once in
+  bulk per course.
+- Keeps assignment completion, due-date/title override preservation, missing-item recovery, material
+  deactivation, and source-change persistence intact. Adds a no-op assignment regression.
+
 ### Calendar and dashboard idle-egress containment (v0.35.5)
 - Reduces unchanged Study timetable provider reconciliation from every 15 minutes to once per day.
   Local edits still enqueue immediately, failed jobs preserve bounded retry, and the daily integrity

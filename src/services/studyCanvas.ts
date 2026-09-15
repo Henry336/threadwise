@@ -115,6 +115,8 @@ export type StudyCanvasSyncSummary = {
   courseDiagnostics: CanvasCourseDiagnostic[];
 };
 
+type CanvasAssignmentResult = "imported" | "updated" | "unchanged" | "ignored_submitted" | "ignored_inactive";
+
 type CanvasCourseDiagnostic = {
   canvasCourseId: string;
   moduleCode: string;
@@ -289,6 +291,15 @@ async function performStudyCanvasSync(
       courseDiagnostics.push(diagnostic);
     }
 
+    if (seenAssignmentIds.size > 0) {
+      // Freshness is operational metadata, not a reason to rewrite every item
+      // and assignment. One bounded update replaces one transaction per unchanged
+      // assignment while preserving the dashboard's last-seen signal.
+      await prisma.studyCanvasAssignment.updateMany({
+        where: { workspaceId: workspace.id, canvasAssignmentId: { in: [...seenAssignmentIds] } },
+        data: { lastSeenAt: now },
+      });
+    }
     const previouslyTracked = await prisma.studyCanvasAssignment.findMany({
       where: { workspaceId: workspace.id },
       select: { id: true, canvasAssignmentId: true, status: true, needsReview: true },
@@ -557,7 +568,7 @@ export async function persistCanvasAssignment(
   course: CanvasCourse,
   assignment: CanvasAssignment,
   now: Date,
-): Promise<"imported" | "updated" | "ignored_submitted" | "ignored_inactive"> {
+): Promise<CanvasAssignmentResult> {
   const canvasAssignmentId = String(assignment.id);
   const canvasCourseId = String(course.id);
   const title = (assignment.name ?? `Canvas assignment ${canvasAssignmentId}`).trim().slice(0, 500);
@@ -568,13 +579,21 @@ export async function persistCanvasAssignment(
     where: { workspaceId_canvasAssignmentId: { workspaceId: workspace.id, canvasAssignmentId } },
     include: { item: true },
   });
-  const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
-  const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
-
   if (existing) {
     const keepLocallyClosed = existing.item.status === StudyItemStatus.DONE
       || existing.item.status === StudyItemStatus.PROCESSED
       || existing.item.status === StudyItemStatus.SKIPPED;
+    const assignmentData = canvasAssignmentData(workspace.id, module.id, canvasCourseId, assignment, title, dueAt, submittedAt, now);
+    const desiredStatus = submitted && !keepLocallyClosed ? StudyItemStatus.DONE : existing.item.status;
+    const itemUnchanged = existing.item.moduleId === module.id
+      && (existing.item.titleOverridden || existing.item.title === title)
+      && (existing.item.dueAtOverridden || sameCanvasValue(existing.item.dueAt, dueAt))
+      && existing.item.status === desiredStatus;
+    if (itemUnchanged && sameCanvasFields(existing, assignmentData, new Set(["lastSeenAt"]))) {
+      return "unchanged";
+    }
+    const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
+    const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
     await prisma.$transaction([
       prisma.studyItem.update({
         where: { id: existing.itemId },
@@ -590,7 +609,7 @@ export async function persistCanvasAssignment(
       }),
       prisma.studyCanvasAssignment.update({
         where: { id: existing.id },
-        data: canvasAssignmentData(workspace.id, module.id, canvasCourseId, assignment, title, dueAt, submittedAt, now),
+        data: assignmentData,
       }),
     ]);
     return "updated";
@@ -604,6 +623,8 @@ export async function persistCanvasAssignment(
   // metadata only. Activating the module and syncing again imports them.
   if (!module.active) return "ignored_inactive";
 
+  const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
+  const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
   const publicId = await nextStudyPublicId(workspace.id, "STUDY");
   const item = await prisma.studyItem.create({
     data: {
@@ -676,6 +697,9 @@ async function syncCanvasCourseMaterials(
   );
   const seenModuleIds = new Set<string>();
   const seenMaterialIds = new Set<string>();
+  const existingMaterials = new Map((await prisma.studyCanvasMaterial.findMany({
+    where: { workspaceId: workspace.id, canvasCourseId },
+  })).map((material) => [material.canvasModuleItemId, material]));
   let pagesCached = 0;
   let filesIndexed = 0;
 
@@ -732,54 +756,38 @@ async function syncCanvasCourseMaterials(
       const extractedText = page?.body ? htmlToPlainText(page.body)?.slice(0, CANVAS_MAX_PAGE_TEXT) : undefined;
       const analysisExcerpt = deriveCanvasAnalysisExcerpt(extractedText);
       const title = (page?.title ?? file?.display_name ?? file?.filename ?? item.title ?? `Canvas material ${canvasModuleItemId}`).trim().slice(0, 500);
+      const materialData = {
+        moduleId: module.id,
+        courseModuleId: courseModule.id,
+        canvasCourseId,
+        canvasContentId: item.content_id == null ? undefined : String(item.content_id),
+        kind,
+        title,
+        position: item.position ?? 0,
+        htmlUrl: item.html_url ?? undefined,
+        apiUrl: item.url ?? undefined,
+        externalUrl: item.external_url ?? undefined,
+        contentType: file?.["content-type"],
+        byteSize: safeCanvasByteSize(file?.size),
+        extractedText,
+        analysisExcerpt,
+        analysisExcerptReady: true,
+        contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
+        sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
+        unlockAt: canvasDate(file?.unlock_at),
+        published: page?.published ?? item.published,
+        active: true,
+        lastSeenAt: now,
+      };
+      const existingMaterial = existingMaterials.get(canvasModuleItemId);
+      if (existingMaterial && sameCanvasFields(existingMaterial, materialData, new Set(["lastSeenAt"]))) continue;
       await prisma.studyCanvasMaterial.upsert({
         where: { workspaceId_canvasModuleItemId: { workspaceId: workspace.id, canvasModuleItemId } },
-        update: {
-          moduleId: module.id,
-          courseModuleId: courseModule.id,
-          canvasCourseId,
-          canvasContentId: item.content_id == null ? undefined : String(item.content_id),
-          kind,
-          title,
-          position: item.position ?? 0,
-          htmlUrl: item.html_url ?? undefined,
-          apiUrl: item.url ?? undefined,
-          externalUrl: item.external_url ?? undefined,
-          contentType: file?.["content-type"],
-          byteSize: safeCanvasByteSize(file?.size),
-          extractedText,
-          analysisExcerpt,
-          analysisExcerptReady: true,
-          contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
-          sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
-          unlockAt: canvasDate(file?.unlock_at),
-          published: page?.published ?? item.published,
-          active: true,
-          lastSeenAt: now,
-        },
+        update: materialData,
         create: {
           workspaceId: workspace.id,
-          moduleId: module.id,
-          courseModuleId: courseModule.id,
-          canvasCourseId,
           canvasModuleItemId,
-          canvasContentId: item.content_id == null ? undefined : String(item.content_id),
-          kind,
-          title,
-          position: item.position ?? 0,
-          htmlUrl: item.html_url ?? undefined,
-          apiUrl: item.url ?? undefined,
-          externalUrl: item.external_url ?? undefined,
-          contentType: file?.["content-type"],
-          byteSize: safeCanvasByteSize(file?.size),
-          extractedText,
-          analysisExcerpt,
-          analysisExcerptReady: true,
-          contentHash: extractedText ? createHash("sha256").update(extractedText).digest("hex") : undefined,
-          sourceUpdatedAt: canvasDate(page?.updated_at ?? file?.updated_at),
-          unlockAt: canvasDate(file?.unlock_at),
-          published: page?.published ?? item.published,
-          lastSeenAt: now,
+          ...materialData,
         },
       });
     }
@@ -793,7 +801,29 @@ async function syncCanvasCourseMaterials(
     where: { workspaceId: workspace.id, canvasCourseId, active: true, canvasModuleItemId: { notIn: [...seenMaterialIds] } },
     data: { active: false },
   });
+  if (seenMaterialIds.size > 0) {
+    await prisma.studyCanvasMaterial.updateMany({
+      where: { workspaceId: workspace.id, canvasCourseId, canvasModuleItemId: { in: [...seenMaterialIds] } },
+      data: { lastSeenAt: now },
+    });
+  }
   return { courseModulesSeen: seenModuleIds.size, materialsSeen: seenMaterialIds.size, pagesCached, filesIndexed };
+}
+
+function sameCanvasFields(
+  existing: Record<string, unknown>,
+  desired: Record<string, unknown>,
+  ignored = new Set<string>(),
+): boolean {
+  return Object.entries(desired).every(([key, value]) => (
+    ignored.has(key) || value === undefined || sameCanvasValue(existing[key], value)
+  ));
+}
+
+function sameCanvasValue(left: unknown, right: unknown): boolean {
+  if (left == null && right == null) return true;
+  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime();
+  return left === right;
 }
 
 export function canvasMaterialKind(value: string | undefined): StudyCanvasMaterialKind {

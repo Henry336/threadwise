@@ -85,4 +85,52 @@ describe("Canvas module visibility persistence", () => {
       data: expect.not.objectContaining({ userArchivedAt: expect.anything() }),
     }));
   });
+
+  it("does not rewrite an unchanged Canvas assignment or its Study item", async () => {
+    const sourceUpdatedAt = new Date("2026-08-10T09:00:00.000Z");
+    const module = { id: "module-1", active: true };
+    db.studyCanvasAssignment.findUnique.mockResolvedValue({
+      id: "canvas-assignment-1",
+      workspaceId: workspace.id,
+      moduleId: module.id,
+      itemId: "item-1",
+      canvasCourseId: "93730",
+      canvasAssignmentId: "264228",
+      title: "Programming Quiz",
+      description: null,
+      htmlUrl: null,
+      dueAt: null,
+      unlockAt: null,
+      lockAt: null,
+      submissionState: null,
+      submittedAt: null,
+      workflowState: "published",
+      status: "ACTIVE",
+      sourceUpdatedAt,
+      lastSeenAt: new Date("2026-08-10T08:00:00.000Z"),
+      missingSince: null,
+      needsReview: false,
+      item: {
+        id: "item-1",
+        moduleId: module.id,
+        title: "Programming Quiz",
+        dueAt: null,
+        status: StudyItemStatus.OPEN,
+        titleOverridden: false,
+        dueAtOverridden: false,
+      },
+    });
+
+    await expect(persistCanvasAssignment(
+      workspace,
+      module as never,
+      { id: 93730, course_code: "CS2100" },
+      { id: 264228, name: "Programming Quiz", workflow_state: "published", updated_at: sourceUpdatedAt.toISOString() },
+      now,
+    )).resolves.toBe("unchanged");
+
+    expect(db.studyItem.update).not.toHaveBeenCalled();
+    expect(db.studyCanvasAssignment.update).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
 });

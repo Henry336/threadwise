@@ -27,6 +27,18 @@ No migration, credential change, user-data deletion, Calendar-content logging, o
 required. The bandwidth monitor remains authoritative after deployment because Render publishes hourly
 data with delay and source attribution is aggregate-only.
 
+## v0.35.6 Canvas follow-on
+
+A post-v0.35.5 sample overlapped automatic Canvas synchronization and measured 1,420 database statements
+in 55 seconds, with an instantaneous SQL-text rate of 31.90 MB/h. The dominant application statements
+were provider-identical assignment/item updates, per-assignment week upserts, and material upserts that
+resent extracted page text. v0.35.6 compares canonical fields before persistence, skips unchanged item
+transactions and material upserts, and consolidates freshness timestamps into bounded bulk updates.
+Actual Canvas source changes and missing/deactivation behavior still persist normally.
+
+The final v0.35.6 gate passes 1,057 tests with 6 intentional skips, focused containment tests 16/16,
+typecheck, production build, tracked-secret scan, and zero-finding production/full dependency audits.
+
 ## Release gate
 
 Focused queue/realtime tests pass 17/17. The complete suite passes 1,056 tests with 6 intentional skips;
