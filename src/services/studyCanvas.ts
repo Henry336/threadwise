@@ -577,8 +577,9 @@ export async function persistCanvasAssignment(
   const submitted = isSubmitted(assignment.submission);
   const existing = await prisma.studyCanvasAssignment.findUnique({
     where: { workspaceId_canvasAssignmentId: { workspaceId: workspace.id, canvasAssignmentId } },
-    include: { item: true },
+    include: { item: { include: { week: { select: { number: true } } } } },
   });
+  const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
   if (existing) {
     const keepLocallyClosed = existing.item.status === StudyItemStatus.DONE
       || existing.item.status === StudyItemStatus.PROCESSED
@@ -588,11 +589,11 @@ export async function persistCanvasAssignment(
     const itemUnchanged = existing.item.moduleId === module.id
       && (existing.item.titleOverridden || existing.item.title === title)
       && (existing.item.dueAtOverridden || sameCanvasValue(existing.item.dueAt, dueAt))
+      && (weekNumber < 1 || existing.item.week?.number === weekNumber)
       && existing.item.status === desiredStatus;
     if (itemUnchanged && sameCanvasFields(existing, assignmentData, new Set(["lastSeenAt"]))) {
       return "unchanged";
     }
-    const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
     const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
     await prisma.$transaction([
       prisma.studyItem.update({
@@ -623,7 +624,6 @@ export async function persistCanvasAssignment(
   // metadata only. Activating the module and syncing again imports them.
   if (!module.active) return "ignored_inactive";
 
-  const weekNumber = dueAt ? academicWeekNumber(workspace, dueAt) : academicWeekNumber(workspace, now);
   const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
   const publicId = await nextStudyPublicId(workspace.id, "STUDY");
   const item = await prisma.studyItem.create({
