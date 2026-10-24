@@ -356,6 +356,45 @@ Both assistants share **one canonical context: this `CLAUDE.md`.**
 
 ## Working log
 
+- **2026-10-14 (Codex, private delivery confirmed; schedule still blocked):** Verified Henry's
+  supplied private recipient, sent one labeled setup test (Telegram message 24012), and saved
+  `THREADWISE_TELEGRAM_CHAT_ID` in Windows User environment. No key was disclosed/copied.
+  Retried app project/chat/schedule controls: legacy route unavailable; direct MCP lookup says
+  unknown server `codex_app`. Corrected TechNews records; no news digest, new chat, or schedule.
+
+- **2026-10-14 (Codex, Daily Tech Brief credential verification):** User-provided Windows User
+  variable `THREADWISE` was verified against Telegram getMe as `@threadwise_1_bot`, after an
+  approved network retry. No credential was displayed/persisted and no message was sent.
+  Updated the Desktop TechNews setup state/instructions. Henry's numeric private recipient
+  remains required; supported chat/schedule controls are still unavailable. No active automation.
+
+- **2026-10-14 (Codex, Daily Tech Brief setup blocked):** Henry approved one new dedicated
+  chat reused daily at 08:00 Asia/Singapore, ten reliable tech updates covering both practical
+  AI/dev-tool news and broader tech/graduate hiring, private Threadwise delivery, and a Desktop
+  journal. Prepared `C:\Users\Henry\OneDrive\Desktop\TechNews` with index/monthly journal,
+  research/credit/formatting/replay rules, saved run prompt, and non-secret blocked setup state.
+  Reviewed WorldofAI descriptions/timestamped summaries; full transcript retrieval failed and
+  was not claimed. Supported app chat/schedule tools returned unavailable; scoped local bot
+  authorization/recipient settings were absent. No chat/automation or Telegram send exists yet.
+  No workaround scheduler, production lookup/deploy/runtime change, or continuity-state change.
+
+- **2026-10-02 (Codex, educational publication):** Produced Henry's source-pinned Threadwise
+  textbook/workbook/suggested-solutions set (115/46/46 pages; 36 chapters; 108 matched exercises).
+  Thirty-five runnable chapter listings plus the synthetic MiniThreadwise lab pass; all 207 PDF
+  pages pass mechanical content/layout/navigation checks, with chapter-opening/dense visual QA.
+  Publication target is `C:\Users\Henry\Desktop\Threadwise Case Study`, with rebuild sources
+  retained there. See `docs/CASE_STUDY_PREPRODUCTION_PLAN.md` for the publication checkpoint.
+  Both repository HEADs stayed pinned; no product runtime, credentials, migration, deployment,
+  or full product test execution was involved. PDF tooling was isolated and checks sequential.
+
+- **2026-10-02 (Codex, educational preproduction only):** Recorded Henry's learning baseline
+  (comfortable programming; new to TypeScript/databases/web architecture) and complete-system scope.
+  Added `docs/CASE_STUDY_PREPRODUCTION_PLAN.md` with pinned backend/dashboard snapshots, a 36-chapter
+  component map, rebuild exercises/solution contracts, primary-source teaching research, privacy and
+  low-laptop-load constraints, and a 425-entry source/support inventory. Representative paths and history
+  were inspected; exhaustive per-chapter tracing and an isolated PDF toolchain remain production gates.
+  No books/PDFs, runtime changes, installs, builds/tests, credentials, or deployments were produced.
+
 - **2026-09-12 (Codex, implementation):** Implemented Calendar queue/realtime egress repairs and
   stateful elapsed-time/query-budget regressions. Updated runbook, architecture, changelog, and project
   context. No migration, credential, or retention changes. Released backend `01ff7a8859e8` and dashboard

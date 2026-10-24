@@ -7,6 +7,47 @@ this file records the current objective, decisions, evidence, and interruption s
 Update this file at the start of an implementation, after each material checkpoint, and
 before stopping. Never store secrets, tokens, embedded images, or large tool output here.
 
+## Separate local workflow — Daily Tech Brief setup blocked (2026-10-14 SGT)
+
+- Henry confirmed daily 08:00 Asia/Singapore, including weekends, in ONE new dedicated
+  `Daily Tech Brief` chat reused by a heartbeat. Coverage combines AI/models/open-source/
+  developer harnesses with broader technology and evidence-backed graduate hiring.
+- Requested private delivery through Threadwise; short numbered Telegram stories, source
+  credits and direct links, no preview clutter; complete local journal with corrections.
+- Prepared archive/workflow at `C:\Users\Henry\OneDrive\Desktop\TechNews`: `INDEX.md`,
+  monthly `journals/2026-10.md`, `WORKFLOW.md`, `AUTOMATION_PROMPT.md`, style-research notes,
+  and `setup.json`. Status is explicitly `PREPARED_BLOCKED`; no digest has been published.
+- WorldofAI channel/descriptions/timestamped public summaries informed practical framing.
+  Full transcript views could not be fetched; third-party summaries have name errors and
+  must not establish technical claims. Verify primary releases/repos/papers and credit discovery.
+- Blockers: supported app chat/schedule tools returned unavailable and the required
+  `codex_app` MCP server is not exposed; bot authorization and verified private recipient
+  are absent from the scoped configuration. No chat ID, automation ID, or confirmed send.
+- Next: restore supported app controls, create the single chat, attach/verify the 08:00
+  heartbeat, configure private delivery securely and test it, then refresh the continuity map.
+  Do not use an OS scheduler/standalone-new-chat workaround, read hosting secrets in bulk,
+  start a new polling process, or mark the workflow active before actual verification.
+- No production runtime/configuration, deployment, database, or existing automation changed.
+
+### Delivery credential update — 2026-10-14 SGT
+
+Henry saved `THREADWISE` in the Windows User environment. A direct authenticated Telegram
+getMe request verified `@threadwise_1_bot`; the credential was never printed/stored in the
+journal. No message was sent. Henry's positive numeric private Telegram recipient is still
+needed; do not infer a group or another user. App chat/schedule controls remain unavailable.
+The archive now records `BOT_VERIFIED_RECIPIENT_REQUIRED`, with secret-storage reference only.
+
+### Private delivery verified; app-control retry failed — 2026-10-14 SGT
+
+Henry supplied the numeric private recipient; Telegram getChat verified it and one labeled
+setup-test message was accepted as message 24012. Saved the recipient only in Windows User
+`THREADWISE_TELEGRAM_CHAT_ID`; no credential/recipient value was placed in journal files.
+The archive status is now `PRIVATE_SETUP_TEST_CONFIRMED`, still `PREPARED_BLOCKED` overall.
+No news digest or active schedule exists. Retried project listing, create_thread, and
+automation inspection: all reject the legacy dynamic-tools route. A direct resource check
+reports `unknown MCP server 'codex_app'`. The app-control bridge is missing from this session;
+the deeper product cause is unconfirmed. Next safe step: app restart/update and recheck.
+
 ## Active checkpoint — Study Calendar weekday correction (2026-09-15 SGT)
 
 - **Reported symptom:** a Tuesday block appeared on Monday in Google Calendar, and Wednesday appeared
