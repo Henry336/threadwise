@@ -17,7 +17,8 @@ describe("dashboard group workspace authorization", () => {
       telegramChatId: "-100456789",
       isActive: true,
       ownerUser: { telegramId: "chat:-100456789" },
-      _count: { members: 4 }
+      _count: { members: 4 },
+      members: [] as Array<{ role: GroupMemberRole; status: GroupMemberStatus }>
     }));
     const upsert = vi.fn(async () => ({}));
     const database = { groupWorkspace: { findUnique }, groupMembership: { upsert } } as unknown as PrismaClient;
@@ -36,6 +37,15 @@ describe("dashboard group workspace authorization", () => {
       where: { workspaceId_telegramId: { workspaceId, telegramId: "123456789" } },
       create: expect.objectContaining({ status: GroupMemberStatus.ACTIVE, role: GroupMemberRole.ADMIN })
     }));
+
+    // Same role and still active on the next request: nothing to write.
+    upsert.mockClear();
+    findUnique.mockResolvedValueOnce({
+      ...(await findUnique()),
+      members: [{ role: GroupMemberRole.ADMIN, status: GroupMemberStatus.ACTIVE }],
+    });
+    await resolveDashboardWorkspace("123456789", workspaceId, "bot-token", database, verify);
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it("labels only the configured owner's exact bound group as Study Mode", async () => {

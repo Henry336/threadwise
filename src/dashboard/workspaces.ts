@@ -126,6 +126,11 @@ export async function listDashboardWorkspaces(
   return workspaces;
 }
 
+/**
+ * Resolves which workspace a signed dashboard request acts in. Personal is the default; a group
+ * workspace is granted only after a live Telegram membership check, which also refreshes the
+ * stored role when it changed.
+ */
 export async function resolveDashboardWorkspace(
   principalTelegramId: string,
   requestedWorkspaceId: string | undefined,
@@ -148,7 +153,8 @@ export async function resolveDashboardWorkspace(
     where: { id: requestedWorkspaceId },
     include: {
       ownerUser: { select: { telegramId: true } },
-      _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } }
+      _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } },
+      members: { where: { telegramId: principalTelegramId }, select: { role: true, status: true }, take: 1 }
     }
   });
   if (!workspace?.isActive || !botToken) throw new DashboardGroupAccessError();
@@ -165,7 +171,10 @@ export async function resolveDashboardWorkspace(
         select: { id: true },
       })
     : null;
-  await database.groupMembership.upsert({
+  // Write only when Telegram reports a different role or the member was inactive: this runs on
+  // every group request, and an unchanged upsert is a database write that records nothing new.
+  const membership = workspace.members[0];
+  if (membership?.role !== role || membership.status !== GroupMemberStatus.ACTIVE) await database.groupMembership.upsert({
     where: {
       workspaceId_telegramId: {
         workspaceId: workspace.id,
