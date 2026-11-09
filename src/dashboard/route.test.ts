@@ -8,6 +8,7 @@ import * as data from "./data";
 import * as browserSessions from "./browserSessions";
 import * as personalNoteDrafts from "./personalNoteDrafts";
 import type { AiProvider } from "../ai/types";
+import { StudyModeError } from "../services/study";
 import { DashboardRequestReplayError, consumeDashboardMutationToken } from "../security/dashboardRequestReplay";
 import { SharedRateLimitExceededError, limitDashboardRequest } from "../security/sharedRateLimit";
 
@@ -576,6 +577,28 @@ describe("dashboard API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(result);
     expect(analyzeIdea).toHaveBeenCalledWith("123456789", "IDEA-1", ai);
+    await server.close();
+  });
+
+  it("maps domain errors through the status tables", async () => {
+    const server = Fastify();
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
+    const cases: Array<[Error, number, Record<string, unknown>]> = [
+      [new StudyModeError("Study is off.", "disabled"), 412, { error: "study_disabled", message: "Study is off." }],
+      [new StudyModeError("Nope.", "something_new" as never), 400, { error: "study_something_new" }],
+      [new data.DashboardConflictError("Changed elsewhere."), 409, { error: "revision_conflict", message: "Changed elsewhere." }],
+      [new data.DashboardItemNotFoundError(), 404, { error: "not_found" }],
+    ];
+    for (const [error, status, body] of cases) {
+      vi.mocked(data.getDashboardTask).mockRejectedValueOnce(error);
+      const response = await server.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/tasks/TASK-1",
+        headers: { authorization: `Bearer ${await validToken()}` },
+      });
+      expect(response.statusCode).toBe(status);
+      expect(response.json()).toMatchObject(body);
+    }
     await server.close();
   });
 

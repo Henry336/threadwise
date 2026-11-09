@@ -531,7 +531,6 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   if (titleChanged) data.title = input.title;
   if (descriptionChanged) {
     data.description = input.description ?? null;
-    data.embedding = Prisma.JsonNull;
   }
   if (dueChanged) {
     data.dueAt = nextDueAt;
@@ -760,7 +759,6 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
     data.body = nextBody;
     data.summary = compactSummary(nextBody);
     data.sourceText = nextBody;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
@@ -882,7 +880,6 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   if (conceptChanged) {
     data.concept = input.concept;
     data.sourceText = input.concept;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (input.status !== undefined) data.status = input.status;

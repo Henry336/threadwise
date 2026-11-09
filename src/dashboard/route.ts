@@ -188,15 +188,19 @@ type RouteWork = (telegramId: string, scope: DashboardWorkspaceScope) => Promise
  * directly, so production and tests run the same code path; tests replace modules with vi.mock.
  */
 export function registerDashboardRoute(server: FastifyInstance, options: DashboardRouteOptions = {}): void {
-
-  const authenticateSessionRequest = async (request: FastifyRequest, operation: string) => {
-    const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-    await limitDashboardRequest(principal, request.method, operation);
-    await consumeDashboardMutationToken(principal, request.method, operation);
-    return principal;
-  };
-
-  const run = async (request: FastifyRequest, reply: FastifyReply, work: RouteWork, operation: string) => {
+  /**
+   * The one entry point every dashboard route goes through: no-store headers, token check, rate
+   * limit, replay guard (a no-op for GET), workspace resolution, then the route's work, with every
+   * error mapped by `sendDashboardError`. `personal: true` skips the workspace header for routes
+   * about the signed-in person themselves (browser sessions, the workspace list).
+   */
+  const run = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    work: RouteWork,
+    operation: string,
+    runOptions: { personal?: boolean } = {},
+  ) => {
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
@@ -204,7 +208,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       await consumeDashboardMutationToken(principal, request.method, operation);
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
-        dashboardWorkspaceHeader(request),
+        runOptions.personal ? undefined : dashboardWorkspaceHeader(request),
         options.telegramBotToken
       );
       return await work(scope.ownerTelegramId, scope);
@@ -228,56 +232,34 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     };
   };
 
-  server.post("/api/v1/dashboard/browser-sessions", async (request, reply) => {
-    noStore(reply);
-    try {
-      const principal = await authenticateSessionRequest(request, "create_browser_session");
-      const { ttlSeconds } = dashboardBrowserSessionCreateSchema.parse(request.body);
-      const session = await createDashboardBrowserSession(principal.telegramId, ttlSeconds);
-      return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
-    } catch (error) {
-      return sendDashboardError(reply, error, "create_browser_session");
-    }
-  });
+  const personal = { personal: true };
 
-  server.get("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => {
-    noStore(reply);
-    try {
-      const principal = await authenticateSessionRequest(request, "verify_browser_session");
-      const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
-      const session = await requireActiveDashboardBrowserSession(principal.telegramId, id);
-      return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
-    } catch (error) {
-      return sendDashboardError(reply, error, "verify_browser_session");
-    }
-  });
+  server.post("/api/v1/dashboard/browser-sessions", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { ttlSeconds } = dashboardBrowserSessionCreateSchema.parse(request.body);
+    const session = await createDashboardBrowserSession(telegramId, ttlSeconds);
+    return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
+  }, "create_browser_session", personal));
 
-  server.delete("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => {
-    noStore(reply);
-    try {
-      const principal = await authenticateSessionRequest(request, "revoke_browser_session");
-      const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
-      await revokeDashboardBrowserSession(principal.telegramId, id);
-      return { revoked: true };
-    } catch (error) {
-      return sendDashboardError(reply, error, "revoke_browser_session");
-    }
-  });
+  server.get("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
+    const session = await requireActiveDashboardBrowserSession(telegramId, id);
+    return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
+  }, "verify_browser_session", personal));
+
+  server.delete("/api/v1/dashboard/browser-sessions/:id", async (request, reply) => run(request, reply, async (telegramId) => {
+    const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
+    await revokeDashboardBrowserSession(telegramId, id);
+    return { revoked: true };
+  }, "revoke_browser_session", personal));
 
   server.get("/api/v1/dashboard", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
 
+  // The dashboard's client-side refresh calls api("snapshot"), which the BFF forwards here.
   server.get("/api/v1/dashboard/snapshot", async (request, reply) => run(request, reply, loadScopedSnapshot, "snapshot"));
 
-  server.get("/api/v1/dashboard/workspaces", async (request, reply) => {
-    noStore(reply);
-    try {
-      const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      await limitDashboardRequest(principal, request.method, "list_workspaces");
-      return { workspaces: await listDashboardWorkspaces(principal.telegramId) };
-    } catch (error) {
-      return sendDashboardError(reply, error, "list_workspaces");
-    }
-  });
+  server.get("/api/v1/dashboard/workspaces", async (request, reply) => run(request, reply, async (telegramId) => ({
+    workspaces: await listDashboardWorkspaces(telegramId),
+  }), "list_workspaces", personal));
 
   server.get("/api/v1/dashboard/task-imports/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertGroupWorkspace(scope);
@@ -319,45 +301,33 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { taskImport: await cancelTaskImport(id, actor, scope.workspace.id) };
   }, "cancel_task_import"));
 
-  server.get("/api/v1/dashboard/events", async (request, reply) => {
-    noStore(reply);
-    try {
-      const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      await limitDashboardRequest(principal, request.method, "live_sync");
-      const scope = await resolveDashboardWorkspace(
-        principal.telegramId,
-        dashboardWorkspaceHeader(request),
-        options.telegramBotToken
-      );
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no"
-      });
-      reply.raw.write("retry: 2500\n\n");
-      const revisionTelegramId = scope.workspace.mode === "STUDY"
-        ? scope.principalTelegramId
-        : scope.ownerTelegramId;
-      const unsubscribe = subscribeDashboardChanges(revisionTelegramId, (event) => {
-        if (!reply.raw.destroyed) reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-      });
-      const heartbeat = setInterval(() => {
-        if (!reply.raw.destroyed) reply.raw.write(": threadwise heartbeat\n\n");
-      }, 15_000);
-      heartbeat.unref?.();
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-      };
-      reply.raw.once("close", cleanup);
-      reply.raw.once("error", cleanup);
-      return reply;
-    } catch (error) {
-      return sendDashboardError(reply, error, "live_sync");
-    }
-  });
+  server.get("/api/v1/dashboard/events", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    reply.raw.write("retry: 2500\n\n");
+    const revisionTelegramId = scope.workspace.mode === "STUDY"
+      ? scope.principalTelegramId
+      : scope.ownerTelegramId;
+    const unsubscribe = subscribeDashboardChanges(revisionTelegramId, (event) => {
+      if (!reply.raw.destroyed) reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.destroyed) reply.raw.write(": threadwise heartbeat\n\n");
+    }, 15_000);
+    heartbeat.unref?.();
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    reply.raw.once("close", cleanup);
+    reply.raw.once("error", cleanup);
+    return reply;
+  }, "live_sync"));
 
   registerStudyDashboardRoutes(server, run, {
     telegramBotToken: options.telegramBotToken,
@@ -436,13 +406,9 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { poll };
   }, "update_availability_calendar"));
 
-  server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+  server.post("/api/v1/dashboard/capture/preview", async (request, reply) => run(request, reply, async (telegramId) => {
     if (!options.ai) throw new DashboardConfigurationError("Dashboard capture intelligence is not configured.");
-    const preview = await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai);
-    if (scope.workspace.kind === "GROUP" && preview.kind === "expense") {
-      throw new DashboardGroupAccessError("Expenses stay in personal Threadwise workspaces. Switch to Personal to capture this expense.");
-    }
-    return { preview };
+    return { preview: await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai) };
   }, "capture_preview"));
 
   server.get("/api/v1/dashboard/today", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
@@ -871,6 +837,34 @@ function friendlyValidationMessage(error: ZodError): string {
   return `${label} has an invalid value. Clear it or enter a valid value, then try again.`;
 }
 
+type ErrorClass<T extends Error = Error> = new (...args: never[]) => T;
+
+/** Errors that always map to one status and one public code; `true` also returns their message. */
+const PLAIN_ERRORS: Array<[ErrorClass, number, string, boolean]> = [
+  [DashboardGroupAccessError, 403, "group_access_denied", true],
+  [DashboardStudyAccessError, 404, "not_found", false],
+  [TodayFoundationAccessError, 404, "not_found", false],
+  [DashboardUserNotFoundError, 404, "user_not_found", false],
+  [DashboardItemNotFoundError, 404, "not_found", false],
+  [DashboardConflictError, 409, "revision_conflict", true],
+  [DashboardUpstreamError, 502, "image_unavailable", false],
+  [DashboardUnsupportedMediaError, 415, "unsupported_image_type", false],
+];
+
+/** Domain errors that carry a `code`: the response is `<prefix>_<code>`, with the listed status or 400. */
+const CODED_ERRORS: Array<[ErrorClass<Error & { code: string }>, string, Record<string, number>]> = [
+  [TaskCaptureDraftError, "task_draft", { not_found: 404, forbidden: 404, conflict: 409, expired: 409 }],
+  [DailyAgendaError, "today", { not_found: 404, forbidden: 404, conflict: 409 }],
+  [StudyModeError, "study", { not_found: 404, forbidden: 404, conflict: 409, disabled: 412, not_bound: 412 }],
+  [GroupSchedulingError, "scheduling", { not_found: 404, forbidden: 403, conflict: 409, cooldown: 409, not_connected: 412 }],
+  [TaskImportError, "task_import", { not_found: 404, forbidden: 403, conflict: 409, expired: 409 }],
+];
+
+/**
+ * Turns any error thrown inside `run` into the dashboard's public error contract. Auth, replay,
+ * session and rate-limit errors need their own headers; the rest are table lookups. Anything
+ * unknown is logged without its message and returned as a generic 500.
+ */
 function sendDashboardError(reply: FastifyReply, error: unknown, operation: string) {
   if (error instanceof DashboardAuthenticationError) {
     return reply
@@ -897,69 +891,21 @@ function sendDashboardError(reply: FastifyReply, error: unknown, operation: stri
       .header("Retry-After", String(error.retryAfterSeconds))
       .send({ error: "rate_limited", message: "Too many requests. Try again shortly." });
   }
-  if (error instanceof DashboardGroupAccessError) {
-    return reply.code(403).send({ error: "group_access_denied", message: error.message });
+  for (const [type, status, code, withMessage] of PLAIN_ERRORS) {
+    if (error instanceof type) return reply.code(status).send({ error: code, ...(withMessage ? { message: error.message } : {}) });
   }
-  if (error instanceof DashboardStudyAccessError) {
-    return reply.code(404).send({ error: "not_found" });
-  }
-  if (error instanceof TodayFoundationAccessError) {
-    return reply.code(404).send({ error: "not_found" });
-  }
-  if (error instanceof TaskCaptureDraftError) {
-    const status = error.code === "not_found" || error.code === "forbidden" ? 404
-      : error.code === "conflict" || error.code === "expired" ? 409
-        : 400;
-    return reply.code(status).send({ error: `task_draft_${error.code}`, message: error.message });
-  }
-  if (error instanceof DailyAgendaError) {
-    const status = error.code === "not_found" || error.code === "forbidden" ? 404
-      : error.code === "conflict" ? 409
-        : 400;
-    return reply.code(status).send({ error: `today_${error.code}`, message: error.message });
-  }
-  if (error instanceof StudyModeError) {
-    const status = error.code === "not_found" ? 404
-      : error.code === "forbidden" ? 404
-        : error.code === "conflict" ? 409
-          : error.code === "disabled" || error.code === "not_bound" ? 412
-            : 400;
-    return reply.code(status).send({ error: `study_${error.code}`, message: error.message });
-  }
-  if (error instanceof GroupSchedulingError) {
-    const status = error.code === "not_found" ? 404
-      : error.code === "forbidden" ? 403
-        : error.code === "conflict" || error.code === "cooldown" ? 409
-          : error.code === "not_connected" ? 412
-            : 400;
-    return reply.code(status).send({ error: `scheduling_${error.code}`, message: error.message });
-  }
-  if (error instanceof TaskImportError) {
-    const status = error.code === "not_found" ? 404
-      : error.code === "forbidden" ? 403
-        : error.code === "conflict" || error.code === "expired" ? 409
-          : 400;
-    return reply.code(status).send({ error: `task_import_${error.code}`, message: error.message });
+  for (const [type, prefix, statuses] of CODED_ERRORS) {
+    if (error instanceof type) {
+      return reply.code(statuses[error.code] ?? 400).send({ error: `${prefix}_${error.code}`, message: error.message });
+    }
   }
   if (error instanceof DashboardConfigurationError) {
     logger.error("Dashboard API is not configured correctly.", { errorType: error.name });
     return reply.code(503).send({ error: "dashboard_api_unavailable" });
   }
-  if (error instanceof DashboardUserNotFoundError || error instanceof DashboardItemNotFoundError) {
-    return reply.code(404).send({ error: error instanceof DashboardUserNotFoundError ? "user_not_found" : "not_found" });
-  }
-  if (error instanceof DashboardConflictError) {
-    return reply.code(409).send({ error: "revision_conflict", message: error.message });
-  }
   if (error instanceof ZodError || error instanceof DashboardValidationError) {
     const message = error instanceof ZodError ? friendlyValidationMessage(error) : error.message;
     return reply.code(400).send({ error: "invalid_request", ...(message ? { message } : {}) });
-  }
-  if (error instanceof DashboardUpstreamError) {
-    return reply.code(502).send({ error: "image_unavailable" });
-  }
-  if (error instanceof DashboardUnsupportedMediaError) {
-    return reply.code(415).send({ error: "unsupported_image_type" });
   }
   logger.error("Dashboard API request failed.", {
     operation,

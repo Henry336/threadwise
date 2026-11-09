@@ -16,8 +16,7 @@ import type { CapturePreviewInput } from "./schemas";
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 
 // Expenses are a frozen feature: quick capture only previews tasks, notes and ideas.
-// TODO(review): "expense" stays in the type only for the now-dead group guard in route.ts; remove both together.
-export type DashboardCaptureKind = "task" | "note" | "idea" | "expense";
+export type DashboardCaptureKind = "task" | "note" | "idea";
 
 export type DashboardCapturePreview = {
   kind: DashboardCaptureKind;
