@@ -1,6 +1,6 @@
 /**
- * Proactive Study reminders. The main reminder loop (reminders.ts) calls runStudyReminderPass once per
- * tick after normal task reminders. Each pass derives candidates from PostgreSQL (weekly preview and
+ * Proactive Study reminders. A separate loop (startStudyReminderLoop in reminders.ts) calls
+ * runStudyReminderPass once per tick, apart from the normal task reminders. Each pass derives candidates from PostgreSQL (weekly preview and
  * review, Canvas problems, mistake reattempts, red modules, near deadlines, timetable alerts, missing
  * timed practice), then sends them to the bound Study group. There are no in-memory timers: dedupe
  * rows and per-occurrence sequence rows make every pass restart-safe. The acknowledge and mute helpers
