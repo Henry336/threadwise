@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
@@ -11,7 +10,6 @@ import type { ListPageInfo } from "./listPagination";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.concept}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "IDEA");
 
   return prisma.$transaction(async (tx) => {
@@ -25,8 +23,7 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
         targetUser: structured.targetUser,
         type: structured.type,
         tags: structured.tags,
-        sourceText,
-        embedding
+        sourceText
       }
     });
     await recordCreateUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title });
@@ -117,8 +114,7 @@ export async function updateIdeaConcept(userId: string, publicOrUuid: string, co
       where: { id: idea.id },
       data: completeSearchableContentUpdate("Idea", idea, {
         concept: nextConcept,
-        sourceText: nextConcept,
-        embedding: Prisma.JsonNull
+        sourceText: nextConcept
       })
     });
   });

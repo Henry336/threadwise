@@ -57,10 +57,6 @@ export class ResilientAiProvider implements AiProvider {
     return this.withFallback("scoreIdea", () => this.primary.scoreIdea(input), () => this.fallback.scoreIdea(input));
   }
 
-  async embed(text: string): Promise<number[]> {
-    return this.withFallback("embed", () => this.primary.embed(text), () => this.fallback.embed(text));
-  }
-
   private async withFallback<T>(operation: string, primary: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
     try {
       return await primary();

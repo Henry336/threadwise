@@ -187,8 +187,7 @@ async function finalizeLoadedSession(session: SessionWithSegments): Promise<Fina
         body,
         summary,
         sourceText: body,
-        tags: [],
-        embedding: Prisma.JsonNull
+        tags: []
       }
     });
     await recordCreateUndo(tx, session.userId, {

@@ -475,7 +475,7 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
   await prisma.$transaction(async (tx) => {
     if (target.kind === "task" && field === "description") {
       const current = await tx.task.findFirst({ where: { id: target.id, archivedAt: null } });
-      if (current) await tx.task.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Task", current, { description: previousValue, embedding: Prisma.JsonNull }) });
+      if (current) await tx.task.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Task", current, { description: previousValue }) });
     } else if (target.kind === "note" && field === "body") {
       const current = await tx.note.findFirst({ where: { id: target.id, archivedAt: null } });
       if (current) await tx.note.update({
@@ -483,13 +483,12 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
         data: completeSearchableContentUpdate("Note", current, {
           body: previousValue ?? "",
           summary: summarizeManualText(previousValue ?? ""),
-          sourceText: previousValue ?? "",
-          embedding: Prisma.JsonNull
+          sourceText: previousValue ?? ""
         })
       });
     } else if (target.kind === "idea" && field === "concept") {
       const current = await tx.idea.findFirst({ where: { id: target.id, archivedAt: null } });
-      if (current) await tx.idea.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Idea", current, { concept: previousValue ?? "", sourceText: previousValue ?? "", embedding: Prisma.JsonNull }) });
+      if (current) await tx.idea.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Idea", current, { concept: previousValue ?? "", sourceText: previousValue ?? "" }) });
     } else {
       throw new Error("Invalid field edit undo payload.");
     }

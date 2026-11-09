@@ -1,5 +1,4 @@
 import { parseDueDate } from "../utils/dates";
-import { deterministicEmbedding } from "../utils/vector";
 import type {
   AiProvider,
   AiProviderHealthCheck,
@@ -24,8 +23,7 @@ export class HeuristicAiProvider implements AiProvider {
       provider: "heuristic",
       apiKeyConfigured: false,
       chatModels: [],
-      activeChatModel: undefined,
-      embeddingModel: "local-deterministic"
+      activeChatModel: undefined
     };
   }
 
@@ -153,10 +151,6 @@ export class HeuristicAiProvider implements AiProvider {
       dos: ["Start with one narrow user workflow", "Make the data model durable", "Document deployment clearly"],
       donts: ["Overfit the product to vague AI magic", "Skip reminder reliability", "Store sensitive text without clear privacy expectations"]
     };
-  }
-
-  async embed(text: string): Promise<number[]> {
-    return deterministicEmbedding(text);
   }
 }
 

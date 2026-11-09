@@ -174,7 +174,7 @@ export async function processVoiceTranscription(
   jobId: string,
   api: Api,
   botToken: string,
-  ai: AiProvider,
+  ai: AiProvider, // TODO(review #10): unused, remove with bot call sites
   providerFactory: () => VoiceProvider = () => new OpenAiVoiceProvider()
 ): Promise<void> {
   const processorId = `${hostname()}-${process.pid}`;
@@ -217,13 +217,8 @@ export async function processVoiceTranscription(
         }
       });
     }
-    const embedding = await ai.embed(`${voiceNoteTitle(prepared.cleanedText)}\n${prepared.cleanedText}\n${rawTranscript}`)
-      .catch((error) => {
-        logger.warn("Voice note embedding failed; saving the note without an embedding.", { jobId: job.id, error: String(error) });
-        return undefined;
-      });
 
-    await completeVoiceJob(job.id, rawTranscript, prepared.cleanedText, prepared.cleanupError, embedding);
+    await completeVoiceJob(job.id, rawTranscript, prepared.cleanedText, prepared.cleanupError);
   } catch (error) {
     await failVoiceJob(job.id, error);
   } finally {
@@ -455,8 +450,7 @@ async function completeVoiceJob(
   jobId: string,
   rawTranscript: string,
   cleanedText: string,
-  cleanupError: string | undefined,
-  embedding: number[] | undefined
+  cleanupError: string | undefined
 ): Promise<void> {
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
@@ -472,8 +466,7 @@ async function completeVoiceJob(
             body: cleanedText,
             summary: voiceNoteSummary(cleanedText),
             sourceText: rawTranscript,
-            tags: [],
-            embedding
+            tags: []
           }
         });
         await recordCreateUndo(tx, job.userId, { kind: "note", id: note.id, publicId, title: note.title });

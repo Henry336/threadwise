@@ -8,8 +8,7 @@ describe("version status", () => {
         provider: "openai",
         apiKeyConfigured: true,
         chatModels: ["gpt-5.4-mini"],
-        activeChatModel: "gpt-5.4-mini",
-        embeddingModel: "text-embedding-3-small"
+        activeChatModel: "gpt-5.4-mini"
       },
       calendarConfigured: true,
       excelConfigured: true,

@@ -1,5 +1,36 @@
-import { describe, expect, it } from "vitest";
-import { parseSearchRequest } from "./search";
+import { describe, expect, it, vi } from "vitest";
+import { parseSearchRequest, semanticSearch } from "./search";
+
+const rows = vi.hoisted(() => ({
+  notes: [] as Array<Record<string, unknown>>
+}));
+
+vi.mock("../db/prisma", () => ({
+  prisma: {
+    idea: { findMany: vi.fn(async () => []) },
+    task: { findMany: vi.fn(async () => []) },
+    note: { findMany: vi.fn(async () => rows.notes) }
+  }
+}));
+
+describe("semantic search", () => {
+  it("scores an edited item from its text, not from a stored vector", async () => {
+    rows.notes = [{
+      publicId: "NOTE-1",
+      title: "Railway overrun",
+      summary: "",
+      body: "",
+      sourceText: "",
+      embedding: null
+    }];
+
+    const [result] = await semanticSearch("user-1", "overrun railway", {} as never, ["note"]);
+
+    expect(result?.publicId).toBe("NOTE-1");
+    // Lexical matching caps out-of-order terms at 0.85; only the vector reaches 1.
+    expect(result?.score).toBeCloseTo(1);
+  });
+});
 
 describe("search request parsing", () => {
   it("treats an unfiltered search as all saved item types", () => {

@@ -1,4 +1,4 @@
-import { Prisma, RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
+import { RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
@@ -85,6 +85,7 @@ export type TaskCreationOptions = {
   titleOverride?: string;
 };
 
+// TODO(review #10): `ai` is unused, remove with bot call sites
 export async function createTask(userId: string, sourceText: string, ai: AiProvider, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
@@ -102,7 +103,6 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
     ?? parseDueDate(recurrenceCleanedText, settings.timezone);
   const title = options.titleOverride?.trim() || structured.title;
   const initialStatus = options.initialStatus ?? TaskStatus.OPEN;
-  const embedding = await ai.embed(`${title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const now = new Date();
   const nextReminderAt = initialStatus === TaskStatus.OPEN
@@ -132,7 +132,6 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
         nextReminderAt,
         completedAt: initialStatus === TaskStatus.DONE ? now : null,
-        embedding,
         calendarUrl,
         assignedTelegramId: primaryAssignee?.telegramId,
         assignedUsername: primaryAssignee?.username,
@@ -165,7 +164,6 @@ export async function createScheduledReminder(userId: string, sourceText: string
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
   const publicId = await nextPublicId(userId, "TASK");
   const calendarUrl = createGoogleCalendarUrl({
     title: structured.title,
@@ -192,7 +190,6 @@ export async function createScheduledReminder(userId: string, sourceText: string
           intervalMinutes: settings.reminderIntervalMinutes,
         }),
         audience: prepared.assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
-        embedding,
         calendarUrl,
         assignedTelegramId: primaryAssignee?.telegramId,
         assignedUsername: primaryAssignee?.username,
@@ -410,7 +407,6 @@ export async function updateTaskDescription(userId: string, reference: string, d
       data: completeSearchableContentUpdate("Task", task as unknown as Record<string, unknown>, {
         description: nextDescription,
         calendarUrl,
-        embedding: Prisma.JsonNull,
         undatedNudgeCount: 0
       })
     });

@@ -17,29 +17,13 @@ describe("CachedAiProvider", () => {
 
     expect(inner.structureIdeaCalls).toBe(1);
   });
-
-  it("does not cache deterministic embeddings", async () => {
-    const inner = new CountingProvider();
-    const provider = new CachedAiProvider(inner);
-
-    await provider.embed("task text");
-    await provider.embed("task text");
-
-    expect(inner.embedCalls).toBe(2);
-  });
 });
 
 class CountingProvider extends HeuristicAiProvider {
   structureIdeaCalls = 0;
-  embedCalls = 0;
 
   override async structureIdea(text: string): Promise<StructuredIdea> {
     this.structureIdeaCalls += 1;
     return super.structureIdea(text);
-  }
-
-  override async embed(text: string): Promise<number[]> {
-    this.embedCalls += 1;
-    return super.embed(text);
   }
 }

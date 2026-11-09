@@ -51,9 +51,6 @@ function fakeClient(create: (model: string) => Promise<unknown>) {
       completions: {
         create: (input: { model: string }) => create(input.model)
       }
-    },
-    embeddings: {
-      create: async () => ({ data: [{ embedding: [1, 0, 0] }] })
     }
   } as never;
 }

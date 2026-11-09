@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import { env } from "../config/env";
 import { logger } from "../logger";
-import { deterministicEmbedding } from "../utils/vector";
 import { safeJsonParse, clampScore } from "./json";
 import type {
   AiProvider,
@@ -20,7 +19,7 @@ import type {
 
 const CHAT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 
-type OpenAiClient = Pick<OpenAI, "chat" | "embeddings">;
+type OpenAiClient = Pick<OpenAI, "chat">;
 
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAiClient;
@@ -44,7 +43,6 @@ export class OpenAiProvider implements AiProvider {
       apiKeyConfigured: true,
       chatModels: this.chatModels,
       activeChatModel: this.activeChatModel,
-      embeddingModel: "local-deterministic",
       lastSuccessfulChatAt: this.lastSuccessfulChatAt,
       lastRateLimit: this.lastRateLimit,
       lastError: this.lastError
@@ -186,10 +184,6 @@ export class OpenAiProvider implements AiProvider {
       dos: parsed.dos ?? [],
       donts: parsed.donts ?? []
     };
-  }
-
-  async embed(text: string): Promise<number[]> {
-    return deterministicEmbedding(text);
   }
 
   private async jsonCompletion(system: string, user: string): Promise<string> {

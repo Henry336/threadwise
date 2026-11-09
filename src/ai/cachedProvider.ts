@@ -57,10 +57,6 @@ export class CachedAiProvider implements AiProvider {
     return this.cached("scoreIdea", input, () => this.inner.scoreIdea(input));
   }
 
-  embed(text: string): Promise<number[]> {
-    return this.inner.embed(text);
-  }
-
   private cached<T>(operation: string, input: unknown, run: () => Promise<T>): Promise<T> {
     const key = cacheKey(operation, input);
     const existing = this.cache.get(key);
