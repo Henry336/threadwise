@@ -1,5 +1,4 @@
 import type { Bot, Context } from "grammy";
-import { InputFile } from "grammy";
 import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
@@ -58,14 +57,13 @@ import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
-import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
+import { microsoftExcelConfigured } from "../services/excel";
+import { restoreCompletedTaskKeyboard } from "./keyboards";
 import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
@@ -126,9 +124,6 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, true));
   bot.command("googlecal", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, false));
-  bot.command("expense", async (ctx) => handleExpense(ctx));
-  bot.command("expenses", async (ctx) => handleExpenses(ctx));
-  bot.command("excel", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Excel") : handleExcel(ctx));
   bot.command("images", async (ctx) => handleImages(ctx));
   bot.command("image", async (ctx) => handleImage(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
@@ -967,111 +962,6 @@ async function handleGroupCheck(ctx: Context) {
       ? `Ordinary @mention sentences are not delivered to privacy-enabled bots. In BotFather, run /setprivacy, select ${username}, and choose Disable. If Telegram does not apply it immediately, remove and re-add the bot to this group.`
       : "Direct @mentions can be delivered. Threadwise will still ignore ordinary group conversation unless it mentions or replies to the bot."
   ].join("\n"));
-}
-
-async function handleExpense(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "expense");
-  if (!body) {
-    await ctx.reply("Send it like this: /expense spent $18.40 on lunch at Toast Box today using Visa. You can also send a clear receipt photo with the caption 'save as expense'.");
-    return;
-  }
-  const editMatch = body.match(/^edit\s+(\S+)\s+(.+)$/i);
-  if (editMatch?.[1] && editMatch[2]) {
-    try {
-      const expense = await updateSavedExpense(user.id, normalizePublicId(editMatch[1]), editMatch[2], user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't update that expense."));
-    }
-    return;
-  }
-  try {
-    const pending = await createPendingExpenseFromText(user.id, body, user.settings?.timezone ?? "UTC", { sourceType: "manual", defaultCurrency: user.settings?.expenseCurrency });
-    await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expenseConfirmationKeyboard(pending.id)
-    });
-  } catch (error) {
-    await ctx.reply(userFacingError(error, "I couldn't prepare that expense."));
-  }
-}
-
-async function handleExpenses(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "expenses");
-  const filter = parseExpenseFilter(body || "all", user.settings?.timezone ?? "UTC");
-  if (!filter) {
-    await ctx.reply("Try /expenses, /expenses today, /expenses 2026-07-12, /expenses this month, /expenses June 2026, or /expenses 2026.");
-    return;
-  }
-  const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
-  await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-  });
-}
-
-async function handleExcel(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "excel").trim();
-  const lower = body.toLowerCase();
-  if (!body || lower === "status") {
-    const status = await excelConnectionStatus(user.id);
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const connectUrl = !status.connected && microsoftExcelConfigured()
-      ? await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true })
-      : undefined;
-    await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status, connectUrl) });
-    return;
-  }
-  if (lower === "connect") {
-    if (!microsoftExcelConfigured()) {
-      await ctx.reply("Excel OAuth is not configured on the server yet. The setup instructions are in README.md.");
-      return;
-    }
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true });
-    await replyHtml(ctx, `${bold("📊 Microsoft Excel")}\nConnect once. Threadwise will prepare your expense workbook and import existing expenses.`, {
-      reply_markup: excelSettingsKeyboard({ connected: false, autoSync: false, workbookReady: false }, url)
-    });
-    return;
-  }
-  if (lower === "create" || lower === "setup" || lower === "set up") {
-    try {
-      const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't create the workbook."));
-    }
-    return;
-  }
-  if (lower.startsWith("use ")) {
-    try {
-      const item = await linkExpenseWorkbook(user.id, body.slice(4).trim());
-      await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't link that workbook."));
-    }
-    return;
-  }
-  if (lower === "sync" || lower === "sync expenses") {
-    try {
-      const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
-      await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't sync those expenses to Excel."));
-    }
-    return;
-  }
-  if (lower === "export" || lower === "download") {
-    const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
-    await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
-    return;
-  }
-  if (lower === "disconnect") {
-    await replyHtml(ctx, await disconnectMicrosoft(user.id));
-    return;
-  }
-  await ctx.reply("Open /excel and use the buttons, or tell me what you want to do in plain language.");
 }
 
 async function handleVersion(ctx: Context, ai: AiProvider) {

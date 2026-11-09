@@ -19,7 +19,7 @@ let workerLanguages: OcrLanguages | undefined;
 let queue: Promise<void> = Promise.resolve();
 let languageDirectoryPromise: Promise<string> | undefined;
 
-export type ImageIntent = "note" | "task" | "reminder" | "expense" | "extract" | "store" | "store-extract" | "choose";
+export type ImageIntent = "note" | "task" | "reminder" | "extract" | "store" | "store-extract" | "choose";
 
 export async function extractTextFromImage(input: Buffer, languages: OcrLanguages = "eng"): Promise<{ text: string; confidence: number }> {
   if (input.length > MAX_IMAGE_BYTES) {
@@ -69,7 +69,6 @@ export function parseImageCaptionIntent(caption: string): ImageIntent {
     || /\b(?:extract|scan|read|ocr)\b.*\b(?:and|\+)\s*(?:save|store|keep)\b/.test(text)) return "store-extract";
   if (/\b(?:save|store|keep|archive)\b.*\b(?:image|photo|picture|screenshot)\b/.test(text)
     || /^(?:please\s+)?(?:save|store|keep)\s+(?:this|it)$/.test(text)) return "store";
-  if (/\b(?:expense|receipt|purchase|spending|spent|paid|reimburse)\b/.test(text)) return "expense";
   if (/\b(?:remind|reminder|nudge|don't forget|do not forget)\b/.test(text)) return "reminder";
   if (/\b(?:task|todo|to-do|action item|something to do)\b/.test(text)) return "task";
   if (/\b(?:as|into)\s+(?:a\s+)?notes?\b/.test(text)) return "note";

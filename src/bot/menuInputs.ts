@@ -8,7 +8,6 @@ export type MenuInputAction =
   | "idea-search"
   | "idea-brief"
   | "image-search"
-  | "expense"
   | "setting-interval"
   | "setting-quiet"
   | "setting-due-nudge"

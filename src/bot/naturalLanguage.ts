@@ -15,14 +15,13 @@ import { createIdea, findIdeaReference, formatIdeaSavedAcknowledgement, scoreIde
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
-import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 import { recentPersonalCaptureCreatedAt, reclassifyRecentPersonalCapture } from "../services/captureReclassification";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, undoKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, undoKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
@@ -102,20 +101,6 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       }
 
       if (await handlePendingMenuInput(ctx, ai, user, text)) return;
-
-      const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
-      if (expenseEdit) {
-        if (expenseEdit.canceled) {
-          await ctx.reply("Expense edit canceled. The preview is still exactly as it was.");
-        } else if (expenseEdit.message) {
-          await ctx.reply(expenseEdit.message);
-        } else {
-          await replyControlCardHtml(ctx, formatPendingExpense(expenseEdit.pending, user.settings?.timezone ?? "UTC"), {
-            reply_markup: expenseConfirmationKeyboard(expenseEdit.pending.id)
-          });
-        }
-        return;
-      }
 
       const pendingImageReminder = await findPendingImageReminder(user.id);
       if (pendingImageReminder) {
@@ -419,18 +404,6 @@ async function handlePendingMenuInput(
     const invalid = /^(?:I don't|Choose|Pick|Send it|Try:)/i.test(result.message);
     await replyControlCardHtml(ctx, invalid ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
       reply_markup: settingInput.parent === "region" ? regionSettingsKeyboard() : reminderSettingsKeyboard()
-    });
-    return true;
-  }
-
-  if (action === "expense") {
-    const pending = await createPendingExpenseFromText(user.id, text, user.settings?.timezone ?? "UTC", {
-      sourceType: "manual",
-      defaultCurrency: user.settings?.expenseCurrency
-    });
-    clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expenseConfirmationKeyboard(pending.id)
     });
     return true;
   }

@@ -120,18 +120,6 @@ export function groupImagesModeKeyboard(workspaceId?: string): InlineKeyboard {
   return keyboard.text("‹ Main menu", "menu:home");
 }
 
-export function expensesModeKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("＋ Add expense", "menu:expenses-add").text("💰 Recent expenses", "menu:expenses-list").row()
-    .text("📊 Excel & export", "menu:excel").text("‹ Main menu", "menu:home");
-}
-
-export function groupExpensesModeKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("＋ Add expense", "menu:expenses-add").text("💰 Recent expenses", "menu:expenses-list").row()
-    .text("‹ Main menu", "menu:home");
-}
-
 export function searchModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🔎 Search everything", "menu:search-input").row()
@@ -266,28 +254,10 @@ export function calendarTaskKeyboard(task: Pick<TaskListItem, "id" | "calendarEv
   return keyboard.text("‹ Reminder", `task:view-full:${task.id}`);
 }
 
-export function excelSettingsKeyboard(
-  status: { connected: boolean; autoSync: boolean; workbookReady: boolean; workbookUrl?: string },
-  connectUrl?: string
-): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  if (!status.connected && connectUrl) {
-    keyboard.url("Connect Microsoft Excel", connectUrl).row();
-  } else if (status.connected) {
-    if (!status.workbookReady) keyboard.text("Create expense workbook", "integration:excel:create").row();
-    if (status.workbookUrl) keyboard.url("Open workbook", status.workbookUrl).row();
-    if (status.workbookReady) keyboard.text("Sync expenses now", "integration:excel:sync").row();
-    keyboard.text(status.autoSync ? "Automatic sync: On" : "Automatic sync: Off", "integration:excel:toggle-auto").row()
-      .text("Disconnect", "integration:excel:disconnect-confirm").row();
-  }
-  return keyboard.text("Download .xlsx", "integration:excel:export").row()
-    .text("‹ Integrations", "menu:integrations");
-}
-
-export function disconnectIntegrationKeyboard(provider: "calendar" | "excel"): InlineKeyboard {
+export function disconnectIntegrationKeyboard(provider: "calendar"): InlineKeyboard {
   return new InlineKeyboard()
     .text("Disconnect", `integration:${provider}:disconnect`)
-    .text("Keep connected", `menu:${provider === "calendar" ? "calendar-settings" : "excel-settings"}`);
+    .text("Keep connected", "menu:calendar-settings");
 }
 
 export function taskCancelCalendarKeyboard(taskId: string): InlineKeyboard {
@@ -681,24 +651,3 @@ export function storedImageDeleteKeyboard(imageId: string): InlineKeyboard {
     .text("Keep image", `stored-image:delete-cancel:${imageId}`);
 }
 
-export function expenseConfirmationKeyboard(pendingId: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("✅ Save in Threadwise", `expense:save:${pendingId}`)
-    .row()
-    .text("📊 Save + sync Excel", `expense:excel:${pendingId}`)
-    .row()
-    .text("✏️ Edit fields", `expense:edit:${pendingId}`)
-    .text("✕ Discard", `expense:discard:${pendingId}`);
-}
-
-export function expensePageKeyboard(encodedFilter: string, page: number, totalPages: number): InlineKeyboard | undefined {
-  const keyboard = new InlineKeyboard();
-  if (totalPages > 1) {
-    if (page > 1) keyboard.text("Prev", `expense:page:${encodedFilter}:${page - 1}`);
-    keyboard.text(`Page ${page}/${totalPages}`, `expense:page:${encodedFilter}:${page}`);
-    if (page < totalPages) keyboard.text("Next", `expense:page:${encodedFilter}:${page + 1}`);
-    keyboard.row();
-  }
-  keyboard.text("‹ Expenses", "menu:expenses");
-  return keyboard;
-}

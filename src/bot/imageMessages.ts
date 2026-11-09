@@ -2,7 +2,6 @@ import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
-import { createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
 import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
 import { beginPendingItemEdit, formatEditStarted } from "../services/itemEdits";
@@ -10,7 +9,7 @@ import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
+import { editCancelKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
@@ -39,7 +38,7 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     }
     await handleImageMessage(ctx, ai, token);
   });
-  bot.callbackQuery(/^image-upload:(save|caption|save-extract|extract|expense|discard):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^image-upload:(save|caption|save-extract|extract|discard):(.+)$/, async (ctx) => {
     try {
       await handleIncomingImageAction(ctx, ai, token, ctx.match[1], ctx.match[2]);
     } catch (error) {
@@ -200,7 +199,7 @@ async function handleIncomingImageAction(
     return;
   }
   const pending = await consumePendingImageUpload(user.id, pendingId);
-  await ctx.answerCallbackQuery({ text: action === "expense" ? "Reading receipt" : "Extracting text" });
+  await ctx.answerCallbackQuery({ text: "Extracting text" });
   await processImageOcr(ctx, ai, token, {
     telegramFileId: pending.telegramFileId,
     telegramUniqueId: pending.telegramUniqueId ?? undefined,
@@ -208,7 +207,7 @@ async function handleIncomingImageAction(
     mimeType: pending.mimeType ?? undefined,
     fileName: pending.fileName ?? undefined,
     fileSize: pending.fileSize ?? undefined
-  }, pending.caption ?? "", action === "expense" ? "expense" : "extract", user);
+  }, pending.caption ?? "", "extract", user);
 }
 
 async function processImageOcr(
@@ -231,19 +230,6 @@ async function processImageOcr(
     const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
     if (storedImageId) await updateStoredImageOcr(user.id, storedImageId, extracted.text, extracted.confidence);
-
-    if (intent === "expense") {
-      const pendingExpense = await createPendingExpenseFromText(user.id, extracted.text, user.settings?.timezone ?? "UTC", {
-        sourceType: "receipt",
-        receiptFileUniqueId: target.telegramUniqueId,
-        ocrConfidence: extracted.confidence,
-        defaultCurrency: user.settings?.expenseCurrency
-      });
-      await editOrReplyHtml(ctx, formatPendingExpense(pendingExpense, user.settings?.timezone ?? "UTC"), {
-        reply_markup: expenseConfirmationKeyboard(pendingExpense.id)
-      });
-      return;
-    }
 
     if (intent === "note") {
       const note = await createNote(user.id, extracted.text, ai);

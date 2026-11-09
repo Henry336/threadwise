@@ -1,5 +1,4 @@
 import type { Context } from "grammy";
-import { InputFile } from "grammy";
 import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
@@ -30,16 +29,15 @@ import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl,
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskAssignment, parseNaturalTaskBody } from "./naturalCommandParsing";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
-import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
+import { microsoftExcelConfigured } from "../services/excel";
+import { restoreCompletedTaskKeyboard } from "./keyboards";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 import { isGroupChat } from "./groupRouting";
@@ -117,8 +115,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (isGroupChat(ctx)
     && !/^(?:remind|task|note|idea|save|remember)\b/.test(lower)
-    && /\b(?:google calendar|calendar|microsoft excel|excel|workbook|spreadsheet)\b/.test(lower)) {
-    await ctx.reply("Calendar and Excel are personal connections. Message me privately to manage them.");
+    && /\b(?:google calendar|calendar)\b/.test(lower)) {
+    await ctx.reply("Calendar is a personal connection. Message me privately to manage it.");
     return true;
   }
 
@@ -228,130 +226,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     }
     const result = await updateSetting(user.id, settingChange);
     await ctx.reply(result.message);
-    return true;
-  }
-
-  const expenseListQuery = naturalExpenseListQuery(trimmed);
-  if (expenseListQuery !== undefined) {
-    const filter = parseExpenseFilter(expenseListQuery || "all", user.settings?.timezone ?? "UTC");
-    if (!filter) {
-      await ctx.reply("I can show all expenses, today, yesterday, a date, a month, or a year. Try: show expenses this month.");
-      return true;
-    }
-    const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
-    await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-    });
-    return true;
-  }
-
-  const directExpenseEdit = trimmed.match(/^(?:change|update|edit|correct)\s+(?:expense\s+)?(EXP-\d+)\s+(.+)$/i);
-  const currencyExpenseEdit = trimmed.match(/^(?:change|update|set)\s+(?:the\s+)?currency\s+(?:of|for)\s+(EXP-\d+)\s+(?:to|as)\s+(.+)$/i);
-  const expenseEditMatch = directExpenseEdit ?? currencyExpenseEdit;
-  if (expenseEditMatch?.[1] && expenseEditMatch[2]) {
-    try {
-      const editText = currencyExpenseEdit ? `currency ${expenseEditMatch[2]}` : expenseEditMatch[2];
-      const expense = await updateSavedExpense(user.id, expenseEditMatch[1], editText, user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't update that expense."));
-    }
-    return true;
-  }
-
-  const expenseText = naturalExpenseText(trimmed);
-  if (expenseText) {
-    try {
-      const pending = await createPendingExpenseFromText(user.id, expenseText, user.settings?.timezone ?? "UTC", { sourceType: "manual", defaultCurrency: user.settings?.expenseCurrency });
-      await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
-        reply_markup: expenseConfirmationKeyboard(pending.id)
-      });
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't prepare that expense."));
-    }
-    return true;
-  }
-
-  if (/^(?:excel|excel status|show (?:me )?(?:my )?excel status|is excel connected)$/.test(lower)) {
-    const status = await excelConnectionStatus(user.id);
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const connectUrl = !status.connected && microsoftExcelConfigured()
-      ? await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true })
-      : undefined;
-    await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status, connectUrl) });
-    return true;
-  }
-
-  if (/^(?:connect|link|set up) (?:my )?(?:microsoft )?excel(?: account)?$/.test(lower)) {
-    if (!microsoftExcelConfigured()) {
-      await ctx.reply("Excel OAuth is not configured on the server yet.");
-      return true;
-    }
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true });
-    await replyHtml(ctx, `${bold("📊 Microsoft Excel")}\nConnect once. Threadwise will prepare the workbook and import existing expenses.`, {
-      reply_markup: excelSettingsKeyboard({ connected: false, autoSync: false, workbookReady: false }, url)
-    });
-    return true;
-  }
-
-  if (/^(?:create|make|set up) (?:my )?(?:threadwise )?(?:expense )?(?:excel )?(?:workbook|spreadsheet)$/.test(lower)) {
-    try {
-      const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-    await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined].filter(Boolean).join("\n"));
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't create the workbook."));
-    }
-    return true;
-  }
-
-  const excelLinkMatch = trimmed.match(/^(?:use|link|connect) (?:this )?(?:excel )?(?:workbook|spreadsheet)?\s*(https?:\/\/\S+)$/i);
-  if (excelLinkMatch?.[1]) {
-    try {
-      const item = await linkExpenseWorkbook(user.id, excelLinkMatch[1]);
-    await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't link that workbook."));
-    }
-    return true;
-  }
-
-  if (/^(?:sync|send|copy|upload) (?:my )?(?:unsynced )?expenses (?:to|into) excel$/.test(lower)) {
-    try {
-      const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
-      await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't sync those expenses to Excel."));
-    }
-    return true;
-  }
-
-  if (/^(?:open|show) (?:my )?(?:expense )?(?:excel )?(?:workbook|spreadsheet)$/.test(lower)) {
-    const status = await excelConnectionStatus(user.id);
-    if (!status.workbookUrl) {
-      await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status) });
-    } else {
-      await replyHtml(ctx, `${bold("📊 Expense workbook")}\n${h(status.workbookName ?? "Threadwise Expenses.xlsx")}`, { reply_markup: excelSettingsKeyboard(status) });
-    }
-    return true;
-  }
-
-  const automaticExcel = lower.match(/^(?:turn |switch )?(on|off)?\s*(?:automatic|automatically) sync (?:my )?expenses (?:to|with) excel$/);
-  if (automaticExcel) {
-    const enabled = automaticExcel[1] !== "off";
-    await prisma.userSettings.update({ where: { userId: user.id }, data: { excelAutoSync: enabled } });
-    await ctx.reply(`Automatic Excel sync is ${enabled ? "on" : "off"}.`);
-    return true;
-  }
-
-  if (/^(?:export|download|give me) (?:all )?(?:my )?expenses (?:as|to|in) (?:an )?excel(?: workbook| file)?$/.test(lower)) {
-    const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
-    await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
-    return true;
-  }
-
-  if (/^(?:disconnect|unlink) (?:my )?(?:microsoft )?excel$/.test(lower)) {
-    await replyHtml(ctx, await disconnectMicrosoft(user.id));
     return true;
   }
 
@@ -935,24 +809,6 @@ async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't update Google Calendar."));
   }
-}
-
-function naturalExpenseText(text: string): string | undefined {
-  const trimmed = normalizeNaturalCommandText(text);
-  if (/^(?:i\s+)?(?:spent|paid)\s+.+/i.test(trimmed)) return trimmed;
-  const explicit = trimmed.match(/^(?:please\s+)?(?:log|record|add|save|track)\s+(?:this\s+)?(?:as\s+)?(?:an?\s+)?expense(?:\s+(?:of|for))?\s+(.+)$/i)
-    ?? trimmed.match(/^expense\s*[:,-]?\s+(.+)$/i);
-  if (explicit?.[1]) return `expense ${explicit[1]}`;
-  const bought = trimmed.match(/^(?:i\s+)?bought\s+(.+?)\s+for\s+(.+\d.+|\d.+)$/i);
-  if (bought?.[1] && bought[2]) return `spent ${bought[2]} on ${bought[1]}`;
-  return undefined;
-}
-
-function naturalExpenseListQuery(text: string): string | undefined {
-  const normalized = text.trim().replace(/[?.!]+$/g, "");
-  if (/^(?:expenses|my expenses|show expenses|show my expenses|list expenses|list my expenses)$/i.test(normalized)) return "all";
-  const match = normalized.match(/^(?:(?:show|list|view|give)(?:\s+me)?(?:\s+all)?(?:\s+my)?\s+expenses|(?:what|how much)\s+did\s+i\s+spend)(?:\s+(?:for|from|on|in))?\s*(.*)$/i);
-  return match ? (match[1]?.trim() || "all") : undefined;
 }
 
 function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {

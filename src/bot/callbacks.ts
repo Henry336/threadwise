@@ -1,4 +1,4 @@
-import { InputFile, type Bot, type Context } from "grammy";
+import type { Bot, Context } from "grammy";
 import { GroupActivityType, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
@@ -15,12 +15,10 @@ import { findPendingSearch, semanticSearch } from "../services/search";
 import { undoLastActionForContext } from "../services/undo";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
-import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, microsoftExcelConfigured, syncExpenseToExcel, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
 import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
+import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList, replyActiveListWithMessage } from "./activeLists";
 import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
@@ -73,15 +71,11 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
     await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
   });
-  bot.callbackQuery(/^image:(note|task|reminder|expense|text|discard):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^image:(note|task|reminder|text|discard):(.+)$/, async (ctx) => {
     await handleImageAction(ctx, ai, ctx.match[1], ctx.match[2]);
   });
-  bot.callbackQuery(/^expense:(save|excel|edit|discard):(.+)$/, async (ctx) => {
-    await handleExpenseAction(ctx, ctx.match[1], ctx.match[2]);
-  });
-  bot.callbackQuery(/^expense:page:(all|day|month|year):([^:]+):(\d+)$/, async (ctx) => {
-    await handleExpensePage(ctx, `${ctx.match[1]}:${ctx.match[2]}`, ctx.match[3]);
-  });
+  // Expenses are frozen; buttons on old expense cards get a clear answer instead of a spinner.
+  bot.callbackQuery(/^expense:/, async (ctx) => ctx.answerCallbackQuery({ text: "Expenses are no longer available in Telegram." }));
   bot.callbackQuery(/^bulk:(confirm|cancel):(.+)$/, async (ctx) => {
     await handleBulkAction(ctx, ctx.match[1], ctx.match[2]);
   });
@@ -359,15 +353,6 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
     return;
   }
-  if (action === "expenses-list") {
-    const filter = decodeExpenseFilter("all:all");
-    if (!filter) return;
-    const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
-    await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-    });
-    return;
-  }
   if (action === "preferences") {
     await editOrReplyHtml(ctx, await formatReminderSettings(user.id), { reply_markup: reminderSettingsKeyboard() });
     return;
@@ -431,8 +416,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", replyObject: "what you want to find", back: "search" },
     "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for?", replyObject: "the note words you remember", back: "notes" },
     "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for?", replyObject: "the idea words you remember", back: "ideas" },
-    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "What do you remember about it?", replyObject: "a caption, filename, or text inside the image", back: "images" },
-    "expenses-add": { action: "expense", title: "＋ Add expense", prompt: "Describe the expense and amount.", replyObject: "the expense details", back: "expenses" }
+    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "What do you remember about it?", replyObject: "a caption, filename, or text inside the image", back: "images" }
   };
   const input = inputs[action];
   if (input) {
@@ -449,7 +433,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
-  const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
+  const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "commands"> = {
     reminders: "reminders",
     "notes-help": "notes",
     "ideas-help": "ideas",
@@ -462,9 +446,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
       await editOrReplyHtml(ctx, formatGroupCommandReference(), { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") });
       return;
     }
-    const parentLabel = action === "excel" ? "‹ Expenses" : "‹ Help";
-    const parentCallback = action === "excel" ? "menu:expenses" : "menu:help";
-    await editOrReplyHtml(ctx, group ? formatGroupHelpTopic(topic, ctx.me.username) : formatHelpTopic(topic), { reply_markup: menuBackKeyboard(parentLabel, parentCallback) });
+    await editOrReplyHtml(ctx, group ? formatGroupHelpTopic(topic, ctx.me.username) : formatHelpTopic(topic), { reply_markup: menuBackKeyboard("‹ Help", "menu:help") });
   }
 }
 
@@ -518,20 +500,6 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       await editOrReplyText(ctx, "When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.", { reply_markup: imageReminderTimeKeyboard(pendingId) });
       return;
     }
-    if (action === "expense") {
-      const expense = await createPendingExpenseFromText(user.id, pending.extractedText, user.settings?.timezone ?? "UTC", {
-        sourceType: "receipt",
-        receiptFileUniqueId: pending.telegramUniqueId ?? undefined,
-        ocrConfidence: pending.confidence ?? undefined,
-        defaultCurrency: user.settings?.expenseCurrency
-      });
-      await consumePendingImageCapture(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Expense preview" });
-      await editOrReplyHtml(ctx, formatPendingExpense(expense, user.settings?.timezone ?? "UTC"), {
-        reply_markup: expenseConfirmationKeyboard(expense.id)
-      });
-      return;
-    }
     const consumed = await consumePendingImageCapture(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Saving" });
     if (action === "note") {
@@ -549,55 +517,6 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
   }
-}
-
-async function handleExpenseAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
-  const user = await ensureUser(ctx);
-  try {
-    if (action === "discard") {
-      await cancelPendingExpense(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Discarded" });
-      await editOrReplyText(ctx, "Got it—I left that expense unsaved.", { reply_markup: menuBackKeyboard() });
-      return;
-    }
-    if (action === "edit") {
-      await beginExpenseEdit(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Ready to edit" });
-      await editOrReplyText(ctx, "Send the fields to change, for example: total 12.50, merchant Toast Box, category Food, date today. Send 'cancel expense edit' to stop.");
-      return;
-    }
-    const expense = await confirmPendingExpense(user.id, pendingId);
-    await ctx.answerCallbackQuery({ text: action === "excel" ? "Saving and syncing" : "Saved" });
-    let syncMessage = "";
-    if (action === "excel") {
-      try {
-        await syncExpenseToExcel(user.id, expense.id, user.settings?.timezone ?? "UTC");
-        syncMessage = "\nExcel: synced";
-      } catch (error) {
-        syncMessage = `\nExcel: not synced. ${userFacingError(error, "You can retry the sync from Expenses.")}`;
-      }
-    } else {
-      const outcome = await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings?.timezone ?? "UTC");
-      if (outcome === "synced") syncMessage = "\nExcel: synced automatically";
-    }
-    await editOrReplyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`, { reply_markup: menuBackKeyboard() });
-  } catch (error) {
-    await ctx.answerCallbackQuery({ text: "Could not save" });
-    await editOrReplyText(ctx, userFacingError(error, "I couldn't save that expense."), { reply_markup: menuBackKeyboard() });
-  }
-}
-
-async function handleExpensePage(ctx: Context, encoded: string, pageText: string | undefined) {
-  const page = Number(pageText);
-  const filter = decodeExpenseFilter(encoded);
-  if (!filter || !Number.isInteger(page) || page < 1) return;
-  const user = await ensureUser(ctx);
-  const result = await listExpenses(user.id, filter, page, user.settings?.timezone ?? "UTC");
-  await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
-  await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-  });
 }
 
 async function replyInChunks(ctx: Context, text: string) {
@@ -872,44 +791,6 @@ async function handleIntegrationAction(ctx: Context, provider: string | undefine
       }
     }
 
-    if (provider === "excel") {
-      if (action === "create") {
-        await ctx.answerCallbackQuery({ text: "Preparing workbook…" });
-        await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-        await showExcelPanel(ctx, user.id, user.telegramId, "Workbook ready. Existing expenses were imported.");
-        return;
-      }
-      if (action === "sync") {
-        await ctx.answerCallbackQuery({ text: "Syncing expenses…" });
-        const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
-        await showExcelPanel(ctx, user.id, user.telegramId, count ? `${count} expense${count === 1 ? "" : "s"} synced.` : "Everything is already synced.");
-        return;
-      }
-      if (action === "toggle-auto") {
-        const status = await excelConnectionStatus(user.id);
-        await prisma.userSettings.update({ where: { userId: user.id }, data: { excelAutoSync: !status.autoSync } });
-        await ctx.answerCallbackQuery({ text: `Automatic sync ${status.autoSync ? "off" : "on"}` });
-        await showExcelPanel(ctx, user.id, user.telegramId);
-        return;
-      }
-      if (action === "export") {
-        await ctx.answerCallbackQuery({ text: "Preparing download…" });
-        const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
-        await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
-        return;
-      }
-      if (action === "disconnect-confirm") {
-        await ctx.answerCallbackQuery();
-        await editOrReplyHtml(ctx, `${bold("Disconnect Microsoft Excel?")}\nThe OneDrive workbook and Threadwise expenses will stay unchanged.`, { reply_markup: disconnectIntegrationKeyboard("excel") });
-        return;
-      }
-      if (action === "disconnect") {
-        await disconnectMicrosoft(user.id);
-        await ctx.answerCallbackQuery({ text: "Excel disconnected" });
-        await showExcelPanel(ctx, user.id, user.telegramId);
-        return;
-      }
-    }
     await ctx.answerCallbackQuery({ text: "That connection action is no longer available." });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: userFacingError(error, "The connection could not be updated.").slice(0, 180), show_alert: true });
@@ -923,16 +804,6 @@ async function showCalendarPanel(ctx: Context, userId: string, chatId: string, n
     : undefined;
   await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatCalendarStatus(userId, status)].filter(Boolean).join("\n\n"), {
     reply_markup: calendarSettingsKeyboard(status, connectUrl)
-  });
-}
-
-async function showExcelPanel(ctx: Context, userId: string, chatId: string, notice?: string) {
-  const status = await excelConnectionStatus(userId);
-  const connectUrl = !status.connected && microsoftExcelConfigured()
-    ? await createMicrosoftConnectUrl(userId, chatId, { enableAutoSync: true })
-    : undefined;
-  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatExcelStatus(userId)].filter(Boolean).join("\n\n"), {
-    reply_markup: excelSettingsKeyboard(status, connectUrl)
   });
 }
 
