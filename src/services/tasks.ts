@@ -151,58 +151,13 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   return refreshCalendarState(userId, created);
 }
 
+/**
+ * A reminder is a task with a fixed due time. It delegates to createTask so the
+ * two cannot drift: same parsing, assignees, recurrence, calendar link and
+ * first reminder time.
+ */
 export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
-  const settings = user.settings;
-  if (!settings) {
-    throw new Error("User settings are missing.");
-  }
-
-  const prepared = prepareTaskInput(sourceText, options);
-  const primaryAssignee = prepared.assignees[0];
-  const recurrence = parseRecurrencePattern(prepared.text);
-  const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
-  const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const calendarUrl = createGoogleCalendarUrl({
-    title: structured.title,
-    details: structured.description ?? sourceText,
-    dueAt: scheduledAt,
-    timezone: settings.timezone
-  });
-
-  const created = await createWithPublicId(userId, "TASK", async (tx, publicId) => {
-    const task = await tx.task.create({
-      data: {
-        userId,
-        publicId,
-        title: structured.title,
-        description: structured.description,
-        sourceText,
-        dueAt: scheduledAt,
-        timezone: settings.timezone,
-        reminderIntervalMinutes: settings.reminderIntervalMinutes,
-        nextReminderAt: initialTaskReminderAt({
-          now: new Date(),
-          dueAt: scheduledAt,
-          dueNudgeMinutes: settings.dueNudgeMinutes,
-          intervalMinutes: settings.reminderIntervalMinutes,
-        }),
-        audience: prepared.assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
-        calendarUrl,
-        assignedTelegramId: primaryAssignee?.telegramId,
-        assignedUsername: primaryAssignee?.username,
-        assignedDisplayName: primaryAssignee?.displayName,
-        assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
-        recurrenceRule: recurrence?.rule,
-        recurrenceIntervalDays: recurrence?.intervalDays,
-        recurrenceDayOfMonth: recurrenceDayOfMonth(scheduledAt, recurrence?.rule, settings.timezone)
-      },
-      include: { assignees: true }
-    });
-    await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
-    return task;
-  });
-  return refreshCalendarState(userId, created);
+  return createTask(userId, sourceText, ai, { ...options, dueAt: scheduledAt });
 }
 
 export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {
