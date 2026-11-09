@@ -267,7 +267,8 @@ function compactSummary(body: string): string {
   return normalized.length <= 240 ? normalized : `${normalized.slice(0, 237)}...`;
 }
 
-function taskView(task: {
+/** Maps a task row to its dashboard shape. Shared by the item routes and the snapshot so the two cannot drift. */
+export function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null;
   plannedFor: Date | null; firstPlannedFor: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
@@ -319,7 +320,8 @@ function taskView(task: {
   };
 }
 
-function noteView(note: {
+/** Maps a note row to its dashboard shape, for item routes and the snapshot alike. */
+export function noteView(note: {
   id: string; publicId: string; title: string; body: string; summary: string; tags: string[]; pinnedAt: Date | null;
   createdAt: Date; updatedAt: Date;
 }): DashboardNote {
@@ -329,7 +331,8 @@ function noteView(note: {
   };
 }
 
-function ideaView(idea: {
+/** Maps an idea row (with its stored brief) to its dashboard shape, for item routes and the snapshot alike. */
+export function ideaView(idea: {
   id: string; publicId: string; title: string; concept: string; status: IdeaStatus; tags: string[]; pinnedAt: Date | null;
   scores?: Prisma.JsonValue | null;
   createdAt: Date; updatedAt: Date;
@@ -342,7 +345,8 @@ function ideaView(idea: {
   };
 }
 
-function expenseView(expense: {
+/** Maps an expense row to its dashboard shape, for item routes and the snapshot alike. */
+export function expenseView(expense: {
   id: string; publicId: string; merchant: string | null; description: string | null; total: Prisma.Decimal; currency: string;
   category: string | null; transactionAt: Date; paymentMethod: string | null; notes: string | null; excelSyncedAt: Date | null;
   createdAt: Date; updatedAt: Date;
