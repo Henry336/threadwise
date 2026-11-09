@@ -5,6 +5,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { bold, code, h } from "../utils/html";
 import { nextPublicId } from "./publicIds";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const IMAGE_UPLOAD_BATCH_SETTLE_MS = 1_800;
 export const IMAGE_UPLOAD_BATCH_TTL_MS = 24 * 60 * 60_000;
@@ -312,11 +313,9 @@ export function imageUploadBatchCaptionKeyboard(token: string) {
   return { inline_keyboard: [[{ text: "✕ Cancel caption", callback_data: `image-batch:caption-cancel:${token}` }]] };
 }
 
-export function startImageUploadBatchLoop(bot: Bot, pollMs = IMAGE_UPLOAD_BATCH_POLL_MS): NodeJS.Timeout {
-  void processImageUploadBatches(bot);
-  const timer = setInterval(() => void processImageUploadBatches(bot), pollMs);
-  timer.unref?.();
-  return timer;
+/** Restart-recovery sweep for image albums; normal processing is triggered by each upload. */
+export function startImageUploadBatchLoop(bot: Bot, pollMs = IMAGE_UPLOAD_BATCH_POLL_MS): StopLoop {
+  return startLoop("Image upload batch", pollMs, () => processImageUploadBatches(bot), { runImmediately: true });
 }
 
 export function scheduleImageUploadBatchProcessing(api: Api, delayMs = IMAGE_UPLOAD_BATCH_SETTLE_MS + 100): NodeJS.Timeout {

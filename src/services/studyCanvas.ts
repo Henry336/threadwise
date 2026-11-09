@@ -21,6 +21,7 @@ import {
   ensureStudyWeek,
   nextStudyPublicId,
 } from "./study";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 const CANVAS_PAGE_LIMIT = 100;
 const CANVAS_MAX_PAGES = 50;
@@ -443,11 +444,9 @@ export function studyCanvasSyncIsDue(state: {
   return state.nextSyncAt <= now;
 }
 
-export function startStudyCanvasSyncLoop(pollMs = CANVAS_SYNC_POLL_MS): NodeJS.Timeout {
-  void runDueStudyCanvasSync();
-  const timer = setInterval(() => void runDueStudyCanvasSync(), pollMs);
-  timer.unref?.();
-  return timer;
+/** Runs the Canvas mirror for every Study workspace whose sync is due. */
+export function startStudyCanvasSyncLoop(pollMs = CANVAS_SYNC_POLL_MS): StopLoop {
+  return startLoop("Study Canvas sync", pollMs, () => runDueStudyCanvasSync(), { runImmediately: true });
 }
 
 export function canvasModuleCode(course: Pick<CanvasCourse, "id" | "name" | "course_code">): string {

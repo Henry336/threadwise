@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo } from "./undo";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const NOTE_CAPTURE_IDLE_MS = 60 * 60_000;
 export const NOTE_CAPTURE_POLL_MS = 60_000;
@@ -147,12 +148,9 @@ export async function finalizeExpiredNoteCaptureSessions(): Promise<FinalizedNot
   return results;
 }
 
-export function startNoteCaptureExpiryLoop(bot: Bot, pollMs = NOTE_CAPTURE_POLL_MS): NodeJS.Timeout {
-  const timer = setInterval(() => {
-    void autoSaveExpiredSessions(bot);
-  }, pollMs);
-  timer.unref?.();
-  return timer;
+/** Auto-saves note capture sessions that ran out of time. */
+export function startNoteCaptureExpiryLoop(bot: Bot, pollMs = NOTE_CAPTURE_POLL_MS): StopLoop {
+  return startLoop("Note capture expiry", pollMs, () => autoSaveExpiredSessions(bot));
 }
 
 export function deriveCapturedNoteTitle(paragraphs: string[]): string {

@@ -24,6 +24,7 @@ import {
 } from "../services/fileCourierPolicy";
 import { localWorkerReadiness } from "../services/geminiIdeas";
 import { soleOwnerGroup } from "./codex";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export type ParsedFileCourierCommand =
   | { action: "help" }
@@ -223,31 +224,21 @@ export async function deliverFileCourierJobOnce(bot: Bot, job: FileCourierJobWit
   );
 }
 
-export function startFileCourierDeliveryLoop(bot: Bot, intervalMs = 60_000): NodeJS.Timeout | undefined {
+/** Retries file courier results that were finished but never reached Telegram. */
+export function startFileCourierDeliveryLoop(bot: Bot, intervalMs = 60_000): StopLoop | undefined {
   const config = privateCodexConfig();
   if (!config) return undefined;
   const scope = { ownerTelegramId: config.ownerTelegramId, telegramChatId: config.telegramChatId };
-  let active = false;
-  return setInterval(() => {
-    if (active) return;
-    active = true;
-    void (async () => {
+  return startLoop("File courier delivery retry", intervalMs, async () => {
+    const jobs = await undeliveredFileCourierJobs(scope, new Date(Date.now() - 60_000));
+    for (const job of jobs) {
       try {
-        const jobs = await undeliveredFileCourierJobs(scope, new Date(Date.now() - 60_000));
-        for (const job of jobs) {
-          try {
-            await deliverFileCourierJobOnce(bot, job);
-          } catch (error) {
-            logger.warn("File courier result retry failed.", { jobId: job.id, error: String(error) });
-          }
-        }
+        await deliverFileCourierJobOnce(bot, job);
       } catch (error) {
-        logger.warn("File courier delivery retry pass failed.", { error: String(error) });
-      } finally {
-        active = false;
+        logger.warn("File courier result retry failed.", { jobId: job.id, error: String(error) });
       }
-    })();
-  }, intervalMs);
+    }
+  });
 }
 
 export function renderFileCourierResult(job: FileCourierJobWithResults, requestedPage = 0): string {

@@ -12,6 +12,7 @@ import { StudyModeError, findStudyModule } from "./study";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 import { deriveStudyResourceAnalysis, studyResourceWikiLookupKeys } from "./studyScale";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
@@ -513,12 +514,9 @@ export async function finalizeExpiredStudyNoteSessions(now = new Date()) {
   return results;
 }
 
-export function startStudyNoteCaptureExpiryLoop(bot: Bot, pollMs = STUDY_NOTE_POLL_MS): NodeJS.Timeout {
-  const timer = setInterval(() => {
-    void autoSaveStudyNotes(bot);
-  }, pollMs);
-  timer.unref?.();
-  return timer;
+/** Auto-saves Study note captures that ran out of time. */
+export function startStudyNoteCaptureExpiryLoop(bot: Bot, pollMs = STUDY_NOTE_POLL_MS): StopLoop {
+  return startLoop("Study note capture expiry", pollMs, () => autoSaveStudyNotes(bot));
 }
 
 export function deriveStudyResourceTitle(value: string): string {

@@ -174,6 +174,7 @@ import {
   trustedMembersText,
   yesNoKeyboard
 } from "./ui";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 const OWNER_ONLY = "Only Beacon's owner can do that.";
 const SETTINGS_PATTERN = /^(?:\/beacon(?:@\w+)?|beacon\s+(?:settings|menu)|moderation\s+settings)$/iu;
@@ -214,10 +215,9 @@ export async function createBeaconBot(token: string, config: BeaconConfig): Prom
     memberName,
   });
 }
-export function startBeaconCleanupLoop(): NodeJS.Timeout {
-  return setInterval(() => {
-    void expireCommunityEvidence().catch((error) => logger.error("Beacon evidence cleanup failed.", { error: String(error) }));
-  }, 60 * 60_000);
+/** Deletes expired Beacon moderation evidence once an hour. */
+export function startBeaconCleanupLoop(): StopLoop {
+  return startLoop("Beacon evidence cleanup", 60 * 60_000, () => expireCommunityEvidence());
 }
 
 async function handleCallback(ctx: Context, config: BeaconConfig): Promise<void> {

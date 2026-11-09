@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { logger } from "../logger";
 import { expireTaskCaptureDrafts } from "../services/taskCaptureDrafts";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const TASK_DRAFT_EXPIRY_POLL_MS = 60_000;
 
@@ -22,17 +23,7 @@ export function startTaskDraftExpiryLoop(
   bot: Bot,
   ownerTelegramId: string | undefined,
   pollMs = TASK_DRAFT_EXPIRY_POLL_MS,
-): NodeJS.Timeout | undefined {
+): StopLoop | undefined {
   if (!ownerTelegramId) return undefined;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try { await expireTaskDraftCards(bot, ownerTelegramId); }
-    finally { running = false; }
-  };
-  void tick();
-  const timer = setInterval(() => void tick(), pollMs);
-  timer.unref?.();
-  return timer;
+  return startLoop("Task draft expiry", pollMs, () => expireTaskDraftCards(bot, ownerTelegramId), { runImmediately: true });
 }

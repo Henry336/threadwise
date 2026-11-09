@@ -18,6 +18,7 @@ import {
   voiceFileSizeError,
   type VoiceMedia
 } from "../services/voiceTranscription";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string): void {
   bot.on("message:voice", async (ctx) => {
@@ -121,24 +122,14 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
   });
 }
 
-export function startVoiceCaptureRecoveryLoop(bot: Bot, ai: AiProvider, botToken: string): NodeJS.Timeout {
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      await processRecoverableVoiceTranscriptions(bot.api, botToken, ai);
-      await deliverVoiceTranscriptionResults(bot);
-    } catch (error) {
-      logger.error("Voice capture recovery loop failed.", { error: String(error) });
-    } finally {
-      busy = false;
-    }
-  };
-  void tick();
+/** Finishes voice transcriptions interrupted by a restart and delivers any undelivered results. */
+export function startVoiceCaptureRecoveryLoop(bot: Bot, ai: AiProvider, botToken: string): StopLoop {
   // Voice submissions are processed immediately in their handler. This is a
   // restart-recovery sweep, not a hot queue poll.
-  return setInterval(() => void tick(), 60_000);
+  return startLoop("Voice capture recovery", 60_000, async () => {
+    await processRecoverableVoiceTranscriptions(bot.api, botToken, ai);
+    await deliverVoiceTranscriptionResults(bot);
+  }, { runImmediately: true });
 }
 
 export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> {

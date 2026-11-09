@@ -11,6 +11,7 @@ import { runStudyReminderPass } from "./studyReminders";
 import { runPendingStudyCalendarSyncs } from "./studyCalendar";
 import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
 import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule } from "./taskReminderSchedules";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 type ReminderTask = Prisma.TaskGetPayload<{
   include: { user: { include: { settings: true } }; assignees: true };
@@ -1012,13 +1013,10 @@ export function nextReminderAfterSettingChange(task: {
   return task.nextReminderAt;
 }
 
-export function startReminderLoop(bot: Bot, pollMs: number): NodeJS.Timeout {
-  const interval = setInterval(() => {
-    runReminderPass(bot, "loop").catch((error) => logger.error("Reminder loop failed.", { error: String(error) }));
-  }, pollMs);
-
+/** Sends due reminders every `pollMs`, after one labelled initial pass at startup. */
+export function startReminderLoop(bot: Bot, pollMs: number): StopLoop {
   void runReminderPass(bot, "initial").catch((error) => logger.error("Initial reminder pass failed.", { error: String(error) }));
-  return interval;
+  return startLoop("Reminder", pollMs, () => runReminderPass(bot, "loop"));
 }
 
 export function isInvalidReminderButtonError(error: unknown): boolean {

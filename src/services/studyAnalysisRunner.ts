@@ -8,25 +8,18 @@ import {
   failStudyAnalysisJob,
 } from "./studyAnalysis";
 import { generateOpenAiStudyAnalysis, openAiStudyApiConfigured, openAiStudyFailureMetadata } from "./openAiStudyApi";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 const SERVER_WORKER_ID = `study-api:${hostname()}:${process.pid}:${randomUUID()}`;
 let passInFlight: Promise<boolean> | undefined;
 
-export function startStudyAnalysisLoop(pollMs = env.STUDY_ANALYSIS_POLL_MS): NodeJS.Timeout | undefined {
+/** Works through queued Study analysis jobs when the OpenAI key is configured. */
+export function startStudyAnalysisLoop(pollMs = env.STUDY_ANALYSIS_POLL_MS): StopLoop | undefined {
   if (!openAiStudyApiConfigured()) {
     logger.info("Server-side Study analysis is disabled because OPENAI_API_KEY is not configured.");
     return undefined;
   }
-  triggerPass();
-  const timer = setInterval(triggerPass, pollMs);
-  timer.unref?.();
-  return timer;
-}
-
-function triggerPass(): void {
-  void runStudyAnalysisPass().catch((error) => {
-    logger.error("Study analysis queue pass failed.", { error: String(error) });
-  });
+  return startLoop("Study analysis queue", pollMs, () => runStudyAnalysisPass(), { runImmediately: true });
 }
 
 export function runStudyAnalysisPass(): Promise<boolean> {

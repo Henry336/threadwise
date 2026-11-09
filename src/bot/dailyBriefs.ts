@@ -15,6 +15,7 @@ import {
 import { isWithinQuietHours } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { dashboardViewUrl } from "./links";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const DAILY_BRIEF_POLL_MS = 60_000;
 const DELIVERY_WINDOW_MINUTES = 4 * 60;
@@ -124,19 +125,9 @@ export function startDailyBriefLoop(
   bot: Bot,
   ownerTelegramId: string | undefined,
   pollMs = DAILY_BRIEF_POLL_MS,
-): NodeJS.Timeout | undefined {
+): StopLoop | undefined {
   if (!ownerTelegramId) return undefined;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try { await runDailyBriefPass(bot, ownerTelegramId); }
-    finally { running = false; }
-  };
-  void tick();
-  const timer = setInterval(() => void tick(), pollMs);
-  timer.unref?.();
-  return timer;
+  return startLoop("Daily brief", pollMs, () => runDailyBriefPass(bot, ownerTelegramId), { runImmediately: true });
 }
 
 export function formatMorningBrief(agenda: DailyAgenda): string | undefined {

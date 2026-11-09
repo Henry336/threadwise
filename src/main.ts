@@ -34,38 +34,28 @@ async function main() {
     ? createHash("sha256").update(`threadwise-beacon:${env.BEACON_BOT_TOKEN}`).digest("hex")
     : undefined;
   await seedStudySmokeTestIfRequested();
-  const beaconCleanupLoop = beaconBot ? startBeaconCleanupLoop() : undefined;
-  const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
-  const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);
-  const dailyBriefLoop = startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
-  const taskDraftExpiryLoop = startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
-  const codexDeliveryLoop = startCodexDeliveryLoop(bot);
-  const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
-  const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
-  const voiceCaptureLoop = startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN);
-  const studyCanvasSyncLoop = startStudyCanvasSyncLoop();
-  const studyNoteCaptureLoop = startStudyNoteCaptureExpiryLoop(bot);
-  const studyCaptureBatchLoop = startStudyCaptureBatchLoop(bot);
-  const imageUploadBatchLoop = startImageUploadBatchLoop(bot);
-  const studyAnalysisLoop = startStudyAnalysisLoop();
+  // Each entry is a stop function, or undefined when that loop is disabled by configuration.
+  const stopLoops = [
+    beaconBot ? startBeaconCleanupLoop() : undefined,
+    startReminderLoop(bot, env.REMINDER_POLL_MS),
+    startNoteCaptureExpiryLoop(bot),
+    startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
+    startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
+    startCodexDeliveryLoop(bot),
+    startGeminiIdeaDeliveryLoop(bot),
+    startFileCourierDeliveryLoop(bot),
+    startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN),
+    startStudyCanvasSyncLoop(),
+    startStudyNoteCaptureExpiryLoop(bot),
+    startStudyCaptureBatchLoop(bot),
+    startImageUploadBatchLoop(bot),
+    startStudyAnalysisLoop()
+  ];
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
     logger.info("Shutting down Threadwise.", { signal });
-    clearInterval(reminderLoop);
-    clearInterval(noteCaptureLoop);
-    if (dailyBriefLoop) clearInterval(dailyBriefLoop);
-    if (taskDraftExpiryLoop) clearInterval(taskDraftExpiryLoop);
-    if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
-    if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
-    if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);
-    clearInterval(voiceCaptureLoop);
-    clearInterval(studyCanvasSyncLoop);
-    clearInterval(studyNoteCaptureLoop);
-    clearInterval(studyCaptureBatchLoop);
-    clearInterval(imageUploadBatchLoop);
-    if (studyAnalysisLoop) clearInterval(studyAnalysisLoop);
-    if (beaconCleanupLoop) clearInterval(beaconCleanupLoop);
+    for (const stop of stopLoops) stop?.();
     await server?.close();
     await bot.stop();
     await beaconBot?.stop();
@@ -145,6 +135,12 @@ async function main() {
     logger.info("Threadwise is running with Telegram long polling.");
   }
 }
+
+// A stray rejected promise (for example a background query during a database blip) is logged
+// instead of letting Node 22 exit the whole process.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection.", { error: String(reason) });
+});
 
 main().catch(async (error) => {
   logger.error("Threadwise failed to start.", { error: String(error) });

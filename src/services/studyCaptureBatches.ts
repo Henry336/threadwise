@@ -5,6 +5,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { bold, h } from "../utils/html";
 import { StudyModeError } from "./study";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const STUDY_CAPTURE_BATCH_SETTLE_MS = 1_800;
 export const STUDY_CAPTURE_BATCH_TTL_MS = 5 * 60_000;
@@ -226,11 +227,9 @@ export function studyCaptureBatchKeyboard(token: string) {
   };
 }
 
-export function startStudyCaptureBatchLoop(bot: Bot, pollMs = STUDY_CAPTURE_BATCH_POLL_MS): NodeJS.Timeout {
-  void processStudyCaptureBatches(bot);
-  const timer = setInterval(() => void processStudyCaptureBatches(bot), pollMs);
-  timer.unref?.();
-  return timer;
+/** Restart-recovery sweep for Study capture albums; normal processing is triggered by each upload. */
+export function startStudyCaptureBatchLoop(bot: Bot, pollMs = STUDY_CAPTURE_BATCH_POLL_MS): StopLoop {
+  return startLoop("Study capture batch", pollMs, () => processStudyCaptureBatches(bot), { runImmediately: true });
 }
 
 export function scheduleStudyCaptureBatchProcessing(api: Api, delayMs = STUDY_CAPTURE_BATCH_SETTLE_MS + 100): NodeJS.Timeout {
