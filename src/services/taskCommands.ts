@@ -1,3 +1,9 @@
+/**
+ * Single executor for task actions (complete, snooze, cancel, assign, unassign)
+ * that arrive from slash commands, natural text or buttons in src/bot. Keeping
+ * the group permission check and activity logging here means every entry point
+ * applies the same rules.
+ */
 import { GroupActivityType, TaskStatus } from "@prisma/client";
 import { recordGroupTaskActivity, type CollaborationActor } from "./groupCollaboration";
 import { assertGroupTaskAction, GroupTaskPermissionError, type GroupTaskAccess, type GroupTaskAction } from "./groupTaskPolicy";

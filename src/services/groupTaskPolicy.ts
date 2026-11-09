@@ -1,9 +1,16 @@
+/**
+ * Permission rules for shared group tasks: who may complete, snooze, manage
+ * (reassign or cancel) and claim a task. Used by the Telegram handlers in src/bot,
+ * by taskCommands.ts and by the dashboard collaboration routes, so Telegram and
+ * the web apply the same rules.
+ */
 import { GroupActivityType, TaskAssigneeStatus, TaskAudience, type PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { normalizePublicId } from "../utils/text";
 import type { CollaborationActor, CollaborationTask } from "./groupCollaboration";
 import { assigneeKey } from "./tasks";
 
+/** How the member relates to the task, used to pick the right buttons and copy. */
 export type GroupTaskAudience = "unassigned" | "everyone" | "assignee" | "manager" | "other";
 export type GroupTaskAction = "complete" | "snooze" | "manage";
 
@@ -20,6 +27,7 @@ export type GroupTaskAccess = {
   canClaim: boolean;
 };
 
+/** Refusal with a user-safe message. Handlers show the text to the member as is. */
 export class GroupTaskPermissionError extends Error {
   constructor(message: string) {
     super(message);
@@ -27,6 +35,12 @@ export class GroupTaskPermissionError extends Error {
   }
 }
 
+/**
+ * Works out what this member may do with one task in the owner's group workspace.
+ * The creator comes from the first TASK_CREATED activity row (falling back to the
+ * workspace owner for older tasks). Assignees and "Everyone" tasks may complete
+ * and snooze; only the creator or a group admin (isManager) may manage.
+ */
 export async function getGroupTaskAccess(
   ownerUserId: string,
   reference: string,
@@ -81,6 +95,10 @@ export async function getGroupTaskAccess(
   };
 }
 
+/**
+ * Same check as getGroupTaskAccess, but throws GroupTaskPermissionError when the
+ * requested action is not allowed.
+ */
 export async function assertGroupTaskAction(
   ownerUserId: string,
   reference: string,
@@ -101,6 +119,11 @@ export async function assertGroupTaskAction(
   return access;
 }
 
+/**
+ * Lets a member take an unassigned task. Runs in a transaction and the update is
+ * conditional on the task still being unassigned, so two members pressing Claim
+ * at the same time cannot both win. Also writes the assignee row and an activity entry.
+ */
 export async function claimGroupTask(
   ownerUserId: string,
   reference: string,
@@ -155,6 +178,10 @@ export async function claimGroupTask(
   });
 }
 
+/**
+ * An assignee matches by Telegram id, or by username (case-insensitive) for
+ * assignees stored only by @username without a Telegram id.
+ */
 function assigneeMatchesActor(
   assignee: { telegramId: string | null; username: string | null },
   actor: CollaborationActor,

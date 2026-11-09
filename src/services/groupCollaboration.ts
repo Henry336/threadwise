@@ -1,7 +1,13 @@
+/**
+ * Shared helpers for group task collaboration: who did something, and the
+ * group activity feed. Used by the group task handlers in src/bot and by
+ * groupTaskPolicy.ts, taskCommands.ts and taskImports.ts.
+ */
 import { GroupActivityType, Prisma, type PrismaClient } from "@prisma/client";
 import type { Context } from "grammy";
 import { prisma } from "../db/prisma";
 
+/** The Telegram member who performed a group action, as stored in activity rows. */
 export type CollaborationActor = {
   telegramId: string;
   username?: string;
@@ -10,6 +16,10 @@ export type CollaborationActor = {
 
 export type CollaborationTask = Prisma.TaskGetPayload<{ include: { assignees: true } }>;
 
+/**
+ * Error with a user-safe message, raised when a group task action is not allowed.
+ * Handlers show the message text directly to the member.
+ */
 export class TaskAssignmentError extends Error {
   constructor(message: string) {
     super(message);
@@ -17,6 +27,10 @@ export class TaskAssignmentError extends Error {
   }
 }
 
+/**
+ * Builds the actor from the Telegram sender. Throws when Telegram gives no
+ * sender, so actions are never unattributed.
+ */
 export function collaborationActorFromContext(ctx: Context): CollaborationActor {
   if (!ctx.from) throw new TaskAssignmentError("Telegram could not identify who made that request.");
   return {
@@ -26,6 +40,11 @@ export function collaborationActorFromContext(ctx: Context): CollaborationActor 
   };
 }
 
+/**
+ * Appends one row to the group workspace's activity feed (shown on the
+ * dashboard). Does nothing when the owner has no verified group workspace.
+ * The summary is capped at 1,000 characters.
+ */
 export async function recordGroupTaskActivity(
   userId: string,
   actor: CollaborationActor,
@@ -49,6 +68,10 @@ export async function recordGroupTaskActivity(
   });
 }
 
+/**
+ * Logs a "task created" activity entry, but only when the task came from a
+ * group chat. Private chats have no shared activity feed.
+ */
 export async function recordGroupTaskCreatedFromContext(
   ctx: Context,
   userId: string,

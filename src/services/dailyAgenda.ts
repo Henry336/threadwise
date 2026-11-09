@@ -1,3 +1,10 @@
+/**
+ * Builds the Today view: what is planned for a day, carried over from earlier
+ * days, due soon or overdue, across Personal, Group and Study. The agenda is
+ * derived from task and Study item fields on every read (nothing is copied).
+ * Also holds the delivery ledger for morning and evening briefs. Used by
+ * src/bot/today.ts, src/bot/dailyBriefs.ts and the dashboard Today routes.
+ */
 import {
   DailyBriefDeliveryStatus,
   DailyBriefKind,
@@ -14,6 +21,10 @@ import { calendarDate, calendarDateKey, todayCalendarDate } from "./taskPlanning
 import { completeStudyItem } from "./study";
 import { completeTask } from "./tasks";
 
+/**
+ * One row in the Today view, either a task or a Study item. Dates are strings:
+ * plannedFor is a YYYY-MM-DD day, dueAt is an ISO timestamp.
+ */
 export type AgendaEntry = {
   id: string;
   publicId: string;
@@ -29,6 +40,10 @@ export type AgendaEntry = {
   status: string;
 };
 
+/**
+ * The Today view for one day. orderRevision and reorderable support manual
+ * drag ordering, which only Personal Today has.
+ */
 export type DailyAgenda = {
   localDate: string;
   timezone: string;
@@ -42,6 +57,10 @@ export type DailyAgenda = {
   reorderable: boolean;
 };
 
+/**
+ * Whose Today view to build and in which mode. The principal is the person
+ * asking, identified by Telegram id.
+ */
 export type AgendaScope = {
   principalTelegramId: string;
   scope: PlanningScope;
@@ -49,6 +68,7 @@ export type AgendaScope = {
   studyWorkspaceId?: string;
 };
 
+/** Agenda failure with a user-safe message and a code the dashboard maps to an HTTP status. */
 export class DailyAgendaError extends Error {
   constructor(message: string, readonly code: "invalid" | "not_found" | "forbidden" | "conflict") {
     super(message);
@@ -56,6 +76,10 @@ export class DailyAgendaError extends Error {
   }
 }
 
+/**
+ * Entry point for the Today view. Routes to the Personal, Group or Study builder
+ * after checking that the scope names the workspace it needs.
+ */
 export async function getDailyAgenda(
   scope: AgendaScope,
   options: { localDate?: string; dueSoonDays?: number } = {},
@@ -77,6 +101,12 @@ export async function getDailyAgenda(
   return personalAgenda(scope.principalTelegramId, user.id, user.settings.timezone, options.localDate, dueSoonDays, database);
 }
 
+/**
+ * Moves one Today entry to another planned day, or clears its day. The entry
+ * must be visible in the caller's own agenda, which is the permission check.
+ * firstPlannedFor keeps the original day so carryover can be shown. Writes an
+ * audit entry in the same transaction.
+ */
 export async function planDailyAgendaEntry(
   scope: AgendaScope,
   entryId: string,
@@ -135,6 +165,11 @@ export async function planDailyAgendaEntry(
   return { ...entry, ...(plannedFor ? { plannedFor } : { plannedFor: undefined }), firstPlannedFor: entry.firstPlannedFor ?? plannedFor ?? undefined };
 }
 
+/**
+ * Completes one Today entry through the normal task or Study service, so
+ * recurrence, reminders and undo behave as usual. The entry must be visible in
+ * the caller's agenda.
+ */
 export async function completeDailyAgendaEntry(
   scope: AgendaScope,
   entryId: string,
@@ -163,6 +198,14 @@ export async function completeDailyAgendaEntry(
   return { ...entry, status: entry.mode === "STUDY" ? StudyItemStatus.DONE : TaskStatus.DONE };
 }
 
+/**
+ * Saves a drag-and-drop move in Personal Today as a private per-day ranking,
+ * not a priority field on the task. Uses optimistic concurrency: the caller
+ * sends the revision it saw, and a mismatch means another device reordered first.
+ * Normally only the moved row gets a new rank (midway between its neighbours);
+ * all rows are renumbered when there is no room. Order state older than 90 days
+ * is pruned.
+ */
 export async function reorderPersonalDailyAgenda(
   scope: AgendaScope,
   input: { localDate: string; orderedEntryIds: string[]; movedEntryId: string; expectedRevision: number },
@@ -261,6 +304,11 @@ export async function reorderPersonalDailyAgenda(
   return getDailyAgenda(scope, { localDate: input.localDate }, database);
 }
 
+/**
+ * Claims the right to send one brief (per recipient, day, kind and scope) by
+ * inserting a ledger row. The unique index turns a second attempt into
+ * claimed: false, so a restart or overlapping pass never sends the brief twice.
+ */
 export async function claimDailyBriefDelivery(
   input: {
     userId: string;
@@ -296,6 +344,7 @@ export async function claimDailyBriefDelivery(
   }
 }
 
+/** Records how a claimed brief ended: sent, skipped (nothing to say) or failed. */
 export async function finishDailyBriefDelivery(
   deliveryId: string,
   outcome: { status: Extract<DailyBriefDeliveryStatus, "SENT" | "SKIPPED" | "FAILED">; error?: string },
@@ -311,6 +360,10 @@ export async function finishDailyBriefDelivery(
   });
 }
 
+/**
+ * Counts what the person completed on a local day across personal tasks, group
+ * tasks assigned to them, and their Study items. Used for the evening wrap-up.
+ */
 export async function countDailyAgendaCompletions(
   principalTelegramId: string,
   timezone: string,
@@ -348,6 +401,11 @@ export async function countDailyAgendaCompletions(
   return personal + assigned + study;
 }
 
+/**
+ * Personal Today: the person's own tasks, open group tasks assigned to them in
+ * active groups, and their Study items. Applies any saved manual order to the
+ * "today" list.
+ */
 async function personalAgenda(
   principalTelegramId: string,
   userId: string,
@@ -411,6 +469,7 @@ async function personalAgenda(
   return { ...agenda, today: orderedToday, orderRevision: state?.revision ?? 0, reorderable: true };
 }
 
+/** Group Today: all open tasks of one group, for an active member of that group only. */
 async function groupAgenda(
   scope: AgendaScope,
   requestedDate: string | undefined,
@@ -437,6 +496,7 @@ async function groupAgenda(
   );
 }
 
+/** Study Today: open Study items, only for the Study workspace's owner. */
 async function studyAgenda(
   scope: AgendaScope,
   requestedDate: string | undefined,
@@ -454,6 +514,11 @@ async function studyAgenda(
   return groupAgendaEntries(items.map((item) => studyEntry(item, workspace.id)), PlanningScope.STUDY, workspace.timezone, requestedDate, dueSoonDays);
 }
 
+/**
+ * Sorts entries into the Today sections for one local day: planned today,
+ * carryover (planned on an earlier day), due soon (within dueSoonDays) and
+ * overdue. One entry may appear in more than one section. Pure function.
+ */
 export function groupAgendaEntries(
   entries: AgendaEntry[],
   scope: PlanningScope,
@@ -490,6 +555,7 @@ export function groupAgendaEntries(
   };
 }
 
+/** Converts a task row to an AgendaEntry. */
 function taskEntry(
   task: { id: string; publicId: string; title: string; plannedFor: Date | null; firstPlannedFor: Date | null; dueAt: Date | null; status: TaskStatus },
   mode: "INDIVIDUAL" | "GROUP",
@@ -510,6 +576,7 @@ function taskEntry(
   };
 }
 
+/** Converts a Study item row (with its module) to an AgendaEntry. */
 function studyEntry(
   item: { id: string; publicId: string; title: string; plannedFor: Date | null; firstPlannedFor: Date | null; dueAt: Date | null; status: StudyItemStatus; module: { id: string; code: string } },
   workspaceId: string,
@@ -529,6 +596,10 @@ function studyEntry(
   };
 }
 
+/**
+ * Parses a YYYY-MM-DD string into the stored calendar-day form, rejecting
+ * impossible dates such as 2026-02-30.
+ */
 function parseLocalDate(value: string): Date {
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) throw new DailyAgendaError("Use a date such as 2026-08-31.", "invalid");
   const parsed = new Date(`${value}T00:00:00.000Z`);

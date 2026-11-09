@@ -1,3 +1,9 @@
+/**
+ * Multi-item complete and delete from plain text, such as "complete 1, 3-5" or
+ * "delete NOTE-2 NOTE-4". Following the preview-and-confirm rule, nothing changes
+ * until the requester presses Confirm on the preview card. Used by the command,
+ * natural-language and callback handlers in src/bot.
+ */
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
@@ -24,6 +30,11 @@ type BulkPreviewItem = {
 const MAX_BULK_ITEMS = 25;
 const BULK_ACTION_TTL_MS = 15 * 60_000;
 
+/**
+ * Recognises a bulk complete or delete sentence. Returns undefined unless it
+ * names at least two items, so single-item phrases fall through to the normal
+ * handlers. Mixed kinds (TASK and NOTE ids together) are rejected.
+ */
 export function parseBulkActionRequest(text: string): BulkActionRequest | undefined {
   const normalized = text.trim().replace(/[.!?]+$/g, "");
   const markDone = normalized.match(/^mark\s+(?:my\s+)?tasks?\s+(.+?)\s+(?:as\s+)?(?:done|complete|completed|finished)$/i);
@@ -49,6 +60,11 @@ export function parseBulkActionRequest(text: string): BulkActionRequest | undefi
   return { action: "delete", itemKind, references };
 }
 
+/**
+ * Extracts list numbers, ranges ("3-5", "3 to 5") and public ids. Returns
+ * undefined when any other words remain, so free text is never mistaken for a
+ * bulk request. Capped at MAX_BULK_ITEMS.
+ */
 export function parseBulkReferences(text: string): string[] | undefined {
   const found: string[] = [];
   const remainder = text.replace(/\b(?:TASK|NOTE|IDEA)-\d+\b|\b\d+\s*(?:-|to)\s*\d+\b|\b\d+\b/gi, (token) => {
@@ -68,6 +84,10 @@ export function parseBulkReferences(text: string): string[] | undefined {
   return [...new Set(found)];
 }
 
+/**
+ * Resolves the references to real items and stores a pending action that expires
+ * after 15 minutes. Any older pending action from the same requester is replaced.
+ */
 export async function createBulkActionPreview(
   userId: string,
   requestedByTelegramId: string,
@@ -92,6 +112,11 @@ export async function createBulkActionPreview(
   return { pending, items, request };
 }
 
+/**
+ * Runs a confirmed bulk action item by item. Items that already changed or
+ * vanished are counted as skipped instead of failing the whole batch. "Delete"
+ * archives, so items can still be restored.
+ */
 export async function confirmBulkAction(userId: string, pendingId: string, telegramId: string) {
   const pending = await claimPendingBulkAction(userId, pendingId, telegramId);
   const request = { action: pending.action as BulkAction, itemKind: pending.itemKind as BulkItemKind };
@@ -129,10 +154,12 @@ export async function confirmBulkAction(userId: string, pendingId: string, teleg
   return { ...request, changed, skipped, items: changedItems };
 }
 
+/** Discards a pending bulk action. Only the original requester may cancel it. */
 export async function cancelBulkAction(userId: string, pendingId: string, telegramId: string) {
   await claimPendingBulkAction(userId, pendingId, telegramId);
 }
 
+/** Telegram HTML for the confirmation card listing every item that will change. */
 export function formatBulkActionPreview(preview: Awaited<ReturnType<typeof createBulkActionPreview>>): string {
   const verb = preview.request.action === "complete"
     ? "Complete"
@@ -148,6 +175,7 @@ export function formatBulkActionPreview(preview: Awaited<ReturnType<typeof creat
   ].join("\n");
 }
 
+/** Telegram HTML summary of what changed and how many items were skipped. */
 export function formatBulkActionResult(result: Awaited<ReturnType<typeof confirmBulkAction>>): string {
   const verb = result.action === "complete"
     ? "Completed"
@@ -159,6 +187,10 @@ export function formatBulkActionResult(result: Awaited<ReturnType<typeof confirm
   ].filter(Boolean).join("\n");
 }
 
+/**
+ * Takes ownership of a pending action exactly once. It checks the requester, then
+ * deletes the row conditionally, so a double tap on Confirm cannot run it twice.
+ */
 async function claimPendingBulkAction(userId: string, pendingId: string, telegramId: string) {
   const pending = await prisma.pendingBulkAction.findFirstOrThrow({
     where: { id: pendingId, userId, expiresAt: { gt: new Date() } }
@@ -175,6 +207,11 @@ async function claimPendingBulkAction(userId: string, pendingId: string, telegra
   return pending;
 }
 
+/**
+ * Maps each reference to an item: a number means its position in the current
+ * active list, a public id is looked up directly. Throws on any unknown or
+ * wrong-kind reference so the preview never shows a partial guess.
+ */
 async function resolveBulkItems(userId: string, request: BulkActionRequest): Promise<BulkPreviewItem[]> {
   const displayList: BulkPreviewItem[] = request.itemKind === "task"
     ? await listOpenTasks(userId)
@@ -213,6 +250,7 @@ function referenceMatchesKind(reference: string, kind: BulkItemKind): boolean {
   return reference.startsWith(`${kind.toUpperCase()}-`);
 }
 
+/** "tasks" or "Task" to "task", for the item kind field. */
 function singularKind(value: string): BulkItemKind {
   const normalized = value.toLowerCase().replace(/s$/, "");
   return normalized as BulkItemKind;

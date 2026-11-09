@@ -1,8 +1,19 @@
+/**
+ * Keeps one live task-list message ("control surface") per owner and chat.
+ * Called from src/bot/callbacks.ts after a task button press redraws the list,
+ * so older lists with stale buttons do not pile up in the chat.
+ */
 import type { Context } from "grammy";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { HTML_REPLY } from "../utils/html";
 
+/**
+ * Stores the current message as the owner's control surface for this chat and
+ * retires the previous one. It tries to delete the old message first; if
+ * Telegram refuses (for example the message is too old), it edits it to a short
+ * notice with no buttons. Failures are logged and never block the user.
+ */
 export async function convergeTaskControlSurface(ctx: Context, userId: string, currentMessageId?: number): Promise<void> {
   const chatId = ctx.chat?.id;
   const messageId = currentMessageId ?? ctx.callbackQuery?.message?.message_id;

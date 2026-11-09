@@ -1,3 +1,10 @@
+/**
+ * Core task domain: create, list, complete, snooze, cancel, rename, reschedule,
+ * assign and archive tasks, plus the Telegram card text for them. Every lookup is
+ * scoped by the owner's userId. State changes that /undo can reverse write an
+ * undo audit row in the same transaction. Called by most src/bot task handlers,
+ * taskCommands.ts, bulkActions.ts and the dashboard data layer.
+ */
 import { RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
@@ -74,6 +81,11 @@ export type TaskCreationAssignee = {
   displayName?: string;
 };
 
+/**
+ * Extra inputs for createTask from the caller: Telegram mention entities,
+ * explicit assignees, a fixed due time, the import row that produced the task,
+ * or a title chosen on a review card.
+ */
 export type TaskCreationOptions = {
   mentions?: TaskEntityMention[];
   assignees?: TaskCreationAssignee[];
@@ -84,6 +96,13 @@ export type TaskCreationOptions = {
   titleOverride?: string;
 };
 
+/**
+ * Creates a task from free text using deterministic parsing only (no AI):
+ * assignees, recurrence, due date and title come from the text unless options
+ * override them. Sets the first automatic reminder time and a Google Calendar
+ * link. The public id and an undo record are written in one transaction; Google
+ * Calendar sync then runs best effort.
+ */
 export async function createTask(userId: string, sourceText: string, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
@@ -158,6 +177,10 @@ export async function createScheduledReminder(userId: string, sourceText: string
   return createTask(userId, sourceText, { ...options, dueAt: scheduledAt });
 }
 
+/**
+ * Open, unarchived tasks in display order (pinned first, then by due date).
+ * Numbered list references like "done 2" index into this order.
+ */
 export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {
   const tasks = await prisma.task.findMany({
     where: { userId, status: TaskStatus.OPEN, archivedAt: null },
@@ -241,6 +264,11 @@ export async function completeTask(userId: string, reference: string, expectedDu
   });
 }
 
+/**
+ * Reopens a DONE task and restarts its reminder timing. Future custom reminders
+ * that were cancelled by the completion come back. The conditional update makes
+ * a repeated tap a no-op, and an undo record is written.
+ */
 export async function restoreCompletedTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
   if (task.status !== TaskStatus.DONE) {
@@ -271,6 +299,10 @@ export async function restoreCompletedTask(userId: string, reference: string) {
   });
 }
 
+/**
+ * Pushes the next reminder back by the given duration (default 60 minutes) and
+ * records an undo entry.
+ */
 export async function snoozeTask(userId: string, reference: string, durationText?: string) {
   const task = await findTaskReference(userId, reference);
   const minutes = parseDurationMinutes(durationText ?? "", 60);
@@ -289,6 +321,7 @@ export async function snoozeTask(userId: string, reference: string, durationText
   });
 }
 
+/** Marks the task CANCELED, stops its reminders and records an undo entry. */
 export async function cancelTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
   return prisma.$transaction(async (tx) => {
@@ -305,6 +338,11 @@ export async function cancelTask(userId: string, reference: string) {
   });
 }
 
+/**
+ * Changes the title and rebuilds the calendar link. completeSearchableContentUpdate
+ * passes every searchable field so the encryption layer can rebuild the search
+ * tokens for the whole record. Records an undo entry.
+ */
 export async function renameTaskTitle(userId: string, reference: string, title: string) {
   const task = await findTaskReference(userId, reference);
   const nextTitle = title.trim();
@@ -335,6 +373,10 @@ export async function renameTaskTitle(userId: string, reference: string, title: 
   return refreshCalendarState(userId, updated);
 }
 
+/**
+ * Replaces the task details, with the same calendar link, search token and undo
+ * handling as renameTaskTitle.
+ */
 export async function updateTaskDescription(userId: string, reference: string, description: string) {
   const task = await findTaskReference(userId, reference);
   const nextDescription = description.trim();
@@ -365,6 +407,10 @@ export async function updateTaskDescription(userId: string, reference: string, d
   return refreshCalendarState(userId, updated);
 }
 
+/**
+ * Adds assignees parsed from @mentions or names, keeping existing ones. The first
+ * assignee is mirrored into the single-assignee assigned* columns, which other code still reads.
+ */
 export async function assignTask(userId: string, reference: string, assigneeText: string, options: TaskCreationOptions = {}) {
   const task = await findTaskReference(userId, reference);
   const assignees = parseTaskAssignees(assigneeText, options.mentions, true);
@@ -397,6 +443,10 @@ export async function assignTask(userId: string, reference: string, assigneeText
   });
 }
 
+/**
+ * Removes the named assignees, or all of them when none are named. The task
+ * becomes UNASSIGNED (claimable in a group) once nobody is left.
+ */
 export async function unassignTask(userId: string, reference: string, assigneeText?: string, options: TaskCreationOptions = {}) {
   const task = await findTaskReference(userId, reference);
   const selected = assigneeText ? parseTaskAssignees(assigneeText, options.mentions, true) : [];
@@ -430,6 +480,11 @@ export async function unassignTask(userId: string, reference: string, assigneeTe
   });
 }
 
+/**
+ * Sets a new due time from text, or clears it for "none" / "clear". Resets
+ * reminder counters so the new deadline gets a fresh reminder sequence, and
+ * records an undo entry.
+ */
 export async function rescheduleTask(userId: string, reference: string, dueDateText: string) {
   const task = await findTaskReference(userId, reference);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
@@ -480,6 +535,10 @@ export async function rescheduleTask(userId: string, reference: string, dueDateT
   return refreshCalendarState(userId, updated);
 }
 
+/**
+ * Silences all further reminders for a task without completing it ("stop
+ * reminding me"). Pending custom reminders are cancelled too.
+ */
 export async function dismissTaskReminders(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
   const dismissedAt = new Date();
@@ -492,6 +551,10 @@ export async function dismissTaskReminders(userId: string, reference: string) {
   });
 }
 
+/**
+ * Finds an unarchived task by row id or public id within this owner's data.
+ * Throws when not found.
+ */
 export async function findTask(userId: string, publicOrUuid: string) {
   return prisma.task.findFirstOrThrow({
     where: {
@@ -503,6 +566,10 @@ export async function findTask(userId: string, publicOrUuid: string) {
   });
 }
 
+/**
+ * Runs Google Calendar sync best effort and re-reads the task only when the sync
+ * changed the stored event fields.
+ */
 async function refreshCalendarState(userId: string, task: TaskListItem): Promise<TaskListItem> {
   const outcome = await syncTaskCalendarBestEffort(userId, task);
   if (outcome !== "synced" && outcome !== "removed") return task;
@@ -512,6 +579,10 @@ async function refreshCalendarState(userId: string, task: TaskListItem): Promise
   });
 }
 
+/**
+ * Resolves what a user typed or a button carried: a positive number is the
+ * position in the current open list, anything else is a public id or row id.
+ */
 export async function findTaskReference(userId: string, reference: string): Promise<TaskListItem> {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
@@ -527,6 +598,10 @@ export async function findTaskReference(userId: string, reference: string): Prom
   return findTask(userId, normalized);
 }
 
+/**
+ * Display order for task lists: pinned (newest pin first), then tasks with a due
+ * date (soonest first), then undated tasks by creation time.
+ */
 export function sortTasksForDisplay<T extends { dueAt?: Date | null; createdAt: Date; pinnedAt?: Date | null }>(tasks: T[]): T[] {
   return [...tasks].sort((a, b) => {
     if (a.pinnedAt && b.pinnedAt) {
@@ -548,6 +623,7 @@ export function sortTasksForDisplay<T extends { dueAt?: Date | null; createdAt: 
   });
 }
 
+/** Full Telegram HTML confirmation card for a newly saved task. */
 export function formatTaskCreated(
   task: {
     publicId: string;
@@ -580,6 +656,10 @@ export function formatTaskCreated(
   ]);
 }
 
+/**
+ * Short "Saved" reply that only shows what was understood (time, repeat,
+ * assignees), for flows where a full card would be noise.
+ */
 export function formatTaskSavedAcknowledgement(
   task: {
     title: string;
@@ -608,6 +688,10 @@ export function formatTaskSavedAcknowledgement(
   ]);
 }
 
+/**
+ * Completion reply. Recurring tasks say which occurrence was done and when the
+ * next one is due.
+ */
 export function formatTaskCompleted(task: { publicId: string; title: string; status: TaskStatus; recurrenceRule?: RecurrenceRule | null; dueAt?: Date | null; timezone?: string | null }, fallbackTimezone = "UTC"): string {
   if (task.recurrenceRule && task.status === TaskStatus.OPEN && task.dueAt) {
     return joinBlocks([
@@ -622,6 +706,11 @@ export function formatTaskCompleted(task: { publicId: string; title: string; sta
   return `${bold("✅ Task complete")} ${h(task.title)}`;
 }
 
+/**
+ * Soft-deletes a task (archivedAt) instead of removing the row, so public ids
+ * are never reused and /undo can restore it. Removes the Google Calendar event
+ * first and cancels pending reminders.
+ */
 export async function archiveTask(userId: string, reference: string) {
   const task = await findTaskReference(userId, reference);
   if (task.calendarEventId) await removeTaskFromGoogleCalendar(userId, task);
@@ -650,6 +739,7 @@ export function formatTaskAlreadyCompleted(task: { publicId: string; title: stri
   return `${bold("Already complete")} ${h(task.title)}\nNeed it back on your list? You can restore it below.`;
 }
 
+/** Plain-text assignee list, falling back to the legacy single-assignee columns. */
 export function formatAssignee(task: { audience?: TaskAudience; assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
   if (task.audience === TaskAudience.EVERYONE) return "Everyone";
   const assignees = task.assignees?.length
@@ -660,6 +750,10 @@ export function formatAssignee(task: { audience?: TaskAudience; assignees?: Task
   return assignees.length ? assignees.map(formatOneAssignee).join(", ") : "Unassigned";
 }
 
+/**
+ * HTML assignee list. People without a username get a tg://user link when their
+ * Telegram id is known.
+ */
 export function formatAssigneeHtml(task: { audience?: TaskAudience; assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): string {
   if (task.audience === TaskAudience.EVERYONE) return "Everyone";
   const assignees = task.assignees?.length
@@ -674,6 +768,11 @@ export function formatRecurrence(rule: RecurrenceRule): string {
   return formatRecurrenceRule(rule);
 }
 
+/**
+ * Separates assignees from the task text. Explicit options.assignees win.
+ * Otherwise "@alex to buy milk" style prefixes become assignees, and leading
+ * @mentions are stripped from the title.
+ */
 export function prepareTaskInput(sourceText: string, options: TaskCreationOptions): { text: string; assignees: ParsedAssignee[] } {
   if (options.assignees !== undefined) {
     const assignees: ParsedAssignee[] = [];
@@ -695,6 +794,11 @@ export function prepareTaskInput(sourceText: string, options: TaskCreationOption
 
 type ParsedAssignee = TaskCreationAssignee;
 
+/**
+ * Collects assignees from Telegram mention entities and @usernames in the text.
+ * With allowPlainNames, plain names separated by commas or "and" also count
+ * (words like "me" and "everyone" are excluded).
+ */
 export function parseTaskAssignees(sourceText: string, mentions: TaskEntityMention[] = [], allowPlainNames = false): ParsedAssignee[] {
   const assignees: ParsedAssignee[] = [];
   for (const mention of mentions.filter((item) => item.offset >= 0)) {
@@ -717,6 +821,10 @@ export function parseTaskAssignees(sourceText: string, mentions: TaskEntityMenti
   return assignees;
 }
 
+/**
+ * Row data for a new TaskAssignee. Assignment is immediate, so the status starts
+ * as ACCEPTED.
+ */
 function assigneeCreateData(assignee: ParsedAssignee) {
   return {
     normalizedKey: assigneeKey(assignee),
@@ -739,6 +847,10 @@ export function assigneeKey(assignee: TaskCreationAssignee): string {
   return `name:${(assignee.displayName ?? "unknown").toLowerCase()}`;
 }
 
+/**
+ * Adds an assignee unless the same person is already in the list (by id,
+ * username, or by name when neither is known).
+ */
 function addAssignee(assignees: ParsedAssignee[], assignee: ParsedAssignee): void {
   const label = assignee.displayName?.toLowerCase();
   const hasStableIdentity = Boolean(assignee.telegramId || assignee.username);
@@ -751,6 +863,10 @@ function addAssignee(assignees: ParsedAssignee[], assignee: ParsedAssignee): voi
   assignees.push(assignee);
 }
 
+/**
+ * True when a stored assignee row and a parsed assignee are the same person,
+ * using the same matching order as addAssignee.
+ */
 function sameAssignee(left: TaskAssigneeInfo & { normalizedKey?: string }, right: ParsedAssignee): boolean {
   return left.normalizedKey === assigneeKey(right)
     || Boolean(right.telegramId && left.telegramId === right.telegramId)
@@ -777,10 +893,12 @@ function formatOneAssigneeHtml(assignee: TaskAssigneeInfo): string {
   return h(assignee.displayName ?? "Unknown");
 }
 
+/** True when the task has any assignee in either the new or the legacy columns. */
 export function hasAssignees(task: { assignees?: TaskAssigneeInfo[]; assignedUsername?: string | null; assignedDisplayName?: string | null }): boolean {
   return Boolean(task.assignees?.length || task.assignedUsername || task.assignedDisplayName);
 }
 
+/** Removes leading "@user," mentions from the task text once they are parsed as assignees. */
 function stripLeadingTelegramTargets(sourceText: string, assignees: ParsedAssignee[]): string {
   let text = sourceText.trim();
   for (const assignee of assignees) {
@@ -794,6 +912,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Picks one closing line for the saved-task card. stableChoice keys on the public
+ * id, so the same task always shows the same line.
+ */
 function taskAssistantLine(publicId: string, hasDueDate: boolean): string {
   const choices = hasDueDate
     ? [

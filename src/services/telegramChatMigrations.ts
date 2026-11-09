@@ -1,3 +1,8 @@
+/**
+ * Repairs stored chat ids when Telegram upgrades a basic group to a supergroup.
+ * Called from src/bot/index.ts (for the migration service messages) and from
+ * reminders.ts (when a send fails because the old chat id is gone).
+ */
 import type { Bot, Context } from "grammy";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
@@ -73,6 +78,10 @@ export async function migrateTelegramGroupChat(
   return result;
 }
 
+/**
+ * Handles Telegram's migrate_to / migrate_from service messages. Returns true
+ * when the update was a migration notice, so the caller can stop processing it.
+ */
 export async function handleTelegramGroupMigrationUpdate(ctx: Context): Promise<boolean> {
   const message = ctx.message;
   if (!message) return false;
@@ -88,6 +97,10 @@ export async function handleTelegramGroupMigrationUpdate(ctx: Context): Promise<
   return false;
 }
 
+/**
+ * Reads the new supergroup id that Telegram includes in a send error for a
+ * migrated chat. Returns undefined for any other error.
+ */
 export function migratedChatIdFromTelegramError(error: unknown): string | undefined {
   if (!error || typeof error !== "object" || !("parameters" in error)) return undefined;
   const parameters = error.parameters;
@@ -98,6 +111,11 @@ export function migratedChatIdFromTelegramError(error: unknown): string | undefi
   return normalized || undefined;
 }
 
+/**
+ * Sends a message and, if Telegram says the chat moved to a supergroup, records
+ * the migration and retries once at the new id. Returns the chat id actually used
+ * so callers can store it. Other errors are rethrown.
+ */
 export async function sendMessageWithChatMigrationRecovery(
   bot: Bot,
   chatIdInput: string | number,
@@ -123,6 +141,7 @@ export async function sendMessageWithChatMigrationRecovery(
   }
 }
 
+/** Compares chat ids as plain strings, ignoring the synthetic "chat:" prefix. */
 function normalizeChatId(value: string | number): string {
   return String(value).trim().replace(/^chat:/, "");
 }

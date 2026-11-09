@@ -1,3 +1,10 @@
+/**
+ * Task reminder engine. A database-driven loop (started in src/main.ts) finds
+ * tasks whose nextReminderAt is due and sends them to Telegram; there are no
+ * in-memory timers, so a restart loses nothing. It also holds the reminder
+ * timing rules (due-date milestones, interval nudges, budgets) used by tasks.ts
+ * and settings.ts, and runs the separate Study reminder loop.
+ */
 import { InlineKeyboard, type Bot } from "grammy";
 import { Prisma, RecurrenceRule, ReminderMode, TaskAudience, TaskReminderScheduleStatus, TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
@@ -23,6 +30,10 @@ const GROUP_UNDATED_SLOW_INTERVAL_MINUTES = 24 * 60;
 
 export type ReminderRunSource = "initial" | "loop" | "manual";
 
+/**
+ * Counters from the latest reminder pass, shown in status replies so delivery
+ * problems are visible without reading logs.
+ */
 export type ReminderDiagnostics = {
   source?: ReminderRunSource;
   lastStartedAt?: string;
@@ -69,6 +80,11 @@ export function getReminderDiagnostics(): ReminderDiagnostics {
   return { ...reminderDiagnostics, ...studyDiagnostics };
 }
 
+/**
+ * Runs one reminder pass. If a pass is already running (loop tick and a manual
+ * trigger at once), the caller shares that pass instead of starting a second
+ * one, so nothing is sent twice.
+ */
 export async function runReminderPass(bot: Bot, source: ReminderRunSource = "manual"): Promise<ReminderDiagnostics> {
   if (activeReminderRun) {
     return activeReminderRun;
@@ -86,6 +102,12 @@ export async function runReminderPass(bot: Bot, source: ReminderRunSource = "man
   }
 }
 
+/**
+ * One pass, in this order: exact custom reminder times first, then undated group
+ * tasks as one follow-up per group, then digests for DIGEST-mode owners with two
+ * or more due tasks, then single reminders for everything else. A task covered by
+ * an earlier step is skipped later in the same pass. Takes at most 50 due tasks.
+ */
 async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise<ReminderDiagnostics> {
   const now = new Date();
   const startedAt = now.toISOString();
@@ -535,6 +557,10 @@ async function retryTasksLater(tasks: ReminderTask[], now: Date, error: unknown)
   }));
 }
 
+/**
+ * Counts reminder messages sent to this owner since local midnight. One digest
+ * covering several tasks counts once, so the daily cap limits messages, not tasks.
+ */
 async function countReminderMessagesToday(userId: string, now: Date, timezone: string): Promise<number> {
   const deliveries = await prisma.reminderDelivery.findMany({
     where: { userId, sentAt: { gte: startOfUserDay(now, timezone) } },
@@ -545,6 +571,10 @@ async function countReminderMessagesToday(userId: string, now: Date, timezone: s
   )).size;
 }
 
+/**
+ * Deletes the older reminder messages for these tasks (each message once), so the
+ * chat keeps only the newest reminder with live buttons.
+ */
 async function deleteSupersededReminderMessages(
   bot: Bot,
   reminders: { chatId: string; messageId: string | null }[],
@@ -566,6 +596,10 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+/**
+ * Deletes one older reminder message. Telegram may refuse (for example the message
+ * is too old); that is logged and ignored.
+ */
 async function deleteSupersededReminderMessage(
   bot: Bot,
   previous: { chatId: string; messageId: string | null } | null,
@@ -591,6 +625,11 @@ async function deleteSupersededReminderMessage(
   }
 }
 
+/**
+ * For group tasks only: also sends a private message to each assignee who turned
+ * on direct nudges (/settings dm on). Each person gets at most one per reminder.
+ * Failures are counted, not thrown.
+ */
 async function sendDirectAssigneeNudges(bot: Bot, task: {
   publicId: string;
   title: string;
@@ -620,6 +659,11 @@ async function sendDirectAssigneeNudges(bot: Bot, task: {
   return result;
 }
 
+/**
+ * Finds the private Threadwise user for an assignee, by Telegram id or else by
+ * username. Only real private users (numeric Telegram ids) qualify, never a
+ * "chat:" group owner.
+ */
 async function findDirectNudgeUser(assignee: TaskAssigneeInfo) {
   if (assignee.telegramId) {
     return prisma.user.findUnique({ where: { telegramId: assignee.telegramId }, include: { settings: true } });
@@ -633,6 +677,7 @@ async function findDirectNudgeUser(assignee: TaskAssigneeInfo) {
   return matches.find((user) => /^\d+$/.test(user.telegramId));
 }
 
+/** Telegram HTML for the private nudge sent to a group task's assignee. */
 export function formatDirectAssigneeNudge(task: {
   publicId: string;
   title: string;
@@ -652,6 +697,10 @@ export function formatDirectAssigneeNudge(task: {
   ]);
 }
 
+/**
+ * Telegram HTML for a single task reminder. Pinned tasks get a stronger
+ * "Important task" header; DIGEST-mode owners get a plain closing line.
+ */
 export function formatReminderMessage(
   task: {
     publicId: string;
@@ -702,6 +751,7 @@ export function formatReminderMessage(
   ]);
 }
 
+/** Telegram HTML for one group follow-up that lists several undated tasks. */
 export function formatGroupUndatedReminderDigest(tasks: Array<{
   publicId: string;
   title: string;
@@ -721,6 +771,7 @@ export function formatGroupUndatedReminderDigest(tasks: Array<{
   ]);
 }
 
+/** Telegram HTML for one digest message that lists several due tasks. */
 export function formatReminderDigest(tasks: Array<{
   publicId: string;
   title: string;
@@ -748,6 +799,7 @@ function reminderDigestKeyboard(tasks: Array<{ id: string; publicId: string }>):
   return keyboard;
 }
 
+/** Assignee list for reminder text, falling back to the single-assignee columns. */
 function reminderAssignees(task: {
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
@@ -758,6 +810,10 @@ function reminderAssignees(task: {
   return [{ username: task.assignedUsername, displayName: task.assignedDisplayName }];
 }
 
+/**
+ * HTML assignee names. People without a username get a tg://user link when their
+ * Telegram id is known.
+ */
 function formatReminderAssigneesHtml(task: {
   assignedUsername?: string | null;
   assignedDisplayName?: string | null;
@@ -773,6 +829,7 @@ function formatReminderAssigneesHtml(task: {
   }).join(", ");
 }
 
+/** Picks one closing line, keyed on the public id so a task always shows the same line. */
 function reminderAssistantLine(publicId: string): string {
   return stableChoice(publicId, [
     "I'll remind you when the time comes.",
@@ -800,16 +857,28 @@ export function nextIntervalReminderAt(now: Date, intervalMinutes: number): Date
   return new Date(now.getTime() + intervalMinutes * 60_000);
 }
 
+/**
+ * Interval for the next undated group follow-up. After three ignored follow-ups
+ * it slows to at least once a day, so a group is not nagged about tasks nobody
+ * is acting on.
+ */
 export function nextUndatedGroupReminderInterval(intervalMinutes: number, consecutiveNudges: number): number {
   return consecutiveNudges >= GROUP_UNDATED_SLOWDOWN_AFTER
     ? Math.max(intervalMinutes, GROUP_UNDATED_SLOW_INTERVAL_MINUTES)
     : intervalMinutes;
 }
 
+/** Start of the due-nudge window: dueNudgeMinutes before the deadline. */
 export function dueNudgeStartAt(dueAt: Date, dueNudgeMinutes: number): Date {
   return new Date(dueAt.getTime() - Math.max(0, dueNudgeMinutes) * 60_000);
 }
 
+/**
+ * When the next automatic reminder should fire after one was sent. Reminders are
+ * finite: each task has a budget (default 7), undated tasks stop after three, and
+ * dated tasks step through fixed milestones before the deadline. Returns null
+ * when the cycle is finished.
+ */
 export function nextReminderAtAfterDelivery(input: {
   now: Date;
   dueAt?: Date | null;
@@ -828,6 +897,11 @@ export function nextReminderAtAfterDelivery(input: {
   return nextIntervalReminderAt(input.now, input.intervalMinutes);
 }
 
+/**
+ * The fixed reminder points before a deadline (7 days, 3 days, 1 day, 6 hours,
+ * 2 hours, 30 minutes, at the deadline), plus the owner's due-nudge offset,
+ * earliest first.
+ */
 export function dueReminderMilestones(dueAt: Date, dueNudgeMinutes = 0): Date[] {
   const offsets = new Set([7 * 24 * 60, 3 * 24 * 60, 24 * 60, 6 * 60, 2 * 60, 30, 0]);
   if (dueNudgeMinutes > 0) offsets.add(dueNudgeMinutes);
@@ -836,12 +910,20 @@ export function dueReminderMilestones(dueAt: Date, dueNudgeMinutes = 0): Date[] 
     .map((minutes) => new Date(dueAt.getTime() - minutes * 60_000));
 }
 
+/**
+ * The next milestone more than a minute away, or the deadline itself. Returns
+ * null once the deadline has passed.
+ */
 function nextDueMilestone(dueAt: Date, now: Date, dueNudgeMinutes: number): Date | null {
   if (now >= dueAt) return null;
   const threshold = now.getTime() + 60_000;
   return dueReminderMilestones(dueAt, dueNudgeMinutes).find((milestone) => milestone.getTime() > threshold) ?? dueAt;
 }
 
+/**
+ * First reminder time for a new or reopened task: the next due milestone when it
+ * has a deadline, otherwise one interval from now.
+ */
 export function initialTaskReminderAt(input: {
   now: Date;
   dueAt?: Date | null;
@@ -852,6 +934,7 @@ export function initialTaskReminderAt(input: {
   return nextDueMilestone(input.dueAt, input.now, input.dueNudgeMinutes);
 }
 
+/** nextReminderAtAfterDelivery wrapped as a Prisma update fragment. */
 export function nextTaskScheduleAfterDelivery(input: {
   now: Date;
   dueAt?: Date | null;
@@ -865,6 +948,11 @@ export function nextTaskScheduleAfterDelivery(input: {
   };
 }
 
+/**
+ * Recomputes a task's next reminder after the owner changes reminder settings.
+ * Dated tasks move to the next milestone. Undated tasks keep an earlier pending
+ * reminder but never wait longer than the new interval.
+ */
 export function nextReminderAfterSettingChange(task: {
   dueAt?: Date | null;
   nextReminderAt?: Date | null;
@@ -920,6 +1008,10 @@ export function isPermanentTelegramDeliveryError(error: unknown): boolean {
   return /Forbidden|chat not found|PEER_ID_INVALID|chat was deactivated/i.test(String(error));
 }
 
+/**
+ * True when Telegram rejected the reminder's buttons (BUTTON_TYPE_INVALID). The
+ * reminder is then sent without buttons instead of retrying forever.
+ */
 export function isInvalidReminderButtonError(error: unknown): boolean {
   return String(error).includes("BUTTON_TYPE_INVALID");
 }
