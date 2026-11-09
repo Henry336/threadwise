@@ -777,7 +777,12 @@ function assigneeCreateData(assignee: ParsedAssignee) {
   };
 }
 
-function assigneeKey(assignee: ParsedAssignee): string {
+/**
+ * The one rule for TaskAssignee.normalizedKey, which the (taskId,
+ * normalizedKey) unique index and every assignee match compare against:
+ * Telegram id first, then lower-cased username, then lower-cased name.
+ */
+export function assigneeKey(assignee: TaskCreationAssignee): string {
   if (assignee.telegramId) return `id:${assignee.telegramId}`;
   if (assignee.username) return `username:${assignee.username.toLowerCase()}`;
   return `name:${(assignee.displayName ?? "unknown").toLowerCase()}`;

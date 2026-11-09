@@ -21,6 +21,7 @@ import {
   splitTaskDraftText,
   taskContinuationDescription,
 } from "./taskPlanning";
+import { assigneeKey } from "./tasks";
 
 const activeStatuses = [TaskCaptureDraftStatus.COLLECTING, TaskCaptureDraftStatus.REVIEWING] as const;
 const draftInclude = { items: { orderBy: { position: "asc" as const } } };
@@ -429,8 +430,9 @@ function normalizeAssignees(input: DraftAssignee[]): DraftAssignee[] {
       ...(candidate.username?.trim() ? { username: candidate.username.trim().replace(/^@/, "") } : {}),
       ...(candidate.displayName?.trim() ? { displayName: candidate.displayName.trim().slice(0, 120) } : {}),
     };
+    if (!assignee.telegramId && !assignee.username && !assignee.displayName) continue;
     const key = assigneeKey(assignee);
-    if (!key || keys.has(key)) continue;
+    if (keys.has(key)) continue;
     keys.add(key);
     result.push(assignee);
   }
@@ -441,13 +443,6 @@ function readAssignees(value: Prisma.JsonValue): DraftAssignee[] {
   return Array.isArray(value)
     ? normalizeAssignees(value.filter((item): item is DraftAssignee => Boolean(item) && typeof item === "object" && !Array.isArray(item)) as DraftAssignee[])
     : [];
-}
-
-function assigneeKey(assignee: DraftAssignee): string {
-  if (assignee.telegramId) return `id:${assignee.telegramId}`;
-  if (assignee.username) return `username:${assignee.username.toLowerCase()}`;
-  if (assignee.displayName) return `name:${assignee.displayName.toLowerCase()}`;
-  return "";
 }
 
 async function nextTaskNumber(tx: Prisma.TransactionClient, userId: string): Promise<number> {
