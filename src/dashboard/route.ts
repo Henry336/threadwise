@@ -1,3 +1,10 @@
+/**
+ * The dashboard HTTP API (every path under /api/v1/dashboard), registered by server.ts.
+ * Each route runs through one secured runner: service-token check, rate limit, replay guard,
+ * workspace resolution and shared error mapping. Handlers then validate input with schemas.ts
+ * and call data.ts, collaboration.ts, today.ts or the domain services Telegram also uses.
+ * Study routes live in studyRoutes.ts but receive this same runner, so they cannot skip the checks.
+ */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import type { AiProvider } from "../ai/types";
@@ -217,6 +224,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     }
   };
 
+  /**
+   * The full dashboard payload for the active workspace: base snapshot, plus group collaboration
+   * and Find a time polls in a group. Expenses and integrations are blanked in groups because
+   * they are personal-only features.
+   */
   const loadScopedSnapshot: RouteWork = async (telegramId, scope) => {
     const [snapshot, collaboration, scheduling] = await Promise.all([
       getDashboardSnapshot(telegramId),
@@ -234,6 +246,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   const personal = { personal: true };
 
+  // Browser-session registry: create on login, check on every Vercel request, revoke on logout.
   server.post("/api/v1/dashboard/browser-sessions", async (request, reply) => run(request, reply, async (telegramId) => {
     const { ttlSeconds } = dashboardBrowserSessionCreateSchema.parse(request.body);
     const session = await createDashboardBrowserSession(telegramId, ttlSeconds);
@@ -261,6 +274,8 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     workspaces: await listDashboardWorkspaces(telegramId),
   }), "list_workspaces", personal));
 
+  // Group TODO import review. The original sender may edit, import or cancel; anyone else must be
+  // a freshly verified group owner or admin (see dashboardTaskImportActor).
   server.get("/api/v1/dashboard/task-imports/:id", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertGroupWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
@@ -301,6 +316,9 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { taskImport: await cancelTaskImport(id, actor, scope.workspace.id) };
   }, "cancel_task_import"));
 
+  // Live sync over Server-Sent Events. The stream stays open and forwards realtime.ts revision
+  // events, plus a 15-second heartbeat so proxies keep the connection alive. Study data belongs to
+  // the signed-in human, so Study mode watches the principal instead of the group owner.
   server.get("/api/v1/dashboard/events", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -334,6 +352,8 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     todayFoundationOwnerTelegramId: options.todayFoundationOwnerTelegramId,
   });
 
+  // Group "Find a time" polls. Creating, finalizing, reminding and cancelling need a group manager.
+  // After each change the poll's Telegram card is refreshed on a best-effort basis.
   server.get("/api/v1/dashboard/scheduling/polls", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     return { polls: await listAvailabilityPolls(schedulingScope(scope)) };
   }, "list_availability_polls"));
@@ -376,6 +396,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const scheduleScope = schedulingScope(scope);
     const result = await prepareAvailabilityReminder(scheduleScope, id);
     if (result.pendingMembers.length > 0) {
+      // If the Telegram send fails, release the reminder reservation so a later retry is allowed.
       try {
         await sendAvailabilityReminderWithToken(options.telegramBotToken, scheduleScope, result.poll, result.pendingMembers);
       } catch (error) {
@@ -411,6 +432,8 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { preview: await previewDashboardCapture(telegramId, capturePreviewSchema.parse(request.body), options.ai) };
   }, "capture_preview"));
 
+  // Today planner and task capture drafts. Still gated to one configured owner
+  // (TODAY_FOUNDATION_OWNER_TELEGRAM_ID); everyone else gets an opaque not-found.
   server.get("/api/v1/dashboard/today", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
     assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     return { agenda: await todayAgendaForDashboard(scope, todayAgendaQuerySchema.parse(request.query)) };
@@ -490,6 +513,8 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { draft: await cancelDashboardTaskCaptureDraft(scope, id) };
   }, "cancel_task_draft"));
 
+  // Tasks. In a group, edits and archiving pass the collaboration permission check first, and each
+  // change is logged as group activity and posted silently to the group chat (collaboration.ts).
   server.get("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = taskListQuerySchema.parse(request.query);
     return { tasks: await listDashboardTasks(telegramId, query) };
@@ -516,6 +541,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     if (input.plannedFor !== undefined) {
       assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     }
+    // Marking done needs less authority than other edits (assignees may complete their work).
     const completionOnly = input.status === "DONE" && Object.keys(input).every((key) => key === "status");
     await assertDashboardTaskMutation(scope, id, completionOnly ? "complete" : "manage", options.telegramBotToken);
     const task = await updateDashboardTask(telegramId, id, input);
@@ -540,6 +566,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { archived: true };
   }, "archive_task"));
 
+  // Personal rich-note autosave drafts (personalNoteDrafts.ts). Personal workspace only.
   server.get("/api/v1/dashboard/note-drafts", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     return { draft: await getDashboardPersonalNoteDraft(telegramId, personalNoteDraftQuerySchema.parse(request.query)) };
@@ -618,6 +645,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return analyzeDashboardIdea(telegramId, id, options.ai);
   }, "analyze_idea"));
 
+  // Expenses are a frozen feature kept for compatibility; personal workspace only.
   server.post("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     return { expense: await createDashboardExpense(telegramId, expenseCreateSchema.parse(request.body)) };
@@ -654,6 +682,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.get("/api/v1/dashboard/images/:id/content", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
     const content = await loadDashboardImageContent(telegramId, id, options.telegramBotToken);
+    // Serve image bytes as inert content: no MIME sniffing, and a sandboxed CSP so nothing in them can run.
     reply.header("Cache-Control", "private, max-age=300");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
@@ -688,6 +717,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   }), "get_settings"));
 
   server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId, scope) => {
+    // Group settings need a group manager; quotes and daily briefs are personal-only.
     await assertWorkspaceManager(scope, options.telegramBotToken);
     const input = settingsUpdateSchema.parse(request.body);
     if (input.overviewQuotes !== undefined) assertPersonalWorkspace(scope);
@@ -703,6 +733,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     return { settings: await updateDashboardSettings(telegramId, input) };
   }, "update_settings"));
 
+  // Account-level integrations (Google Calendar, frozen Excel), data export and account deletion: personal only.
   server.post("/api/v1/dashboard/integrations/:provider/disconnect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { provider } = integrationParamsSchema.parse(request.params);
@@ -750,18 +781,21 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   }, "delete_account"));
 }
 
+/** Marks every dashboard response private and uncacheable, since it holds one user's data. */
 function noStore(reply: FastifyReply): void {
   reply.header("Cache-Control", "private, no-store, max-age=0");
   reply.header("Pragma", "no-cache");
   reply.header("Vary", "Authorization");
 }
 
+/** Reads the opaque workspace id the dashboard sends in X-Threadwise-Workspace (absent means Personal). */
 function dashboardWorkspaceHeader(request: FastifyRequest): string | undefined {
   const value = request.headers["x-threadwise-workspace"];
   const workspace = Array.isArray(value) ? value[0] : value;
   return typeof workspace === "string" && workspace.trim() ? workspace.trim() : undefined;
 }
 
+/** Converts a group workspace scope into the shape groupScheduling expects; Find a time is group-only. */
 function schedulingScope(scope: DashboardWorkspaceScope): SchedulingScope {
   if (scope.workspace.kind !== "GROUP" || !scope.telegramChatId) {
     throw new DashboardGroupAccessError("Find a time is available in shared group workspaces.");
@@ -781,6 +815,10 @@ function assertGroupWorkspace(scope: DashboardWorkspaceScope): void {
   }
 }
 
+/**
+ * Works out who is acting on a TODO import review. The sender acts as themselves; anyone else
+ * must pass a fresh owner/admin check and is marked as acting with manager authority.
+ */
 async function dashboardTaskImportActor(
   scope: DashboardWorkspaceScope,
   taskImport: TaskImportReview,
@@ -791,6 +829,10 @@ async function dashboardTaskImportActor(
   return resolveTaskImportActor(scope.workspace.id, scope.principalTelegramId, !isSender);
 }
 
+/**
+ * Posts or refreshes a poll's Telegram card. The poll change is already saved, so a Telegram
+ * failure is only logged and never fails the dashboard request.
+ */
 async function bestEffortScheduleNotification(
   action: "publish" | "refresh",
   botToken: string | undefined,
@@ -810,6 +852,7 @@ async function bestEffortScheduleNotification(
   }
 }
 
+/** Parses the comma-separated "kinds" search filter; an empty value means all kinds, unknown kinds are rejected. */
 function searchKinds(value: string | undefined): DashboardSearchKind[] {
   if (!value?.trim()) return [];
   const allowed = new Set<DashboardSearchKind>(["task", "note", "idea", "image", "expense"]);
@@ -820,6 +863,10 @@ function searchKinds(value: string | undefined): DashboardSearchKind[] {
   return kinds as DashboardSearchKind[];
 }
 
+/**
+ * Turns the first zod issue into a readable sentence with a human field label, so the
+ * dashboard never shows raw messages like "Expected string, received null".
+ */
 function friendlyValidationMessage(error: ZodError): string {
   const issue = error.issues[0];
   if (!issue) return "Check the highlighted fields and try again.";

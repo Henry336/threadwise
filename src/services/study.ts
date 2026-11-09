@@ -1,3 +1,10 @@
+/**
+ * Core domain logic for Study Mode, the owner-only workspace bound to one private group.
+ * Covers access checks (owner + configured chat), workspace binding, modules, weeks,
+ * items, Deep Work sessions, mistakes, the timetable and weekly reviews. Called by the
+ * Telegram handlers in src/bot/study.ts and studyCapture.ts and the dashboard Study routes;
+ * other study* services build on its helpers. Timetable edits queue a Google Calendar sync.
+ */
 import {
   Prisma,
   StudyItemStatus,
@@ -19,6 +26,7 @@ import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { queueStudyCalendarBlockSync } from "./studyCalendar";
 import { highestPublicNumber } from "./publicIds";
 
+/** The owner's own semester modules, seeded when the workspace is first bound. */
 const DEFAULT_MODULES = [
   { code: "CS2100", name: "Computer Organisation", color: "#2C7A7B" },
   { code: "CS2102", name: "Database Systems", color: "#5A67D8" },
@@ -28,6 +36,7 @@ const DEFAULT_MODULES = [
   { code: "CFG1004", name: "Career Catalyst", color: "#4A5568" },
 ] as const;
 
+/** Suggested Deep Work methods per module code, offered when starting a session. */
 export const STUDY_METHODS: Record<string, string[]> = {
   CS2100: ["Trace examples", "Number-system practice", "MIPS translation/tracing", "Datapath/control tracing", "Logic/circuit problems", "Timed mixed problems"],
   CS2102: ["SQL exercises", "Relational algebra", "Schema/design reasoning", "Query debugging", "Timed mixed problems"],
@@ -37,6 +46,10 @@ export const STUDY_METHODS: Record<string, string[]> = {
   CFG1004: ["Bounded completion session"],
 };
 
+/**
+ * The one error type for Study rules. Its message is safe to show the owner, and `code`
+ * lets the bot and dashboard map it to a reply or HTTP status.
+ */
 export class StudyModeError extends Error {
   constructor(
     message: string,
@@ -52,6 +65,10 @@ export type StudyScope = {
   chatId: string;
 };
 
+/**
+ * The Study access rule: the actor must be the configured owner, in the configured chat,
+ * and that chat must be a group. Anything missing or different fails closed.
+ */
 export function isStudyScopeAuthorized(
   config: { ownerTelegramId: string; allowedChatId: string } | undefined,
   actorTelegramId: string | undefined,
@@ -134,11 +151,16 @@ const studySessionInclude = {
   },
 } satisfies Prisma.StudySessionInclude;
 
+/** Trims, caps and de-duplicates free-text session lists such as techniques. */
 function cleanSessionList(values: string[] | undefined, limit = 20) {
   if (!values) return undefined;
   return [...new Set(values.map((value) => value.trim().slice(0, 160)).filter(Boolean))].slice(0, limit);
 }
 
+/**
+ * Validates resources to link to a session: all must be live resources of the same module
+ * and workspace, otherwise the whole request is rejected rather than partly saved.
+ */
 async function requireSessionResources(workspaceId: string, moduleId: string, resourceIds: string[] | undefined) {
   const ids = [...new Set(resourceIds ?? [])].slice(0, 30);
   if (ids.length === 0) return ids;
@@ -152,6 +174,7 @@ async function requireSessionResources(workspaceId: string, moduleId: string, re
   return ids;
 }
 
+/** Checks a Telegram update against the Study config and returns the scope, or throws. */
 export function studyScopeFromContext(ctx: Context): StudyScope {
   const config = privateStudyConfig();
   if (!config) throw new StudyModeError("Study Mode is not configured on this deployment.", "disabled");
@@ -179,6 +202,8 @@ export function isStudyContext(ctx: Context): boolean {
  * The configured Study group is a sealed, single-purpose workspace. Every
  * update from its configured owner belongs to Study Mode, including ordinary
  * text, media, locations, reply-keyboard controls, and callback queries.
+ * The one exception outside the group: the owner sharing a location (or the
+ * study_location deep link) in private chat, used for travel reminders.
  */
 export async function shouldHandleStudyUpdate(ctx: Context): Promise<boolean> {
   if (isStudyContext(ctx)) return true;
@@ -188,6 +213,10 @@ export async function shouldHandleStudyUpdate(ctx: Context): Promise<boolean> {
   return Boolean(ctx.message && "location" in ctx.message) || /^\/start(?:@\w+)?\s+study_location\b/i.test(text);
 }
 
+/**
+ * "/study bind": creates or reactivates the owner's single workspace for this chat.
+ * Also ensures the owner user exists, seeds default modules once, and writes an audit entry.
+ */
 export async function bindStudyWorkspace(ctx: Context): Promise<StudyWorkspace> {
   const scope = studyScopeFromContext(ctx);
   const from = ctx.from!;
@@ -224,6 +253,10 @@ export async function bindStudyWorkspace(ctx: Context): Promise<StudyWorkspace> 
   return workspace;
 }
 
+/**
+ * Deactivates the workspace and clears its chat binding and in-progress conversation.
+ * Study data is kept. Also used when the bot sees the group stop being a two-member chat.
+ */
 export async function unbindStudyWorkspace(workspaceId: string): Promise<void> {
   const workspace = await prisma.studyWorkspace.findUnique({ where: { id: workspaceId } });
   if (!workspace) throw new StudyModeError("Study workspace not found.", "not_found");
@@ -234,6 +267,7 @@ export async function unbindStudyWorkspace(workspaceId: string): Promise<void> {
   ]);
 }
 
+/** Returns the active workspace bound to this exact chat; throws not_bound otherwise. */
 export async function requireStudyWorkspace(ctx: Context): Promise<StudyWorkspace> {
   const scope = studyScopeFromContext(ctx);
   const workspace = await prisma.studyWorkspace.findUnique({ where: { ownerTelegramId: scope.ownerTelegramId } });
@@ -243,6 +277,10 @@ export async function requireStudyWorkspace(ctx: Context): Promise<StudyWorkspac
   return workspace;
 }
 
+/**
+ * Starts a multi-step Telegram flow (the bot waiting for the owner's next message).
+ * Only one flow exists per workspace; starting a new one replaces the old. It expires.
+ */
 export async function beginStudyConversation(
   workspaceId: string,
   kind: string,
@@ -257,6 +295,7 @@ export async function beginStudyConversation(
   });
 }
 
+/** Returns the open flow, deleting it first if it has expired. */
 export async function getStudyConversation(workspaceId: string) {
   const conversation = await prisma.studyConversation.findUnique({ where: { workspaceId } });
   if (!conversation) return undefined;
@@ -267,6 +306,7 @@ export async function getStudyConversation(workspaceId: string) {
   return conversation;
 }
 
+/** Moves the open flow to its next step and extends its expiry. */
 export async function advanceStudyConversation(
   workspaceId: string,
   step: string,
@@ -283,10 +323,15 @@ export async function clearStudyConversation(workspaceId: string): Promise<void>
   await prisma.studyConversation.deleteMany({ where: { workspaceId } });
 }
 
+/** Reads the stored JSON payload as a plain object (empty if it is anything else). */
 export function studyConversationPayload(value: Prisma.JsonValue): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+/**
+ * The workspace for the configured owner and chat, for code with no Telegram update to
+ * check (such as background reminders). Undefined when Study is unconfigured or unbound.
+ */
 export async function activeStudyWorkspace(): Promise<StudyWorkspace | undefined> {
   const config = privateStudyConfig();
   if (!config) return undefined;
@@ -295,6 +340,10 @@ export async function activeStudyWorkspace(): Promise<StudyWorkspace | undefined
   })) ?? undefined;
 }
 
+/**
+ * "/study setup": saves the semester name, its Monday start date and timezone, which all
+ * week numbers are counted from. Then seeds the default timetable if it is still empty.
+ */
 export async function configureStudyWorkspace(
   workspaceId: string,
   input: { semesterName: string; semesterStartDate: Date; timezone: string },
@@ -319,6 +368,7 @@ export async function configureStudyWorkspace(
   return workspace;
 }
 
+/** Semester week (1-based) for a date in the workspace timezone; 0 before the start or when unset. */
 export function academicWeekNumber(workspace: Pick<StudyWorkspace, "semesterStartDate" | "timezone">, now = new Date()): number {
   if (!workspace.semesterStartDate) return 0;
   const start = DateTime.fromJSDate(workspace.semesterStartDate).setZone(workspace.timezone).startOf("day");
@@ -327,6 +377,7 @@ export function academicWeekNumber(workspace: Pick<StudyWorkspace, "semesterStar
   return Math.floor(current.diff(start, "days").days / 7) + 1;
 }
 
+/** Monday 00:00 to Sunday 23:59 of a semester week, as UTC instants. */
 export function academicWeekRange(
   workspace: Pick<StudyWorkspace, "semesterStartDate" | "timezone">,
   weekNumber: number,
@@ -336,6 +387,7 @@ export function academicWeekRange(
   return { start: start.toUTC().toJSDate(), end: start.plus({ days: 6 }).endOf("day").toUTC().toJSDate() };
 }
 
+/** Gets or creates the week row (upsert), so items can be filed under a week on first use. */
 export async function ensureStudyWeek(workspace: StudyWorkspace, weekNumber = academicWeekNumber(workspace)): Promise<Prisma.StudyWeekGetPayload<object>> {
   if (weekNumber < 1) throw new StudyModeError("The semester has not started. Use /study setup to check the starting Monday.", "invalid");
   const range = academicWeekRange(workspace, weekNumber);
@@ -346,6 +398,7 @@ export async function ensureStudyWeek(workspace: StudyWorkspace, weekNumber = ac
   });
 }
 
+/** Active modules (or all), pinned first, then the owner's display order. */
 export async function listStudyModules(workspaceId: string, includeArchived = false): Promise<StudyModule[]> {
   return prisma.studyModule.findMany({
     where: { workspaceId, ...(includeArchived ? {} : { active: true }) },
@@ -353,6 +406,7 @@ export async function listStudyModules(workspaceId: string, includeArchived = fa
   });
 }
 
+/** Looks up a module by code (case-insensitive) or id, within this workspace only. */
 export async function findStudyModule(workspaceId: string, reference: string): Promise<StudyModule> {
   const module = await prisma.studyModule.findFirst({
     where: {
@@ -367,6 +421,7 @@ export async function findStudyModule(workspaceId: string, reference: string): P
   return module;
 }
 
+/** Creates a module; a duplicate code becomes a friendly "already exists" conflict. */
 export async function addStudyModule(
   workspace: StudyWorkspace,
   code: string,
@@ -397,6 +452,10 @@ export async function addStudyModule(
   }
 }
 
+/**
+ * Renames, archives/restores or pins a module. Archiving records userArchivedAt, which
+ * marks the hide as the owner's choice rather than Canvas discovery state.
+ */
 export async function updateStudyModule(
   workspace: StudyWorkspace,
   moduleId: string,
@@ -419,6 +478,10 @@ export async function updateStudyModule(
   return module;
 }
 
+/**
+ * Creates a manual Study item with the next STUDY-n public id, filed under the current
+ * (or given) semester week. Validates module ownership and the planned-minutes range.
+ */
 export async function createStudyItem(
   workspace: StudyWorkspace,
   input: {
@@ -460,6 +523,7 @@ export async function createStudyItem(
   return item;
 }
 
+/** Looks up an item by public id (accepts "4" or "STUDY-4") or internal id, within this workspace. */
 export async function findStudyItem(workspaceId: string, reference: string) {
   const normalized = normalizeStudyReference(reference, "STUDY");
   const item = await prisma.studyItem.findFirst({
@@ -470,6 +534,7 @@ export async function findStudyItem(workspaceId: string, reference: string) {
   return item;
 }
 
+/** Marks an item DONE, or PROCESSED (for example a lecture or tutorial that has been worked through). Audited. */
 export async function completeStudyItem(workspace: StudyWorkspace, reference: string, processed = false) {
   const item = await findStudyItem(workspace.id, reference);
   const now = new Date();
@@ -488,6 +553,10 @@ export async function completeStudyItem(workspace: StudyWorkspace, reference: st
   return updated;
 }
 
+/**
+ * Sets a new due date and marks it as the owner's override, so the next Canvas sync keeps
+ * this date instead of restoring Canvas's. Also moves the item to the matching week.
+ */
 export async function rescheduleStudyItem(workspace: StudyWorkspace, reference: string, dueAt: Date) {
   if (!Number.isFinite(dueAt.getTime())) throw new StudyModeError("Choose a valid due date.", "invalid");
   const item = await findStudyItem(workspace.id, reference);
@@ -511,6 +580,10 @@ export async function rescheduleStudyItem(workspace: StudyWorkspace, reference: 
   return updated;
 }
 
+/**
+ * Sets a red/amber/green mastery light. The reference is tried as a module code first,
+ * then as an item. For modules, redSince records when it first went red (for warnings).
+ */
 export async function updateStudyMastery(
   workspace: StudyWorkspace,
   reference: string,
@@ -542,6 +615,10 @@ export async function updateStudyMastery(
   return { kind: "item" as const, value: updated };
 }
 
+/**
+ * Starts a Deep Work session. Only one session may be open per workspace at a time.
+ * The linked item and resources must belong to the same module.
+ */
 export async function startStudySession(
   workspace: StudyWorkspace,
   moduleId: string,
@@ -577,6 +654,10 @@ export async function startStudySession(
   return session;
 }
 
+/**
+ * Ends the open session, records its result, and adds its minutes to the linked item's
+ * actual time. All writes, including the audit entry, happen in one transaction.
+ */
 export async function stopStudySession(
   workspace: StudyWorkspace,
   input: { result?: string; topicsMixed?: string[]; attemptedScore?: number; maximumScore?: number; usedNotes?: boolean },
@@ -614,6 +695,11 @@ export async function stopStudySession(
   return updated;
 }
 
+/**
+ * Dashboard edit of a session record (details, times, linked resources). If the duration
+ * changes, the linked item's actual minutes are adjusted by the difference so totals stay
+ * consistent. Runs in one transaction.
+ */
 export async function updateStudySession(
   workspace: StudyWorkspace,
   sessionId: string,
@@ -676,6 +762,10 @@ export async function updateStudySession(
   });
 }
 
+/**
+ * Soft-removes a finished session from history (archivedAt, not a hard delete) and
+ * subtracts its minutes from the linked item. A running session cannot be archived.
+ */
 export async function archiveStudySession(workspace: StudyWorkspace, sessionId: string) {
   const session = await prisma.studySession.findFirst({
     where: { id: sessionId, workspaceId: workspace.id, archivedAt: null },
@@ -704,6 +794,10 @@ export async function archiveStudySession(workspace: StudyWorkspace, sessionId: 
   });
 }
 
+/**
+ * Logs a mistake (source, cause, prevention) with the next MISTAKE-n id and an optional
+ * revisit date, so it can come back later as a re-attempt.
+ */
 export async function recordStudyMistake(
   workspace: StudyWorkspace,
   input: {
@@ -741,6 +835,10 @@ export async function recordStudyMistake(
   return mistake;
 }
 
+/**
+ * Lists unresolved mistakes of active modules. Side effect: open mistakes whose revisit
+ * date has passed are first promoted to REATTEMPT_DUE.
+ */
 export async function listStudyMistakes(workspaceId: string, now = new Date()) {
   await prisma.studyMistake.updateMany({
     where: { workspaceId, module: { active: true }, status: StudyMistakeStatus.OPEN, revisitAt: { lte: now } },
@@ -767,6 +865,7 @@ export async function resolveStudyMistake(workspace: StudyWorkspace, reference: 
   return updated;
 }
 
+/** Saves up to three top priorities (and overload notes) for the current week. */
 export async function updateWeeklyPlan(workspace: StudyWorkspace, priorities: string[], overloadNotes?: string) {
   const week = await ensureStudyWeek(workspace);
   const clean = priorities.map((value) => value.trim()).filter(Boolean).slice(0, 3);
@@ -778,6 +877,11 @@ export async function updateWeeklyPlan(workspace: StudyWorkspace, priorities: st
   return updated;
 }
 
+/**
+ * Saves the end-of-week review in one transaction: each module's new mastery light, the
+ * review record (upserted per week, so redoing it overwrites), and the week's overall
+ * status. Rejects answers that mention modules outside this workspace.
+ */
 export async function saveWeeklyReview(
   workspace: StudyWorkspace,
   input: {
@@ -851,6 +955,11 @@ export async function saveWeeklyReview(
   return review;
 }
 
+/**
+ * Builds the Study home summary: per-module traffic light, open/overdue counts, planned vs
+ * actual minutes this week, due mistakes, the next timetable block and any running session.
+ * Writes only this week's row and due-mistake promotion. Overdue counts use trusted deadlines only.
+ */
 export async function buildStudyDashboard(workspace: StudyWorkspace, now = new Date()): Promise<StudyDashboard> {
   const weekNumber = academicWeekNumber(workspace, now);
   const week = weekNumber > 0 ? await ensureStudyWeek(workspace, weekNumber) : undefined;
@@ -941,6 +1050,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
   };
 }
 
+/** Up to 50 open items of active modules, soonest due first (undated last). */
 export async function upcomingStudyItems(workspaceId: string, now = new Date()) {
   return prisma.studyItem.findMany({
     where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
@@ -950,6 +1060,10 @@ export async function upcomingStudyItems(workspaceId: string, now = new Date()) 
   });
 }
 
+/**
+ * Parses a strict YYYY-MM-DD date to UTC midnight. Keeps the undefined (leave unchanged)
+ * vs null (clear) distinction that partial updates rely on.
+ */
 function calendarDate(value: string | null | undefined): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -966,11 +1080,13 @@ function optionalLabel(value: string | null | undefined): string | null | undefi
   return clean ? clean.slice(0, 80) : null;
 }
 
+/** De-duplicates dates by calendar day and sorts them. */
 function uniqueCalendarDates(values: Date[]): Date[] {
   return [...new Map(values.map((date) => [date.toISOString().slice(0, 10), date])).values()]
     .sort((left, right) => left.getTime() - right.getTime());
 }
 
+/** True if a date-based recurring block runs on this calendar day (inside its range, not excluded). */
 export function studyScheduleOccursOnDate(
   block: Partial<Pick<StudyScheduleBlock, "recurrenceStartDate" | "recurrenceEndDate" | "excludedDates">>,
   occurrenceDate: Date,
@@ -981,6 +1097,7 @@ export function studyScheduleOccursOnDate(
   return !(block.excludedDates ?? []).some((date) => date.toISOString().slice(0, 10) === key);
 }
 
+/** Active timetable blocks (unlinked or linked to an active module), Monday first, by start time. */
 export async function listStudyScheduleBlocks(workspaceId: string) {
   return prisma.studyScheduleBlock.findMany({
     where: { workspaceId, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
@@ -989,6 +1106,10 @@ export async function listStudyScheduleBlocks(workspaceId: string) {
   });
 }
 
+/**
+ * Adds a weekly timetable block after validating day, time range, module, travel origin
+ * and recurrence dates. Then audits it and queues it for the Google Calendar mirror.
+ */
 export async function addStudyScheduleBlock(
   workspace: StudyWorkspace,
   input: {
@@ -1054,6 +1175,11 @@ export async function addStudyScheduleBlock(
   return block;
 }
 
+/**
+ * Partial edit of a timetable block. Each check combines the new value with the stored
+ * one, so changing only the end time still validates the full range. Travel buffer and
+ * reminder lead are clamped. Queues a Calendar sync afterwards.
+ */
 export async function updateStudyScheduleBlock(
   workspace: StudyWorkspace,
   blockId: string,
@@ -1151,6 +1277,11 @@ export async function updateStudyScheduleBlock(
 
 export type StudyScheduleDeleteScope = "occurrence" | "future" | "series";
 
+/**
+ * Works out the update for removing a recurring block without deleting the row:
+ * "occurrence" excludes one date or week, "future" ends the series before it, and
+ * "series" deactivates it. Pure function, so the rules can be unit tested directly.
+ */
 export function studyScheduleDeleteMutation(
   block: Pick<StudyScheduleBlock, "active" | "startWeek" | "endWeek" | "excludedWeeks"> & Partial<Pick<StudyScheduleBlock, "recurrenceStartDate" | "recurrenceEndDate" | "excludedDates">>,
   input: { scope?: StudyScheduleDeleteScope; weekNumber?: number; occurrenceDate?: string },
@@ -1188,6 +1319,10 @@ export function studyScheduleDeleteMutation(
     : { endWeek: weekNumber - 1, excludedWeeks: block.excludedWeeks.filter((week) => week < weekNumber) };
 }
 
+/**
+ * Applies a removal scope to a block, then queues the Calendar mirror: a still-active block
+ * is re-sent (UPSERT) with its new range or exclusions, a deactivated one is DELETEd.
+ */
 export async function archiveStudyScheduleBlock(
   workspace: StudyWorkspace,
   blockId: string,
@@ -1202,6 +1337,7 @@ export async function archiveStudyScheduleBlock(
   await auditStudy(workspace.ownerUserId, "study.schedule.removed", { workspaceId: workspace.id, blockId, scope, weekNumber: input.weekNumber });
 }
 
+/** Builds the Study CSV export files (dashboard, items, sessions, mastery, mistakes, reviews) in memory. */
 export async function createStudyExports(workspace: StudyWorkspace, now = new Date()): Promise<Array<{ fileName: string; content: string }>> {
   const dashboard = await buildStudyDashboard(workspace, now);
   const [items, sessions, mistakes, reviews, modules] = await Promise.all([
@@ -1257,10 +1393,12 @@ export async function createStudyExports(workspace: StudyWorkspace, now = new Da
   ];
 }
 
+/** CSV with a UTF-8 byte-order mark and CRLF rows, so Excel opens non-ASCII text correctly. */
 export function toCsv(headers: string[], rows: unknown[][]): string {
   return `\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
 
+/** Worst light wins: any red is red, then amber; green only if every module is green. */
 export function deriveOverallStatus(statuses: StudyTrafficLight[]): StudyTrafficLight {
   if (statuses.includes(StudyTrafficLight.RED)) return StudyTrafficLight.RED;
   if (statuses.includes(StudyTrafficLight.AMBER)) return StudyTrafficLight.AMBER;
@@ -1268,6 +1406,7 @@ export function deriveOverallStatus(statuses: StudyTrafficLight[]): StudyTraffic
   return StudyTrafficLight.UNASSESSED;
 }
 
+/** Flags CS2100/CS2102 when no timed practice session happened this week, once timed practice has begun. */
 export function isTimedPracticeMissing(
   moduleCode: string,
   currentWeek: number,
@@ -1279,6 +1418,11 @@ export function isTimedPracticeMissing(
     && !sessions.some((session) => session.timed);
 }
 
+/**
+ * Rule-based traffic light for one module from its open items. Red if mastery is red,
+ * work is over a week behind, important work is overdue or due within 48 hours unstarted,
+ * or more than one item is overdue. Amber for amber mastery or anything due within 7 days.
+ */
 export function deriveModuleBacklogStatus(
   module: Pick<StudyModule, "currentMastery">,
   items: Array<{
@@ -1307,6 +1451,7 @@ export function deriveModuleBacklogStatus(
   return StudyTrafficLight.GREEN;
 }
 
+/** Creates any missing default modules; existing ones are never changed (empty update). */
 async function seedDefaultStudyModules(workspaceId: string): Promise<void> {
   for (const [displayOrder, module] of DEFAULT_MODULES.entries()) {
     await prisma.studyModule.upsert({
@@ -1317,6 +1462,10 @@ async function seedDefaultStudyModules(workspaceId: string): Promise<void> {
   }
 }
 
+/**
+ * Seeds the owner's starting weekly timetable (classes plus planned study and protected
+ * blocks), only when the workspace has no blocks yet. Rows are tagged SYSTEM_SEED.
+ */
 async function seedDefaultStudySchedule(workspaceId: string): Promise<void> {
   if (await prisma.studyScheduleBlock.count({ where: { workspaceId } })) return;
   const modules = await listStudyModules(workspaceId);
@@ -1364,12 +1513,17 @@ async function seedDefaultStudySchedule(workspaceId: string): Promise<void> {
   });
 }
 
+/** Ownership guard: the module must be active and belong to this workspace. */
 async function requireModule(workspaceId: string, moduleId: string): Promise<StudyModule> {
   const module = await prisma.studyModule.findFirst({ where: { id: moduleId, workspaceId, active: true } });
   if (!module) throw new StudyModeError("That module does not belong to this Study workspace.", "forbidden");
   return module;
 }
 
+/**
+ * Next human id (STUDY-n or MISTAKE-n), one above the highest ever used in this workspace,
+ * including archived rows, so ids are never reused.
+ */
 export async function nextStudyPublicId(workspaceId: string, prefix: "STUDY" | "MISTAKE"): Promise<string> {
   const rows = prefix === "STUDY"
     ? await prisma.studyItem.findMany({ where: { workspaceId }, select: { publicId: true } })
@@ -1377,6 +1531,7 @@ export async function nextStudyPublicId(workspaceId: string, prefix: "STUDY" | "
   return `${prefix}-${highestPublicNumber(rows, prefix) + 1}`;
 }
 
+/** Lets the owner type just "4" for STUDY-4 (or MISTAKE-4). */
 function normalizeStudyReference(value: string, prefix: "STUDY" | "MISTAKE"): string {
   const clean = value.trim().toUpperCase();
   if (/^\d+$/.test(clean)) return `${prefix}-${clean}`;
@@ -1395,6 +1550,7 @@ function requiredText(value: string, message: string, max: number): string {
   return clean.slice(0, max);
 }
 
+/** Week numbering assumes the semester starts on a Monday in the workspace timezone. */
 function validateMonday(value: Date, timezone: string): void {
   const local = DateTime.fromJSDate(value).setZone(timezone);
   if (!local.isValid || local.weekday !== 1) throw new StudyModeError("The semester start date must be a Monday.", "invalid");
@@ -1408,6 +1564,7 @@ function buildWeeklyReviewSummary(input: { wins: string[]; unresolvedTopics: str
   ].filter(Boolean).join("\n").slice(0, 4_000);
 }
 
+/** True when the module was red in both of the two most recent weekly reviews. */
 function hasConsecutiveRedReviews(reviews: Array<{ moduleStatuses: Prisma.JsonValue }>, moduleCode: string): boolean {
   if (reviews.length < 2) return false;
   return reviews.slice(0, 2).every((review) => {
@@ -1417,6 +1574,11 @@ function hasConsecutiveRedReviews(reviews: Array<{ moduleStatuses: Prisma.JsonVa
   });
 }
 
+/**
+ * Finds the next upcoming block start after `now`. Each block is walked forward week by
+ * week (up to a year), honouring either its date range and excluded dates or its
+ * semester week range and excluded weeks.
+ */
 function findNextScheduleBlock(
   workspace: StudyWorkspace,
   blocks: Array<{
@@ -1467,6 +1629,7 @@ function findNextScheduleBlock(
   return candidates.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())[0];
 }
 
+/** Quotes a CSV cell only when it contains a comma, quote or newline. */
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   const text = value instanceof Date ? value.toISOString() : String(value);
@@ -1481,6 +1644,7 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+/** Writes one AuditLog row for a Study change, owned by the workspace owner. */
 async function auditStudy(userId: string, action: string, metadata: Prisma.InputJsonObject): Promise<void> {
   await prisma.auditLog.create({ data: { userId, action, metadata } });
 }

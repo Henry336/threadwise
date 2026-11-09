@@ -1,3 +1,9 @@
+/**
+ * "Find a time" availability polls for group workspaces: members mark the slots
+ * they can make, the best slots are ranked, and the meeting is finalised and
+ * optionally added to each opted-in member's Google Calendar. Used by
+ * src/bot/scheduling.ts and the dashboard routes in src/dashboard/route.ts.
+ */
 import crypto from "crypto";
 import {
   AvailabilityPollStatus,
@@ -34,6 +40,7 @@ export type SchedulingActor = {
   displayName: string;
 };
 
+/** Which group workspace the request is for and who is viewing it. */
 export type SchedulingScope = {
   workspaceId: string;
   ownerTelegramId: string;
@@ -59,6 +66,10 @@ export type AvailabilitySlotScore = {
   availableCount: number;
 };
 
+/**
+ * The poll as shown to one viewer: the slots, the best-ranked times, who has
+ * and has not answered, and the viewer's own answer and calendar state.
+ */
 export type AvailabilityPollView = {
   id: string;
   publicId: string;
@@ -89,6 +100,10 @@ export type AvailabilityPollView = {
   viewerCalendar?: { connected: boolean; synced: boolean; eventUrl?: string };
 };
 
+/**
+ * Scheduling failure with a user-safe message and a code callers map to a reply
+ * or HTTP status.
+ */
 export class GroupSchedulingError extends Error {
   constructor(
     public readonly code: "not_found" | "invalid" | "conflict" | "forbidden" | "not_connected" | "cooldown",
@@ -99,6 +114,11 @@ export class GroupSchedulingError extends Error {
   }
 }
 
+/**
+ * Checks and normalises poll settings: title length, a real timezone, at most
+ * 14 days, a duration in 15-minute steps, cell size that divides the duration,
+ * and a daily window long enough for the meeting. Throws GroupSchedulingError.
+ */
 export function validateAvailabilityPollInput(input: AvailabilityPollInput): Required<AvailabilityPollInput> {
   const title = input.title.replace(/\s+/g, " ").trim();
   if (!title || title.length > 160) throw new GroupSchedulingError("invalid", "Use a meeting title between 1 and 160 characters.");
@@ -125,6 +145,10 @@ export function validateAvailabilityPollInput(input: AvailabilityPollInput): Req
   return { title, startDate: start.toISODate()!, endDate: end.toISODate()!, timezone: input.timezone, durationMinutes, dayStartMinutes, dayEndMinutes, slotMinutes };
 }
 
+/**
+ * Lists every availability cell start (as UTC instants) for each day of the poll,
+ * inside the daily window in the poll's timezone. Capped at 2,000 cells.
+ */
 export function generateAvailabilitySlots(input: Pick<Required<AvailabilityPollInput>, "startDate" | "endDate" | "timezone" | "durationMinutes" | "dayStartMinutes" | "dayEndMinutes" | "slotMinutes">): Date[] {
   const start = DateTime.fromISO(input.startDate, { zone: input.timezone }).startOf("day");
   const end = DateTime.fromISO(input.endDate, { zone: input.timezone }).startOf("day");
@@ -139,6 +163,11 @@ export function generateAvailabilitySlots(input: Pick<Required<AvailabilityPollI
   return slots;
 }
 
+/**
+ * Ranks possible meeting start times by how many people are free for the whole
+ * meeting (every cell it covers). Meetings that would cross midnight are left
+ * out. Ties go to the earlier time.
+ */
 export function rankAvailabilitySlots(
   slots: Date[],
   responses: Array<{ availableStarts: Date[] }>,
@@ -174,6 +203,11 @@ export function rankAvailabilitySlots(
   }).sort((left, right) => right.availableCount - left.availableCount || left.startAt.localeCompare(right.startAt));
 }
 
+/**
+ * Turns "find a time for design review next week 90 minutes" into poll settings,
+ * deterministically. Defaults to the next seven days and one hour, and falls back
+ * to "Group meeting" when no title is left.
+ */
 export function parseFindTimeRequest(text: string, timezone: string, now = new Date()): AvailabilityPollInput {
   const clean = text.replace(/^\s*(?:\/findtime|\/schedule|find\s+a\s+time(?:\s+for)?|when\s+can\s+we)\s*/i, "").trim();
   const localNow = DateTime.fromJSDate(now).setZone(timezone);
@@ -219,10 +253,15 @@ export function parseFindTimeRequest(text: string, timezone: string, now = new D
   return validateAvailabilityPollInput({ title, startDate: start.toISODate()!, endDate: end.toISODate()!, timezone, durationMinutes });
 }
 
+/** True for natural phrases that ask the group to find a meeting time. */
 export function isFindTimeIntent(text: string): boolean {
   return /(?:^|\b)(?:find\s+a\s+time|availability\s+poll|when\s+can\s+we|what\s+time\s+works\s+for\s+everyone)(?:\b|$)/i.test(text);
 }
 
+/**
+ * Creates a poll with a random TIME-XXXXXX public id and logs an activity entry
+ * in one transaction. A clash on the id is retried a few times.
+ */
 export async function createAvailabilityPoll(scope: SchedulingScope, actor: SchedulingActor, rawInput: AvailabilityPollInput, database: PrismaClient = prisma): Promise<AvailabilityPollView> {
   assertGroupScope(scope);
   const input = validateAvailabilityPollInput(rawInput);
@@ -242,6 +281,10 @@ export async function createAvailabilityPoll(scope: SchedulingScope, actor: Sche
   throw new GroupSchedulingError("conflict", "Could not allocate a poll ID. Try again.");
 }
 
+/**
+ * Looks up the viewer's active membership in the workspace and returns their
+ * name. Non-members are refused.
+ */
 export async function resolveSchedulingActor(scope: SchedulingScope, database: PrismaClient = prisma): Promise<SchedulingActor> {
   const member = await database.groupMembership.findUnique({
     where: { workspaceId_telegramId: { workspaceId: scope.workspaceId, telegramId: scope.viewerTelegramId } },
@@ -250,6 +293,7 @@ export async function resolveSchedulingActor(scope: SchedulingScope, database: P
   return { telegramId: member.telegramId, displayName: memberDisplayName(member) };
 }
 
+/** Up to 50 polls for the workspace, open ones first. */
 export async function listAvailabilityPolls(scope: SchedulingScope, database: PrismaClient = prisma): Promise<AvailabilityPollView[]> {
   assertGroupScope(scope);
   const [polls, calendarConnected] = await Promise.all([
@@ -259,6 +303,7 @@ export async function listAvailabilityPolls(scope: SchedulingScope, database: Pr
   return polls.map((poll) => serializePoll(poll, scope.viewerTelegramId, calendarConnected));
 }
 
+/** One poll by row id or public id, as seen by the current viewer. */
 export async function getAvailabilityPoll(scope: SchedulingScope, reference: string, database: PrismaClient = prisma): Promise<AvailabilityPollView> {
   const [poll, calendarConnected] = await Promise.all([
     findPoll(scope.workspaceId, reference, database),
@@ -267,6 +312,11 @@ export async function getAvailabilityPoll(scope: SchedulingScope, reference: str
   return serializePoll(poll, scope.viewerTelegramId, calendarConnected);
 }
 
+/**
+ * Saves the viewer's available slots. Every slot must belong to the poll. An
+ * unchanged answer writes nothing. Otherwise the poll revision is bumped and the
+ * answer upserted together, and only while the poll is still open.
+ */
 export async function submitAvailability(
   scope: SchedulingScope,
   reference: string,
@@ -300,6 +350,12 @@ export async function submitAvailability(
   return getAvailabilityPoll(scope, current.id, database);
 }
 
+/**
+ * Fixes the meeting at the chosen start time, which at least one member must be
+ * free for. expectedRevision is an optimistic concurrency check, so a poll that
+ * changed since the caller looked is not finalised. Calendar sync for opted-in
+ * members runs afterwards.
+ */
 export async function finalizeAvailabilityPoll(scope: SchedulingScope, actor: SchedulingActor, reference: string, startAt: string, expectedRevision: number, database: PrismaClient = prisma): Promise<AvailabilityPollView> {
   const current = await findPoll(scope.workspaceId, reference, database);
   const chosen = new Date(startAt);
@@ -317,6 +373,10 @@ export async function finalizeAvailabilityPoll(scope: SchedulingScope, actor: Sc
   return getAvailabilityPoll(scope, current.id, database);
 }
 
+/**
+ * Closes an open poll without a time, with the same revision check and an
+ * activity entry.
+ */
 export async function cancelAvailabilityPoll(scope: SchedulingScope, actor: SchedulingActor, reference: string, expectedRevision: number, database: PrismaClient = prisma): Promise<AvailabilityPollView> {
   const current = await findPoll(scope.workspaceId, reference, database);
   await database.$transaction(async (tx) => {
@@ -327,6 +387,11 @@ export async function cancelAvailabilityPoll(scope: SchedulingScope, actor: Sche
   return getAvailabilityPoll(scope, current.id, database);
 }
 
+/**
+ * Reserves the right to nudge members who have not answered. The reservation is
+ * a conditional update on lastReminderAt, so reminders are at most one per 15
+ * minutes even with repeated taps. Returns the members to nudge.
+ */
 export async function prepareAvailabilityReminder(scope: SchedulingScope, reference: string, database: PrismaClient = prisma): Promise<{ poll: AvailabilityPollView; pendingMembers: AvailabilityPollView["pendingMembers"]; reservationAt?: Date }> {
   const current = await findPoll(scope.workspaceId, reference, database);
   if (current.status !== AvailabilityPollStatus.OPEN) throw new GroupSchedulingError("conflict", "This availability poll is already closed.");
@@ -340,6 +405,10 @@ export async function prepareAvailabilityReminder(scope: SchedulingScope, refere
   return { poll, pendingMembers: poll.pendingMembers, reservationAt };
 }
 
+/**
+ * Gives back a reminder reservation when sending failed, so the cooldown does
+ * not block a retry. Only clears the exact reservation this caller made.
+ */
 export async function releaseAvailabilityReminderReservation(scope: SchedulingScope, reference: string, reservationAt: Date | undefined, database: PrismaClient = prisma): Promise<void> {
   if (!reservationAt) return;
   const current = await findPoll(scope.workspaceId, reference, database);
@@ -349,11 +418,16 @@ export async function releaseAvailabilityReminderReservation(scope: SchedulingSc
   });
 }
 
+/** Stores which Telegram message shows the poll card, so it can be updated later. */
 export async function setAvailabilityTelegramMessage(scope: SchedulingScope, reference: string, messageId: string, database: PrismaClient = prisma): Promise<void> {
   const current = await findPoll(scope.workspaceId, reference, database);
   await database.availabilityPoll.update({ where: { id: current.id }, data: { telegramMessageId: messageId } });
 }
 
+/**
+ * Adds the finalised meeting to, or removes it from, the viewer's own Google
+ * Calendar. Requires a Personal Google Calendar connection.
+ */
 export async function updateAvailabilityCalendar(scope: SchedulingScope, reference: string, action: "sync" | "remove", database: PrismaClient = prisma): Promise<AvailabilityPollView> {
   const poll = await findPoll(scope.workspaceId, reference, database);
   if (poll.status !== AvailabilityPollStatus.FINALIZED || !poll.finalStartAt || !poll.finalEndAt) throw new GroupSchedulingError("conflict", "Finalize the meeting before adding it to Calendar.");
@@ -374,6 +448,11 @@ export async function updateAvailabilityCalendar(scope: SchedulingScope, referen
   return getAvailabilityPoll(scope, poll.id, database);
 }
 
+/**
+ * Adds the finalised meeting to the calendar of every member who asked for it
+ * and has Google Calendar connected. Failures are ignored on purpose, because
+ * calendar sync must never undo or block the group decision.
+ */
 async function syncOptedInCalendars(view: AvailabilityPollView, database: PrismaClient): Promise<void> {
   if (!view.finalStartAt || !view.finalEndAt) return;
   const poll = await database.availabilityPoll.findUnique({ where: { id: view.id }, include: pollInclude });
@@ -392,6 +471,10 @@ async function syncOptedInCalendars(view: AvailabilityPollView, database: Prisma
   }
 }
 
+/**
+ * Builds the viewer-specific poll view. Only answers from current active members
+ * count, so people who left the group do not skew the ranking.
+ */
 function serializePoll(poll: PollRecord, viewerTelegramId: string, calendarConnected: boolean): AvailabilityPollView {
   const responses = activeResponses(poll);
   const responseIds = new Set(responses.map((response) => response.telegramId));
@@ -430,11 +513,13 @@ function serializePoll(poll: PollRecord, viewerTelegramId: string, calendarConne
   };
 }
 
+/** True when the viewer's Personal user has a Google Calendar connection. */
 async function viewerCalendarConnected(telegramId: string, database: PrismaClient): Promise<boolean> {
   const personal = await database.user.findUnique({ where: { telegramId }, select: { calendarConnection: { select: { id: true } } } });
   return Boolean(personal?.calendarConnection);
 }
 
+/** Finds a poll by row id or public id, only inside the given workspace. */
 async function findPoll(workspaceId: string, reference: string, database: PrismaClient): Promise<PollRecord> {
   const poll = await database.availabilityPoll.findFirst({ where: { workspaceId, OR: [{ id: reference }, { publicId: reference.toUpperCase() }] }, include: pollInclude });
   if (!poll) throw new GroupSchedulingError("not_found", "I could not find that availability poll.");
@@ -445,6 +530,7 @@ function slotDates(poll: Pick<PollRecord, "startDate" | "endDate" | "timezone" |
   return generateAvailabilitySlots(poll);
 }
 
+/** Answers from members who are still active in the group. */
 function activeResponses(poll: PollRecord) {
   const active = new Set(poll.workspace.members.map((member) => member.telegramId));
   return poll.responses.filter((response) => active.has(response.telegramId));
@@ -454,19 +540,23 @@ function memberDisplayName(member: { firstName: string | null; lastName: string 
   return [member.firstName, member.lastName].filter(Boolean).join(" ") || (member.username ? `@${member.username}` : "Group member");
 }
 
+/** Calendar event details for a finalised poll. */
 function meetingInput(poll: Pick<PollRecord, "title" | "publicId" | "finalStartAt" | "finalEndAt" | "timezone">) {
   if (!poll.finalStartAt || !poll.finalEndAt) throw new GroupSchedulingError("conflict", "Finalize the meeting first.");
   return { title: poll.title, details: `Finalized with Threadwise (${poll.publicId}).`, startAt: poll.finalStartAt, endAt: poll.finalEndAt, timezone: poll.timezone };
 }
 
+/** Polls exist only in group workspaces; refuses anything else. */
 function assertGroupScope(scope: SchedulingScope): void {
   if (!scope.workspaceId || !scope.telegramChatId) throw new GroupSchedulingError("forbidden", "Find a time is available in group workspaces.");
 }
 
+/** True when two sorted date lists contain the same instants. */
 function sameDates(left: Date[], right: Date[]): boolean {
   return left.length === right.length && left.every((date, index) => date.getTime() === right[index]?.getTime());
 }
 
+/** True for a Prisma unique-constraint error (code P2002). */
 function isUniqueConflict(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "P2002");
 }

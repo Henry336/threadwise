@@ -1,3 +1,10 @@
+/**
+ * Per-user (or per-group) settings: reminder interval, quiet hours, early warnings, daily cap,
+ * timezone, currency, OCR language, private nudges, and voice capture options.
+ * Used by /settings, its natural-language forms ("change timezone to Myanmar"), settings callbacks
+ * in src/bot, and the dashboard settings routes. Changes that affect reminder timing also
+ * reschedule every open task in the same transaction.
+ */
 import { Prisma, ReminderMode, TaskStatus, VoiceCleanupMode } from "@prisma/client";
 import { bold, h } from "../utils/html";
 import { prisma } from "../db/prisma";
@@ -253,6 +260,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   return { applied: false, message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
 }
 
+/** Header for the settings menu; the sections themselves are buttons rendered by the bot. */
 export async function formatSettings(_userId: string): Promise<string> {
   return [
     bold("⚙️ Settings"),
@@ -260,6 +268,7 @@ export async function formatSettings(_userId: string): Promise<string> {
   ].join("\n");
 }
 
+/** Reminder section. Group workspaces (synthetic `chat:` owner) also show the undated-task follow-up policy. */
 export async function formatReminderSettings(userId: string): Promise<string> {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
@@ -304,6 +313,11 @@ export async function formatVoiceSettings(userId: string): Promise<string> {
   ].join("\n");
 }
 
+/**
+ * Recomputes nextReminderAt for every open task after a timing setting changes, so the new interval,
+ * quiet hours, or timezone takes effect right away instead of after the old schedule fires.
+ * Undated tasks also reset their nudge count. Runs inside the caller's transaction; returns how many tasks changed.
+ */
 async function rescheduleOpenTasksForSettings(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -356,6 +370,10 @@ function formatMinutes(minutes: number): string {
   return `${minutes}m`;
 }
 
+/**
+ * For intervals of 30 minutes or less, the daily cap needed to cover 12 hours of repeats.
+ * Used to raise a too-low cap so a frequent interval is not silently cut off by the safety limit.
+ */
 function recommendedMaxForInterval(intervalMinutes: number): number | undefined {
   if (intervalMinutes > 30) {
     return undefined;

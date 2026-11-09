@@ -1,3 +1,8 @@
+/**
+ * Shared, bounded download of files users sent to the bot (images, voice notes, documents).
+ * Used by image capture and Study capture in src/bot, the dashboard media proxies in src/dashboard,
+ * voice transcription, and sideProjectRoutes. Errors are typed and never include the bot token.
+ */
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Why a Telegram file could not be downloaded, so each caller can pick its own reply. */

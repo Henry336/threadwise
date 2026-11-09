@@ -1,3 +1,8 @@
+/**
+ * Compatibility fix for group task buttons after Telegram upgrades a basic group
+ * to a supergroup (which changes the chat id). Used by the task callback
+ * handler in src/bot/callbacks.ts.
+ */
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 
@@ -38,6 +43,7 @@ export async function resolveGroupTaskCallbackOwner(
   return isGroupOwner && chatId && ownerDestination === chatId ? task.userId : currentUserId;
 }
 
+/** Compares chat ids as plain strings, ignoring the synthetic "chat:" prefix. */
 function normalizeChatId(value: string | number): string {
   return String(value).trim().replace(/^chat:/, "");
 }

@@ -1,3 +1,9 @@
+/**
+ * Preview-and-confirm note merging (`/merge notes ...` and its callbacks in src/bot).
+ * The AI adapter drafts a merged note into a PendingNoteMerge (one-hour expiry); nothing changes
+ * until the user taps Merge. Confirming creates a new note, archives the sources with
+ * archivedReason "merged" and a link to the new note, and records one undo entry.
+ */
 import type { Note } from "@prisma/client";
 import type { AiProvider, MergedNotePreview, NoteForMerge } from "../ai/types";
 import { prisma } from "../db/prisma";
@@ -17,6 +23,7 @@ export type NoteMergePreviewResult = {
   attemptCount: number;
 };
 
+/** Resolves the user's note references, asks the AI for a merged draft, and stores it as a pending merge. */
 export async function createNoteMergePreview(userId: string, references: string[], ai: AiProvider): Promise<NoteMergePreviewResult> {
   const sourceNotes = await resolveMergeNotes(userId, references);
   const preview = await ai.mergeNotes(sourceNotes.map(toNoteForMerge));
@@ -37,6 +44,10 @@ export async function createNoteMergePreview(userId: string, references: string[
   };
 }
 
+/**
+ * "Try again": regenerates the draft, passing the previous preview and attempt number so the AI
+ * can do better. Capped at five attempts per merge; each retry renews the one-hour expiry.
+ */
 export async function retryNoteMergePreview(userId: string, pendingId: string, ai: AiProvider): Promise<NoteMergePreviewResult> {
   const pending = await prisma.pendingNoteMerge.findFirstOrThrow({
     where: {
@@ -70,6 +81,11 @@ export async function retryNoteMergePreview(userId: string, pendingId: string, a
   };
 }
 
+/**
+ * Applies the stored preview in one transaction: creates the merged note, archives (never deletes)
+ * each source with a pointer to it and clears its star, records the merge undo, and deletes the pending row.
+ * Fails if any source note was archived after the preview was made.
+ */
 export async function confirmNoteMerge(userId: string, pendingId: string) {
   const pending = await prisma.pendingNoteMerge.findFirstOrThrow({
     where: {
@@ -153,6 +169,7 @@ export function formatNoteMergeConfirmed(result: { mergedNote: Note; sourceNotes
   ].join("\n");
 }
 
+/** Turns references into 2 to 8 unique active notes; the cap keeps the preview reviewable. */
 async function resolveMergeNotes(userId: string, references: string[]): Promise<Note[]> {
   const cleaned = references.map((reference) => reference.trim()).filter(Boolean);
   if (cleaned.length < 2) {
@@ -180,6 +197,7 @@ async function resolveMergeNotes(userId: string, references: string[]): Promise<
   return notes;
 }
 
+/** Reloads the source notes in their original order and fails if any is no longer active. */
 async function notesByIds(userId: string, ids: string[]): Promise<Note[]> {
   const notes = await prisma.note.findMany({
     where: {
@@ -209,6 +227,7 @@ function toNoteForMerge(note: Note): NoteForMerge {
   };
 }
 
+/** Safely reads the preview back from its JSON column, filling defaults for missing fields. */
 function asMergedNotePreview(value: unknown): MergedNotePreview {
   const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   return {

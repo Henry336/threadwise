@@ -1,3 +1,9 @@
+/**
+ * Durable custom reminder times for a task (TaskReminderSchedule rows).
+ * tasks.ts and the dashboard write the schedule; the reminder loop in reminders.ts
+ * claims due rows with a short lease and delivers them, so a restart or a second
+ * process cannot lose or double-send a reminder.
+ */
 import { TaskReminderScheduleStatus, type Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 
@@ -19,6 +25,10 @@ export function reminderRetryDelayMinutes(attempt: number): number {
 
 type ReminderDatabase = PrismaClient | Prisma.TransactionClient;
 
+/**
+ * Validates user-chosen reminder times: each must be a valid future time.
+ * Duplicates are dropped, the result is sorted, and the per-task cap applies.
+ */
 export function normalizeCustomReminderTimes(values: readonly (string | Date)[], now = new Date()): Date[] {
   const unique = new Map<number, Date>();
   for (const value of values) {
@@ -34,6 +44,11 @@ export function normalizeCustomReminderTimes(values: readonly (string | Date)[],
   return result;
 }
 
+/**
+ * Replaces a task's not-yet-sent reminders with a new set. Old pending rows are
+ * cancelled; matching times are re-opened through the (taskId, scheduledAt)
+ * unique key instead of inserting duplicates. Delivered history is untouched.
+ */
 export async function replacePendingTaskReminderSchedules(
   database: ReminderDatabase,
   userId: string,
@@ -68,6 +83,11 @@ export async function replacePendingTaskReminderSchedules(
   })));
 }
 
+/**
+ * Cancels pending reminders because the task was completed, cancelled or archived.
+ * taskStateCanceled marks them so restoreFutureTaskReminderSchedules can bring
+ * them back if the task is reopened.
+ */
 export async function cancelPendingTaskReminderSchedules(
   database: ReminderDatabase,
   taskId: string,
@@ -85,6 +105,10 @@ export async function cancelPendingTaskReminderSchedules(
   });
 }
 
+/**
+ * Re-opens reminders that were cancelled only because of a task state change,
+ * but only those still in the future. Used when a completed task is restored.
+ */
 export async function restoreFutureTaskReminderSchedules(
   database: ReminderDatabase,
   taskId: string,
@@ -106,6 +130,11 @@ export async function restoreFutureTaskReminderSchedules(
   });
 }
 
+/**
+ * Claims due reminders for delivery. First it frees rows whose lease expired
+ * (a crashed or slow pass), then takes each due row with a conditional update so
+ * only one process wins it. Claimed rows are PROCESSING with a five-minute lease.
+ */
 export async function claimDueTaskReminderSchedules(now = new Date(), limit = 50, database: PrismaClient = prisma) {
   await database.taskReminderSchedule.updateMany({
     where: {
@@ -177,6 +206,7 @@ export async function releaseTaskReminderSchedule(
   });
 }
 
+/** Dedupe key for the delivery ledger, one per schedule row. */
 export function customReminderDeliveryKey(scheduleId: string): string {
   return `task-custom:${scheduleId}`;
 }

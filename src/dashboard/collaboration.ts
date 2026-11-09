@@ -1,3 +1,9 @@
+/**
+ * Group-workspace collaboration for the dashboard: the member/activity overview, assignment
+ * changes, and the permission check before task edits. Every change is written as GroupActivity
+ * and echoed as a silent message in the Telegram group, so both surfaces stay in step.
+ * Called from route.ts; task permission rules come from services/groupTaskPolicy.ts.
+ */
 import {
   GroupActivityType,
   GroupMemberStatus,
@@ -65,6 +71,10 @@ export type DashboardGroupCollaboration = {
   };
 };
 
+/**
+ * A requested assignment change. accept, decline, block, unblock and handoff belong to an
+ * older acknowledgement model; they are still accepted but change nothing.
+ */
 export type DashboardCollaborationAction = {
   action: "set-audience" | "assign" | "unassign" | "claim" | "accept" | "decline" | "block" | "unblock" | "handoff";
   audience?: "UNASSIGNED" | "EVERYONE";
@@ -77,6 +87,11 @@ export type DashboardTaskMutation =
   | { kind: "created" }
   | { kind: "updated"; input: { status?: "OPEN" | "DONE" | "CANCELED"; title?: string; description?: string | null; dueAt?: string | null } };
 
+/**
+ * Builds the group overview: active members with their open task counts, the latest 60
+ * activity entries, and weekly totals. Returns undefined outside a group workspace.
+ * Blocked and awaiting counts stay 0 because the old acknowledgement states are retired.
+ */
 export async function getDashboardGroupCollaboration(
   scope: DashboardWorkspaceScope,
   database: PrismaClient = prisma,
@@ -158,6 +173,12 @@ export async function getDashboardGroupCollaboration(
   };
 }
 
+/**
+ * Applies one assignment change to a shared task. Any active member may claim unassigned work.
+ * Changing the audience or assignees needs the task creator or a freshly verified Telegram admin.
+ * The assignee rows, the task's summary fields and the activity entry are written in one
+ * transaction, then the change is mirrored to the group chat.
+ */
 export async function updateDashboardTaskCollaboration(
   scope: DashboardWorkspaceScope,
   taskReference: string,
@@ -282,6 +303,11 @@ export async function updateDashboardTaskCollaboration(
   return { updated: true };
 }
 
+/**
+ * Guards a dashboard edit to a group task. "complete" allows assignees, the creator or an admin;
+ * "manage" allows the creator or an admin. The cheap policy check runs first, and Telegram is
+ * asked for a fresh admin role only when that check fails. Personal workspaces always pass.
+ */
 export async function assertDashboardTaskMutation(
   scope: DashboardWorkspaceScope,
   taskReference: string,
@@ -322,6 +348,11 @@ export async function assertDashboardTaskMutation(
   }
 }
 
+/**
+ * After a group task is created or edited from the dashboard, writes a GroupActivity entry and
+ * a silent group chat message describing it. Edits that change none of status, title, due date
+ * or details are not recorded.
+ */
 export async function recordDashboardTaskMutation(
   scope: DashboardWorkspaceScope,
   task: { publicId: string; title: string },
@@ -375,6 +406,7 @@ function initials(name: string): string {
   return name.replace(/^@/, "").split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "TW";
 }
 
+/** Matches an assignee to a member by Telegram id, or by username for assignees added only as @name. */
 function assigneeMatchesMember(
   assignee: { telegramId: string | null; username: string | null },
   member: { telegramId: string; username: string | null },
@@ -393,6 +425,7 @@ function targetMember<T extends { telegramId: string }>(members: T[], telegramId
   return target;
 }
 
+/** Writes one GroupActivity row (summary capped at 1,000 characters). Accepts a transaction client. */
 async function createActivity(
   tx: Prisma.TransactionClient | PrismaClient,
   workspaceId: string,
@@ -414,6 +447,10 @@ async function createActivity(
   });
 }
 
+/**
+ * Posts a dashboard change into the group chat without a notification sound. Best effort:
+ * the change is already saved, so a failed send is only logged.
+ */
 async function mirrorToTelegram(scope: DashboardWorkspaceScope, message: string, botToken?: string): Promise<void> {
   if (!message || !botToken || !scope.telegramChatId) return;
   try {

@@ -1,3 +1,9 @@
+/**
+ * PendingCapture rows: a message whose type is unclear waits here (24 hours) while its sender picks
+ * Task/Reminder/Note/Idea/Ignore on the review card. Used by src/bot/naturalLanguage.ts and callbacks.
+ * Rows are bound to the sender and chat, so in a group only the person who wrote the message can act on it.
+ * Rows with no recorded actor (the column was added later) remain usable by anyone in the workspace.
+ */
 import { CaptureKind, type Prisma } from "@prisma/client";
 import type { Classification } from "../ai/types";
 import { prisma } from "../db/prisma";
@@ -30,6 +36,7 @@ export async function createPendingCapture(
   });
 }
 
+/** The sender's newest live pending capture in this chat, used by natural corrections like "make that a note". */
 export async function findLatestPendingCapture(
   userId: string,
   actorTelegramId: string | number,
@@ -46,6 +53,10 @@ export async function findLatestPendingCapture(
   });
 }
 
+/**
+ * Claims a pending capture for saving by deleting it. Only the caller whose delete removed the row
+ * gets it back, so a double tap or a race between two taps saves at most once.
+ */
 export async function consumePendingCapture(
   userId: string,
   pendingId: string,
@@ -77,6 +88,10 @@ export async function findPendingCapture(
   });
 }
 
+/**
+ * Records which "when should I remind you?" prompt message belongs to this capture, so only a reply
+ * to that exact prompt, from the same sender in the same chat, is read as the reminder time.
+ */
 export async function rememberPendingCaptureReminderPrompt(
   userId: string,
   pendingId: string,
@@ -97,6 +112,7 @@ export async function rememberPendingCaptureReminderPrompt(
   return updated.count === 1;
 }
 
+/** Finds the capture whose reminder prompt the user just replied to (matched by chat and prompt message id). */
 export async function findPendingCaptureReminderReply(
   userId: string,
   actorTelegramId: string | number,
@@ -157,6 +173,7 @@ function toPrismaKind(kind: Classification["kind"]): CaptureKind {
   return CaptureKind.NOISE;
 }
 
+/** Shared filter: the capture's id within this workspace, plus the actor check when an actor is given. */
 function pendingCaptureWhere(
   userId: string,
   pendingId: string,

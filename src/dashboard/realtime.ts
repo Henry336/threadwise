@@ -1,10 +1,16 @@
+/**
+ * Live-sync for open dashboards. Instead of pushing every change, it periodically computes a
+ * compact "revision" hash of the owner's data and tells listeners to refresh when it changes.
+ * route.ts streams these events to the browser on the dashboard events endpoint.
+ * Polling is deliberately slow because the database is external and idle traffic costs bandwidth.
+ */
 import type { PrismaClient } from "@prisma/client";
 import { createHash } from "crypto";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { DashboardUserNotFoundError } from "./snapshot";
 
-// One watcher per owner, not per tab. Cross-device/Telegram changes arrive within
+// One watcher per owner, not per tab.
 // Same-page mutations refresh immediately. Cross-device/Telegram changes can wait
 // up to two minutes; this caps an open dashboard at 31 external-Postgres revision
 // passes/hour instead of keeping the database busy twice per minute while idle.
@@ -25,6 +31,11 @@ type Watcher = {
 
 const watchers = new Map<string, Watcher>();
 
+/**
+ * Registers a listener for one owner's changes and returns an unsubscribe function.
+ * All tabs of the same owner share one timer; the timer starts on the first listener and is
+ * cleared when the last one leaves, so closed dashboards stop querying the database.
+ */
 export function subscribeDashboardChanges(telegramId: string, listener: Listener): () => void {
   let watcher = watchers.get(telegramId);
   if (!watcher) {
@@ -51,6 +62,11 @@ export function subscribeDashboardChanges(telegramId: string, listener: Listener
   };
 }
 
+/**
+ * One poll: recompute the revision and emit "ready" the first time, "refresh" when it changed.
+ * The checking flag stops overlapping passes, and a watcher removed mid-check is ignored.
+ * Failures emit "sync-error" and log only the error type.
+ */
 async function checkWatcher(telegramId: string): Promise<void> {
   const watcher = watchers.get(telegramId);
   if (!watcher || watcher.checking) return;
@@ -79,6 +95,11 @@ function emit(watcher: Watcher, event: DashboardChangeEvent): void {
   for (const listener of watcher.listeners) listener(event);
 }
 
+/**
+ * Hashes counts and latest-update timestamps for everything the dashboard shows (tasks, notes,
+ * ideas, images, polls, imports, settings, connections and Study data). Any visible change alters
+ * the hash. It uses a few aggregate queries rather than loading rows, to keep each poll small.
+ */
 export async function dashboardRevision(telegramId: string, database: PrismaClient = prisma): Promise<string> {
   const user = await database.user.findUnique({
     where: { telegramId },

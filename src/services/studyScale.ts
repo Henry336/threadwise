@@ -1,5 +1,12 @@
+/**
+ * Size limits for Study Mode so large notes and Canvas mirrors stay cheap to load and analyse.
+ * Holds the shared budget table plus helpers that precompute bounded excerpts and previews when a
+ * resource is saved, so the dashboard and AI evidence graph can read short columns instead of whole
+ * bodies. Used by studyResources, studyMarkdown, studyCanvas, studyEvidenceGraph and the dashboard.
+ */
 import { StudyResourceKind } from "@prisma/client";
 
+/** Central caps (row counts and character counts) for evidence gathering, dashboard pages, and note revisions. */
 export const STUDY_SCALE_BUDGETS = Object.freeze({
   evidenceSessions: 20,
   evidenceResources: 28,
@@ -16,6 +23,12 @@ export const STUDY_SCALE_BUDGETS = Object.freeze({
   analysisPromptChars: 48_000,
 });
 
+/**
+ * Computes the stored analysis excerpt and short caption/OCR previews for a Study resource.
+ * Callers spread the result into the same write that saves the body, so these derived columns never
+ * go stale. Notes use only their body; images and files also include caption and OCR text.
+ * Slicing uses Array.from so emoji and other multi-unit characters are never split.
+ */
 export function deriveStudyResourceAnalysis(input: {
   kind: StudyResourceKind;
   body?: string | null;
@@ -64,16 +77,22 @@ function boundedPreview(value?: string | null): { value: string | null; truncate
   };
 }
 
+/** Bounded excerpt of Canvas page text, so AI evidence never pulls whole extracted pages. */
 export function deriveCanvasAnalysisExcerpt(extractedText?: string | null): string | null {
   const clean = extractedText?.trim();
   return clean ? Array.from(clean).slice(0, STUDY_SCALE_BUDGETS.canvasAnalysisExcerptChars).join("") : null;
 }
 
+/**
+ * Normalized names a [[wiki link]] can use to reach this note: its title and its public id.
+ * Only notes are link targets, so other kinds return an empty list.
+ */
 export function studyResourceWikiLookupKeys(input: { kind: StudyResourceKind; title: string; publicId: string }): string[] {
   if (input.kind !== StudyResourceKind.NOTE) return [];
   return [...new Set([input.title, input.publicId].map(normalizeStudyWikiTarget).filter(Boolean))];
 }
 
+/** Canonical form for wiki link matching: Unicode-normalized, trimmed, single-spaced, lower case. */
 export function normalizeStudyWikiTarget(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en");
 }

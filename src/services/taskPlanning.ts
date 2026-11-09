@@ -1,10 +1,22 @@
+/**
+ * Pure, deterministic parsing for Today task capture: splitting a message into
+ * several tasks and separating the planned day, deadline and reminder in each.
+ * No database access. Used by taskCaptureDrafts.ts, dailyAgenda.ts and the
+ * Today/daily brief handlers in src/bot.
+ */
 import { DateTime } from "luxon";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { parseDueDate } from "../utils/dates";
 
+/** Most tasks one capture message may create. */
 export const TASK_CAPTURE_DRAFT_LIMIT = 25;
+/** How long an unsaved task draft stays open before it expires. */
 export const TASK_CAPTURE_DRAFT_TTL_MS = 10 * 60_000;
 
+/**
+ * Timing questions the review card must raise instead of guessing: a bare
+ * weekday ("call mum friday") and any "remind me" request.
+ */
 export type TaskTimingWarning = "AMBIGUOUS_BARE_DATE" | "REMINDER_REQUIRES_CONFIRMATION";
 
 export type TaskTimingIntent = {
@@ -27,6 +39,11 @@ const TASK_ACTION_START = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)?(?:["
 const TASK_LIST_PREFIX = /^(?:(?:[-*•□☐]|\[(?: |x|X)\]|\d+[.)])\s*)/u;
 const TASK_CONTINUATION_START = /^(?:reason|why|context|details?|notes?|background|purpose|constraints?|requirements?|references?|links?)\s*:/i;
 
+/**
+ * Converts an instant to its calendar day in the owner's timezone, stored as
+ * UTC midnight of that day. Planned days are dates, not times, so this keeps a
+ * late-evening task from landing on the wrong day.
+ */
 export function calendarDate(value: Date, timezone: string): Date {
   const local = DateTime.fromJSDate(value).setZone(timezone);
   if (!local.isValid) throw new Error(`Invalid timezone: ${timezone}`);
@@ -37,10 +54,18 @@ export function todayCalendarDate(timezone: string, now: Date = new Date()): Dat
   return calendarDate(now, timezone);
 }
 
+/** YYYY-MM-DD key for a value produced by calendarDate. */
 export function calendarDateKey(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
+/**
+ * Splits one capture message into task texts. Newlines and semicolons always
+ * split; a comma splits only when the next phrase starts with a clear action verb,
+ * so "buy eggs, milk and bread" stays one task. Quotes and brackets are never
+ * split, and "Reason:"-style lines stay with the task above. Throws above the
+ * draft limit.
+ */
 export function splitTaskDraftText(sourceText: string): string[] {
   const source = sourceText.trim();
   if (!source) return [];
@@ -85,24 +110,38 @@ export function splitTaskDraftText(sourceText: string): string[] {
   return parts;
 }
 
+/** True when the text starts with a known task verb (after an optional list marker). */
 export function startsWithTaskAction(text: string): boolean {
   return TASK_ACTION_START.test(text.trimStart());
 }
 
+/** First non-blank line of the text. */
 function nextMeaningfulLine(text: string): string {
   return text.split(/\r?\n/).find((line) => line.trim()) ?? "";
 }
 
+/**
+ * True for "Reason:", "Context:", "Notes:" and similar lines that describe the
+ * previous task instead of starting a new one.
+ */
 export function isTaskContinuationLine(text: string): boolean {
   return TASK_CONTINUATION_START.test(text.trimStart());
 }
 
+/** Everything after the first line, used as the task description. */
 export function taskContinuationDescription(sourceText: string): string | undefined {
   const [, ...continuationLines] = sourceText.trim().split(/\r?\n/);
   const description = continuationLines.join("\n").trim();
   return description || undefined;
 }
 
+/**
+ * Reads one task text into a title plus separate planned day, deadline and
+ * reminder time. "due/by/before" text sets the deadline; a weekday or "today"
+ * before it sets the planned day; otherwise the task defaults to today unless
+ * defaultToToday is false. A "remind me" request never schedules silently; it
+ * adds a warning so the user confirms it.
+ */
 export function parseTaskTimingIntent(
   sourceText: string,
   timezone: string,

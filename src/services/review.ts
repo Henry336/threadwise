@@ -1,3 +1,8 @@
+/**
+ * The /review summary (also reachable by natural language): open task counts (overdue, due today,
+ * undated), the first five open tasks, the three newest notes and ideas, and one next step.
+ * Read only and deterministic, built from PostgreSQL in the user's timezone.
+ */
 import { DateTime } from "luxon";
 import { bold, code, h, italic } from "../utils/html";
 import { prisma } from "../db/prisma";

@@ -1,8 +1,19 @@
+/**
+ * Allocates the short user-facing ids such as TASK-3 or NOTE-7.
+ * Ids are numbered per owner (userId) and never reused, so an old id in a
+ * chat message or audit log cannot point at a different item later.
+ * Called by the services that create tasks, notes, ideas, images and expenses.
+ */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 
 type PublicKind = "IDEA" | "TASK" | "NOTE" | "EXP" | "IMG";
 
+/**
+ * Returns the next free "KIND-n" id for this owner by scanning existing ids.
+ * Pass a transaction client so the read happens inside the same transaction
+ * as the insert (see createWithPublicId).
+ */
 export async function nextPublicId(
   userId: string,
   kind: PublicKind,
@@ -61,6 +72,7 @@ export async function createWithPublicId<T>(
   }
 }
 
+/** True when a Prisma error is the unique-index clash on publicId (code P2002). */
 function isPublicIdUniqueConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; meta?: { target?: unknown } };

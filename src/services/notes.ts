@@ -1,3 +1,9 @@
+/**
+ * Ordinary (Personal/Group) notes: create, list, search, find, rename, edit, archive, and analyze.
+ * Used by note commands, callbacks, and cards in src/bot, the dashboard routes, and by
+ * noteMerges/captureReclassification/itemEdits. All lookups are scoped by the owner's userId,
+ * and user-reversible writes record an undo audit entry in the same transaction.
+ */
 import type { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../ai/deterministic";
@@ -10,6 +16,10 @@ import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
+/**
+ * Saves a note. Short text is structured by local rules; only long or "clean this up" style text
+ * goes to the AI adapter, so normal capture never waits on an AI call.
+ */
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
     ? await ai.structureNote(sourceText)
@@ -44,6 +54,10 @@ export async function listRecentNotes(userId: string, take?: number) {
   });
 }
 
+/**
+ * Searches active notes. The query matches both plaintext rows and encrypted rows (through blind
+ * search tokens), then each hit is checked again on the decrypted text to drop token false positives.
+ */
 export async function searchNotes(userId: string, query: string) {
   const encrypted = encryptedSearchClause("Note", query);
   const notes = await prisma.note.findMany({
@@ -78,6 +92,7 @@ export async function findNote(userId: string, publicOrUuid: string) {
   });
 }
 
+/** Like findNote but also returns archived notes, for opening an archived or merged note by ID. */
 export async function findAnyNote(userId: string, publicId: string) {
   return prisma.note.findFirstOrThrow({
     where: {
@@ -87,6 +102,7 @@ export async function findAnyNote(userId: string, publicId: string) {
   });
 }
 
+/** A plain number means "the Nth row of /notes" (starred-first order); otherwise an id or public ID. */
 export async function findNoteReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
@@ -106,6 +122,10 @@ export async function findNoteReference(userId: string, reference: string) {
   return findNote(userId, normalized);
 }
 
+/**
+ * Renames a note and records the old title for Undo. completeSearchableContentUpdate includes every
+ * searchable field so encrypted search tokens are rebuilt from the whole record.
+ */
 export async function renameNoteTitle(userId: string, publicId: string, title: string) {
   const note = await findNote(userId, publicId);
   const nextTitle = title.trim();
@@ -122,6 +142,7 @@ export async function renameNoteTitle(userId: string, publicId: string, title: s
   });
 }
 
+/** Replaces the body (and its summary/source text) and records the previous body for Undo. */
 export async function updateNoteBody(userId: string, publicId: string, body: string) {
   const note = await findNote(userId, publicId);
   const nextBody = body.trim();
@@ -142,6 +163,10 @@ export async function updateNoteBody(userId: string, publicId: string, body: str
   });
 }
 
+/**
+ * Archives a note with archivedReason "removed" (no hard delete) and records an undo entry.
+ * Accepts a database row id (from buttons) as well as a typed reference.
+ */
 export async function archiveNote(userId: string, reference: string) {
   const note = await findNoteByRowId(userId, reference) ?? await findNoteReference(userId, reference);
   const archivedAt = new Date();
@@ -176,6 +201,7 @@ async function findNoteByRowId(userId: string, id: string) {
   });
 }
 
+/** Sends the latest 100 active notes to the AI adapter for feedback on the user's note-keeping habits. Read only. */
 export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
   const notes = await prisma.note.findMany({
     where: { userId, archivedAt: null },
@@ -206,6 +232,7 @@ export function formatNoteSavedAcknowledgement(note: { title: string }): string 
   return `${bold("Note saved")} · ${h(note.title)}`;
 }
 
+/** Renders the /notes list. Row numbers continue across pages so they match findNoteReference. */
 export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (notes.length === 0) {
     return "Nothing saved here yet—send a note when something is worth keeping.";

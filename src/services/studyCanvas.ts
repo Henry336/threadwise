@@ -1,3 +1,11 @@
+/**
+ * Read-only mirror of NUS Canvas into the Study workspace: courses become modules,
+ * open assignments become Study items, and module pages/files are indexed as materials.
+ * The loop started in main.ts checks every minute and syncs each workspace on its interval
+ * (STUDY_CANVAS_SYNC_INTERVAL_MINUTES). It also runs on demand from the
+ * Telegram Study menu (src/bot/studyCapture.ts) and the dashboard (src/dashboard/study.ts).
+ * Uses the server-held CANVAS_ACCESS_TOKEN; the token is only ever sent to the Canvas API.
+ */
 import {
   StudyCanvasAssignmentStatus,
   StudyCanvasMaterialKind,
@@ -138,6 +146,7 @@ type CanvasCourseDiagnostic = {
   materialError?: string;
 };
 
+/** One running sync per workspace, and all syncs run one after another through syncQueue. */
 const syncInFlightByWorkspace = new Map<string, Promise<StudyCanvasSyncSummary>>();
 let syncQueue: Promise<unknown> = Promise.resolve();
 
@@ -149,6 +158,11 @@ export async function studyCanvasStatus(workspaceId: string) {
   return prisma.studyCanvasSync.findUnique({ where: { workspaceId } });
 }
 
+/**
+ * Public entry point for a sync. A second request for the same workspace joins the run
+ * already in progress, so "Sync now" pressed twice or overlapping the scheduler does not
+ * import the same assignment twice. `force` runs even when the owner paused auto-sync.
+ */
 export function syncStudyCanvas(
   workspace: StudyWorkspace,
   options: { now?: Date; force?: boolean } = {},
@@ -162,6 +176,13 @@ export function syncStudyCanvas(
   return task;
 }
 
+/**
+ * The full sync. Marks the run RUNNING, walks every active Canvas enrollment (skipping
+ * courses from other terms), saves assignments and course materials, then flags tracked
+ * assignments Canvas no longer returns as MISSING and needing review (never deleted).
+ * A material failure for one course is logged and does not stop assignment sync.
+ * Ends by writing the summary to the sync row and an audit log entry.
+ */
 async function performStudyCanvasSync(
   workspace: StudyWorkspace,
   options: { now?: Date; force?: boolean } = {},
@@ -414,6 +435,10 @@ async function performStudyCanvasSync(
   }
 }
 
+/**
+ * Scheduler tick: syncs up to ten active, bound workspaces whose next sync time has passed.
+ * Errors are swallowed here because performStudyCanvasSync already recorded them.
+ */
 export async function runDueStudyCanvasSync(now = new Date()): Promise<StudyCanvasSyncSummary[]> {
   if (!studyCanvasConfigured()) return [];
   const workspaces = await prisma.studyWorkspace.findMany({
@@ -432,6 +457,10 @@ export async function runDueStudyCanvasSync(now = new Date()): Promise<StudyCanv
   return summaries;
 }
 
+/**
+ * A sync is due if it never ran, if its next time has passed, or if it has been RUNNING for
+ * over five minutes. The last case recovers a run left RUNNING by a restart mid-sync.
+ */
 export function studyCanvasSyncIsDue(state: {
   status: StudyCanvasSyncStatus;
   lastAttemptAt: Date | null;
@@ -449,6 +478,7 @@ export function startStudyCanvasSyncLoop(pollMs = CANVAS_SYNC_POLL_MS): StopLoop
   return startLoop("Study Canvas sync", pollMs, () => runDueStudyCanvasSync(), { runImmediately: true });
 }
 
+/** Extracts an NUS-style module code (for example CS2103T) from the course, else a CV-prefixed fallback. */
 export function canvasModuleCode(course: Pick<CanvasCourse, "id" | "name" | "course_code">): string {
   for (const value of [course.course_code, course.name]) {
     const match = value?.toUpperCase().match(/\b([A-Z]{2,6}\d{3,5}[A-Z]?)\b/);
@@ -458,6 +488,7 @@ export function canvasModuleCode(course: Pick<CanvasCourse, "id" | "name" | "cou
   return `CV${numeric}`;
 }
 
+/** Treats excused, submitted, graded or pending-review work as done. */
 export function isSubmitted(submission: CanvasSubmission | null | undefined): boolean {
   if (!submission) return false;
   if (submission.excused) return true;
@@ -465,6 +496,7 @@ export function isSubmitted(submission: CanvasSubmission | null | undefined): bo
   return ["submitted", "graded", "pending_review", "complete"].includes((submission.workflow_state ?? "").toLowerCase());
 }
 
+/** Starting priority for a newly imported assignment: CRITICAL within 24 hours, HIGH within a week. */
 export function canvasPriority(dueAt: Date | undefined, now = new Date()): StudyPriority {
   if (!dueAt) return StudyPriority.NORMAL;
   const hours = (dueAt.getTime() - now.getTime()) / 3_600_000;
@@ -473,6 +505,11 @@ export function canvasPriority(dueAt: Date | undefined, now = new Date()): Study
   return StudyPriority.NORMAL;
 }
 
+/**
+ * Decides whether a Canvas course belongs to the configured semester. Uses the term dates
+ * when Canvas gives them, otherwise a year mentioned in the term or course name.
+ * OUTSIDE courses are skipped so old enrollments do not flood Study with past deadlines.
+ */
 export function canvasCourseTermScope(
   workspace: Pick<StudyWorkspace, "semesterStartDate" | "timezone">,
   course: CanvasCourse,
@@ -506,6 +543,7 @@ function canvasTermId(course: CanvasCourse): string | undefined {
   return course.term?.id === undefined || course.term?.id === null ? undefined : String(course.term.id);
 }
 
+/** Term identity stored on the module; studyDeadlineTrust.ts uses the term dates to vet deadlines. */
 function canvasTermFields(course: CanvasCourse) {
   return {
     canvasTermId: canvasTermId(course),
@@ -515,6 +553,11 @@ function canvasTermFields(course: CanvasCourse) {
   };
 }
 
+/**
+ * Finds or creates the Study module for a Canvas course (by Canvas id, then by module code).
+ * New modules start inactive until the owner turns them on. If a module code moves to a new
+ * Canvas course, the old course's active assignments are flagged MISSING for review.
+ */
 export async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasCourse, now: Date): Promise<StudyModule> {
   const canvasCourseId = String(course.id);
   const code = canvasModuleCode(course);
@@ -561,6 +604,12 @@ export async function mapCanvasCourse(workspace: StudyWorkspace, course: CanvasC
   });
 }
 
+/**
+ * Creates or updates the Study item for one Canvas assignment. Fields the owner edited
+ * (title/due date overrides) and items closed locally are kept. If nothing changed it
+ * returns "unchanged" without writing, which stopped the 30-minute sync from rewriting
+ * every row (September 2026 bandwidth fix). Item and Canvas row update in one transaction.
+ */
 export async function persistCanvasAssignment(
   workspace: StudyWorkspace,
   module: StudyModule,
@@ -650,6 +699,7 @@ export async function persistCanvasAssignment(
   return "imported";
 }
 
+/** Builds the StudyCanvasAssignment row from Canvas data; saving it also clears any MISSING flag. */
 function canvasAssignmentData(
   workspaceId: string,
   moduleId: string,
@@ -683,6 +733,12 @@ function canvasAssignmentData(
   };
 }
 
+/**
+ * Indexes one course's Canvas modules and their items. Page text is fetched, stripped of
+ * HTML, capped and hashed; files are metadata only (their bytes are never downloaded).
+ * Unchanged rows are skipped, and anything no longer listed is marked inactive. Over 500
+ * items it stops before marking anything inactive, so a partial read cannot hide material.
+ */
 async function syncCanvasCourseMaterials(
   workspace: StudyWorkspace,
   module: StudyModule,
@@ -809,6 +865,7 @@ async function syncCanvasCourseMaterials(
   return { courseModulesSeen: seenModuleIds.size, materialsSeen: seenMaterialIds.size, pagesCached, filesIndexed };
 }
 
+/** True when every field we would write already matches the stored row (undefined fields are ignored). */
 function sameCanvasFields(
   existing: Record<string, unknown>,
   desired: Record<string, unknown>,
@@ -819,6 +876,7 @@ function sameCanvasFields(
   ));
 }
 
+/** Equality that treats null and undefined alike and compares Dates by time. */
 function sameCanvasValue(left: unknown, right: unknown): boolean {
   if (left == null && right == null) return true;
   if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime();
@@ -836,15 +894,22 @@ export function canvasMaterialKind(value: string | undefined): StudyCanvasMateri
   return StudyCanvasMaterialKind.OTHER;
 }
 
+/** Drops file sizes that would not fit the database's 32-bit integer column. */
 function safeCanvasByteSize(value: number | undefined): number | undefined {
   return Number.isSafeInteger(value) && value! >= 0 && value! <= 2_147_483_647 ? value : undefined;
 }
 
+/** Fetches a URL that Canvas itself returned, after checking it stays inside the Canvas API. */
 async function canvasGetFromApiUrl<T>(value: string): Promise<T> {
   const response = await canvasFetch(requireCanvasApiUrl(value));
   return response.json() as Promise<T>;
 }
 
+/**
+ * Reads a paginated Canvas list by following the Link "next" header, up to 50 pages.
+ * Throws rather than returning a partial list, because callers use the full list to
+ * decide what went missing.
+ */
 async function canvasGetPages<T>(path: string, params: Record<string, string | string[]>): Promise<T[]> {
   const first = canvasUrl(path, { ...params, per_page: String(CANVAS_PAGE_LIMIT) });
   const rows: T[] = [];
@@ -867,6 +932,11 @@ async function canvasGet<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * One authenticated Canvas GET with a timeout and up to three attempts. Retries timeouts,
+ * network errors, 408, 429 and 5xx (honouring Retry-After, max five seconds). A rejected
+ * token (401/403) fails at once with a message telling the operator to replace it.
+ */
 async function canvasFetch(url: string): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -903,6 +973,11 @@ async function canvasFetch(url: string): Promise<Response> {
   throw lastError;
 }
 
+/**
+ * Security guard: only URLs on the configured Canvas origin and API path, with no embedded
+ * credentials, may receive the bearer token. Canvas pagination and item links come from
+ * responses, so without this a crafted link could leak the token (finding F-01).
+ */
 export function requireCanvasApiUrl(
   value: string,
   configuredBaseUrl = env.CANVAS_BASE_URL,
@@ -926,6 +1001,10 @@ export function requireCanvasApiUrl(
   return url.toString();
 }
 
+/**
+ * Sends the bearer-token request to a vetted Canvas URL. Redirects are not followed, since
+ * following one could carry the token to another host; a 3xx is treated as an error.
+ */
 export async function fetchCanvasApiResponse(
   value: string,
   accessToken: string,
@@ -947,6 +1026,7 @@ export async function fetchCanvasApiResponse(
   return response;
 }
 
+/** Builds an API URL under CANVAS_BASE_URL; array params use Canvas's `key[]` form. */
 function canvasUrl(path: string, params: Record<string, string | string[]> = {}): string {
   const base = `${env.CANVAS_BASE_URL.replace(/\/$/, "")}/`;
   const url = new URL(path.replace(/^\//, ""), base);
@@ -956,6 +1036,7 @@ function canvasUrl(path: string, params: Record<string, string | string[]> = {})
   return url.toString();
 }
 
+/** Parses the `rel="next"` URL out of Canvas's Link header (vetted later by requireCanvasApiUrl). */
 export function nextCanvasLink(header: string | null): string | undefined {
   if (!header) return undefined;
   for (const part of header.split(",")) {
@@ -965,6 +1046,7 @@ export function nextCanvasLink(header: string | null): string | undefined {
   return undefined;
 }
 
+/** Canvas failure that says whether canvasFetch should retry and how long to wait. */
 class CanvasRequestError extends Error {
   constructor(
     message: string,
@@ -976,6 +1058,7 @@ class CanvasRequestError extends Error {
   }
 }
 
+/** Wait time from a Retry-After header (seconds or date), capped at 5 s, else a short fixed backoff. */
 function retryDelayMs(value: string | null, attempt: number): number {
   if (value) {
     const seconds = Number(value);
@@ -990,12 +1073,14 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/** Parses a Canvas ISO timestamp; invalid or empty values become undefined. */
 function canvasDate(value: string | null | undefined): Date | undefined {
   if (!value) return undefined;
   const parsed = DateTime.fromISO(value, { setZone: true });
   return parsed.isValid ? parsed.toUTC().toJSDate() : undefined;
 }
 
+/** Rough HTML-to-text for storing and searching Canvas descriptions and pages; not a sanitizer for display as HTML. */
 function htmlToPlainText(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
   const plain = value
@@ -1014,6 +1099,7 @@ function htmlToPlainText(value: string | null | undefined): string | undefined {
   return plain || undefined;
 }
 
+/** User-facing text for a failed sync, with a friendly message for timeouts. */
 function canvasErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "Canvas took too long to respond. Threadwise will retry automatically.";
   return error instanceof Error ? error.message : "Canvas sync failed. Threadwise will retry automatically.";

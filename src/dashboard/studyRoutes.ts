@@ -1,3 +1,9 @@
+/**
+ * Study Mode routes (paths under /api/v1/dashboard/study), split out of route.ts so the Study
+ * surface can be reviewed on its own. route.ts calls registerStudyDashboardRoutes with its secured
+ * runner. Handlers parse input with the schemas exported by study.ts and call its functions or
+ * the Study services (analysis, Google Calendar mirror, note-edit suggestions).
+ */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { assertTodayFoundationAccess } from "./today";
 import type { StudyWorkspace } from "@prisma/client";
@@ -114,6 +120,8 @@ export function registerStudyDashboardRoutes(
     return { study: await getDashboardStudySnapshot(workspace) };
   }, "study_snapshot"));
 
+  // One-way Google Calendar mirror of the timetable: connect (OAuth URL that returns to the
+  // timetable view), sync now, or stop.
   server.post("/api/v1/dashboard/study/calendar/connect", async (request, reply) => runStudy(request, reply, async (workspace) => {
     const returnTo = new URL("/dashboard?view=study-timetable&resume=study-calendar-sync", DASHBOARD_URL).toString();
     return {
@@ -140,6 +148,8 @@ export function registerStudyDashboardRoutes(
     return { module: await updateDashboardStudyModule(workspace, id, studyModuleUpdateSchema.parse(request.body)) };
   }, "study_update_module"));
 
+  // Opt-in AI module review: GET reads the latest result, POST queues an analysis job (reusing a
+  // job for unchanged evidence) that the server-side analysis runner picks up later.
   server.get("/api/v1/dashboard/study/modules/:id/analysis", async (request, reply) => runStudy(request, reply, async (workspace) => {
     const { id } = studyIdParamsSchema.parse(request.params);
     const { mode } = studyAnalysisRequestSchema.parse(request.query);
@@ -158,6 +168,7 @@ export function registerStudyDashboardRoutes(
     return { suggestion };
   }, "study_review_analysis_suggestion"));
 
+  // Study work items. Setting a planned day uses the owner-gated Today feature, so it is checked here.
   server.post("/api/v1/dashboard/study/items", async (request, reply) => runStudy(request, reply, async (workspace, scope) => {
     const input = studyItemCreateSchema.parse(request.body);
     if (input.plannedFor !== undefined) {
@@ -191,6 +202,7 @@ export function registerStudyDashboardRoutes(
     return { item: await completeDashboardStudyItem(workspace, id, false) };
   }, "study_complete_item"));
 
+  // Encrypted rich-note drafts and Library resources (notes, images, files).
   server.get("/api/v1/dashboard/study/note-drafts", async (request, reply) => runStudy(request, reply, async (workspace) => {
     return { draft: await getDashboardStudyNoteDraft(workspace, studyNoteDraftQuerySchema.parse(request.query)) };
   }, "study_get_note_draft"));
@@ -232,6 +244,7 @@ export function registerStudyDashboardRoutes(
   server.get("/api/v1/dashboard/study/resources/:id/content", async (request, reply) => runStudy(request, reply, async (workspace) => {
     const { id } = studyIdParamsSchema.parse(request.params);
     const content = await loadDashboardStudyResourceContent(workspace, id, options.telegramBotToken);
+    // Same inert-content headers as personal images: no sniffing, sandboxed CSP.
     reply.header("Cache-Control", "private, max-age=300");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
@@ -245,6 +258,7 @@ export function registerStudyDashboardRoutes(
     return { query: query.q, results: await searchDashboardStudy(workspace, query) };
   }, "study_search"));
 
+  // Deep Work sessions; DELETE soft-archives a session rather than removing it.
   server.post("/api/v1/dashboard/study/sessions/start", async (request, reply) => runStudy(request, reply, async (workspace) => {
     return { session: await startDashboardStudySession(workspace, studySessionStartSchema.parse(request.body)) };
   }, "study_start_session"));
@@ -284,6 +298,8 @@ export function registerStudyDashboardRoutes(
     return { settings: await updateDashboardStudySettings(workspace, studySettingsUpdateSchema.parse(request.body)) };
   }, "study_update_settings"));
 
+  // External sources: Canvas mirror sync, keep-or-archive review of assignments that went missing
+  // from Canvas, and NUSMods timetable import.
   server.post("/api/v1/dashboard/study/canvas/sync", async (request, reply) => runStudy(request, reply, async (workspace) => {
     return { sync: await syncDashboardStudyCanvas(workspace) };
   }, "study_canvas_sync"));
@@ -298,6 +314,7 @@ export function registerStudyDashboardRoutes(
     return { assignment: await resolveDashboardStudyCanvasAssignment(workspace, id, input.action) };
   }, "study_canvas_review"));
 
+  // Travel origins and place search for class-departure reminders.
   server.post("/api/v1/dashboard/study/origins", async (request, reply) => runStudy(request, reply, async (workspace) => {
     return { origin: await createDashboardStudyOrigin(workspace, studyOriginCreateSchema.parse(request.body)) };
   }, "study_create_origin"));
@@ -318,6 +335,7 @@ export function registerStudyDashboardRoutes(
     return { deleted: true };
   }, "study_delete_origin"));
 
+  // Timetable blocks. DELETE can remove one occurrence, this and future, or the whole series.
   server.post("/api/v1/dashboard/study/schedule", async (request, reply) => runStudy(request, reply, async (workspace) => {
     return { block: await createDashboardStudyScheduleBlock(workspace, studyScheduleCreateSchema.parse(request.body)) };
   }, "study_create_schedule"));

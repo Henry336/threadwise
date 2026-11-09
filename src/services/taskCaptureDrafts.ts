@@ -1,3 +1,10 @@
+/**
+ * Durable Today task drafts: the "Save / Add more / Edit" review card for one or
+ * more tasks captured at once, in Personal, Group or Study. A draft lives in the
+ * database so it survives restarts, belongs to one person (principalTelegramId)
+ * and expires after ten minutes. Saving is all-or-nothing in one transaction.
+ * Used by src/bot/today.ts, src/bot/todayExpiry.ts and the dashboard Today routes.
+ */
 import {
   PlanningScope,
   Prisma,
@@ -29,6 +36,11 @@ const draftInclude = { items: { orderBy: { position: "asc" as const } } };
 
 export type TaskCaptureDraftRecord = Prisma.TaskCaptureDraftGetPayload<{ include: typeof draftInclude }>;
 
+/**
+ * Where the draft's tasks will be saved. PERSONAL has no workspace ids, GROUP has
+ * only groupWorkspaceId, STUDY has only studyWorkspaceId (see validateScope).
+ * principalTelegramId is the person allowed to edit and save the draft.
+ */
 export type TaskCaptureScope = {
   ownerUserId: string;
   principalTelegramId: string;
@@ -58,6 +70,7 @@ export type DraftItemPatch = {
   resolveWarnings?: boolean;
 };
 
+/** Draft failure with a user-safe message and a code the dashboard maps to an HTTP status. */
 export class TaskCaptureDraftError extends Error {
   constructor(message: string, readonly code: "invalid" | "not_found" | "forbidden" | "conflict" | "expired") {
     super(message);
@@ -65,6 +78,12 @@ export class TaskCaptureDraftError extends Error {
   }
 }
 
+/**
+ * Parses the captured text into draft rows and opens a new draft for review.
+ * Any earlier open draft of the same person in the same workspace is cancelled
+ * first, so only one review card is live at a time. In Study, rows that match an
+ * open Canvas item are linked to it instead of creating a duplicate.
+ */
 export async function createTaskCaptureDraft(
   scope: TaskCaptureScope,
   sourceText: string,
@@ -110,6 +129,11 @@ export async function createTaskCaptureDraft(
   });
 }
 
+/**
+ * Links a Study draft row to an existing open Canvas item when exactly one item
+ * in the same module has the same title. The Canvas deadline is kept; the draft
+ * only adds a planned day.
+ */
 async function linkMatchingStudyItems(
   tx: Prisma.TransactionClient,
   scope: TaskCaptureScope,
@@ -142,10 +166,15 @@ async function linkMatchingStudyItems(
   });
 }
 
+/** Title form used for matching: Unicode-normalised, single-spaced, lower case. */
 function normalizedStudyTitle(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
 }
 
+/**
+ * Loads a draft for its owner only. An open draft past its expiry is marked
+ * EXPIRED on read.
+ */
 export async function getTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -166,6 +195,7 @@ export async function getTaskCaptureDraft(
   return draft;
 }
 
+/** Returns this person's most recent open draft in the given workspace, if any. */
 export async function findActiveTaskCaptureDraft(
   scope: TaskCaptureScope,
   database: PrismaClient = prisma,
@@ -186,6 +216,7 @@ export async function findActiveTaskCaptureDraft(
   return getTaskCaptureDraft(draft.id, scope.principalTelegramId, database);
 }
 
+/** Moves the draft into "Add more" mode (COLLECTING) and extends its expiry. */
 export async function collectTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -199,6 +230,10 @@ export async function collectTaskCaptureDraft(
   });
 }
 
+/**
+ * Stores which Telegram message shows the review card, so it can be replaced
+ * when the draft expires.
+ */
 export async function rememberTaskCaptureDraftTelegramReview(
   draftId: string,
   principalTelegramId: string,
@@ -220,6 +255,11 @@ export type ExpiredTaskCaptureDraftCard = {
   telegramReviewMessageId: number;
 };
 
+/**
+ * Expires this person's overdue drafts and returns the review cards that should
+ * be updated in Telegram. Each draft is claimed with a conditional update, so two
+ * passes never report the same draft twice.
+ */
 export async function expireTaskCaptureDrafts(
   principalTelegramId: string,
   now: Date = new Date(),
@@ -252,6 +292,10 @@ export async function expireTaskCaptureDrafts(
   return expired;
 }
 
+/**
+ * Adds more parsed tasks to an open draft ("Add more") and extends its expiry.
+ * The combined draft is still capped at TASK_CAPTURE_DRAFT_LIMIT.
+ */
 export async function appendTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -279,6 +323,7 @@ export async function appendTaskCaptureDraft(
   });
 }
 
+/** Returns the draft to the review card state and extends its expiry. */
 export async function reviewTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -292,6 +337,10 @@ export async function reviewTaskCaptureDraft(
   });
 }
 
+/**
+ * Edits one draft row. Setting a module or a date clears the matching warning;
+ * resolveWarnings clears them all. The row is READY once no warnings remain.
+ */
 export async function updateTaskCaptureDraftItem(
   draftId: string,
   itemId: string,
@@ -336,6 +385,7 @@ export async function updateTaskCaptureDraftItem(
   });
 }
 
+/** Cancels the draft. A draft that was already saved cannot be cancelled. */
 export async function cancelTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -350,6 +400,12 @@ export async function cancelTaskCaptureDraft(
   });
 }
 
+/**
+ * Saves every included row in one transaction, so either all tasks are created
+ * or none are. Rows with open warnings block the save. The draft is claimed by
+ * moving it to COMMITTING with a conditional update, so a double tap cannot save
+ * it twice or save a draft that just expired.
+ */
 export async function commitTaskCaptureDraft(
   draftId: string,
   principalTelegramId: string,
@@ -381,6 +437,7 @@ export async function commitTaskCaptureDraft(
   });
 }
 
+/** Loads a draft and throws unless it is still open for editing. */
 async function requireEditableDraft(draftId: string, principalTelegramId: string, database: PrismaClient): Promise<TaskCaptureDraftRecord> {
   const draft = await getTaskCaptureDraft(draftId, principalTelegramId, database);
   if (draft.status === TaskCaptureDraftStatus.EXPIRED) throw new TaskCaptureDraftError("That task draft expired. Start a new list.", "expired");
@@ -390,6 +447,10 @@ async function requireEditableDraft(draftId: string, principalTelegramId: string
   return draft;
 }
 
+/**
+ * Splits and parses the text into draft rows. Study rows without a module get a
+ * STUDY_MODULE_REQUIRED warning, because Study work must belong to a module.
+ */
 function parseDraftItems(sourceText: string, timezone: string, now: Date, moduleId?: string, studyItemType?: StudyItemType, scope?: PlanningScope) {
   return splitTaskDraftText(sourceText).map((part, index) => {
     const intent = parseTaskTimingIntent(part, timezone, now);
@@ -410,6 +471,10 @@ function parseDraftItems(sourceText: string, timezone: string, now: Date, module
   });
 }
 
+/**
+ * Rejects scopes that mix workspaces, so a draft can never save into the wrong
+ * mode's data.
+ */
 function validateScope(scope: TaskCaptureScope): void {
   const valid = scope.scope === PlanningScope.PERSONAL
     ? !scope.groupWorkspaceId && !scope.studyWorkspaceId
@@ -421,6 +486,7 @@ function validateScope(scope: TaskCaptureScope): void {
   if (!valid) throw new TaskCaptureDraftError("Choose one valid Threadwise workspace for this draft.", "invalid");
 }
 
+/** Trims and dedupes assignees by assigneeKey, capped at 20 people. */
 function normalizeAssignees(input: DraftAssignee[]): DraftAssignee[] {
   if (input.length > 20) throw new TaskCaptureDraftError("Assign at most 20 people.", "invalid");
   const result: DraftAssignee[] = [];
@@ -440,12 +506,19 @@ function normalizeAssignees(input: DraftAssignee[]): DraftAssignee[] {
   return result;
 }
 
+/** Reads the assignee JSON stored on a draft row, ignoring malformed entries. */
 function readAssignees(value: Prisma.JsonValue): DraftAssignee[] {
   return Array.isArray(value)
     ? normalizeAssignees(value.filter((item): item is DraftAssignee => Boolean(item) && typeof item === "object" && !Array.isArray(item)) as DraftAssignee[])
     : [];
 }
 
+/**
+ * Creates Personal or Group tasks from the draft rows. Public ids are counted up
+ * from one read inside the transaction. New tasks get no reminder, because a
+ * planned day is not permission to interrupt. A row linked to an existing task
+ * only updates its planned day (with an audit entry). New tasks get an undo record.
+ */
 async function commitTasks(tx: Prisma.TransactionClient, draft: TaskCaptureDraftRecord, items: TaskCaptureDraftRecord["items"]): Promise<void> {
   const settings = await tx.userSettings.findUnique({ where: { userId: draft.ownerUserId } });
   if (!settings) throw new TaskCaptureDraftError("Workspace settings are missing.", "conflict");
@@ -506,6 +579,11 @@ async function commitTasks(tx: Prisma.TransactionClient, draft: TaskCaptureDraft
   }
 }
 
+/**
+ * Creates Study items from the draft rows, inside the owner's active Study
+ * workspace and a module that still belongs to it. A row linked to an existing
+ * item only updates its planned day. Each change writes an audit entry.
+ */
 async function commitStudyItems(tx: Prisma.TransactionClient, draft: TaskCaptureDraftRecord, items: TaskCaptureDraftRecord["items"]): Promise<void> {
   if (!draft.studyWorkspaceId) throw new TaskCaptureDraftError("That Study workspace is missing.", "conflict");
   const workspace = await tx.studyWorkspace.findFirst({ where: { id: draft.studyWorkspaceId, ownerUserId: draft.ownerUserId, active: true } });

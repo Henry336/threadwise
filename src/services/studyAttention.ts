@@ -1,3 +1,9 @@
+/**
+ * Ranks open Study items by how urgently they need attention and builds the weekly preview.
+ * The score is a deterministic sum of points (deadline, priority, red/amber mastery, weeks
+ * behind, Canvas review), with no AI involved. Used by the Telegram Study capture/home flow,
+ * the dashboard Study payload and studyReminders.ts (weekly preview message).
+ */
 import {
   StudyItemStatus,
   StudyPriority,
@@ -57,6 +63,11 @@ export type StudyWeeklyPreview = StudyAttentionSnapshot & {
   plannedMinutes: number;
 };
 
+/**
+ * Returns the top `limit` items by score plus summary counts (overdue, due today/this week).
+ * Counts use only TRUSTED deadlines, so a suspicious Canvas date never inflates "overdue".
+ * Read-only: queries open items of active modules in this workspace only.
+ */
 export async function buildStudyAttentionSnapshot(
   workspace: StudyWorkspace,
   now = new Date(),
@@ -88,6 +99,11 @@ export async function buildStudyAttentionSnapshot(
   };
 }
 
+/**
+ * Attention snapshot plus the trusted items due in this Monday-to-Sunday week (next week
+ * when run on a Sunday) and their planned minutes. Used by studyReminders.ts and the
+ * Telegram "Weekly preview" button.
+ */
 export async function buildStudyWeeklyPreview(workspace: StudyWorkspace, now = new Date()): Promise<StudyWeeklyPreview> {
   const local = DateTime.fromJSDate(now).setZone(workspace.timezone);
   // A Sunday-evening preview describes the week that begins the next day.
@@ -114,6 +130,11 @@ export async function buildStudyWeeklyPreview(workspace: StudyWorkspace, now = n
   };
 }
 
+/**
+ * Scores one item and keeps up to four human-readable reasons for the score.
+ * Only a TRUSTED deadline counts toward urgency; a suspicious Canvas date gets a high
+ * fixed score so the owner confirms it instead of being told it is overdue.
+ */
 export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<StudyWorkspace, "timezone" | "semesterStartDate">, now = new Date()): StudyAttentionItem {
   const reasons: string[] = [];
   let score = 0;
@@ -214,6 +235,7 @@ export function scoreStudyAttentionItem(item: AttentionInput, workspace: Pick<St
   };
 }
 
+/** Picks one short next-step sentence; the first matching rule wins. */
 function recommendedAction(item: AttentionInput, hoursUntilDue: number | undefined, deadlineStatus: "TRUSTED" | "NEEDS_CONFIRMATION" | "UNDATED"): string {
   const duration = item.plannedMinutes ? `${item.plannedMinutes}-minute` : "focused";
   if (deadlineStatus === "NEEDS_CONFIRMATION") return "Confirm the Canvas course and deadline before acting on it.";
@@ -225,6 +247,7 @@ function recommendedAction(item: AttentionInput, hoursUntilDue: number | undefin
   return `Reserve a ${duration} block before the deadline.`;
 }
 
+/** Highest score first, then earliest due date, then public id, so the order is stable. */
 function compareAttention(a: StudyAttentionItem, b: StudyAttentionItem): number {
   if (a.score !== b.score) return b.score - a.score;
   const due = (a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER);
@@ -232,6 +255,7 @@ function compareAttention(a: StudyAttentionItem, b: StudyAttentionItem): number 
   return a.publicId.localeCompare(b.publicId, undefined, { numeric: true });
 }
 
+/** Open and in-progress items of active modules in one workspace, with what scoring needs. */
 function attentionRows(workspaceId: string): Promise<AttentionInput[]> {
   return prisma.studyItem.findMany({
     where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },

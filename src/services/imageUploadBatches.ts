@@ -1,3 +1,11 @@
+/**
+ * Groups a Telegram album (several photos sent together) into one PendingImageUploadBatch, so the
+ * user gets one review card with one shared caption instead of one card per image.
+ * Flow: COLLECTING (items arrive) -> SENDING (review card being posted) -> REVIEW -> PROCESSING
+ * (saving) -> COMPLETED, or EXPIRING -> EXPIRED after 24 hours. Each upload schedules a processing pass;
+ * a 5-minute loop started from src/main.ts only recovers after restarts or errors (this replaced
+ * 1-second polling after the Sept 2026 bandwidth incident). Used by src/bot/imageMessages.ts.
+ */
 import { randomBytes } from "node:crypto";
 import { ImageUploadBatchStatus } from "@prisma/client";
 import type { Api, Bot } from "grammy";
@@ -7,6 +15,7 @@ import { bold, code, h } from "../utils/html";
 import { nextPublicId } from "./publicIds";
 import { startLoop, type StopLoop } from "../utils/loop";
 
+/** Quiet period after the latest album item before the review card is sent, so all items arrive first. */
 export const IMAGE_UPLOAD_BATCH_SETTLE_MS = 1_800;
 export const IMAGE_UPLOAD_BATCH_TTL_MS = 24 * 60 * 60_000;
 // New albums wake the processor directly. This interval is only a restart/error
@@ -30,6 +39,7 @@ export type ImageUploadBatchInput = {
   fileSize?: number;
 };
 
+/** True when this album already has a live batch (still collecting or waiting for review). */
 export async function hasOpenImageUploadBatch(userId: string, chatId: string, telegramMediaGroupId: string) {
   const count = await prisma.pendingImageUploadBatch.count({
     where: {
@@ -59,6 +69,11 @@ export async function hasOpenGroupImageUploadBatch(chatId: string, telegramMedia
   return hasOpenImageUploadBatch(user.id, chatId, telegramMediaGroupId);
 }
 
+/**
+ * Adds one album item to its batch inside a transaction, creating the batch on the first item.
+ * Telegram redeliveries of the same message are detected and ignored. Each new item pushes readyAt
+ * forward by the settle time. A caption on any item becomes the shared caption for all of them.
+ */
 export async function registerImageUploadBatchItem(input: ImageUploadBatchInput) {
   const now = new Date();
   const readyAt = new Date(now.getTime() + IMAGE_UPLOAD_BATCH_SETTLE_MS);
@@ -137,6 +152,7 @@ export async function registerImageUploadBatchItem(input: ImageUploadBatchInput)
   });
 }
 
+/** Loads a batch that is waiting for review by its button token, scoped to the owner. Throws if handled or expired. */
 export async function findImageUploadBatch(userId: string, token: string) {
   const batch = await prisma.pendingImageUploadBatch.findFirst({
     where: { userId, token, status: ImageUploadBatchStatus.REVIEW, expiresAt: { gt: new Date() } },
@@ -146,6 +162,10 @@ export async function findImageUploadBatch(userId: string, token: string) {
   return batch;
 }
 
+/**
+ * Marks this batch as waiting for a caption reply. Any other batch the user had waiting is cleared
+ * first, so the next text message can only apply to one album.
+ */
 export async function beginImageUploadBatchCaption(userId: string, token: string) {
   const batch = await findImageUploadBatch(userId, token);
   await prisma.$transaction([
@@ -163,6 +183,10 @@ export async function cancelImageUploadBatchCaption(userId: string, token: strin
   return updated.count > 0;
 }
 
+/**
+ * Uses the user's text message as the shared caption if one of their batches is waiting for it.
+ * Returns undefined when no batch is waiting, so the message continues through normal routing.
+ */
 export async function applyPendingImageUploadBatchCaption(userId: string, caption: string) {
   const sharedCaption = caption.trim().slice(0, 4_000);
   if (!sharedCaption) return undefined;
@@ -186,6 +210,7 @@ export async function applyPendingImageUploadBatchCaption(userId: string, captio
   return findImageUploadBatch(userId, batch.token);
 }
 
+/** Drops the pending uploads and marks the batch done without saving any images. */
 export async function discardImageUploadBatch(userId: string, token: string) {
   const batch = await findImageUploadBatch(userId, token);
   await prisma.$transaction([
@@ -202,6 +227,13 @@ export async function discardImageUploadBatch(userId: string, token: string) {
   ]);
 }
 
+/**
+ * Saves the whole album as StoredImage rows exactly once.
+ * A conditional update claims the batch with a 30-second lease, so a double tap cannot save twice,
+ * and a crashed save can be retried after the lease ends. All rows are written in one transaction.
+ * Images already in the library (same Telegram unique id) are reported as duplicates, not re-created.
+ * On failure the batch goes back to REVIEW so the user can try again.
+ */
 export async function saveImageUploadBatch(userId: string, token: string) {
   const now = new Date();
   const batch = await prisma.pendingImageUploadBatch.findFirst({
@@ -318,12 +350,20 @@ export function startImageUploadBatchLoop(bot: Bot, pollMs = IMAGE_UPLOAD_BATCH_
   return startLoop("Image upload batch", pollMs, () => processImageUploadBatches(bot), { runImmediately: true });
 }
 
+/**
+ * Called after each album upload: runs one processing pass just after the settle window ends.
+ * unref() keeps the timer from holding the process open on shutdown.
+ */
 export function scheduleImageUploadBatchProcessing(api: Api, delayMs = IMAGE_UPLOAD_BATCH_SETTLE_MS + 100): NodeJS.Timeout {
   const timer = setTimeout(() => void processImageUploadBatches({ api }), Math.max(0, delayMs));
   timer.unref?.();
   return timer;
 }
 
+/**
+ * Single-flight wrapper: if a pass is already running in this process, callers share it
+ * instead of starting another. This keeps many album uploads from causing many parallel DB scans.
+ */
 export function processImageUploadBatches(bot: TelegramApiClient, now = new Date()): Promise<void> {
   if (activeImageUploadBatchPass) return activeImageUploadBatchPass;
   const pass = processImageUploadBatchesOnce(bot, now).finally(() => {
@@ -333,6 +373,12 @@ export function processImageUploadBatches(bot: TelegramApiClient, now = new Date
   return pass;
 }
 
+/**
+ * One pass: recover stale leases, expire old batches, then post review cards for settled albums.
+ * Each batch is claimed (COLLECTING to SENDING) before the Telegram send so two workers cannot both post.
+ * A failed send returns the batch to COLLECTING for a retry in 5 seconds. Finished rows older than 24 hours are deleted.
+ * Errors are logged, never thrown, so the loop keeps running.
+ */
 async function processImageUploadBatchesOnce(bot: TelegramApiClient, now: Date): Promise<void> {
   try {
     await recoverExpiredLeases(now);
@@ -387,6 +433,7 @@ async function processImageUploadBatchesOnce(bot: TelegramApiClient, now: Date):
   }
 }
 
+/** Puts batches whose lease ran out (for example after a crash or restart) back into their previous retryable state. */
 async function recoverExpiredLeases(now: Date) {
   await prisma.pendingImageUploadBatch.updateMany({
     where: { status: ImageUploadBatchStatus.SENDING, leaseExpiresAt: { lte: now }, expiresAt: { gt: now } },
@@ -402,6 +449,7 @@ async function recoverExpiredLeases(now: Date) {
   });
 }
 
+/** Expires batches past their 24-hour TTL: claims each, removes its review card from the chat, then clears its uploads. */
 async function expireBatches(bot: TelegramApiClient, now: Date) {
   const expired = await prisma.pendingImageUploadBatch.findMany({
     where: {
