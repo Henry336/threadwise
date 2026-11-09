@@ -20,9 +20,28 @@ import {
   reminderActionsKeyboard,
   searchPageKeyboard,
   taskActionsKeyboard,
+  taskDoneCallbackData,
   taskListKeyboard,
 } from "./keyboards";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic } from "./help";
+
+describe("Done button callback data", () => {
+  const uuid = "8f14e45f-ceea-4e7a-9a0b-1f3c5d7e9a2b";
+  const dueAt = new Date("2026-11-10T11:00:00.000Z");
+  const task = { id: uuid, pinnedAt: null, dueAt, calendarEventId: null, calendarEventUrl: null };
+
+  it("carries the shown due time in milliseconds and stays within Telegram's 64-byte limit", () => {
+    const data = taskDoneCallbackData(task);
+
+    expect(data).toBe(`task:done:${uuid}:${dueAt.getTime()}`);
+    expect(Buffer.byteLength(data)).toBeLessThanOrEqual(64);
+  });
+
+  it("uses the short form for undated tasks and id-only callers", () => {
+    expect(taskDoneCallbackData({ ...task, dueAt: null })).toBe(`task:done:${uuid}`);
+    expect(taskDoneCallbackData(uuid)).toBe(`task:done:${uuid}`);
+  });
+});
 
 describe("interactive keyboard navigation", () => {
   it("keeps ordinary task cards within a two-row, three-action budget", () => {
