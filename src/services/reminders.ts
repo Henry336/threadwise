@@ -106,7 +106,7 @@ export async function runReminderPass(bot: Bot, source: ReminderRunSource = "man
  * One pass, in this order: exact custom reminder times first, then undated group
  * tasks as one follow-up per group, then digests for DIGEST-mode owners with two
  * or more due tasks, then single reminders for everything else. A task covered by
- * an earlier step is skipped later in the same pass. Takes at most 50 due tasks.
+ * an earlier step (including a custom reminder that just fired) is skipped later in the same pass. Takes at most 50 due tasks.
  */
 async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise<ReminderDiagnostics> {
   const now = new Date();
@@ -151,7 +151,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     const groupedUndatedTaskIds = new Set<string>();
     const groupedUndatedTasks = new Map<string, ReminderTask[]>();
     for (const task of tasks) {
-      if (!task.dueAt && task.user.telegramId.startsWith("chat:") && task.user.settings) {
+      if (!customReminderTaskIds.has(task.id) && !task.dueAt && task.user.telegramId.startsWith("chat:") && task.user.settings) {
         groupedUndatedTaskIds.add(task.id);
         const group = groupedUndatedTasks.get(task.userId) ?? [];
         group.push(task);
