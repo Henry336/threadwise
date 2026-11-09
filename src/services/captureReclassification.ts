@@ -5,6 +5,7 @@ import type { CaptureCorrectionKind } from "../bot/captureCorrections";
 import { createIdea } from "./ideas";
 import { createNote } from "./notes";
 import { createScheduledReminder, createTask } from "./tasks";
+import { updateItemByKind } from "./undo";
 
 const RECENT_CAPTURE_WINDOW_MS = 10 * 60_000;
 
@@ -163,30 +164,21 @@ async function loadActiveTarget(userId: string, kind: ReclassifiableKind, id: st
 }
 
 async function archiveTarget(tx: Prisma.TransactionClient, userId: string, target: ReclassifiableTarget): Promise<boolean> {
-  const archivedAt = new Date();
-  if (target.kind === "task") {
-    const result = await tx.task.updateMany({
-      where: { id: target.id, userId, archivedAt: null },
-      data: { archivedAt, archivedReason: "reclassified", status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
-    });
-    return result.count === 1;
-  }
-  const result = target.kind === "note"
-    ? await tx.note.updateMany({ where: { id: target.id, userId, archivedAt: null }, data: { archivedAt, archivedReason: "reclassified" } })
-    : await tx.idea.updateMany({ where: { id: target.id, userId, archivedAt: null }, data: { archivedAt, archivedReason: "reclassified" } });
+  const result = await updateItemByKind(tx, target.kind, {
+    where: { id: target.id, userId, archivedAt: null },
+    data: { archivedAt: new Date(), archivedReason: "reclassified" },
+    taskData: { status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
+  });
   return result.count === 1;
 }
 
 async function archiveReplacementBestEffort(userId: string, kind: ReclassifiableKind, id: string): Promise<void> {
-  const data = { archivedAt: new Date(), archivedReason: "failed_reclassification" };
   try {
-    if (kind === "task") {
-      await prisma.task.updateMany({ where: { id, userId, archivedAt: null }, data: { ...data, status: TaskStatus.CANCELED, nextReminderAt: null } });
-    } else if (kind === "note") {
-      await prisma.note.updateMany({ where: { id, userId, archivedAt: null }, data });
-    } else {
-      await prisma.idea.updateMany({ where: { id, userId, archivedAt: null }, data });
-    }
+    await updateItemByKind(prisma, kind, {
+      where: { id, userId, archivedAt: null },
+      data: { archivedAt: new Date(), archivedReason: "failed_reclassification" },
+      taskData: { status: TaskStatus.CANCELED, nextReminderAt: null },
+    });
   } catch {
     // The original remains active because its transaction failed. A cleanup
     // failure is intentionally swallowed so the user's correction gets the
