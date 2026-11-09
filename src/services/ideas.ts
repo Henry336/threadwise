@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
@@ -30,14 +31,16 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+// Starred items first (newest star first), then the rest newest first. Sorting in the
+// query keeps an old starred item from falling off a list cut short by `take`.
+const PINNED_FIRST = [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }] satisfies Prisma.IdeaOrderByWithRelationInput[];
+
 export async function listRecentIdeas(userId: string, take?: number) {
-  const ideas = await prisma.idea.findMany({
+  return prisma.idea.findMany({
     where: { userId, archivedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take
   });
-
-  return sortPinnedFirst(ideas);
 }
 
 export async function findIdea(userId: string, publicOrUuid: string) {
@@ -54,8 +57,12 @@ export async function findIdeaReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
-    const ideas = await listRecentIdeas(userId);
-    const idea = ideas[activeIndex - 1];
+    // Fetch only the row at that position of the /ideas list, not the whole list.
+    const idea = await prisma.idea.findFirst({
+      where: { userId, archivedAt: null },
+      orderBy: PINNED_FIRST,
+      skip: activeIndex - 1
+    });
     if (!idea) {
       throw new Error(`No recent idea numbered ${activeIndex}. Run /ideas to see the current list.`);
     }
@@ -267,17 +274,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   }
 
   return value as Record<string, unknown>;
-}
-
-function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    if (a.pinnedAt && b.pinnedAt) {
-      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
-    }
-
-    if (a.pinnedAt && !b.pinnedAt) return -1;
-    if (!a.pinnedAt && b.pinnedAt) return 1;
-
-    return b.createdAt.getTime() - a.createdAt.getTime();
-  });
 }

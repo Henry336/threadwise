@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../ai/deterministic";
 import { bold, code, h, italic } from "../utils/html";
@@ -31,14 +32,16 @@ export async function createNote(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+// Starred items first (newest star first), then the rest newest first. Sorting in the
+// query keeps an old starred item from falling off a list cut short by `take`.
+const PINNED_FIRST = [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }] satisfies Prisma.NoteOrderByWithRelationInput[];
+
 export async function listRecentNotes(userId: string, take?: number) {
-  const notes = await prisma.note.findMany({
+  return prisma.note.findMany({
     where: { userId, archivedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take
   });
-
-  return sortPinnedFirst(notes);
 }
 
 export async function searchNotes(userId: string, query: string) {
@@ -56,13 +59,13 @@ export async function searchNotes(userId: string, query: string) {
         ...(encrypted ? [encrypted] : [])
       ]
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take: 15
   });
 
-  return sortPinnedFirst(notes.filter((note) =>
+  return notes.filter((note) =>
     note.publicId.toUpperCase() === query.toUpperCase() || contentMatchesQuery("Note", note, query)
-  ));
+  );
 }
 
 export async function findNote(userId: string, publicOrUuid: string) {
@@ -88,8 +91,12 @@ export async function findNoteReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
-    const notes = await listRecentNotes(userId);
-    const note = notes[activeIndex - 1];
+    // Fetch only the row at that position of the /notes list, not the whole list.
+    const note = await prisma.note.findFirst({
+      where: { userId, archivedAt: null },
+      orderBy: PINNED_FIRST,
+      skip: activeIndex - 1
+    });
     if (!note) {
       throw new Error(`No recent note numbered ${activeIndex}. Run /notes to see the current list.`);
     }
@@ -264,19 +271,6 @@ function formatList(title: string, items: string[]): string | undefined {
   }
 
   return [bold(title), ...items.map((item) => `- ${h(item)}`)].join("\n");
-}
-
-function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    if (a.pinnedAt && b.pinnedAt) {
-      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
-    }
-
-    if (a.pinnedAt && !b.pinnedAt) return -1;
-    if (!a.pinnedAt && b.pinnedAt) return 1;
-
-    return b.createdAt.getTime() - a.createdAt.getTime();
-  });
 }
 
 function summarizeManualText(value: string): string {
