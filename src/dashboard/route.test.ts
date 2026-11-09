@@ -147,6 +147,26 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  // Every route, Study included, must go through the token check; a new route that skips it fails here.
+  it("rejects every dashboard route without a token", async () => {
+    const server = Fastify({ exposeHeadRoutes: false });
+    const routes: { method: string; url: string }[] = [];
+    server.addHook("onRoute", (route) => {
+      for (const method of [route.method].flat()) routes.push({ method: String(method), url: route.url.replace(/:[^/]+/g, "x") });
+    });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
+    await server.ready();
+
+    const open: string[] = [];
+    for (const route of routes) {
+      const response = await server.inject({ method: route.method as "GET", url: route.url, payload: route.method === "GET" || route.method === "DELETE" ? undefined : {} });
+      if (response.statusCode !== 401) open.push(`${route.method} ${route.url} -> ${response.statusCode}`);
+    }
+    expect(open).toEqual([]);
+    expect(routes.length).toBeGreaterThan(100);
+    await server.close();
+  });
+
   it("returns only the authenticated user's snapshot with non-cacheable headers", async () => {
     const server = Fastify();
     registerDashboardRoute(server, { publicKey: publicKeyPem });
