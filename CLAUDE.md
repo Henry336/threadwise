@@ -6,11 +6,11 @@ then follow the pointers below.
 
 ## Current state
 
-- Backend v0.35.7 is live: merge `81a6f5becc75` through Render deployment
-  `dep-dakb8rk9v7es73dfm58g` (Study Calendar weekday fix).
-- Dashboard v0.10.2 is live at `5ecfe5f` on Vercel.
-- The current plan of work is [`docs/REVIEW_2026-11-01.md`](docs/REVIEW_2026-11-01.md), section 10.
-- The Daily Tech Brief (a side project) was prepared on 2026-10-14 but is not scheduled.
+- Backend v0.36.0 is live: merge `1558e1448806` (PR #46, every 2026-11-01 review fix; see CHANGELOG).
+- Dashboard is live at merge `ecee370` (PR #15, includes #14) on Vercel; `package.json` still says 0.10.2.
+- The plan of work is [`docs/REVIEW_2026-11-01.md`](docs/REVIEW_2026-11-01.md), section 10. Phases 1-2
+  are done; Phase 3 waits on the product decision in section 9.
+- The Daily Tech Brief (a side project) runs as a Claude scheduled task on the owner's laptop.
 - Full history: [`CHANGELOG.md`](CHANGELOG.md) for releases,
   [`docs/archive/WORKING_LOG_2026.md`](docs/archive/WORKING_LOG_2026.md) for the working log and
   past implementation checkpoints, and `PROJECT_CONTEXT.md` for detailed release evidence.

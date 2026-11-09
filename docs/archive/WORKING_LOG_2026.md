@@ -10,6 +10,13 @@ Paths in old entries are as they were written; finished reports have since moved
 
 ## Working log
 
+- **2026-11-09 (Claude, review fixes released):** Every change agreed in the 2026-11-01 review
+  shipped as backend v0.36.0 (PR #46, merge `1558e14`, covering #32-#45) and dashboard PR #15
+  (merge `ecee370`, covering #14). Four rounds of independent agent review; fixes from them cover
+  undo after a post-commit error, member undo over newer changes, reminders that stopped for good
+  after a refusal, download timeouts, the Today panel for non-owners and Escape in stacked dialogs.
+  1166 backend and 189 dashboard tests pass. Not yet smoke-tested in real Telegram.
+
 - **2026-10-14 (Codex, private delivery confirmed; schedule still blocked):** Verified Henry's
   supplied private recipient, sent one labeled setup test (Telegram message 24012), and saved
   `THREADWISE_TELEGRAM_CHAT_ID` in Windows User environment. No key was disclosed/copied.
