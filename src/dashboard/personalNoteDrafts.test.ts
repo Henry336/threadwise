@@ -31,7 +31,7 @@ const baseDraft = {
   title: "Draft",
   body: "Body",
   revision: 1,
-  expiresAt: new Date("2026-09-07T00:00:00.000Z"),
+  expiresAt: new Date("2099-09-07T00:00:00.000Z"),
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -71,6 +71,22 @@ describe("cross-device Personal note drafts", () => {
       where: expect.objectContaining({ userId: user.id, revision: 1 }),
       data: expect.objectContaining({ revision: { increment: 1 } }),
     }));
+  });
+
+  it("autosaves without a purge query, but treats an expired draft as gone", async () => {
+    mocks.personalNoteDraft.findUnique.mockResolvedValueOnce(baseDraft);
+    mocks.personalNoteDraft.updateMany.mockResolvedValue({ count: 1 });
+    mocks.personalNoteDraft.findUniqueOrThrow.mockResolvedValue({ ...baseDraft, revision: 2 });
+    await saveDashboardPersonalNoteDraft(user.telegramId, { title: "Draft", body: "Body", expectedRevision: 1 }, database);
+    expect(mocks.personalNoteDraft.deleteMany).not.toHaveBeenCalled();
+
+    const expired = { ...baseDraft, revision: 5, expiresAt: new Date("2020-01-01T00:00:00.000Z") };
+    mocks.personalNoteDraft.findUnique.mockResolvedValueOnce(expired);
+    mocks.personalNoteDraft.create.mockResolvedValue({ ...baseDraft, revision: 0 });
+    await expect(saveDashboardPersonalNoteDraft(user.telegramId, {
+      title: "Fresh", body: "Fresh", expectedRevision: 0,
+    }, database)).resolves.toMatchObject({ revision: 0 });
+    expect(mocks.personalNoteDraft.deleteMany).toHaveBeenCalledWith({ where: { userId: user.id, expiresAt: { lte: expect.any(Date) } } });
   });
 
   it("rejects stale saved notes and cross-owner draft deletion", async () => {

@@ -1,11 +1,11 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { DashboardConflictError, DashboardItemNotFoundError } from "./data";
+import { saveRevisionedDraft } from "./noteDrafts";
 import type { PersonalNoteDraftQueryInput, PersonalNoteDraftSaveInput } from "./schemas";
 import { DashboardUserNotFoundError } from "./snapshot";
 
 const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/u;
-const PERSONAL_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export async function getDashboardPersonalNoteDraft(
   telegramId: string,
@@ -41,36 +41,28 @@ export async function saveDashboardPersonalNoteDraft(
       throw new DashboardConflictError("The saved note changed before this draft started. Reload it before continuing.");
     }
   }
-  await purgeExpiredPersonalNoteDrafts(userId, database);
-  const expiresAt = new Date(Date.now() + PERSONAL_NOTE_DRAFT_TTL_MS);
-  const existing = await database.personalNoteDraft.findUnique({
-    where: { userId_draftKey: { userId, draftKey } },
+  return saveRevisionedDraft({
+    expectedRevision: input.expectedRevision,
+    find: () => database.personalNoteDraft.findUnique({ where: { userId_draftKey: { userId, draftKey } } }),
+    purgeExpired: () => purgeExpiredPersonalNoteDrafts(userId, database),
+    create: (expiresAt) => database.personalNoteDraft.create({
+      data: {
+        userId,
+        draftKey,
+        noteId,
+        noteUpdatedAt: noteId ? new Date(input.noteUpdatedAt!) : null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+      },
+    }),
+    bump: (existing, expiresAt) => database.personalNoteDraft.updateMany({
+      where: { id: existing.id, userId, revision: input.expectedRevision },
+      data: { title: input.title, body: input.body, expiresAt, revision: { increment: 1 } },
+    }),
+    reload: (id) => database.personalNoteDraft.findUniqueOrThrow({ where: { id } }),
+    conflict: draftConflict,
   });
-  if (!existing) {
-    if (input.expectedRevision !== 0) throw draftConflict();
-    try {
-      return await database.personalNoteDraft.create({
-        data: {
-          userId,
-          draftKey,
-          noteId,
-          noteUpdatedAt: noteId ? new Date(input.noteUpdatedAt!) : null,
-          title: input.title,
-          body: input.body,
-          expiresAt,
-        },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw draftConflict();
-      throw error;
-    }
-  }
-  const updated = await database.personalNoteDraft.updateMany({
-    where: { id: existing.id, userId, revision: input.expectedRevision },
-    data: { title: input.title, body: input.body, expiresAt, revision: { increment: 1 } },
-  });
-  if (updated.count !== 1) throw draftConflict();
-  return database.personalNoteDraft.findUniqueOrThrow({ where: { id: existing.id } });
 }
 
 export async function deleteDashboardPersonalNoteDraft(

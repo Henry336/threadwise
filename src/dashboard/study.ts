@@ -68,6 +68,7 @@ import {
 } from "../services/studyTransit";
 import type { DashboardWorkspaceScope } from "./workspaces";
 import { dateOnly } from "./schemas";
+import { saveRevisionedDraft } from "./noteDrafts";
 
 const MAX_STUDY_FILE_BYTES = 20_000_000;
 const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
@@ -753,8 +754,6 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
   return result.resource;
 }
 
-const STUDY_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
-
 export type DashboardStudyNoteDraft = Pick<
   StudyNoteDraft,
   | "id"
@@ -811,52 +810,42 @@ export async function saveDashboardStudyNoteDraft(
       throw new StudyModeError("The saved note changed before this draft started. Reload it before continuing.", "conflict");
     }
   }
-  await purgeExpiredStudyNoteDrafts(workspace);
-  const expiresAt = new Date(Date.now() + STUDY_NOTE_DRAFT_TTL_MS);
-  const existing = await prisma.studyNoteDraft.findUnique({
-    where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } },
+  const saved = await saveRevisionedDraft({
+    expectedRevision: input.expectedRevision,
+    find: () => prisma.studyNoteDraft.findUnique({ where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } } }),
+    purgeExpired: () => purgeExpiredStudyNoteDrafts(workspace),
+    create: (expiresAt) => prisma.studyNoteDraft.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        draftKey,
+        resourceId,
+        resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+      },
+    }),
+    bump: (existing, expiresAt) => prisma.studyNoteDraft.updateMany({
+      where: {
+        id: existing.id,
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        revision: input.expectedRevision,
+      },
+      data: {
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+        revision: { increment: 1 },
+      },
+    }),
+    reload: (id) => prisma.studyNoteDraft.findUniqueOrThrow({ where: { id } }),
+    conflict: () => new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict"),
   });
-  if (!existing) {
-    if (input.expectedRevision !== 0) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-    try {
-      const created = await prisma.studyNoteDraft.create({
-        data: {
-          workspaceId: workspace.id,
-          ownerUserId: workspace.ownerUserId,
-          draftKey,
-          resourceId,
-          resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
-          moduleId: input.moduleId ?? null,
-          title: input.title,
-          body: input.body,
-          expiresAt,
-        },
-      });
-      return dashboardStudyNoteDraft(created)!;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-      }
-      throw error;
-    }
-  }
-  const updated = await prisma.studyNoteDraft.updateMany({
-    where: {
-      id: existing.id,
-      workspaceId: workspace.id,
-      ownerUserId: workspace.ownerUserId,
-      revision: input.expectedRevision,
-    },
-    data: {
-      moduleId: input.moduleId ?? null,
-      title: input.title,
-      body: input.body,
-      expiresAt,
-      revision: { increment: 1 },
-    },
-  });
-  if (updated.count !== 1) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-  return dashboardStudyNoteDraft(await prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } }))!;
+  return dashboardStudyNoteDraft(saved)!;
 }
 
 export async function deleteDashboardStudyNoteDraft(workspace: StudyWorkspace, draftId: string) {
