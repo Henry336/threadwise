@@ -1,3 +1,9 @@
+/**
+ * Fixed-window request limits for the HTTP server, the Telegram webhooks and the dashboard API.
+ * src/server.ts applies the ingress and webhook limits and src/dashboard/route.ts applies the
+ * dashboard limit per signed-in user. Added for finding F-03 (no route rate limits) in
+ * docs/SECURITY_PHASE6_ASSURANCE.md.
+ */
 import type { DashboardPrincipal } from "../dashboard/auth";
 
 const RATE_WINDOW_SECONDS = 60;
@@ -75,6 +81,11 @@ export async function limitDashboardRequest(
   }, now);
 }
 
+/**
+ * Picks the dashboard budget per minute from the operation name and method: the live stream and
+ * expensive work (analysis, sync, import, export, image content, search) get 20, writes get 90,
+ * and reads get 240.
+ */
 export function dashboardRateLimitPolicy(method: string, operation: string): {
   routeClass: string;
   limit: number;
@@ -103,6 +114,11 @@ export async function limitTelegramWebhookRequest(
   }, now);
 }
 
+/**
+ * Finds the sending user's Telegram id in a raw update, across the update kinds the bots
+ * receive. Returns undefined when no sender is present, so the caller falls back to a stricter
+ * shared bucket.
+ */
 export function telegramActorId(update: unknown): string | undefined {
   if (!isRecord(update)) return undefined;
   const candidates = [
@@ -120,6 +136,7 @@ export function telegramActorId(update: unknown): string | undefined {
   return typeof actor === "number" ? String(actor) : undefined;
 }
 
+/** Picks the per-minute budget for non-webhook server routes by path prefix (admin, laptop workers, OAuth callbacks, other). */
 export function serverIngressRateLimitPolicy(pathname: string): { routeClass: string; limit: number } {
   if (pathname.startsWith("/admin/")) return { routeClass: "server:admin", limit: 60 };
   if (pathname.startsWith("/codex/") || pathname.startsWith("/gemini/") || pathname.startsWith("/files/")) {

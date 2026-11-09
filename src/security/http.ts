@@ -7,6 +7,7 @@ function authToken(value?: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+/** Node gives a repeated header as an array; only the first value is used. */
 export function headerToken(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }

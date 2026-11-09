@@ -1,3 +1,9 @@
+/**
+ * Stops a captured dashboard service token from being replayed to repeat a write.
+ * Called by src/dashboard/route.ts for every POST, PUT, PATCH or DELETE after the token is
+ * verified. Each token id (jti) may be used for one mutation; reads are not limited. This closed
+ * the JWT replay finding F-02 in docs/SECURITY_PHASE6_ASSURANCE.md.
+ */
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
@@ -15,6 +21,12 @@ export class DashboardRequestReplayError extends Error {
   }
 }
 
+/**
+ * Records the token as used by inserting a row keyed by a hash of telegramId and token id.
+ * A unique-key conflict (P2002) means the token was already spent, so it throws
+ * DashboardRequestReplayError. Only hashes are stored, never the token or the raw Telegram id.
+ * The row expires with the token; about 1 in 32 calls also deletes expired rows.
+ */
 export async function consumeDashboardMutationToken(
   principal: DashboardPrincipal,
   method: string,
