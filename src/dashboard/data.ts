@@ -10,7 +10,7 @@ import {
 import { DateTime } from "luxon";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { prisma } from "../db/prisma";
-import { nextRecurringDueAt, recurrenceDayOfMonth } from "../utils/dates";
+import { recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
 import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
@@ -18,7 +18,8 @@ import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
 import { initialTaskReminderAt } from "../services/reminders";
-import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "../services/taskReminderSchedules";
+import { cancelTask, completeTask, restoreCompletedTask } from "../services/tasks";
+import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules } from "../services/taskReminderSchedules";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
 import {
   recordArchiveUndo,
@@ -27,8 +28,7 @@ import {
   recordImageCaptionUndo,
   recordPinUndo,
   recordRenameUndo,
-  recordRescheduleUndo,
-  recordTaskStateUndo
+  recordRescheduleUndo
 } from "../services/undo";
 import { DashboardUserNotFoundError } from "./snapshot";
 import { storedIdeaBrief } from "./ideaBrief";
@@ -498,10 +498,18 @@ export async function getDashboardTask(telegramId: string, id: string, database:
   return taskView(await scopedTask(database, user.id, id));
 }
 
+/**
+ * Applies a dashboard PATCH to one task. Field edits (title, dates, reminders, pin, snooze)
+ * are written here; status changes are handed to the shared task services so that ticking a
+ * task in the dashboard follows exactly the same rules as tapping Done in Telegram.
+ */
 export async function updateDashboardTask(telegramId: string, id: string, input: TaskUpdateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
   assertExpectedRevision(input.expectedUpdatedAt, task.updatedAt);
+  if (input.status !== undefined && input.status !== task.status) {
+    return changeDashboardTaskStatus(database, user.id, task, input);
+  }
   const data: Prisma.TaskUncheckedUpdateInput = {};
   const nextTitle = input.title ?? task.title;
   const nextDescription = "description" in input ? input.description ?? null : task.description;
@@ -512,7 +520,6 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const interval = "reminderIntervalMinutes" in input
     ? input.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes
     : task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes;
-  const statusChanged = input.status !== undefined && input.status !== task.status;
   const titleChanged = input.title !== undefined && input.title !== task.title;
   const descriptionChanged = "description" in input && nextDescription !== task.description;
   const dueChanged = "dueAt" in input && nextDueAt?.getTime() !== task.dueAt?.getTime();
@@ -560,48 +567,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
       : null;
   }
 
-  if (statusChanged && input.status === TaskStatus.DONE) {
-    const completedAt = new Date();
-    if (task.recurrenceRule && nextDueAt) {
-      const monthlyDay = dueChanged
-        ? recurrenceDayOfMonth(nextDueAt, task.recurrenceRule, nextTimezone)
-        : task.recurrenceDayOfMonth;
-      const rolledDueAt = nextRecurringDueAt(
-        nextDueAt,
-        task.recurrenceRule,
-        nextTimezone,
-        completedAt,
-        monthlyDay
-      );
-      data.status = TaskStatus.OPEN;
-      data.completedAt = completedAt;
-      data.dueAt = rolledDueAt;
-      data.timezone = nextTimezone;
-      data.nextReminderAt = rolledDueAt;
-      data.snoozedUntil = null;
-      data.recurrenceDayOfMonth = monthlyDay ?? null;
-      data.calendarUrl = createGoogleCalendarUrl({
-        title: nextTitle,
-        details: nextDescription ?? task.sourceText,
-        dueAt: rolledDueAt,
-        timezone: nextTimezone
-      });
-    } else {
-      data.status = TaskStatus.DONE;
-      data.completedAt = completedAt;
-      data.nextReminderAt = null;
-      data.snoozedUntil = null;
-    }
-  } else if (statusChanged && input.status === TaskStatus.CANCELED) {
-    data.status = TaskStatus.CANCELED;
-    data.nextReminderAt = null;
-    data.snoozedUntil = null;
-  } else if (statusChanged && input.status === TaskStatus.OPEN) {
-    data.status = TaskStatus.OPEN;
-    data.completedAt = null;
-    data.snoozedUntil = null;
-    data.nextReminderAt = nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
-  } else if (task.status === TaskStatus.OPEN && (dueChanged || "reminderIntervalMinutes" in input)) {
+  if (task.status === TaskStatus.OPEN && (dueChanged || "reminderIntervalMinutes" in input)) {
     data.nextReminderAt = nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
   }
 
@@ -611,8 +577,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   // Only the pre-existing reminder-relevant mutations restart the undated
   // cadence; planning alone leaves reminder state byte-for-byte unchanged.
   if (
-    statusChanged
-    || titleChanged
+    titleChanged
     || descriptionChanged
     || dueChanged
     || pinnedChanged
@@ -623,7 +588,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     data.undatedNudgeCount = 0;
   }
   if (titleChanged || descriptionChanged) Object.assign(data, completeSearchableContentUpdate("Task", task, data as Record<string, unknown>));
-  const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
+  const needsUndo = titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
   const revisionWhere: Prisma.TaskWhereUniqueInput = {
     id: task.id,
     ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
@@ -644,29 +609,12 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
             task.description
           );
         }
-        if ((dueChanged || snoozeChanged) && !statusChanged) await recordRescheduleUndo(tx, user.id, task);
+        if (dueChanged || snoozeChanged) await recordRescheduleUndo(tx, user.id, task);
         if (pinnedChanged) {
           await recordPinUndo(tx, user.id, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle, pinnedAt: task.pinnedAt });
         }
-        if (statusChanged) {
-          await recordTaskStateUndo(
-            tx,
-            user.id,
-            task,
-            input.status === TaskStatus.DONE
-              ? "complete-task"
-              : input.status === TaskStatus.CANCELED
-                ? "cancel-task"
-                : "restore-task"
-          );
-        }
         const next = await tx.task.update({ where: revisionWhere, data });
-        if (input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED) {
-          await cancelPendingTaskReminderSchedules(tx, task.id);
-        } else {
-          if (input.status === TaskStatus.OPEN) await restoreFutureTaskReminderSchedules(tx, task.id);
-          if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
-        }
+        if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
         return next;
         })
       : await database.$transaction(async (tx) => {
@@ -699,12 +647,37 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
       return taskView(await scopedTask(database, user.id, task.id));
     }
   }
-  const reminderSchedules = input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED
-    ? []
-    : reminderTimes
-      ? reminderTimes.map((scheduledAt) => ({ scheduledAt, status: "PENDING" }))
-      : task.reminderSchedules;
+  const reminderSchedules = reminderTimes
+    ? reminderTimes.map((scheduledAt) => ({ scheduledAt, status: "PENDING" }))
+    : task.reminderSchedules;
   return taskView({ ...updated, assignees: task.assignees ?? [], reminderSchedules });
+}
+
+/**
+ * Completes, cancels or reopens a task through the same services Telegram uses, so recurring
+ * rollover, reminder resets, schedule cleanup and undo entries cannot drift between the two.
+ * A status change must arrive on its own: the dashboard only ever sends it alone, and mixing it
+ * with field edits would split one request across two transactions.
+ */
+async function changeDashboardTaskStatus(
+  database: PrismaClient,
+  userId: string,
+  task: Awaited<ReturnType<typeof scopedTask>>,
+  input: TaskUpdateInput
+): Promise<DashboardTask> {
+  if (Object.keys(input).some((key) => key !== "status" && key !== "expectedUpdatedAt")) {
+    throw new DashboardValidationError("Change a task's status on its own, without other edits.");
+  }
+  if (input.status === TaskStatus.DONE) {
+    // Passing the due time the dashboard saw makes a stale or double tick a no-op.
+    await completeTask(userId, task.id, task.recurrenceRule && task.dueAt ? task.dueAt : undefined);
+  } else if (input.status === TaskStatus.CANCELED) {
+    await cancelTask(userId, task.id);
+  } else if (input.status === TaskStatus.OPEN) {
+    if (task.status !== TaskStatus.DONE) throw new DashboardValidationError("Only a completed task can be reopened.");
+    await restoreCompletedTask(userId, task.id);
+  }
+  return taskView(await scopedTask(database, userId, task.id));
 }
 
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
