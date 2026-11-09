@@ -366,7 +366,7 @@ export async function getDashboardSnapshot(
 
   const quietHoursStart = normalizeClock(user.settings?.quietHoursStart);
   const quietHoursEnd = normalizeClock(user.settings?.quietHoursEnd);
-  const calendarHealth = database === prisma && !telegramId.startsWith("chat:")
+  const calendarHealth = !telegramId.startsWith("chat:")
     ? await calendarConnectionStatus(user.id)
     : undefined;
 

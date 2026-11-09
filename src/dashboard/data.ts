@@ -14,7 +14,7 @@ import { recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
 import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled } from "../services/excel";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
 import { initialTaskReminderAt } from "../services/reminders";
@@ -77,11 +77,6 @@ function isPublicIdUniqueConflict(error: unknown): boolean {
   const target = candidate.meta?.target;
   if (Array.isArray(target)) return target.some((field) => field === "publicId");
   return typeof target === "string" && target.toLowerCase().includes("publicid");
-}
-
-async function syncUnsyncedExpensesForDashboard(userId: string, timezone: string): Promise<number> {
-  const { syncUnsyncedExpenses } = await import("../services/excel");
-  return syncUnsyncedExpenses(userId, timezone);
 }
 
 export class DashboardItemNotFoundError extends Error {
@@ -475,11 +470,9 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
   });
-  if (database === prisma) {
-    const outcome = await syncTaskCalendarBestEffort(user.id, task);
-    if (outcome === "synced" || outcome === "removed") {
-      return taskView(await scopedTask(database, user.id, task.id));
-    }
+  const outcome = await syncTaskCalendarBestEffort(user.id, task);
+  if (outcome === "synced" || outcome === "removed") {
+    return taskView(await scopedTask(database, user.id, task.id));
   }
   return taskView(task);
 }
@@ -640,7 +633,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
   }
-  if (database === prisma && (titleChanged || descriptionChanged || dueChanged)) {
+  if (titleChanged || descriptionChanged || dueChanged) {
     const candidate = { ...updated, assignees: task.assignees ?? [] };
     const outcome = await syncTaskCalendarBestEffort(user.id, candidate);
     if (outcome === "synced" || outcome === "removed") {
@@ -683,7 +676,7 @@ async function changeDashboardTaskStatus(
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
-  if (database === prisma && task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
+  if (task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
   await database.$transaction(async (tx) => {
     await recordArchiveUndo(tx, user.id, {
       kind: "task",
@@ -1005,11 +998,8 @@ export async function createDashboardExpense(
       rawText: input.description ?? input.merchant ?? "Dashboard expense"
     }
   }));
-  if (database === prisma) {
-    await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
-    return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
-  }
-  return expenseView(expense);
+  await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
+  return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
 }
 
 export async function listDashboardExpenses(
@@ -1329,7 +1319,6 @@ export async function createDashboardIntegrationConnectUrl(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar" | "excel"; url: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Connection links are available only from the live dashboard.");
   const returnTo = new URL("/dashboard?view=settings&tab=connections", DASHBOARD_URL).toString();
   const url = provider === "calendar"
     ? await createCalendarConnectUrl(user.id, user.telegramId, { enableAutoSync: true, returnTo, taskId: options.taskId })
@@ -1342,7 +1331,6 @@ export async function syncDashboardCalendarTasks(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar"; synced: number; failed: number }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   const result = await syncEligibleTasksToGoogleCalendar(user.id);
   return { provider: "calendar", ...result };
 }
@@ -1355,7 +1343,6 @@ export async function updateDashboardTaskCalendar(
 ): Promise<{ task: DashboardTask; action: "synced" | "removed" }> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, taskId);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   if (action === "remove") {
     await removeTaskFromGoogleCalendar(user.id, task);
     return { task: taskView(await scopedTask(database, user.id, task.id)), action: "removed" };
@@ -1371,18 +1358,16 @@ export async function createDashboardExcelWorkbook(
   database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; name: string; url?: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Workbook setup is available only from the live dashboard.");
   const workbook = await createExpenseWorkbook(user.id, user.settings.timezone);
   return { provider: "excel", name: workbook.name ?? "Threadwise Expenses.xlsx", ...(workbook.webUrl ? { url: workbook.webUrl } : {}) };
 }
 
 export async function syncDashboardExcelExpenses(
   telegramId: string,
-  database: PrismaClient = prisma,
-  syncExpenses: (userId: string, timezone: string) => Promise<number> = syncUnsyncedExpensesForDashboard
+  database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; synced: number }> {
   const user = await userContext(telegramId, database);
-  const synced = await syncExpenses(user.id, user.settings.timezone);
+  const synced = await syncUnsyncedExpenses(user.id, user.settings.timezone);
   return { provider: "excel", synced };
 }
 

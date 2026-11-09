@@ -105,7 +105,7 @@ import {
   todayAgendaPlanSchema,
   todayAgendaOrderSchema,
 } from "./schemas";
-import { DashboardUserNotFoundError, getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
+import { DashboardUserNotFoundError, getDashboardSnapshot } from "./snapshot";
 import { previewDashboardCapture } from "./capture";
 import { subscribeDashboardChanges } from "./realtime";
 import { assertDashboardTaskMutation, getDashboardGroupCollaboration, recordDashboardTaskMutation, updateDashboardTaskCollaboration } from "./collaboration";
@@ -174,121 +174,25 @@ import {
   reorderTodayAgendaForDashboard,
 } from "./today";
 
-export type DashboardRouteActions = {
-  createBrowserSession: typeof createDashboardBrowserSession;
-  requireActiveBrowserSession: typeof requireActiveDashboardBrowserSession;
-  revokeBrowserSession: typeof revokeDashboardBrowserSession;
-  listTasks: typeof listDashboardTasks;
-  getTask: typeof getDashboardTask;
-  createTask: typeof createDashboardTask;
-  updateTask: typeof updateDashboardTask;
-  archiveTask: typeof archiveDashboardTask;
-  listNotes: typeof listDashboardNotes;
-  getNote: typeof getDashboardNote;
-  createNote: typeof createDashboardNote;
-  updateNote: typeof updateDashboardNote;
-  archiveNote: typeof archiveDashboardNote;
-  getPersonalNoteDraft: typeof getDashboardPersonalNoteDraft;
-  savePersonalNoteDraft: typeof saveDashboardPersonalNoteDraft;
-  deletePersonalNoteDraft: typeof deleteDashboardPersonalNoteDraft;
-  listIdeas: typeof listDashboardIdeas;
-  getIdea: typeof getDashboardIdea;
-  createIdea: typeof createDashboardIdea;
-  updateIdea: typeof updateDashboardIdea;
-  archiveIdea: typeof archiveDashboardIdea;
-  analyzeIdea: typeof analyzeDashboardIdea;
-  convertIdeaToTask: typeof convertDashboardIdeaToTask;
-  listExpenses: typeof listDashboardExpenses;
-  createExpense: typeof createDashboardExpense;
-  updateExpense: typeof updateDashboardExpense;
-  deleteExpense: typeof deleteDashboardExpense;
-  listImages: typeof listDashboardImages;
-  getImage: typeof getDashboardImage;
-  updateImage: typeof updateDashboardImage;
-  deleteImage: typeof deleteDashboardImage;
-  loadImageContent: typeof loadDashboardImageContent;
-  getSettings: typeof getDashboardSettings;
-  updateSettings: typeof updateDashboardSettings;
-  search: typeof searchDashboard;
-  disconnectIntegration: typeof disconnectDashboardIntegration;
-  connectIntegration: typeof createDashboardIntegrationConnectUrl;
-  syncCalendarTasks: typeof syncDashboardCalendarTasks;
-  updateTaskCalendar: typeof updateDashboardTaskCalendar;
-  createExcelWorkbook: typeof createDashboardExcelWorkbook;
-  syncExcelExpenses: typeof syncDashboardExcelExpenses;
-  exportData: typeof exportDashboardData;
-  deleteAccount: typeof deleteDashboardAccount;
-};
-
 type DashboardRouteOptions = {
   publicKey?: string;
   telegramBotToken?: string;
   ai?: AiProvider;
-  loadSnapshot?: (telegramId: string) => Promise<DashboardSnapshot>;
-  actions?: Partial<DashboardRouteActions>;
-  requestReplayGuard?: typeof consumeDashboardMutationToken;
-  requestRateLimiter?: typeof limitDashboardRequest;
   todayFoundationOwnerTelegramId?: string;
-};
-
-const defaultActions: DashboardRouteActions = {
-  createBrowserSession: createDashboardBrowserSession,
-  requireActiveBrowserSession: requireActiveDashboardBrowserSession,
-  revokeBrowserSession: revokeDashboardBrowserSession,
-  listTasks: listDashboardTasks,
-  getTask: getDashboardTask,
-  createTask: createDashboardTask,
-  updateTask: updateDashboardTask,
-  archiveTask: archiveDashboardTask,
-  listNotes: listDashboardNotes,
-  getNote: getDashboardNote,
-  createNote: createDashboardNote,
-  updateNote: updateDashboardNote,
-  archiveNote: archiveDashboardNote,
-  getPersonalNoteDraft: getDashboardPersonalNoteDraft,
-  savePersonalNoteDraft: saveDashboardPersonalNoteDraft,
-  deletePersonalNoteDraft: deleteDashboardPersonalNoteDraft,
-  listIdeas: listDashboardIdeas,
-  getIdea: getDashboardIdea,
-  createIdea: createDashboardIdea,
-  updateIdea: updateDashboardIdea,
-  archiveIdea: archiveDashboardIdea,
-  analyzeIdea: analyzeDashboardIdea,
-  convertIdeaToTask: convertDashboardIdeaToTask,
-  listExpenses: listDashboardExpenses,
-  createExpense: createDashboardExpense,
-  updateExpense: updateDashboardExpense,
-  deleteExpense: deleteDashboardExpense,
-  listImages: listDashboardImages,
-  getImage: getDashboardImage,
-  updateImage: updateDashboardImage,
-  deleteImage: deleteDashboardImage,
-  loadImageContent: loadDashboardImageContent,
-  getSettings: getDashboardSettings,
-  updateSettings: updateDashboardSettings,
-  search: searchDashboard,
-  disconnectIntegration: disconnectDashboardIntegration,
-  connectIntegration: createDashboardIntegrationConnectUrl,
-  syncCalendarTasks: syncDashboardCalendarTasks,
-  updateTaskCalendar: updateDashboardTaskCalendar,
-  createExcelWorkbook: createDashboardExcelWorkbook,
-  syncExcelExpenses: syncDashboardExcelExpenses,
-  exportData: exportDashboardData,
-  deleteAccount: deleteDashboardAccount
 };
 
 type RouteWork = (telegramId: string, scope: DashboardWorkspaceScope) => Promise<unknown>;
 
+/**
+ * Registers every dashboard API route on the Fastify server. Routes call the data layer
+ * directly, so production and tests run the same code path; tests replace modules with vi.mock.
+ */
 export function registerDashboardRoute(server: FastifyInstance, options: DashboardRouteOptions = {}): void {
-  const loadSnapshot = options.loadSnapshot ?? getDashboardSnapshot;
-  const actions = { ...defaultActions, ...options.actions };
-  const requestReplayGuard = options.requestReplayGuard ?? consumeDashboardMutationToken;
-  const requestRateLimiter = options.requestRateLimiter ?? limitDashboardRequest;
 
   const authenticateSessionRequest = async (request: FastifyRequest, operation: string) => {
     const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-    await requestRateLimiter(principal, request.method, operation);
-    await requestReplayGuard(principal, request.method, operation);
+    await limitDashboardRequest(principal, request.method, operation);
+    await consumeDashboardMutationToken(principal, request.method, operation);
     return principal;
   };
 
@@ -296,8 +200,8 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      await requestRateLimiter(principal, request.method, operation);
-      await requestReplayGuard(principal, request.method, operation);
+      await limitDashboardRequest(principal, request.method, operation);
+      await consumeDashboardMutationToken(principal, request.method, operation);
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
         dashboardWorkspaceHeader(request),
@@ -311,7 +215,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   const loadScopedSnapshot: RouteWork = async (telegramId, scope) => {
     const [snapshot, collaboration, scheduling] = await Promise.all([
-      loadSnapshot(telegramId),
+      getDashboardSnapshot(telegramId),
       getDashboardGroupCollaboration(scope),
       scope.workspace.kind === "GROUP" ? listAvailabilityPolls(schedulingScope(scope)) : Promise.resolve(undefined),
     ]);
@@ -329,7 +233,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     try {
       const principal = await authenticateSessionRequest(request, "create_browser_session");
       const { ttlSeconds } = dashboardBrowserSessionCreateSchema.parse(request.body);
-      const session = await actions.createBrowserSession(principal.telegramId, ttlSeconds);
+      const session = await createDashboardBrowserSession(principal.telegramId, ttlSeconds);
       return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
     } catch (error) {
       return sendDashboardError(reply, error, "create_browser_session");
@@ -341,7 +245,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     try {
       const principal = await authenticateSessionRequest(request, "verify_browser_session");
       const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
-      const session = await actions.requireActiveBrowserSession(principal.telegramId, id);
+      const session = await requireActiveDashboardBrowserSession(principal.telegramId, id);
       return { session: { id: session.id, expiresAt: session.expiresAt.toISOString() } };
     } catch (error) {
       return sendDashboardError(reply, error, "verify_browser_session");
@@ -353,7 +257,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     try {
       const principal = await authenticateSessionRequest(request, "revoke_browser_session");
       const { id } = dashboardBrowserSessionParamsSchema.parse(request.params);
-      await actions.revokeBrowserSession(principal.telegramId, id);
+      await revokeDashboardBrowserSession(principal.telegramId, id);
       return { revoked: true };
     } catch (error) {
       return sendDashboardError(reply, error, "revoke_browser_session");
@@ -368,7 +272,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      await requestRateLimiter(principal, request.method, "list_workspaces");
+      await limitDashboardRequest(principal, request.method, "list_workspaces");
       return { workspaces: await listDashboardWorkspaces(principal.telegramId) };
     } catch (error) {
       return sendDashboardError(reply, error, "list_workspaces");
@@ -419,7 +323,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     noStore(reply);
     try {
       const principal = await verifyDashboardAuthorization(request.headers.authorization, options.publicKey);
-      await requestRateLimiter(principal, request.method, "live_sync");
+      await limitDashboardRequest(principal, request.method, "live_sync");
       const scope = await resolveDashboardWorkspace(
         principal.telegramId,
         dashboardWorkspaceHeader(request),
@@ -622,12 +526,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   server.get("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = taskListQuerySchema.parse(request.query);
-    return { tasks: await actions.listTasks(telegramId, query) };
+    return { tasks: await listDashboardTasks(telegramId, query) };
   }, "list_tasks"));
 
   server.get("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { task: await actions.getTask(telegramId, id) };
+    return { task: await getDashboardTask(telegramId, id) };
   }, "get_task"));
 
   server.post("/api/v1/dashboard/tasks", async (request, reply) => run(request, reply, async (telegramId, scope) => {
@@ -635,7 +539,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     if (input.plannedFor !== undefined) {
       assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     }
-    const task = await actions.createTask(telegramId, input);
+    const task = await createDashboardTask(telegramId, input);
     await recordDashboardTaskMutation(scope, task, { kind: "created" }, options.telegramBotToken);
     return { task };
   }, "create_task"));
@@ -648,7 +552,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     }
     const completionOnly = input.status === "DONE" && Object.keys(input).every((key) => key === "status");
     await assertDashboardTaskMutation(scope, id, completionOnly ? "complete" : "manage", options.telegramBotToken);
-    const task = await actions.updateTask(telegramId, id, input);
+    const task = await updateDashboardTask(telegramId, id, input);
     await recordDashboardTaskMutation(scope, task, { kind: "updated", input }, options.telegramBotToken);
     return { task };
   }, "update_task"));
@@ -666,124 +570,124 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
   server.delete("/api/v1/dashboard/tasks/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
     await assertDashboardTaskMutation(scope, id, "manage", options.telegramBotToken);
-    await actions.archiveTask(telegramId, id);
+    await archiveDashboardTask(telegramId, id);
     return { archived: true };
   }, "archive_task"));
 
   server.get("/api/v1/dashboard/note-drafts", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return { draft: await actions.getPersonalNoteDraft(telegramId, personalNoteDraftQuerySchema.parse(request.query)) };
+    return { draft: await getDashboardPersonalNoteDraft(telegramId, personalNoteDraftQuerySchema.parse(request.query)) };
   }, "get_personal_note_draft"));
 
   server.patch("/api/v1/dashboard/note-drafts", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return { draft: await actions.savePersonalNoteDraft(telegramId, personalNoteDraftSaveSchema.parse(request.body)) };
+    return { draft: await saveDashboardPersonalNoteDraft(telegramId, personalNoteDraftSaveSchema.parse(request.body)) };
   }, "save_personal_note_draft"));
 
   server.delete("/api/v1/dashboard/note-drafts/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    await actions.deletePersonalNoteDraft(telegramId, id);
+    await deleteDashboardPersonalNoteDraft(telegramId, id);
     return { deleted: true };
   }, "delete_personal_note_draft"));
 
   server.post("/api/v1/dashboard/notes", async (request, reply) => run(request, reply, async (telegramId) => ({
-    note: await actions.createNote(telegramId, noteCreateSchema.parse(request.body))
+    note: await createDashboardNote(telegramId, noteCreateSchema.parse(request.body))
   }), "create_note"));
 
   server.get("/api/v1/dashboard/notes", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = noteListQuerySchema.parse(request.query);
-    return { notes: await actions.listNotes(telegramId, query) };
+    return { notes: await listDashboardNotes(telegramId, query) };
   }, "list_notes"));
 
   server.get("/api/v1/dashboard/notes/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { note: await actions.getNote(telegramId, id) };
+    return { note: await getDashboardNote(telegramId, id) };
   }, "get_note"));
 
   server.patch("/api/v1/dashboard/notes/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { note: await actions.updateNote(telegramId, id, noteUpdateSchema.parse(request.body)) };
+    return { note: await updateDashboardNote(telegramId, id, noteUpdateSchema.parse(request.body)) };
   }, "update_note"));
 
   server.delete("/api/v1/dashboard/notes/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    await actions.archiveNote(telegramId, id);
+    await archiveDashboardNote(telegramId, id);
     return { archived: true };
   }, "archive_note"));
 
   server.post("/api/v1/dashboard/ideas", async (request, reply) => run(request, reply, async (telegramId) => ({
-    idea: await actions.createIdea(telegramId, ideaCreateSchema.parse(request.body))
+    idea: await createDashboardIdea(telegramId, ideaCreateSchema.parse(request.body))
   }), "create_idea"));
 
   server.get("/api/v1/dashboard/ideas", async (request, reply) => run(request, reply, async (telegramId) => {
     const query = ideaListQuerySchema.parse(request.query);
-    return { ideas: await actions.listIdeas(telegramId, query) };
+    return { ideas: await listDashboardIdeas(telegramId, query) };
   }, "list_ideas"));
 
   server.get("/api/v1/dashboard/ideas/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { idea: await actions.getIdea(telegramId, id) };
+    return { idea: await getDashboardIdea(telegramId, id) };
   }, "get_idea"));
 
   server.patch("/api/v1/dashboard/ideas/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { idea: await actions.updateIdea(telegramId, id, ideaUpdateSchema.parse(request.body)) };
+    return { idea: await updateDashboardIdea(telegramId, id, ideaUpdateSchema.parse(request.body)) };
   }, "update_idea"));
 
   server.delete("/api/v1/dashboard/ideas/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    await actions.archiveIdea(telegramId, id);
+    await archiveDashboardIdea(telegramId, id);
     return { archived: true };
   }, "archive_idea"));
 
   server.post("/api/v1/dashboard/ideas/:id/convert-to-task", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { task: await actions.convertIdeaToTask(telegramId, id, ideaConvertSchema.parse(request.body ?? {})) };
+    return { task: await convertDashboardIdeaToTask(telegramId, id, ideaConvertSchema.parse(request.body ?? {})) };
   }, "convert_idea"));
 
   server.post("/api/v1/dashboard/ideas/:id/analyze", async (request, reply) => run(request, reply, async (telegramId) => {
     if (!options.ai) throw new DashboardConfigurationError("Dashboard idea analysis is not configured.");
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return actions.analyzeIdea(telegramId, id, options.ai);
+    return analyzeDashboardIdea(telegramId, id, options.ai);
   }, "analyze_idea"));
 
   server.post("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return { expense: await actions.createExpense(telegramId, expenseCreateSchema.parse(request.body)) };
+    return { expense: await createDashboardExpense(telegramId, expenseCreateSchema.parse(request.body)) };
   }, "create_expense"));
 
   server.get("/api/v1/dashboard/expenses", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const query = expenseListQuerySchema.parse(request.query);
-    return { expenses: await actions.listExpenses(telegramId, query) };
+    return { expenses: await listDashboardExpenses(telegramId, query) };
   }, "list_expenses"));
 
   server.patch("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { expense: await actions.updateExpense(telegramId, id, expenseUpdateSchema.parse(request.body)) };
+    return { expense: await updateDashboardExpense(telegramId, id, expenseUpdateSchema.parse(request.body)) };
   }, "update_expense"));
 
   server.delete("/api/v1/dashboard/expenses/:id", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    await actions.deleteExpense(telegramId, id);
+    await deleteDashboardExpense(telegramId, id);
     return { deleted: true };
   }, "delete_expense"));
 
   server.get("/api/v1/dashboard/images", async (request, reply) => run(request, reply, async (telegramId) => ({
-    images: await actions.listImages(telegramId, imageListQuerySchema.parse(request.query))
+    images: await listDashboardImages(telegramId, imageListQuerySchema.parse(request.query))
   }), "list_images"));
 
   server.get("/api/v1/dashboard/images/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { image: await actions.getImage(telegramId, id) };
+    return { image: await getDashboardImage(telegramId, id) };
   }, "get_image"));
 
   server.get("/api/v1/dashboard/images/:id/content", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    const content = await actions.loadImageContent(telegramId, id, options.telegramBotToken);
+    const content = await loadDashboardImageContent(telegramId, id, options.telegramBotToken);
     reply.header("Cache-Control", "private, max-age=300");
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
@@ -794,12 +698,12 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
 
   server.patch("/api/v1/dashboard/images/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    return { image: await actions.updateImage(telegramId, id, imageUpdateSchema.parse(request.body)) };
+    return { image: await updateDashboardImage(telegramId, id, imageUpdateSchema.parse(request.body)) };
   }, "update_image"));
 
   server.delete("/api/v1/dashboard/images/:id", async (request, reply) => run(request, reply, async (telegramId) => {
     const { id } = dashboardIdParamsSchema.parse(request.params);
-    await actions.deleteImage(telegramId, id);
+    await deleteDashboardImage(telegramId, id);
     return { deleted: true };
   }, "delete_image"));
 
@@ -810,11 +714,11 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       if (kinds.includes("expense")) throw new DashboardGroupAccessError("Expenses are available only in personal workspaces.");
       if (kinds.length === 0) kinds = ["task", "note", "idea", "image"];
     }
-    return { query: query.q, results: await actions.search(telegramId, query.q, kinds, query.limit) };
+    return { query: query.q, results: await searchDashboard(telegramId, query.q, kinds, query.limit) };
   }, "search"));
 
   server.get("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId) => ({
-    settings: await actions.getSettings(telegramId)
+    settings: await getDashboardSettings(telegramId)
   }), "get_settings"));
 
   server.patch("/api/v1/dashboard/settings", async (request, reply) => run(request, reply, async (telegramId, scope) => {
@@ -830,52 +734,52 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
       assertPersonalWorkspace(scope);
       assertTodayFoundationAccess(scope.principalTelegramId, options.todayFoundationOwnerTelegramId);
     }
-    return { settings: await actions.updateSettings(telegramId, input) };
+    return { settings: await updateDashboardSettings(telegramId, input) };
   }, "update_settings"));
 
   server.post("/api/v1/dashboard/integrations/:provider/disconnect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { provider } = integrationParamsSchema.parse(request.params);
-    return actions.disconnectIntegration(telegramId, provider);
+    return disconnectDashboardIntegration(telegramId, provider);
   }, "disconnect_integration"));
 
   server.post("/api/v1/dashboard/integrations/:provider/connect", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const { provider } = integrationParamsSchema.parse(request.params);
-    return actions.connectIntegration(telegramId, provider, integrationConnectSchema.parse(request.body ?? {}));
+    return createDashboardIntegrationConnectUrl(telegramId, provider, integrationConnectSchema.parse(request.body ?? {}));
   }, "connect_integration"));
 
   server.post("/api/v1/dashboard/integrations/calendar/sync", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return actions.syncCalendarTasks(telegramId);
+    return syncDashboardCalendarTasks(telegramId);
   }, "sync_calendar_tasks"));
 
   server.post("/api/v1/dashboard/integrations/calendar/task", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     const input = calendarTaskIntegrationSchema.parse(request.body);
-    return actions.updateTaskCalendar(telegramId, input.taskId, input.action);
+    return updateDashboardTaskCalendar(telegramId, input.taskId, input.action);
   }, "update_task_calendar"));
 
   server.post("/api/v1/dashboard/integrations/excel/workbook", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return actions.createExcelWorkbook(telegramId);
+    return createDashboardExcelWorkbook(telegramId);
   }, "create_excel_workbook"));
 
   server.post("/api/v1/dashboard/integrations/excel/sync", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
-    return actions.syncExcelExpenses(telegramId);
+    return syncDashboardExcelExpenses(telegramId);
   }, "sync_excel_expenses"));
 
   server.get("/api/v1/dashboard/privacy/export", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     reply.header("Content-Disposition", 'attachment; filename="threadwise-export.json"');
-    return actions.exportData(telegramId);
+    return exportDashboardData(telegramId);
   }, "export_data"));
 
   server.delete("/api/v1/dashboard/privacy/account", async (request, reply) => run(request, reply, async (telegramId, scope) => {
     assertPersonalWorkspace(scope);
     deleteAccountSchema.parse(request.body);
-    await actions.deleteAccount(telegramId);
+    await deleteDashboardAccount(telegramId);
     return { deleted: true };
   }, "delete_account"));
 }

@@ -9,6 +9,18 @@ const servicePrisma = vi.hoisted(() => ({
 }));
 vi.mock("../db/prisma", () => ({ prisma: servicePrisma }));
 
+// Provider side effects run on every production path; the tests replace the providers, not the path.
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  syncTaskCalendarBestEffort: vi.fn(async () => "skipped"),
+  removeTaskFromGoogleCalendar: vi.fn(async () => ({ removed: true })),
+}));
+vi.mock("../services/excel", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/excel")>(),
+  syncExpenseToExcelIfEnabled: vi.fn(async () => "skipped"),
+  syncUnsyncedExpenses: vi.fn(async () => 7),
+}));
+
 import {
   analyzeDashboardIdea,
   DashboardConflictError,
@@ -27,6 +39,7 @@ import {
   updateDashboardTask
 } from "./data";
 import type { AiProvider, IdeaScore } from "../ai/types";
+import { syncUnsyncedExpenses } from "../services/excel";
 
 const settings = {
   id: "settings-1",
@@ -483,13 +496,11 @@ describe("dashboard data security", () => {
 
   it("resolves the signed Telegram owner before synchronizing that user's Excel expenses", async () => {
     const database = { user: { findUnique: userFindUnique() } } as unknown as PrismaClient;
-    const syncExpenses = vi.fn(async () => 7);
-
-    await expect(syncDashboardExcelExpenses("123456789", database, syncExpenses)).resolves.toEqual({
+    await expect(syncDashboardExcelExpenses("123456789", database)).resolves.toEqual({
       provider: "excel",
       synced: 7
     });
-    expect(syncExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
+    expect(syncUnsyncedExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
   });
 
   it("preserves per-task reminder intervals when another shared reminder setting changes", async () => {

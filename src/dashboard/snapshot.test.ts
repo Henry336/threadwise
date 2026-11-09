@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardUserNotFoundError, getDashboardSnapshot } from "./snapshot";
 import { settings } from "../test/builders";
 
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  calendarConnectionStatus: vi.fn(async () => undefined),
+}));
+
 const mocks = {
   userFindUnique: vi.fn(),
   taskFindMany: vi.fn(),
