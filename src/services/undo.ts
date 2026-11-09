@@ -312,6 +312,13 @@ export async function undoLastAction(userId: string, options: { actorTelegramId?
   const payload = asRecord(entry.metadata);
   const type = stringValue(payload.type);
 
+  // Undoing an older change over someone else's newer change to the same item would silently wipe
+  // theirs, so a member must leave that to an admin (who undoes in plain newest-first order).
+  const targetId = stringValue(payload.targetId);
+  if (onlyActor && targetId && await newerUndoByOthers(userId, entry.createdAt, targetId, options.actorTelegramId ?? "")) {
+    return "Someone changed that item after you, so I left it as it is. A group admin can undo the newer change first.";
+  }
+
   if (!type) {
     await markUndoConsumed(entry.id, "unknown");
     return "I found an older change, but there is not enough detail to restore it safely—so I left everything untouched.";
@@ -668,6 +675,23 @@ class UndoPayloadError extends Error {}
 function isPermanentUndoFailure(error: unknown): boolean {
   return error instanceof UndoPayloadError
     || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025");
+}
+
+/** Whether another member recorded an undoable change to `targetId` after `since`. */
+async function newerUndoByOthers(userId: string, since: Date, targetId: string, actorTelegramId: string): Promise<boolean> {
+  const newer = await prisma.auditLog.findFirst({
+    where: {
+      userId,
+      action: { startsWith: UNDO_PREFIX },
+      createdAt: { gt: since },
+      AND: [
+        { metadata: { path: ["targetId"], equals: targetId } },
+        { NOT: { metadata: { path: ["actorTelegramId"], equals: actorTelegramId } } }
+      ]
+    },
+    select: { id: true }
+  });
+  return Boolean(newer);
 }
 
 /** Whether the entry was already retired; false if it cannot be read either, so the caller keeps it for a retry. */

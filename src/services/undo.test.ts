@@ -48,6 +48,18 @@ describe("group undo ownership", () => {
     expect(db.auditLog.update).not.toHaveBeenCalled();
   });
 
+  it("refuses a member's undo when another member changed the same item afterwards", async () => {
+    groupWorkspaces.isGroupManager.mockResolvedValue(false);
+    db.auditLog.findFirst
+      .mockResolvedValueOnce({ id: "mine", createdAt: new Date("2026-11-01T00:00:00Z"), metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "Plan", previousTitle: "Draft", actorTelegramId: "42" } })
+      .mockResolvedValueOnce({ id: "theirs" });
+
+    const message = await undoLastActionForContext(groupContext(42), "chat:-100");
+
+    expect(message).toContain("Someone changed that item after you");
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
   it("lets a group admin undo anyone's latest change", async () => {
     groupWorkspaces.isGroupManager.mockResolvedValue(true);
 
