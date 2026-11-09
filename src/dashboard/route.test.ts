@@ -1,12 +1,16 @@
 import Fastify from "fastify";
 import { exportSPKI, generateKeyPair, SignJWT } from "jose";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DASHBOARD_TOKEN_AUDIENCE, DASHBOARD_TOKEN_ISSUER } from "./auth";
 import { registerDashboardRoute } from "./route";
-import type { DashboardSnapshot } from "./snapshot";
+import { getDashboardSnapshot, type DashboardSnapshot } from "./snapshot";
+import * as data from "./data";
+import * as browserSessions from "./browserSessions";
+import * as personalNoteDrafts from "./personalNoteDrafts";
 import type { AiProvider } from "../ai/types";
-import { DashboardRequestReplayError } from "../security/dashboardRequestReplay";
-import { SharedRateLimitExceededError } from "../security/sharedRateLimit";
+import { StudyModeError } from "../services/study";
+import { DashboardRequestReplayError, consumeDashboardMutationToken } from "../security/dashboardRequestReplay";
+import { SharedRateLimitExceededError, limitDashboardRequest } from "../security/sharedRateLimit";
 
 vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -23,6 +27,45 @@ vi.mock("../security/sharedRateLimit", () => ({
   },
   limitDashboardRequest: vi.fn(async () => undefined),
 }));
+
+// The route calls the data layer directly; the tests replace only the functions they observe.
+vi.mock("./data", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./data")>();
+  return {
+    ...actual,
+    listDashboardTasks: vi.fn(),
+    getDashboardTask: vi.fn(),
+    createDashboardTask: vi.fn(),
+    archiveDashboardTask: vi.fn(),
+    analyzeDashboardIdea: vi.fn(),
+    loadDashboardImageContent: vi.fn(),
+    createDashboardIntegrationConnectUrl: vi.fn(),
+    syncDashboardExcelExpenses: vi.fn(),
+    deleteDashboardAccount: vi.fn(),
+  };
+});
+
+vi.mock("./snapshot", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./snapshot")>(),
+  getDashboardSnapshot: vi.fn(),
+}));
+
+vi.mock("./browserSessions", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./browserSessions")>(),
+  createDashboardBrowserSession: vi.fn(),
+  requireActiveDashboardBrowserSession: vi.fn(),
+  revokeDashboardBrowserSession: vi.fn(),
+}));
+
+vi.mock("./personalNoteDrafts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./personalNoteDrafts")>(),
+  getDashboardPersonalNoteDraft: vi.fn(),
+  saveDashboardPersonalNoteDraft: vi.fn(),
+  deleteDashboardPersonalNoteDraft: vi.fn(),
+}));
+
+const loadSnapshot = vi.mocked(getDashboardSnapshot);
+const createTask = vi.mocked(data.createDashboardTask);
 
 describe("dashboard API routes", () => {
   let privateKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
@@ -69,6 +112,11 @@ describe("dashboard API routes", () => {
     publicKeyPem = await exportSPKI(keyPair.publicKey);
   });
 
+  beforeEach(() => {
+    vi.clearAllMocks();
+    loadSnapshot.mockResolvedValue(snapshot);
+  });
+
   async function validToken() {
     return new SignJWT({})
       .setProtectedHeader({ alg: "EdDSA", typ: "JWT" })
@@ -101,8 +149,7 @@ describe("dashboard API routes", () => {
 
   it("returns only the authenticated user's snapshot with non-cacheable headers", async () => {
     const server = Fastify();
-    const loadSnapshot = vi.fn(async () => snapshot);
-    registerDashboardRoute(server, { publicKey: publicKeyPem, loadSnapshot });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "GET",
@@ -124,8 +171,7 @@ describe("dashboard API routes", () => {
 
   it("returns a generic 401 and never queries data for an invalid token", async () => {
     const server = Fastify();
-    const loadSnapshot = vi.fn(async () => snapshot);
-    registerDashboardRoute(server, { publicKey: publicKeyPem, loadSnapshot });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "GET",
@@ -146,13 +192,10 @@ describe("dashboard API routes", () => {
       id: "0c68a350-c061-4a86-a63f-842c132dc77d",
       expiresAt: new Date("2026-09-07T14:00:00.000Z"),
     };
-    const createBrowserSession = vi.fn(async () => session);
-    const requireActiveBrowserSession = vi.fn(async () => session);
-    const revokeBrowserSession = vi.fn(async () => undefined);
-    registerDashboardRoute(server, {
-      publicKey: publicKeyPem,
-      actions: { createBrowserSession, requireActiveBrowserSession, revokeBrowserSession },
-    });
+    const createBrowserSession = vi.mocked(browserSessions.createDashboardBrowserSession).mockResolvedValue(session as never);
+    const requireActiveBrowserSession = vi.mocked(browserSessions.requireActiveDashboardBrowserSession).mockResolvedValue(session as never);
+    const revokeBrowserSession = vi.mocked(browserSessions.revokeDashboardBrowserSession).mockResolvedValue(undefined as never);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const authorization = `Bearer ${await validToken()}`;
 
     const created = await server.inject({
@@ -186,13 +229,10 @@ describe("dashboard API routes", () => {
 
   it("keeps Personal rich-note drafts behind the signed owner and bounded route schemas", async () => {
     const server = Fastify();
-    const getPersonalNoteDraft = vi.fn(async () => null);
-    const savePersonalNoteDraft = vi.fn(async () => ({ id: "0c68a350-c061-4a86-a63f-842c132dc77d", revision: 1 }));
-    const deletePersonalNoteDraft = vi.fn(async () => undefined);
-    registerDashboardRoute(server, {
-      publicKey: publicKeyPem,
-      actions: { getPersonalNoteDraft, savePersonalNoteDraft, deletePersonalNoteDraft } as never,
-    });
+    const getPersonalNoteDraft = vi.mocked(personalNoteDrafts.getDashboardPersonalNoteDraft).mockResolvedValue(null);
+    const savePersonalNoteDraft = vi.mocked(personalNoteDrafts.saveDashboardPersonalNoteDraft).mockResolvedValue({ id: "0c68a350-c061-4a86-a63f-842c132dc77d", revision: 1 } as never);
+    const deletePersonalNoteDraft = vi.mocked(personalNoteDrafts.deleteDashboardPersonalNoteDraft).mockResolvedValue(undefined);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const authorization = `Bearer ${await validToken()}`;
 
     const loaded = await server.inject({
@@ -243,12 +283,11 @@ describe("dashboard API routes", () => {
   });
 
   it("gates planned-day task mutations until the owner foundation is enabled", async () => {
-    const createTask = vi.fn(async () => ({ id: "task-1" }));
+    createTask.mockResolvedValue({ id: "task-1" } as never);
     const blockedServer = Fastify();
     registerDashboardRoute(blockedServer, {
       publicKey: publicKeyPem,
       todayFoundationOwnerTelegramId: "999999999",
-      actions: { createTask: createTask as never },
     });
     const request = {
       method: "POST" as const,
@@ -265,7 +304,6 @@ describe("dashboard API routes", () => {
     registerDashboardRoute(ownerServer, {
       publicKey: publicKeyPem,
       todayFoundationOwnerTelegramId: "123456789",
-      actions: { createTask: createTask as never },
     });
     const accepted = await ownerServer.inject({
       ...request,
@@ -278,8 +316,7 @@ describe("dashboard API routes", () => {
 
   it("fails closed when the dashboard public key is not configured", async () => {
     const server = Fastify();
-    const loadSnapshot = vi.fn(async () => snapshot);
-    registerDashboardRoute(server, { loadSnapshot });
+    registerDashboardRoute(server, {});
 
     const response = await server.inject({
       method: "GET",
@@ -295,8 +332,8 @@ describe("dashboard API routes", () => {
 
   it("derives list ownership solely from the signed subject and parses bounded pagination", async () => {
     const server = Fastify();
-    const listTasks = vi.fn(async () => ({ items: [], page: 2, limit: 25, total: 0, totalPages: 1, hasMore: false }));
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { listTasks } });
+    const listTasks = vi.mocked(data.listDashboardTasks).mockResolvedValue({ items: [], page: 2, limit: 25, total: 0, totalPages: 1, hasMore: false });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "GET",
@@ -312,8 +349,7 @@ describe("dashboard API routes", () => {
 
   it("rejects client-supplied ownership fields instead of trusting them", async () => {
     const server = Fastify();
-    const createTask = vi.fn();
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask } });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "POST",
@@ -330,8 +366,7 @@ describe("dashboard API routes", () => {
 
   it("turns schema type errors into field-specific user guidance", async () => {
     const server = Fastify();
-    const createTask = vi.fn();
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask } });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "POST",
@@ -351,8 +386,8 @@ describe("dashboard API routes", () => {
 
   it("enforces the canonical 15-minute reminder floor for dashboard mutations", async () => {
     const server = Fastify();
-    const createTask = vi.fn(async () => ({ id: "task-1" }));
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { createTask: createTask as never } });
+    createTask.mockResolvedValue({ id: "task-1" } as never);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const authorization = `Bearer ${await validToken()}`;
 
     const rejected = await server.inject({
@@ -378,8 +413,8 @@ describe("dashboard API routes", () => {
   it("hydrates an exact task reference outside the paginated snapshot", async () => {
     const server = Fastify();
     const task = { id: "task-older", publicId: "TASK-OLDER", title: "Older task", status: "OPEN" };
-    const getTask = vi.fn(async () => task);
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { getTask: getTask as never } });
+    const getTask = vi.mocked(data.getDashboardTask).mockResolvedValue(task as never);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "GET",
@@ -395,18 +430,11 @@ describe("dashboard API routes", () => {
 
   it("rejects a replayed mutation before repeating its side effect", async () => {
     const server = Fastify();
-    const createTask = vi.fn(async () => ({ id: "task-1" }));
-    const consumed = new Set<string>();
-    const requestReplayGuard = vi.fn(async (principal: { tokenId: string }, method: string) => {
-      if (method !== "POST") return;
-      if (consumed.has(principal.tokenId)) throw new DashboardRequestReplayError();
-      consumed.add(principal.tokenId);
-    });
-    registerDashboardRoute(server, {
-      publicKey: publicKeyPem,
-      actions: { createTask: createTask as never },
-      requestReplayGuard: requestReplayGuard as never,
-    });
+    createTask.mockResolvedValue({ id: "task-1" } as never);
+    vi.mocked(consumeDashboardMutationToken)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new DashboardRequestReplayError());
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const authorization = `Bearer ${await validToken()}`;
 
     const first = await server.inject({
@@ -431,11 +459,8 @@ describe("dashboard API routes", () => {
 
   it("returns a bounded retry response before running rate-limited work", async () => {
     const server = Fastify();
-    const loadSnapshot = vi.fn(async () => snapshot);
-    const requestRateLimiter = vi.fn(async () => {
-      throw new SharedRateLimitExceededError(17);
-    });
-    registerDashboardRoute(server, { publicKey: publicKeyPem, loadSnapshot, requestRateLimiter });
+    vi.mocked(limitDashboardRequest).mockRejectedValueOnce(new SharedRateLimitExceededError(17));
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "GET",
@@ -452,8 +477,8 @@ describe("dashboard API routes", () => {
 
   it("derives Excel sync ownership solely from the signed Telegram subject", async () => {
     const server = Fastify();
-    const syncExcelExpenses = vi.fn(async () => ({ provider: "excel" as const, synced: 4 }));
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { syncExcelExpenses } });
+    const syncExcelExpenses = vi.mocked(data.syncDashboardExcelExpenses).mockResolvedValue({ provider: "excel", synced: 4 });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "POST",
@@ -469,8 +494,8 @@ describe("dashboard API routes", () => {
 
   it("starts Calendar OAuth for the signed owner and preserves the selected task", async () => {
     const server = Fastify();
-    const connectIntegration = vi.fn(async () => ({ provider: "calendar" as const, url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe" }));
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { connectIntegration } });
+    const connectIntegration = vi.mocked(data.createDashboardIntegrationConnectUrl).mockResolvedValue({ provider: "calendar", url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe" });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
 
     const response = await server.inject({
       method: "POST",
@@ -487,8 +512,8 @@ describe("dashboard API routes", () => {
 
   it("requires the exact destructive confirmation phrase before deleting an account", async () => {
     const server = Fastify();
-    const deleteAccount = vi.fn(async () => undefined);
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { deleteAccount } });
+    const deleteAccount = vi.mocked(data.deleteDashboardAccount).mockResolvedValue(undefined);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const authorization = `Bearer ${await validToken()}`;
 
     const rejected = await server.inject({
@@ -514,12 +539,8 @@ describe("dashboard API routes", () => {
 
   it("serves authenticated raster bytes with defensive browser headers", async () => {
     const server = Fastify();
-    const loadImageContent = vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" }));
-    registerDashboardRoute(server, {
-      publicKey: publicKeyPem,
-      telegramBotToken: "secret-token",
-      actions: { loadImageContent }
-    });
+    const loadImageContent = vi.mocked(data.loadDashboardImageContent).mockResolvedValue({ bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" });
+    registerDashboardRoute(server, { publicKey: publicKeyPem, telegramBotToken: "secret-token" });
 
     const response = await server.inject({
       method: "GET",
@@ -543,12 +564,8 @@ describe("dashboard API routes", () => {
       idea: { id: "idea-1", publicId: "IDEA-1", title: "A useful idea" },
       brief: { buildability: 8, usefulness: 9 }
     };
-    const analyzeIdea = vi.fn(async () => result);
-    registerDashboardRoute(server, {
-      publicKey: publicKeyPem,
-      ai,
-      actions: { analyzeIdea: analyzeIdea as never }
-    });
+    const analyzeIdea = vi.mocked(data.analyzeDashboardIdea).mockResolvedValue(result as never);
+    registerDashboardRoute(server, { publicKey: publicKeyPem, ai });
 
     const response = await server.inject({
       method: "POST",
@@ -563,10 +580,32 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("maps domain errors through the status tables", async () => {
+    const server = Fastify();
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
+    const cases: Array<[Error, number, Record<string, unknown>]> = [
+      [new StudyModeError("Study is off.", "disabled"), 412, { error: "study_disabled", message: "Study is off." }],
+      [new StudyModeError("Nope.", "something_new" as never), 400, { error: "study_something_new" }],
+      [new data.DashboardConflictError("Changed elsewhere."), 409, { error: "revision_conflict", message: "Changed elsewhere." }],
+      [new data.DashboardItemNotFoundError(), 404, { error: "not_found" }],
+    ];
+    for (const [error, status, body] of cases) {
+      vi.mocked(data.getDashboardTask).mockRejectedValueOnce(error);
+      const response = await server.inject({
+        method: "GET",
+        url: "/api/v1/dashboard/tasks/TASK-1",
+        headers: { authorization: `Bearer ${await validToken()}` },
+      });
+      expect(response.statusCode).toBe(status);
+      expect(response.json()).toMatchObject(body);
+    }
+    await server.close();
+  });
+
   it("does not run mutations without a valid bearer token", async () => {
     const server = Fastify();
-    const archiveTask = vi.fn();
-    registerDashboardRoute(server, { publicKey: publicKeyPem, actions: { archiveTask } });
+    const archiveTask = vi.mocked(data.archiveDashboardTask);
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
     const response = await server.inject({ method: "DELETE", url: "/api/v1/dashboard/tasks/TASK-1" });
     expect(response.statusCode).toBe(401);
     expect(archiveTask).not.toHaveBeenCalled();

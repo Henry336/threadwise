@@ -14,9 +14,10 @@ import { recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
 import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled } from "../services/excel";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
+import { downloadTelegramFile, type TelegramFile } from "../services/telegramFiles";
 import { initialTaskReminderAt } from "../services/reminders";
 import { cancelTask, completeTask, restoreCompletedTask } from "../services/tasks";
 import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules } from "../services/taskReminderSchedules";
@@ -48,7 +49,6 @@ import type {
 } from "./schemas";
 
 const MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024;
-const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const PUBLIC_ID_CREATE_ATTEMPTS = 3;
@@ -77,11 +77,6 @@ function isPublicIdUniqueConflict(error: unknown): boolean {
   const target = candidate.meta?.target;
   if (Array.isArray(target)) return target.some((field) => field === "publicId");
   return typeof target === "string" && target.toLowerCase().includes("publicid");
-}
-
-async function syncUnsyncedExpensesForDashboard(userId: string, timezone: string): Promise<number> {
-  const { syncUnsyncedExpenses } = await import("../services/excel");
-  return syncUnsyncedExpenses(userId, timezone);
 }
 
 export class DashboardItemNotFoundError extends Error {
@@ -272,7 +267,8 @@ function compactSummary(body: string): string {
   return normalized.length <= 240 ? normalized : `${normalized.slice(0, 237)}...`;
 }
 
-function taskView(task: {
+/** Maps a task row to its dashboard shape. Shared by the item routes and the snapshot so the two cannot drift. */
+export function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null;
   plannedFor: Date | null; firstPlannedFor: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
@@ -324,7 +320,8 @@ function taskView(task: {
   };
 }
 
-function noteView(note: {
+/** Maps a note row to its dashboard shape, for item routes and the snapshot alike. */
+export function noteView(note: {
   id: string; publicId: string; title: string; body: string; summary: string; tags: string[]; pinnedAt: Date | null;
   createdAt: Date; updatedAt: Date;
 }): DashboardNote {
@@ -334,7 +331,8 @@ function noteView(note: {
   };
 }
 
-function ideaView(idea: {
+/** Maps an idea row (with its stored brief) to its dashboard shape, for item routes and the snapshot alike. */
+export function ideaView(idea: {
   id: string; publicId: string; title: string; concept: string; status: IdeaStatus; tags: string[]; pinnedAt: Date | null;
   scores?: Prisma.JsonValue | null;
   createdAt: Date; updatedAt: Date;
@@ -347,7 +345,8 @@ function ideaView(idea: {
   };
 }
 
-function expenseView(expense: {
+/** Maps an expense row to its dashboard shape, for item routes and the snapshot alike. */
+export function expenseView(expense: {
   id: string; publicId: string; merchant: string | null; description: string | null; total: Prisma.Decimal; currency: string;
   category: string | null; transactionAt: Date; paymentMethod: string | null; notes: string | null; excelSyncedAt: Date | null;
   createdAt: Date; updatedAt: Date;
@@ -475,11 +474,9 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
   });
-  if (database === prisma) {
-    const outcome = await syncTaskCalendarBestEffort(user.id, task);
-    if (outcome === "synced" || outcome === "removed") {
-      return taskView(await scopedTask(database, user.id, task.id));
-    }
+  const outcome = await syncTaskCalendarBestEffort(user.id, task);
+  if (outcome === "synced" || outcome === "removed") {
+    return taskView(await scopedTask(database, user.id, task.id));
   }
   return taskView(task);
 }
@@ -534,7 +531,6 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   if (titleChanged) data.title = input.title;
   if (descriptionChanged) {
     data.description = input.description ?? null;
-    data.embedding = Prisma.JsonNull;
   }
   if (dueChanged) {
     data.dueAt = nextDueAt;
@@ -640,7 +636,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
   }
-  if (database === prisma && (titleChanged || descriptionChanged || dueChanged)) {
+  if (titleChanged || descriptionChanged || dueChanged) {
     const candidate = { ...updated, assignees: task.assignees ?? [] };
     const outcome = await syncTaskCalendarBestEffort(user.id, candidate);
     if (outcome === "synced" || outcome === "removed") {
@@ -683,7 +679,7 @@ async function changeDashboardTaskStatus(
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
-  if (database === prisma && task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
+  if (task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
   await database.$transaction(async (tx) => {
     await recordArchiveUndo(tx, user.id, {
       kind: "task",
@@ -763,7 +759,6 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
     data.body = nextBody;
     data.summary = compactSummary(nextBody);
     data.sourceText = nextBody;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
@@ -885,7 +880,6 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   if (conceptChanged) {
     data.concept = input.concept;
     data.sourceText = input.concept;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (input.status !== undefined) data.status = input.status;
@@ -1005,11 +999,8 @@ export async function createDashboardExpense(
       rawText: input.description ?? input.merchant ?? "Dashboard expense"
     }
   }));
-  if (database === prisma) {
-    await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
-    return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
-  }
-  return expenseView(expense);
+  await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
+  return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
 }
 
 export async function listDashboardExpenses(
@@ -1143,45 +1134,28 @@ export async function deleteDashboardImage(telegramId: string, id: string, datab
 
 export type DashboardImageContent = { bytes: Uint8Array; contentType: string };
 
+/**
+ * Loads the bytes of one of the signed-in owner's saved images from Telegram for the dashboard
+ * viewer, and only ever serves a safe raster type so an SVG or HTML file cannot run in the page.
+ */
 export async function loadDashboardImageContent(
   telegramId: string,
   id: string,
   botToken: string | undefined,
-  database: PrismaClient = prisma,
-  fetcher: typeof fetch = fetch
+  database: PrismaClient = prisma
 ): Promise<DashboardImageContent> {
   if (!botToken) throw new DashboardUpstreamError();
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
-  let metadataResponse: Response;
+  let file: TelegramFile;
   try {
-    metadataResponse = await fetcher(
-      `https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(image.telegramFileId)}`,
-      { signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS) }
-    );
+    file = await downloadTelegramFile(botToken, image.telegramFileId, { maxBytes: MAX_TELEGRAM_FILE_BYTES });
   } catch {
     throw new DashboardUpstreamError();
   }
-  if (!metadataResponse.ok) throw new DashboardUpstreamError();
-  const payload = await metadataResponse.json() as { ok?: boolean; result?: { file_path?: string } };
-  const filePath = payload.ok ? payload.result?.file_path : undefined;
-  if (!filePath || filePath.includes("..") || filePath.startsWith("/")) throw new DashboardUpstreamError();
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-  let fileResponse: Response;
-  try {
-    fileResponse = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
-      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS)
-    });
-  } catch {
-    throw new DashboardUpstreamError();
-  }
-  if (!fileResponse.ok) throw new DashboardUpstreamError();
-  const contentLength = Number(fileResponse.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_TELEGRAM_FILE_BYTES) throw new DashboardUpstreamError();
-  const bytes = new Uint8Array(await fileResponse.arrayBuffer());
-  if (bytes.byteLength > MAX_TELEGRAM_FILE_BYTES) throw new DashboardUpstreamError();
+  const bytes = new Uint8Array(file.bytes);
   const storedType = image.mimeType?.toLowerCase().split(";")[0]?.trim();
-  const upstreamType = fileResponse.headers.get("content-type")?.toLowerCase().split(";")[0]?.trim();
+  const upstreamType = file.contentType?.toLowerCase().split(";")[0]?.trim();
   const contentType = storedType && SAFE_IMAGE_TYPES.has(storedType)
     ? storedType
     : upstreamType && SAFE_IMAGE_TYPES.has(upstreamType)
@@ -1329,7 +1303,6 @@ export async function createDashboardIntegrationConnectUrl(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar" | "excel"; url: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Connection links are available only from the live dashboard.");
   const returnTo = new URL("/dashboard?view=settings&tab=connections", DASHBOARD_URL).toString();
   const url = provider === "calendar"
     ? await createCalendarConnectUrl(user.id, user.telegramId, { enableAutoSync: true, returnTo, taskId: options.taskId })
@@ -1342,7 +1315,6 @@ export async function syncDashboardCalendarTasks(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar"; synced: number; failed: number }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   const result = await syncEligibleTasksToGoogleCalendar(user.id);
   return { provider: "calendar", ...result };
 }
@@ -1355,7 +1327,6 @@ export async function updateDashboardTaskCalendar(
 ): Promise<{ task: DashboardTask; action: "synced" | "removed" }> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, taskId);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   if (action === "remove") {
     await removeTaskFromGoogleCalendar(user.id, task);
     return { task: taskView(await scopedTask(database, user.id, task.id)), action: "removed" };
@@ -1371,18 +1342,16 @@ export async function createDashboardExcelWorkbook(
   database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; name: string; url?: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Workbook setup is available only from the live dashboard.");
   const workbook = await createExpenseWorkbook(user.id, user.settings.timezone);
   return { provider: "excel", name: workbook.name ?? "Threadwise Expenses.xlsx", ...(workbook.webUrl ? { url: workbook.webUrl } : {}) };
 }
 
 export async function syncDashboardExcelExpenses(
   telegramId: string,
-  database: PrismaClient = prisma,
-  syncExpenses: (userId: string, timezone: string) => Promise<number> = syncUnsyncedExpensesForDashboard
+  database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; synced: number }> {
   const user = await userContext(telegramId, database);
-  const synced = await syncExpenses(user.id, user.settings.timezone);
+  const synced = await syncUnsyncedExpenses(user.id, user.settings.timezone);
   return { provider: "excel", synced };
 }
 

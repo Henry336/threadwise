@@ -23,8 +23,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   DATABASE_URL: z.string().min(1),
-  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(10).default(3),
-  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
+  // Validated here only; src/db/prisma.ts reads them and src/db/connectionUrl.ts owns the defaults.
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(10).optional(),
+  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).optional(),
   SUPABASE_RUNTIME_POOL_MODE: z.enum(["auto", "session", "transaction"]).default("auto"),
   CONTENT_ENCRYPTION_MODE: z.enum(["off", "write"]).default("off"),
   CONTENT_ENCRYPTION_KEY: optional(encryptionKey),

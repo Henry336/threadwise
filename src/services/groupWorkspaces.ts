@@ -103,9 +103,18 @@ export async function groupWorkspaceForContext(ctx: Context): Promise<GroupWorks
   };
 }
 
+/**
+ * Asks Telegram for the sender's current group role and stores it. The upsert runs only when the
+ * role or membership status actually changed (or the member is new), because buttons call this
+ * on every press and an unchanged write records nothing. Recent activity (lastSeenAt) is kept
+ * fresh by recordGroupWorkspaceAccess on each group message instead.
+ */
 export async function refreshGroupMemberRole(ctx: Context): Promise<GroupMemberRole | undefined> {
   if (!isGroupChat(ctx) || !ctx.chat || !ctx.from) return undefined;
-  const workspace = await prisma.groupWorkspace.findUnique({ where: { telegramChatId: String(ctx.chat.id) } });
+  const workspace = await prisma.groupWorkspace.findUnique({
+    where: { telegramChatId: String(ctx.chat.id) },
+    include: { members: { where: { telegramId: String(ctx.from.id) }, select: { role: true, status: true }, take: 1 } },
+  });
   if (!workspace) return undefined;
 
   const chatMember = await ctx.api.getChatMember(ctx.chat.id, ctx.from.id);
@@ -120,6 +129,8 @@ export async function refreshGroupMemberRole(ctx: Context): Promise<GroupMemberR
       ? GroupMemberStatus.LEFT
       : GroupMemberStatus.ACTIVE;
 
+  const stored = workspace.members[0];
+  if (stored?.role === role && stored.status === status) return role;
   await prisma.groupMembership.upsert({
     where: { workspaceId_telegramId: { workspaceId: workspace.id, telegramId: String(ctx.from.id) } },
     update: { role, status, lastSeenAt: new Date() },

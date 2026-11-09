@@ -1,5 +1,5 @@
 import { RecurrenceRule, TaskStatus, type PrismaClient, type UserSettings } from "@prisma/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The task services the dashboard delegates status changes to use the shared Prisma client.
 const servicePrisma = vi.hoisted(() => ({
@@ -8,6 +8,18 @@ const servicePrisma = vi.hoisted(() => ({
   $transaction: vi.fn()
 }));
 vi.mock("../db/prisma", () => ({ prisma: servicePrisma }));
+
+// Provider side effects run on every production path; the tests replace the providers, not the path.
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  syncTaskCalendarBestEffort: vi.fn(async () => "skipped"),
+  removeTaskFromGoogleCalendar: vi.fn(async () => ({ removed: true })),
+}));
+vi.mock("../services/excel", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/excel")>(),
+  syncExpenseToExcelIfEnabled: vi.fn(async () => "skipped"),
+  syncUnsyncedExpenses: vi.fn(async () => 7),
+}));
 
 import {
   analyzeDashboardIdea,
@@ -27,6 +39,7 @@ import {
   updateDashboardTask
 } from "./data";
 import type { AiProvider, IdeaScore } from "../ai/types";
+import { syncUnsyncedExpenses } from "../services/excel";
 
 const settings = {
   id: "settings-1",
@@ -70,6 +83,10 @@ function storedImage(mimeType = "image/png") {
 }
 
 describe("dashboard data security", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("canonicalizes legacy one-digit quiet hours at the API boundary", () => {
     expect(settingsView({ ...settings, quietHoursStart: "3:00", quietHoursEnd: "6:00" } as UserSettings)).toMatchObject({
       quietHoursStart: "03:00",
@@ -331,7 +348,8 @@ describe("dashboard data security", () => {
         headers: { "content-type": "image/png", "content-length": "4" }
       }));
 
-    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher);
+    vi.stubGlobal("fetch", fetcher);
+    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database);
 
     expect(result).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     expect(imageFindFirst).toHaveBeenCalledWith({
@@ -457,7 +475,8 @@ describe("dashboard data security", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, result: { file_path: "documents/a.svg" } }), { status: 200 }))
       .mockResolvedValueOnce(new Response("<svg/>", { status: 200, headers: { "content-type": "image/svg+xml" } }));
 
-    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher))
+    vi.stubGlobal("fetch", fetcher);
+    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database))
       .rejects.toBeInstanceOf(DashboardUnsupportedMediaError);
   });
 
@@ -484,13 +503,11 @@ describe("dashboard data security", () => {
 
   it("resolves the signed Telegram owner before synchronizing that user's Excel expenses", async () => {
     const database = { user: { findUnique: userFindUnique() } } as unknown as PrismaClient;
-    const syncExpenses = vi.fn(async () => 7);
-
-    await expect(syncDashboardExcelExpenses("123456789", database, syncExpenses)).resolves.toEqual({
+    await expect(syncDashboardExcelExpenses("123456789", database)).resolves.toEqual({
       provider: "excel",
       synced: 7
     });
-    expect(syncExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
+    expect(syncUnsyncedExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
   });
 
   it("preserves per-task reminder intervals when another shared reminder setting changes", async () => {

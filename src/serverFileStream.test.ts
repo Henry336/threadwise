@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactLengthStream } from "./server";
+import { exactLengthStream } from "./sideProjectRoutes";
 
 describe("file courier server streaming", () => {
   it("streams exact-length content without buffering it in PostgreSQL or a server file", async () => {

@@ -3,6 +3,7 @@ import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
+import { downloadTelegramFile, TelegramFileError } from "../services/telegramFiles";
 import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
 import { beginPendingItemEdit, formatEditStarted } from "../services/itemEdits";
 import { ensureUser } from "../services/users";
@@ -229,7 +230,7 @@ async function processImageOcr(
     : await ctx.reply(progressText);
   if (ctx.callbackQuery?.message) await editOrReplyText(ctx, progressText);
   try {
-    const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
+    const buffer = await downloadTelegramImage(token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
     if (storedImageId) await updateStoredImageOcr(user.id, storedImageId, extracted.text, extracted.confidence);
 
@@ -309,16 +310,14 @@ function imageTarget(ctx: Context): ImageTarget | undefined {
   return undefined;
 }
 
-async function downloadTelegramFile(ctx: Context, token: string, fileId: string): Promise<Buffer> {
-  const file = await ctx.api.getFile(fileId);
-  if (!file.file_path) throw new Error("Telegram did not provide an image download path.");
-  const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram image download failed: ${response.status}`);
-  const length = Number(response.headers.get("content-length") ?? "0");
-  if (length > MAX_IMAGE_BYTES) throw new Error("That image is larger than 10 MB.");
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_IMAGE_BYTES) throw new Error("That image is larger than 10 MB.");
-  return buffer;
+/** Downloads an image for local OCR through the shared Telegram download, keeping the 10 MB cap. */
+async function downloadTelegramImage(token: string, fileId: string): Promise<Buffer> {
+  try {
+    return (await downloadTelegramFile(token, fileId, { maxBytes: MAX_IMAGE_BYTES })).bytes;
+  } catch (error) {
+    if (error instanceof TelegramFileError && error.reason === "too_large") throw new Error("That image is larger than 10 MB.");
+    throw error;
+  }
 }
 
 function formatImagePreview(text: string, confidence: number, saved = false): string {

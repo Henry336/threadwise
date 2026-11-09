@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardUserNotFoundError, getDashboardSnapshot } from "./snapshot";
 import { settings } from "../test/builders";
 
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  calendarConnectionStatus: vi.fn(async () => undefined),
+}));
+
 const mocks = {
   userFindUnique: vi.fn(),
   taskFindMany: vi.fn(),
@@ -113,7 +118,9 @@ describe("dashboard snapshot", () => {
       timezone: "Asia/Singapore"
     });
     expect(snapshot.tasks[0]).toMatchObject({ publicId: "TASK-1", title: "Ship dashboard", pinned: true });
-    expect(snapshot.expenses[0]?.total).toBe(14.9);
+    // The snapshot uses the same mappers as the item routes, so both shapes match.
+    expect(snapshot.notes[0]).toMatchObject({ publicId: "NOTE-1", pinned: false });
+    expect(snapshot.expenses[0]).toMatchObject({ total: 14.9, merchant: "NUS Co-op" });
     expect(snapshot.settings).toMatchObject({ quietHoursStart: "03:00", quietHoursEnd: "06:00" });
     expect(snapshot.activity.reduce((total, day) => total + day.captures, 0)).toBe(5);
     expect(snapshot.activity.reduce((total, day) => total + day.completed, 0)).toBe(1);

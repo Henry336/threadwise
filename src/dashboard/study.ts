@@ -68,9 +68,10 @@ import {
 } from "../services/studyTransit";
 import type { DashboardWorkspaceScope } from "./workspaces";
 import { dateOnly } from "./schemas";
+import { saveRevisionedDraft } from "./noteDrafts";
+import { downloadTelegramFile, TelegramFileError, type TelegramFile } from "../services/telegramFiles";
 
 const MAX_STUDY_FILE_BYTES = 20_000_000;
-const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_INLINE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
@@ -753,8 +754,6 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
   return result.resource;
 }
 
-const STUDY_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
-
 export type DashboardStudyNoteDraft = Pick<
   StudyNoteDraft,
   | "id"
@@ -811,52 +810,42 @@ export async function saveDashboardStudyNoteDraft(
       throw new StudyModeError("The saved note changed before this draft started. Reload it before continuing.", "conflict");
     }
   }
-  await purgeExpiredStudyNoteDrafts(workspace);
-  const expiresAt = new Date(Date.now() + STUDY_NOTE_DRAFT_TTL_MS);
-  const existing = await prisma.studyNoteDraft.findUnique({
-    where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } },
+  const saved = await saveRevisionedDraft({
+    expectedRevision: input.expectedRevision,
+    find: () => prisma.studyNoteDraft.findUnique({ where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } } }),
+    purgeExpired: () => purgeExpiredStudyNoteDrafts(workspace),
+    create: (expiresAt) => prisma.studyNoteDraft.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        draftKey,
+        resourceId,
+        resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+      },
+    }),
+    bump: (existing, expiresAt) => prisma.studyNoteDraft.updateMany({
+      where: {
+        id: existing.id,
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        revision: input.expectedRevision,
+      },
+      data: {
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+        revision: { increment: 1 },
+      },
+    }),
+    reload: (id) => prisma.studyNoteDraft.findUniqueOrThrow({ where: { id } }),
+    conflict: () => new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict"),
   });
-  if (!existing) {
-    if (input.expectedRevision !== 0) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-    try {
-      const created = await prisma.studyNoteDraft.create({
-        data: {
-          workspaceId: workspace.id,
-          ownerUserId: workspace.ownerUserId,
-          draftKey,
-          resourceId,
-          resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
-          moduleId: input.moduleId ?? null,
-          title: input.title,
-          body: input.body,
-          expiresAt,
-        },
-      });
-      return dashboardStudyNoteDraft(created)!;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-      }
-      throw error;
-    }
-  }
-  const updated = await prisma.studyNoteDraft.updateMany({
-    where: {
-      id: existing.id,
-      workspaceId: workspace.id,
-      ownerUserId: workspace.ownerUserId,
-      revision: input.expectedRevision,
-    },
-    data: {
-      moduleId: input.moduleId ?? null,
-      title: input.title,
-      body: input.body,
-      expiresAt,
-      revision: { increment: 1 },
-    },
-  });
-  if (updated.count !== 1) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-  return dashboardStudyNoteDraft(await prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } }))!;
+  return dashboardStudyNoteDraft(saved)!;
 }
 
 export async function deleteDashboardStudyNoteDraft(workspace: StudyWorkspace, draftId: string) {
@@ -922,59 +911,31 @@ export async function archiveDashboardStudyResource(workspace: StudyWorkspace, r
   return archiveStudyResource(workspace, resourceId);
 }
 
+/**
+ * Loads one Study resource's original file from Telegram for the dashboard, telling a removed
+ * original (404) apart from a temporary Telegram failure, and picks a content type it can trust.
+ */
 export async function loadDashboardStudyResourceContent(
   workspace: StudyWorkspace,
   resourceId: string,
   botToken: string | undefined,
-  fetcher: typeof fetch = fetch,
   resourceLoader: typeof findStudyResource = findStudyResource,
 ) {
   if (!botToken) throw new StudyModeError("This file is temporarily unavailable.", "invalid");
   const resource = await resourceLoader(workspace.id, resourceId);
   if (!resource.telegramFileId) throw new StudyModeError("This resource has no stored Telegram file.", "not_found");
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let metadata: Response;
-    try {
-      metadata = await fetcher(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(resource.telegramFileId)}`, {
-        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-      });
-    } catch {
-      if (attempt === 0) continue;
-      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-    }
-    if (metadata.status === 400 || metadata.status === 404) {
-      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
-    }
-    if (!metadata.ok) {
-      if (attempt === 0) continue;
-      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-    }
-    const payload = await metadata.json() as { ok?: boolean; result?: { file_path?: string } };
-    const filePath = payload.ok ? payload.result?.file_path : undefined;
-    if (!filePath || filePath.includes("..") || filePath.startsWith("/")) {
-      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
-    }
-    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-    try {
-      response = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
-        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-      });
-    } catch {
-      response = undefined;
-    }
-    if (response?.ok) break;
-    // Telegram download paths are short-lived. Resolve a fresh path once before failing.
-    if (attempt === 0 && (!response || response.status === 404 || response.status === 410 || response.status >= 500)) continue;
+  let file: TelegramFile;
+  try {
+    file = await downloadTelegramFile(botToken, resource.telegramFileId, { maxBytes: MAX_STUDY_FILE_BYTES });
+  } catch (error) {
+    const reason = error instanceof TelegramFileError ? error.reason : "temporary";
+    if (reason === "unavailable") throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
+    if (reason === "too_large") throw new StudyModeError("This file is too large to open here.", "invalid");
     throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
   }
-  if (!response?.ok) throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
+  const bytes = new Uint8Array(file.bytes);
   const detectedType = detectImageMime(bytes);
-  const upstreamType = safeMime(response.headers.get("content-type"));
+  const upstreamType = safeMime(file.contentType);
   const storedType = safeMime(resource.mimeType);
   const contentType = detectedType
     || (upstreamType && upstreamType !== "application/octet-stream" ? upstreamType : undefined)

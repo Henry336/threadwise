@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   SharedRateLimitExceededError,
   consumeSharedRateLimit,
@@ -9,39 +9,24 @@ import {
 } from "./sharedRateLimit";
 
 describe("shared HTTP rate limiter", () => {
-  it("uses atomic shared buckets and stores only a principal fingerprint", async () => {
-    const database = rateLimitDatabase(1);
-
-    await consumeSharedRateLimit({
-      principalKey: "dashboard:123456789",
-      routeClass: "dashboard:write",
-      limit: 90,
-    }, database as never, new Date("2026-08-18T05:00:10.000Z"));
-
-    expect(database.sharedRateLimitBucket.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        bucketKey: expect.stringMatching(/^[a-f0-9]{64}$/),
-        principalFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
-        routeClass: "dashboard:write",
-        requestCount: 1,
-      }),
-      update: { requestCount: { increment: 1 }, expiresAt: expect.any(Date) },
-      select: { requestCount: true },
-    }));
-    expect(JSON.stringify(database.sharedRateLimitBucket.upsert.mock.calls)).not.toContain("123456789");
-  });
-
-  it("returns a bounded retry interval after an atomic bucket exceeds its budget", async () => {
-    const database = rateLimitDatabase(91);
-
-    await expect(consumeSharedRateLimit({
-      principalKey: "dashboard:123456789",
-      routeClass: "dashboard:write",
-      limit: 90,
-    }, database as never, new Date("2026-08-18T05:00:10.000Z"))).rejects.toMatchObject({
+  it("counts requests per principal and route class inside one fixed window", async () => {
+    const now = new Date("2026-08-18T05:00:10.000Z");
+    const input = { principalKey: "dashboard:111", routeClass: "dashboard:write", limit: 2 };
+    await consumeSharedRateLimit(input, now);
+    await consumeSharedRateLimit(input, now);
+    // Another principal and another route class have their own budgets.
+    await consumeSharedRateLimit({ ...input, principalKey: "dashboard:222" }, now);
+    await consumeSharedRateLimit({ ...input, routeClass: "dashboard:read" }, now);
+    await expect(consumeSharedRateLimit(input, now)).rejects.toMatchObject({
       name: "SharedRateLimitExceededError",
       retryAfterSeconds: 50,
     });
+    // The next window starts a fresh count.
+    await expect(consumeSharedRateLimit(input, new Date("2026-08-18T05:01:00.000Z"))).resolves.toBeUndefined();
+  });
+
+  it("rejects invalid budgets before counting", async () => {
+    await expect(consumeSharedRateLimit({ principalKey: "x", routeClass: "y", limit: 0 })).rejects.toThrow(/between 1 and 100000/);
   });
 
   it("assigns tighter shared budgets to expensive and streaming dashboard routes", () => {
@@ -56,9 +41,10 @@ describe("shared HTTP rate limiter", () => {
     expect(telegramActorId(update)).toBe("987654321");
     expect(telegramActorId({ update_id: 987654321 })).toBeUndefined();
 
-    const database = rateLimitDatabase(1);
-    await limitTelegramWebhookRequest(update, "threadwise", database as never);
-    expect(JSON.stringify(database.sharedRateLimitBucket.upsert.mock.calls)).not.toContain("987654321");
+    const now = new Date("2026-08-18T06:00:00.000Z");
+    for (let count = 0; count < 180; count += 1) await limitTelegramWebhookRequest(update, "threadwise", now);
+    await expect(limitTelegramWebhookRequest(update, "threadwise", now)).rejects.toBeInstanceOf(SharedRateLimitExceededError);
+    await expect(limitTelegramWebhookRequest(update, "beacon", now)).resolves.toBeUndefined();
   });
 
   it("classifies remaining server ingress without storing raw paths", () => {
@@ -72,11 +58,3 @@ describe("shared HTTP rate limiter", () => {
   });
 });
 
-function rateLimitDatabase(requestCount: number) {
-  return {
-    sharedRateLimitBucket: {
-      upsert: vi.fn().mockResolvedValue({ requestCount }),
-      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-    },
-  };
-}

@@ -1,11 +1,7 @@
-import { createHash } from "node:crypto";
-import { prisma } from "../db/prisma";
 import type { DashboardPrincipal } from "../dashboard/auth";
 
 const RATE_WINDOW_SECONDS = 60;
 const MAX_ROUTE_CLASS_LENGTH = 96;
-
-type RateLimitDatabase = Pick<typeof prisma, "sharedRateLimitBucket">;
 
 export type SharedRateLimitInput = {
   principalKey: string;
@@ -21,9 +17,20 @@ export class SharedRateLimitExceededError extends Error {
   }
 }
 
+// shortcut: in-memory counters only work with one instance; move back to Postgres if Render scales out
+// (the SharedRateLimitBucket table and model are kept for that).
+const buckets = new Map<string, { count: number; expiresAt: number }>();
+let nextPruneAt = 0;
+
+/**
+ * Counts one request against a fixed-window budget for one principal and route class, and
+ * throws SharedRateLimitExceededError (with a Retry-After) once the window's limit is passed.
+ * The counters used to be a Postgres upsert on every Telegram update, dashboard call and worker
+ * poll; Threadwise runs as one process, so a Map gives the same limits with no database write.
+ * Expired windows are pruned at most once a minute, inline, so memory stays bounded.
+ */
 export async function consumeSharedRateLimit(
   input: SharedRateLimitInput,
-  database: RateLimitDatabase = prisma,
   now = new Date(),
 ): Promise<void> {
   const windowSeconds = input.windowSeconds ?? RATE_WINDOW_SECONDS;
@@ -34,47 +41,30 @@ export async function consumeSharedRateLimit(
     throw new Error("Rate-limit window must be between 1 and 3600 seconds.");
   }
 
-  const windowMs = windowSeconds * 1_000;
-  const windowStartedAt = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
-  const expiresAt = new Date(windowStartedAt.getTime() + windowMs * 2);
-  const routeClass = input.routeClass.slice(0, MAX_ROUTE_CLASS_LENGTH);
-  const principalFingerprint = digest(input.principalKey);
-  const bucketKey = digest(`${principalFingerprint}\0${routeClass}\0${windowStartedAt.toISOString()}`);
-  const bucket = await database.sharedRateLimitBucket.upsert({
-    where: { bucketKey },
-    create: {
-      bucketKey,
-      principalFingerprint,
-      routeClass,
-      windowStartedAt,
-      requestCount: 1,
-      expiresAt,
-    },
-    update: {
-      requestCount: { increment: 1 },
-      expiresAt,
-    },
-    select: { requestCount: true },
-  });
-
-  if ((Number.parseInt(bucketKey.slice(0, 2), 16) & 31) === 0) {
-    await database.sharedRateLimitBucket
-      .deleteMany({ where: { expiresAt: { lte: now } } })
-      .catch(() => undefined);
+  const nowMs = now.getTime();
+  if (nowMs >= nextPruneAt) {
+    for (const [key, bucket] of buckets) if (bucket.expiresAt <= nowMs) buckets.delete(key);
+    nextPruneAt = nowMs + 60_000;
   }
-  if (bucket.requestCount > input.limit) {
-    const retryAfterSeconds = Math.max(1, Math.ceil(
-      (windowStartedAt.getTime() + windowMs - now.getTime()) / 1_000,
-    ));
+  const windowMs = windowSeconds * 1_000;
+  const windowStartedAt = Math.floor(nowMs / windowMs) * windowMs;
+  const routeClass = input.routeClass.slice(0, MAX_ROUTE_CLASS_LENGTH);
+  const bucketKey = `${input.principalKey}\0${routeClass}\0${windowStartedAt}`;
+  const bucket = buckets.get(bucketKey) ?? { count: 0, expiresAt: windowStartedAt + windowMs };
+  bucket.count += 1;
+  buckets.set(bucketKey, bucket);
+
+  if (bucket.count > input.limit) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((windowStartedAt + windowMs - nowMs) / 1_000));
     throw new SharedRateLimitExceededError(retryAfterSeconds);
   }
 }
 
+/** Applies the dashboard budget for this route class to the signed-in Telegram user. */
 export async function limitDashboardRequest(
   principal: DashboardPrincipal,
   method: string,
   operation: string,
-  database: RateLimitDatabase = prisma,
   now = new Date(),
 ): Promise<void> {
   const policy = dashboardRateLimitPolicy(method, operation);
@@ -82,7 +72,7 @@ export async function limitDashboardRequest(
     principalKey: `dashboard:${principal.telegramId}`,
     routeClass: policy.routeClass,
     limit: policy.limit,
-  }, database, now);
+  }, now);
 }
 
 export function dashboardRateLimitPolicy(method: string, operation: string): {
@@ -99,10 +89,10 @@ export function dashboardRateLimitPolicy(method: string, operation: string): {
   return { routeClass: "dashboard:read", limit: 240 };
 }
 
+/** Applies the per-sender webhook budget, so one chatty Telegram user cannot flood the bot. */
 export async function limitTelegramWebhookRequest(
   update: unknown,
   channel: "threadwise" | "beacon",
-  database: RateLimitDatabase = prisma,
   now = new Date(),
 ): Promise<void> {
   const actor = telegramActorId(update);
@@ -110,7 +100,7 @@ export async function limitTelegramWebhookRequest(
     principalKey: actor ? `telegram:${actor}` : `telegram:unknown:${channel}`,
     routeClass: `telegram-webhook:${channel}`,
     limit: actor ? 180 : 60,
-  }, database, now);
+  }, now);
 }
 
 export function telegramActorId(update: unknown): string | undefined {
@@ -150,8 +140,4 @@ function nested(value: Record<string, unknown>, ...path: string[]): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function digest(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
