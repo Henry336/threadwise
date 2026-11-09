@@ -1,5 +1,14 @@
+/**
+ * Local, deterministic text vectors for search (services/search.ts). Search compares the
+ * query vector with each item's vector, so it works without calling OpenAI and costs no API quota.
+ */
+
 import { splitWords } from "./text";
 
+/**
+ * Cosine similarity of two equal-length vectors, between -1 and 1. Returns 0 for empty,
+ * mismatched or all-zero vectors instead of NaN.
+ */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) {
     return 0;
@@ -24,6 +33,10 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+/**
+ * Turns text into a normalized bag-of-words vector by hashing each word into one of
+ * `dimensions` buckets. The same text always gives the same vector, so no stored embeddings are needed.
+ */
 export function deterministicEmbedding(text: string, dimensions = 128): number[] {
   const vector = new Array<number>(dimensions).fill(0);
   for (const word of splitWords(text)) {
@@ -39,6 +52,9 @@ export function deterministicEmbedding(text: string, dimensions = 128): number[]
   return vector.map((value) => value / magnitude);
 }
 
+/**
+ * FNV-1a string hash, used to place a word in a vector bucket.
+ */
 function stableHash(value: string): number {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {

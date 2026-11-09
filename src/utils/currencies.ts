@@ -1,3 +1,8 @@
+/**
+ * Currency names and detection. Used by the frozen Expenses feature (services/expenses.ts)
+ * and by settings/users to pick a default currency for a new user.
+ */
+
 const CURRENCY_ALIASES: Record<string, string> = {
   "singapore dollar": "SGD",
   "singapore dollars": "SGD",
@@ -54,6 +59,10 @@ const CURRENCY_ALIASES: Record<string, string> = {
 
 export const COMMON_CURRENCIES = [...new Set(Object.values(CURRENCY_ALIASES))].sort();
 
+/**
+ * Converts a currency name, symbol alias or ISO code ("kyats", "rm", "sgd") into its ISO code.
+ * Unknown three-letter codes are accepted only if the runtime knows them.
+ */
 export function normalizeCurrency(value: string): string | undefined {
   const normalized = value.trim().toLowerCase().replace(/[.,]$/g, "").replace(/\s+/g, " ");
   const alias = CURRENCY_ALIASES[normalized];
@@ -67,6 +76,10 @@ export function normalizeCurrency(value: string): string | undefined {
   return supportedValuesOf?.("currency").includes(isoCode) ? isoCode : undefined;
 }
 
+/**
+ * Guesses the currency used in a piece of text from codes, names and symbols. A bare "$" keeps
+ * the user's default when that is a dollar currency, otherwise it is read as USD.
+ */
 export function detectCurrency(text: string, fallbackCurrency = "SGD"): string {
   const fallback = normalizeCurrency(fallbackCurrency) ?? "SGD";
   const explicitPatterns: Array<[RegExp, string]> = [
@@ -102,6 +115,9 @@ export function detectCurrency(text: string, fallbackCurrency = "SGD"): string {
   return fallback;
 }
 
+/**
+ * Default currency for a new user, guessed from their timezone. Falls back to SGD.
+ */
 export function defaultCurrencyForTimezone(timezone: string): string {
   const exact: Record<string, string> = {
     "Asia/Singapore": "SGD",
