@@ -48,7 +48,7 @@ import { parseDueDate } from "../utils/dates";
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):(.+)$/, async (ctx) => handleLegacyTaskAssignmentAction(ctx, ctx.match[2]));
   bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
+  bot.callbackQuery(/^task:done:([^:]+)(?::(\d+))?$/, async (ctx) => handleTaskDone(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]));
@@ -644,7 +644,8 @@ async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
   }
 }
 
-async function handleTaskDone(ctx: Context, taskId: string | undefined) {
+async function handleTaskDone(ctx: Context, taskId: string | undefined, dueSeconds: string | undefined) {
+  const dueDate = dueSeconds ? new Date(Number(dueSeconds) * 1000) : undefined;
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
@@ -655,7 +656,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
       return;
     }
   }
-  const completion = await completeTask(user.id, taskId);
+  const completion = await completeTask(user.id, taskId, dueDate);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
     await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });

@@ -221,18 +221,23 @@ export async function listOpenTasks(userId: string, take?: number): Promise<Task
   return sortTasksForDisplay(tasks);
 }
 
-export async function completeTask(userId: string, reference: string) {
+export async function completeTask(userId: string, reference: string, expectedDueAt?: Date) {
   const task = await findTaskReference(userId, reference);
   if (task.status === TaskStatus.DONE) {
     return { task, alreadyCompleted: true as const };
   }
   if (task.recurrenceRule && task.dueAt) {
-    const nextDueAt = nextRecurringDueAt(task.dueAt, task.recurrenceRule, task.timezone ?? "UTC", new Date(), task.recurrenceDayOfMonth);
-    const updated = await prisma.$transaction(async (tx) => {
-      await recordTaskStateUndo(tx, userId, task, "complete-task");
-      await cancelPendingTaskReminderSchedules(tx, task.id);
-      return tx.task.update({
-        where: { id: task.id },
+    const dueAt = task.dueAt;
+    if (dueAt.getTime() !== expectedDueAt?.getTime()) {
+      return { task, alreadyCompleted: true as const };
+    }
+
+    const nextDueAt = nextRecurringDueAt(dueAt, task.recurrenceRule, task.timezone ?? "UTC", new Date(), task.recurrenceDayOfMonth);
+    
+    return prisma.$transaction(async (tx) => {
+      
+      const changed = await tx.task.updateMany({
+        where: { id: task.id, userId, dueAt },
         data: {
           status: TaskStatus.OPEN,
           completedAt: new Date(),
@@ -250,8 +255,17 @@ export async function completeTask(userId: string, reference: string) {
           })
         }
       });
+
+      const current = await tx.task.findUniqueOrThrow({ where: { id: task.id }});
+      if (changed.count === 0) {
+        return { task: current, alreadyCompleted: true as const };
+      }
+
+      await recordTaskStateUndo(tx, userId, task, "complete-task");
+      await cancelPendingTaskReminderSchedules(tx, task.id);
+
+      return { task: current, alreadyCompleted: false as const };
     });
-    return { task: updated, alreadyCompleted: false as const };
   }
 
   return prisma.$transaction(async (tx) => {

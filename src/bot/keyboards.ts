@@ -346,8 +346,9 @@ export function taskActionsKeyboard(
   includeFullReminder = false
 ): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
+  const dueTime = typeof task === "string" ? task: task.dueAt;
   const keyboard = new InlineKeyboard()
-    .text("✅ Done", `task:done:${taskId}`)
+    .text("✅ Done", `task:done:${taskId}:${dueTime}`)
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row();
   keyboard.webApp(includeFullReminder ? "View task ↗" : "Manage task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }));
@@ -357,6 +358,7 @@ export function taskActionsKeyboard(
 
 export function groupTaskActionsKeyboard(
   taskId: string,
+  dueTime: string,
   audience: GroupTaskAudience,
   workspaceId: string,
   expanded = false,
@@ -368,7 +370,7 @@ export function groupTaskActionsKeyboard(
     return keyboard;
   }
   if (audience === "everyone" || audience === "assignee" || audience === "manager") {
-    keyboard.text("Done", `task:done:${taskId}`).text("Snooze", `task:snooze:${taskId}`).row();
+    keyboard.text("Done", `task:done:${taskId}:${dueTime}`).text("Snooze", `task:snooze:${taskId}`).row();
   }
   if (!expanded) {
     keyboard.text("View", `task:view-full:${taskId}`);
@@ -381,11 +383,12 @@ export function groupTaskActionsKeyboard(
 
 export function reminderActionsKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
+  const dueTime = typeof task === "string" ? task: task.dueAt;
   // Reminder destinations can be either a private chat or a group. Telegram
   // rejects Mini App (`web_app`) buttons outside private chats with
   // BUTTON_TYPE_INVALID, so reminder cards must use a normal HTTPS link.
   const keyboard = new InlineKeyboard()
-    .text("✅ Done", `task:done:${taskId}`)
+    .text("✅ Done", `task:done:${taskId}:${dueTime}`)
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row()
     .url("View task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }))
