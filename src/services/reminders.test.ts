@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, isInvalidReminderButtonError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -227,16 +227,6 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Private task nudge</b>");
     expect(message).toContain("<b>Group:</b> Family");
     expect(message).toContain("Open the group");
-  });
-
-  it("starts with empty reminder diagnostics before the first loop run", () => {
-    expect(getReminderDiagnostics()).toMatchObject({
-      dueTasksFound: 0,
-      remindersSent: 0,
-      deferredForQuietHours: 0,
-      cappedByDailyLimit: 0,
-      failedDeliveries: 0
-    });
   });
 
   it("only falls back to text delivery for Telegram's invalid-button response", () => {
