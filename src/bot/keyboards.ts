@@ -339,6 +339,19 @@ export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | 
   return new InlineKeyboard().text(label ?? `‹ ${fallback}`, `menu:${mode}`);
 }
 
+/**
+ * Builds the callback data for a task's Done button: `task:done:<id>` or `task:done:<id>:<due ms>`.
+ *
+ * The due time tells `completeTask` which occurrence the card was showing, so a second tap
+ * or a tap on an old card cannot move a recurring task past an occurrence it never showed.
+ * Undated tasks (and callers that only have the id) get the short form.
+ * Telegram rejects callback data over 64 bytes; a UUID id plus 13 digits is 60.
+ */
+export function taskDoneCallbackData(task: TaskActionTarget): string {
+  if (typeof task === "string") return `task:done:${task}`;
+  return task.dueAt ? `task:done:${task.id}:${task.dueAt.getTime()}` : `task:done:${task.id}`;
+}
+
 export function taskActionsKeyboard(
   task: TaskActionTarget,
   includeBack = true,
@@ -346,9 +359,8 @@ export function taskActionsKeyboard(
   includeFullReminder = false
 ): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
-  const dueTime = typeof task === "string" ? task: task.dueAt;
   const keyboard = new InlineKeyboard()
-    .text("✅ Done", `task:done:${taskId}:${dueTime}`)
+    .text("✅ Done", taskDoneCallbackData(task))
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row();
   keyboard.webApp(includeFullReminder ? "View task ↗" : "Manage task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }));
@@ -357,20 +369,20 @@ export function taskActionsKeyboard(
 }
 
 export function groupTaskActionsKeyboard(
-  taskId: string,
-  dueTime: string,
+  task: TaskActionTarget,
   audience: GroupTaskAudience,
   workspaceId: string,
   expanded = false,
   backCallback = "menu:tasks",
 ): InlineKeyboard {
+  const taskId = typeof task === "string" ? task : task.id;
   const keyboard = new InlineKeyboard();
   if (audience === "unassigned") {
     keyboard.text("Claim", `task:claim:${taskId}`).text("View", `task:view-full:${taskId}`);
     return keyboard;
   }
   if (audience === "everyone" || audience === "assignee" || audience === "manager") {
-    keyboard.text("Done", `task:done:${taskId}:${dueTime}`).text("Snooze", `task:snooze:${taskId}`).row();
+    keyboard.text("Done", taskDoneCallbackData(task)).text("Snooze", `task:snooze:${taskId}`).row();
   }
   if (!expanded) {
     keyboard.text("View", `task:view-full:${taskId}`);
@@ -383,12 +395,11 @@ export function groupTaskActionsKeyboard(
 
 export function reminderActionsKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
-  const dueTime = typeof task === "string" ? task: task.dueAt;
   // Reminder destinations can be either a private chat or a group. Telegram
   // rejects Mini App (`web_app`) buttons outside private chats with
   // BUTTON_TYPE_INVALID, so reminder cards must use a normal HTTPS link.
   const keyboard = new InlineKeyboard()
-    .text("✅ Done", `task:done:${taskId}:${dueTime}`)
+    .text("✅ Done", taskDoneCallbackData(task))
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row()
     .url("View task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }))

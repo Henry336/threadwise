@@ -644,8 +644,12 @@ async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
   }
 }
 
-async function handleTaskDone(ctx: Context, taskId: string | undefined, dueSeconds: string | undefined) {
-  const dueDate = dueSeconds ? new Date(Number(dueSeconds) * 1000) : undefined;
+/**
+ * Handles a Done button tap (`task:done:<id>` or `task:done:<id>:<due ms>`).
+ * `dueMs` is the due time the card showed; older cards don't carry it.
+ */
+async function handleTaskDone(ctx: Context, taskId: string | undefined, dueMs: string | undefined) {
+  const shownDueAt = dueMs ? new Date(Number(dueMs)) : undefined;
   if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
@@ -656,7 +660,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined, dueSecon
       return;
     }
   }
-  const completion = await completeTask(user.id, taskId, dueDate);
+  const completion = await completeTask(user.id, taskId, shownDueAt);
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
     await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
@@ -1185,7 +1189,7 @@ async function groupTaskKeyboardForContext(
   const actor = collaborationActorFromContext(ctx);
   const access = await getGroupTaskAccess(ownerUserId, taskReference, actor, await isGroupManager(ctx));
   return groupTaskActionsKeyboard(
-    access.task.id,
+    access.task,
     access.audience as GroupTaskAudience,
     access.workspaceId,
     expanded,

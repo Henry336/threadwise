@@ -588,7 +588,7 @@ async function groupTaskKeyboardForCommand(ctx: Context, ownerUserId: string, ta
     collaborationActorFromContext(ctx),
     await isGroupManager(ctx),
   );
-  return groupTaskActionsKeyboard(access.task.id, access.audience, access.workspaceId, true, "menu:tasks");
+  return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
 function assigneeDmSetupLine(ctx: Context): string {

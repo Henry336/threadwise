@@ -906,7 +906,7 @@ async function groupTaskKeyboardForNaturalCommand(ctx: Context, ownerUserId: str
     collaborationActorFromContext(ctx),
     await isGroupManager(ctx),
   );
-  return groupTaskActionsKeyboard(access.task.id, access.audience, access.workspaceId, true, "menu:tasks");
+  return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
 async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId: string, reference: string) {
