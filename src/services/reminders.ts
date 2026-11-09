@@ -182,113 +182,21 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         now
       });
 
-      if (
-        !isDueNudgeReminder &&
-        isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })
-      ) {
-        run.deferredForQuietHours += 1;
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { nextReminderAt: nextQuietEnd(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd }) }
-        });
-        continue;
-      }
-
-      const remindersToday = await countReminderMessagesToday(task.userId, now, settings.timezone);
-
-      if (!isDueNudgeReminder && remindersToday >= settings.maxRemindersPerDay) {
-        run.cappedByDailyLimit += 1;
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { nextReminderAt: new Date(now.getTime() + settings.reminderIntervalMinutes * 60_000) }
-        });
-        continue;
-      }
-
-      const chatId = settings.reminderChatId ?? task.user.telegramId;
-      const message = formatReminderMessage(task, settings);
-      const previousReminder = await prisma.reminderDelivery.findFirst({
-        where: {
-          taskId: task.id,
-          chatId,
-          messageId: { not: null }
+      await deliverReminder(bot, run, {
+        kind: "reminder",
+        tasks: [task],
+        settings,
+        now,
+        text: formatReminderMessage(task, settings),
+        keyboard: reminderActionsKeyboard(task),
+        limits: isDueNudgeReminder ? undefined : {
+          countEachTask: false,
+          retryCappedAt: () => nextIntervalReminderAt(now, settings.reminderIntervalMinutes),
         },
-        orderBy: { sentAt: "desc" },
-        select: { chatId: true, messageId: true }
+        replacesPrevious: true,
+        record: (sent) => automaticReminderWrites([task], settings, now, sent),
+        onFailure: () => retryTasksLater([task], now),
       });
-
-      try {
-        let delivery;
-        try {
-          delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, {
-            ...HTML_REPLY,
-            reply_markup: reminderActionsKeyboard(task)
-          });
-        } catch (error) {
-          if (!isInvalidReminderButtonError(error)) throw error;
-          // A malformed or context-incompatible action must not turn a due
-          // reminder into an unbounded retry loop. Preserve the reminder text
-          // and advance its schedule even if Telegram rejects the keyboard.
-          logger.warn("Reminder actions were rejected; delivering without buttons.", { taskId: task.id });
-          delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, message, HTML_REPLY);
-        }
-        const sentMessage = delivery.message;
-        const deliveredChatId = delivery.chatId;
-
-        const nextSchedule = nextTaskScheduleAfterDelivery({
-          now,
-          dueAt: task.dueAt,
-          dueNudgeMinutes: settings.dueNudgeMinutes,
-          intervalMinutes: settings.reminderIntervalMinutes,
-          automaticReminderCount: task.automaticReminderCount,
-          automaticReminderBudget: task.automaticReminderBudget,
-        });
-
-        await prisma.$transaction([
-          prisma.reminderDelivery.create({
-            data: {
-              userId: task.userId,
-              taskId: task.id,
-              chatId: deliveredChatId,
-              messageId: String(sentMessage.message_id)
-            }
-          }),
-          prisma.task.update({
-            where: { id: task.id },
-            data: {
-              lastRemindedAt: now,
-              reminderCount: { increment: 1 },
-              automaticReminderCount: { increment: 1 },
-              reminderIntervalMinutes: settings.reminderIntervalMinutes,
-              ...nextSchedule
-            }
-          })
-        ]);
-
-        run.remindersSent += 1;
-        await deleteSupersededReminderMessage(
-          bot,
-          previousReminder ? { ...previousReminder, chatId: deliveredChatId } : null,
-          sentMessage.message_id,
-          task.publicId
-        );
-        try {
-          const direct = await sendDirectAssigneeNudges(bot, task);
-          run.directNudgesSent += direct.sent;
-          run.directNudgesSkipped += direct.skipped;
-          run.directNudgeFailures += direct.failed;
-        } catch (error) {
-          run.directNudgeFailures += Math.max(1, task.assignees.length);
-          logger.warn("Could not finish private assignee nudges after the group reminder was delivered.", { taskId: task.id, error: String(error) });
-        }
-      } catch (error) {
-        run.failedDeliveries += 1;
-        logger.error("Failed to send reminder.", { taskId: task.id, error: String(error) });
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { nextReminderAt: new Date(now.getTime() + 15 * 60_000) }
-        });
-      }
     }
 
     try {
@@ -316,6 +224,11 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
   }
 }
 
+/**
+ * Delivers claimed custom reminder times (exact times the owner picked). Each schedule is
+ * delivered at most once through its delivery key. Returns the ids of tasks reminded here so
+ * the automatic pass does not remind them again in the same run.
+ */
 async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: ReminderDiagnostics): Promise<Set<string>> {
   const claimed = await claimDueTaskReminderSchedules(now);
   const deliveredTaskIds = new Set<string>();
@@ -346,224 +259,110 @@ async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: Reminder
       continue;
     }
 
-    const chatId = settings.reminderChatId ?? task.user.telegramId.replace(/^chat:/, "");
-    const previousReminder = await prisma.reminderDelivery.findFirst({
-      where: { taskId: task.id, chatId, messageId: { not: null } },
-      orderBy: { sentAt: "desc" },
-      select: { chatId: true, messageId: true },
+    const delivered = await deliverReminder(bot, run, {
+      kind: "custom reminder",
+      tasks: [task],
+      settings,
+      now,
+      text: formatReminderMessage(task, settings),
+      keyboard: reminderActionsKeyboard(task),
+      // The owner chose this exact time, so quiet hours and the daily cap do not apply.
+      limits: undefined,
+      replacesPrevious: true,
+      record: (sent) => {
+        const sentAt = new Date();
+        return [
+          prisma.reminderDelivery.create({
+            data: { userId: task.userId, taskId: task.id, chatId: sent.chatId, messageId: sent.messageId, deliveryKey, sentAt },
+          }),
+          prisma.taskReminderSchedule.update({
+            where: { id: schedule.id },
+            data: { status: TaskReminderScheduleStatus.SENT, deliveredAt: sentAt, leaseExpiresAt: null, lastError: null },
+          }),
+          prisma.task.update({
+            where: { id: task.id },
+            data: {
+              lastRemindedAt: sentAt,
+              reminderCount: { increment: 1 },
+              ...nextTaskScheduleAfterDelivery({
+                now: sentAt,
+                dueAt: task.dueAt,
+                dueNudgeMinutes: settings.dueNudgeMinutes,
+                intervalMinutes: settings.reminderIntervalMinutes,
+              }),
+            },
+          }),
+        ];
+      },
+      onFailure: (error) => releaseTaskReminderSchedule(schedule.id, error),
     });
-
-    try {
-      const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatReminderMessage(task, settings), {
-        ...HTML_REPLY,
-        reply_markup: reminderActionsKeyboard(task),
-      });
-      const sentAt = new Date();
-      await prisma.$transaction([
-        prisma.reminderDelivery.create({
-          data: {
-            userId: task.userId,
-            taskId: task.id,
-            chatId: delivery.chatId,
-            messageId: String(delivery.message.message_id),
-            deliveryKey,
-            sentAt,
-          },
-        }),
-        prisma.taskReminderSchedule.update({
-          where: { id: schedule.id },
-          data: {
-            status: TaskReminderScheduleStatus.SENT,
-            deliveredAt: sentAt,
-            leaseExpiresAt: null,
-            lastError: null,
-          },
-        }),
-        prisma.task.update({
-          where: { id: task.id },
-          data: {
-            lastRemindedAt: sentAt,
-            reminderCount: { increment: 1 },
-            ...nextTaskScheduleAfterDelivery({
-              now: sentAt,
-              dueAt: task.dueAt,
-              dueNudgeMinutes: settings.dueNudgeMinutes,
-              intervalMinutes: settings.reminderIntervalMinutes,
-            }),
-          },
-        }),
-      ]);
+    if (delivered) {
       deliveredTaskIds.add(task.id);
-      run.remindersSent += 1;
       run.customRemindersSent = (run.customRemindersSent ?? 0) + 1;
-      await deleteSupersededReminderMessage(
-        bot,
-        previousReminder ? { ...previousReminder, chatId: delivery.chatId } : null,
-        delivery.message.message_id,
-        task.publicId,
-      );
-      try {
-        const direct = await sendDirectAssigneeNudges(bot, task);
-        run.directNudgesSent += direct.sent;
-        run.directNudgesSkipped += direct.skipped;
-        run.directNudgeFailures += direct.failed;
-      } catch (error) {
-        run.directNudgeFailures += Math.max(1, task.assignees.length);
-        logger.warn("Could not finish private assignee nudges after a custom reminder.", { taskId: task.id, error: String(error) });
-      }
-    } catch (error) {
-      run.failedDeliveries += 1;
-      await releaseTaskReminderSchedule(schedule.id, error);
-      logger.error("Failed to send a custom task reminder.", { taskId: task.id, scheduleId: schedule.id, error: String(error) });
     }
   }
 
   return deliveredTaskIds;
 }
 
+/** Sends one digest for a DIGEST-mode owner's due tasks; a task in its due-nudge window lifts the limits. */
 async function sendReminderDigestBatch(
   bot: Bot,
   tasks: ReminderTask[],
   now: Date,
   run: ReminderDiagnostics,
 ): Promise<void> {
-  const first = tasks[0];
-  const settings = first?.user.settings;
-  if (!first || !settings) return;
-  const taskIds = tasks.map((task) => task.id);
-  const bypassQuiet = tasks.some((task) => shouldUseDueNudgePolicy({
+  const settings = tasks[0]?.user.settings;
+  if (!settings) return;
+  const bypassLimits = tasks.some((task) => shouldUseDueNudgePolicy({
     dueAt: task.dueAt,
     nextReminderAt: task.nextReminderAt,
     dueNudgeMinutes: settings.dueNudgeMinutes,
     now,
   }));
-  if (!bypassQuiet && isWithinQuietHours(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd })) {
-    run.deferredForQuietHours += 1;
-    await prisma.task.updateMany({
-      where: { id: { in: taskIds } },
-      data: { nextReminderAt: nextQuietEnd(now, { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd }) },
-    });
-    return;
-  }
-  if (!bypassQuiet && await countReminderMessagesToday(first.userId, now, settings.timezone) >= settings.maxRemindersPerDay) {
-    run.cappedByDailyLimit += 1;
-    await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { nextReminderAt: nextIntervalReminderAt(now, 60) } });
-    return;
-  }
-  const chatId = (settings.reminderChatId ?? first.user.telegramId).replace(/^chat:/, "");
-  try {
-    const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatReminderDigest(tasks, settings.timezone), {
-      ...HTML_REPLY,
-      reply_markup: reminderDigestKeyboard(tasks),
-    });
-    const deliveredChatId = delivery.chatId;
-    const messageId = String(delivery.message.message_id);
-    await prisma.$transaction(tasks.flatMap((task) => [
-      prisma.reminderDelivery.create({ data: { userId: task.userId, taskId: task.id, chatId: deliveredChatId, messageId } }),
-      prisma.task.update({
-        where: { id: task.id },
-        data: {
-          lastRemindedAt: now,
-          reminderCount: { increment: 1 },
-          automaticReminderCount: { increment: 1 },
-          reminderIntervalMinutes: settings.reminderIntervalMinutes,
-          ...nextTaskScheduleAfterDelivery({
-            now,
-            dueAt: task.dueAt,
-            dueNudgeMinutes: settings.dueNudgeMinutes,
-            intervalMinutes: settings.reminderIntervalMinutes,
-            automaticReminderCount: task.automaticReminderCount,
-            automaticReminderBudget: task.automaticReminderBudget,
-          }),
-        },
-      }),
-    ]));
-    run.remindersSent += 1;
-    for (const task of tasks) {
-      try {
-        const direct = await sendDirectAssigneeNudges(bot, task);
-        run.directNudgesSent += direct.sent;
-        run.directNudgesSkipped += direct.skipped;
-        run.directNudgeFailures += direct.failed;
-      } catch (error) {
-        run.directNudgeFailures += Math.max(1, task.assignees.length);
-        logger.warn("Could not finish private assignee nudges after a reminder digest.", { taskId: task.id, error: String(error) });
-      }
-    }
-  } catch (error) {
-    run.failedDeliveries += 1;
-    logger.error("Failed to send reminder digest.", { userId: first.userId, taskIds, error: String(error) });
-    await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { nextReminderAt: nextIntervalReminderAt(now, 15) } });
-  }
+  await deliverReminder(bot, run, {
+    kind: "reminder digest",
+    tasks,
+    settings,
+    now,
+    text: formatReminderDigest(tasks, settings.timezone),
+    keyboard: reminderDigestKeyboard(tasks),
+    limits: bypassLimits ? undefined : { countEachTask: false, retryCappedAt: () => nextIntervalReminderAt(now, 60) },
+    replacesPrevious: false,
+    record: (sent) => automaticReminderWrites(tasks, settings, now, sent),
+    onFailure: () => retryTasksLater(tasks, now),
+  });
 }
 
+/** Sends one follow-up for a group's undated tasks, slowing to daily once they have been ignored three times. */
 async function sendGroupUndatedReminderBatch(
   bot: Bot,
   tasks: ReminderTask[],
   now: Date,
   run: ReminderDiagnostics
 ): Promise<void> {
-  const first = tasks[0];
-  const settings = first?.user.settings;
-  if (!first || !settings) {
+  const settings = tasks[0]?.user.settings;
+  if (!settings) {
     run.skippedMissingSettings += tasks.length;
     return;
   }
 
-  const taskIds = tasks.map((task) => task.id);
-  if (isWithinQuietHours(now, {
-    timezone: settings.timezone,
-    start: settings.quietHoursStart,
-    end: settings.quietHoursEnd
-  })) {
-    run.deferredForQuietHours += tasks.length;
-    await prisma.task.updateMany({
-      where: { id: { in: taskIds } },
-      data: {
-        nextReminderAt: nextQuietEnd(now, {
-          timezone: settings.timezone,
-          start: settings.quietHoursStart,
-          end: settings.quietHoursEnd
-        })
-      }
-    });
-    return;
-  }
-
-  const remindersToday = await countReminderMessagesToday(first.userId, now, settings.timezone);
-  if (remindersToday >= settings.maxRemindersPerDay) {
-    run.cappedByDailyLimit += tasks.length;
-    await Promise.all(tasks.map((task) => prisma.task.update({
-      where: { id: task.id },
-      data: {
-        nextReminderAt: nextIntervalReminderAt(
-          now,
-          nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, task.undatedNudgeCount)
-        )
-      }
-    })));
-    return;
-  }
-
-  const chatId = settings.reminderChatId ?? first.user.telegramId.replace(/^chat:/, "");
-  const previousReminders = (await Promise.all(tasks.map((task) =>
-    prisma.reminderDelivery.findFirst({
-      where: { taskId: task.id, chatId, messageId: { not: null } },
-      orderBy: { sentAt: "desc" },
-      select: { chatId: true, messageId: true }
-    })
-  ))).filter((reminder): reminder is { chatId: string; messageId: string } => Boolean(reminder?.messageId));
-
-  try {
-    const delivery = await sendMessageWithChatMigrationRecovery(bot, chatId, formatGroupUndatedReminderDigest(tasks), {
-      ...HTML_REPLY,
-      reply_markup: groupUndatedReminderKeyboard(tasks)
-    });
-    const sentMessage = delivery.message;
-    const deliveredChatId = delivery.chatId;
-    const messageId = String(sentMessage.message_id);
-
-    await prisma.$transaction(tasks.flatMap((task) => {
+  await deliverReminder(bot, run, {
+    kind: "undated group reminder digest",
+    tasks,
+    settings,
+    now,
+    text: formatGroupUndatedReminderDigest(tasks),
+    keyboard: groupUndatedReminderKeyboard(tasks),
+    limits: {
+      countEachTask: true,
+      retryCappedAt: (task) => nextIntervalReminderAt(
+        now,
+        nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, task.undatedNudgeCount)
+      ),
+    },
+    replacesPrevious: true,
+    record: (sent) => tasks.flatMap((task) => {
       const nextCount = task.undatedNudgeCount + 1;
       const nextInterval = nextUndatedGroupReminderInterval(settings.reminderIntervalMinutes, nextCount);
       const automaticCount = task.automaticReminderCount + 1;
@@ -572,7 +371,7 @@ async function sendGroupUndatedReminderBatch(
         : nextIntervalReminderAt(now, nextInterval);
       return [
         prisma.reminderDelivery.create({
-          data: { userId: task.userId, taskId: task.id, chatId: deliveredChatId, messageId }
+          data: { userId: task.userId, taskId: task.id, chatId: sent.chatId, messageId: sent.messageId }
         }),
         prisma.task.update({
           where: { id: task.id },
@@ -586,16 +385,99 @@ async function sendGroupUndatedReminderBatch(
           }
         })
       ];
-    }));
+    }),
+    onFailure: () => retryTasksLater(tasks, now),
+  });
+}
 
+type ReminderSettings = NonNullable<ReminderTask["user"]["settings"]>;
+
+/** One reminder message and the rules for sending it, supplied by each reminder kind. */
+type ReminderDelivery = {
+  /** Names the reminder kind in logs. */
+  kind: string;
+  /** The tasks this one message covers; all belong to the same owner. */
+  tasks: ReminderTask[];
+  settings: ReminderSettings;
+  now: Date;
+  text: string;
+  keyboard: InlineKeyboard;
+  /**
+   * Quiet hours and the daily cap. Undefined when they do not apply: an explicit
+   * custom time, or a deadline inside its due-nudge window.
+   */
+  limits?: {
+    /** Count each task (not the message) in the quiet-hours and cap diagnostics. */
+    countEachTask: boolean;
+    /** When a task held back by the daily cap should be tried again. */
+    retryCappedAt: (task: ReminderTask) => Date;
+  };
+  /** Delete the previous reminder message for these tasks once the new one lands. */
+  replacesPrevious: boolean;
+  /** Ledger and task writes committed together once Telegram accepted the message. */
+  record: (sent: { chatId: string; messageId: string }) => Prisma.PrismaPromise<unknown>[];
+  /** Reschedules the work after a failed send. */
+  onFailure: (error: unknown) => Promise<void>;
+};
+
+/**
+ * The one way a task reminder reaches Telegram. Every reminder kind calls it so quiet
+ * hours, the daily cap, the chat lookup, the invalid-button fallback, the ledger write,
+ * superseded-message cleanup and assignee nudges behave the same everywhere.
+ * Returns true when the message was delivered and recorded.
+ */
+async function deliverReminder(bot: Bot, run: ReminderDiagnostics, delivery: ReminderDelivery): Promise<boolean> {
+  const { tasks, settings, now, limits } = delivery;
+  const owner = tasks[0]?.user;
+  if (!owner) return false;
+  const taskIds = tasks.map((task) => task.id);
+  const limitCount = limits?.countEachTask ? tasks.length : 1;
+  const quiet = { timezone: settings.timezone, start: settings.quietHoursStart, end: settings.quietHoursEnd };
+
+  if (limits && isWithinQuietHours(now, quiet)) {
+    run.deferredForQuietHours += limitCount;
+    await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { nextReminderAt: nextQuietEnd(now, quiet) } });
+    return false;
+  }
+  if (limits && await countReminderMessagesToday(owner.id, now, settings.timezone) >= settings.maxRemindersPerDay) {
+    run.cappedByDailyLimit += limitCount;
+    await Promise.all(tasks.map((task) => prisma.task.update({
+      where: { id: task.id },
+      data: { nextReminderAt: limits.retryCappedAt(task) },
+    })));
+    return false;
+  }
+
+  const chatId = (settings.reminderChatId ?? owner.telegramId).replace(/^chat:/, "");
+  const previousReminders = delivery.replacesPrevious
+    ? (await Promise.all(tasks.map((task) => prisma.reminderDelivery.findFirst({
+      where: { taskId: task.id, chatId, messageId: { not: null } },
+      orderBy: { sentAt: "desc" },
+      select: { chatId: true, messageId: true },
+    })))).filter((reminder): reminder is { chatId: string; messageId: string } => Boolean(reminder?.messageId))
+    : [];
+
+  try {
+    let sent;
+    try {
+      sent = await sendMessageWithChatMigrationRecovery(bot, chatId, delivery.text, { ...HTML_REPLY, reply_markup: delivery.keyboard });
+    } catch (error) {
+      if (!isInvalidReminderButtonError(error)) throw error;
+      // A malformed or context-incompatible action must not turn a due
+      // reminder into an unbounded retry loop. Preserve the reminder text
+      // and advance its schedule even if Telegram rejects the keyboard.
+      logger.warn("Reminder actions were rejected; delivering without buttons.", { kind: delivery.kind, taskIds });
+      sent = await sendMessageWithChatMigrationRecovery(bot, chatId, delivery.text, HTML_REPLY);
+    }
+    await prisma.$transaction(delivery.record({ chatId: sent.chatId, messageId: String(sent.message.message_id) }));
     run.remindersSent += 1;
+
     await deleteSupersededReminderMessages(
       bot,
-      previousReminders.map((reminder) => ({ ...reminder, chatId: deliveredChatId })),
-      sentMessage.message_id,
+      previousReminders.map((reminder) => ({ ...reminder, chatId: sent.chatId })),
+      sent.message.message_id,
       tasks.map((task) => task.publicId)
     );
-
     for (const task of tasks) {
       try {
         const direct = await sendDirectAssigneeNudges(bot, task);
@@ -604,24 +486,50 @@ async function sendGroupUndatedReminderBatch(
         run.directNudgeFailures += direct.failed;
       } catch (error) {
         run.directNudgeFailures += Math.max(1, task.assignees.length);
-        logger.warn("Could not finish private assignee nudges after a group reminder digest.", {
-          taskId: task.id,
-          error: String(error)
-        });
+        logger.warn(`Could not finish private assignee nudges after a ${delivery.kind}.`, { taskId: task.id, error: String(error) });
       }
     }
+    return true;
   } catch (error) {
     run.failedDeliveries += 1;
-    logger.error("Failed to send an undated group reminder digest.", {
-      userId: first.userId,
-      taskIds,
-      error: String(error)
-    });
-    await prisma.task.updateMany({
-      where: { id: { in: taskIds } },
-      data: { nextReminderAt: nextIntervalReminderAt(now, 15) }
-    });
+    logger.error(`Failed to send a ${delivery.kind}.`, { userId: owner.id, taskIds, error: String(error) });
+    await delivery.onFailure(error);
+    return false;
   }
+}
+
+/** Ledger and task writes for an automatic (interval, due-nudge or digest) reminder. */
+function automaticReminderWrites(
+  tasks: ReminderTask[],
+  settings: ReminderSettings,
+  now: Date,
+  sent: { chatId: string; messageId: string },
+): Prisma.PrismaPromise<unknown>[] {
+  return tasks.flatMap((task) => [
+    prisma.reminderDelivery.create({ data: { userId: task.userId, taskId: task.id, chatId: sent.chatId, messageId: sent.messageId } }),
+    prisma.task.update({
+      where: { id: task.id },
+      data: {
+        lastRemindedAt: now,
+        reminderCount: { increment: 1 },
+        automaticReminderCount: { increment: 1 },
+        reminderIntervalMinutes: settings.reminderIntervalMinutes,
+        ...nextTaskScheduleAfterDelivery({
+          now,
+          dueAt: task.dueAt,
+          dueNudgeMinutes: settings.dueNudgeMinutes,
+          intervalMinutes: settings.reminderIntervalMinutes,
+          automaticReminderCount: task.automaticReminderCount,
+          automaticReminderBudget: task.automaticReminderBudget,
+        }),
+      },
+    }),
+  ]);
+}
+
+/** Tries the tasks again in 15 minutes after a failed send. */
+async function retryTasksLater(tasks: ReminderTask[], now: Date): Promise<void> {
+  await prisma.task.updateMany({ where: { id: { in: tasks.map((task) => task.id) } }, data: { nextReminderAt: nextIntervalReminderAt(now, 15) } });
 }
 
 async function countReminderMessagesToday(userId: string, now: Date, timezone: string): Promise<number> {
