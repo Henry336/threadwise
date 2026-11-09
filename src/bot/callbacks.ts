@@ -50,45 +50,45 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     text: "Assignments now take effect immediately. Open the task again for its current controls.",
     show_alert: true,
   }));
-  bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:done:([^:]+)(?::(\d+))?$/, async (ctx) => handleTaskDone(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2], ctx.match[1] === "full"));
-  bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2], ctx.match[1] === "remove"));
-  bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
-  bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
-  bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1], ctx.match[2], ctx.match[3]));
-  bot.callbackQuery(/^item:note:page:([^:]+):(\d+)$/, async (ctx) => handleNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^archived-note:page:([^:]+):(\d+)$/, async (ctx) => handleArchivedNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]));
-  bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
-  bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
-  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
-  bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
+  bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:done:([^:]+)(?::(\d+))?$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]!, ctx.match[2]));
+  bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2]!, ctx.match[1] === "full"));
+  bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2]!, ctx.match[1] === "remove"));
+  bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2]!, ctx.match[1] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1]!, ctx.match[3]!, ctx.match[2] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1]!, ctx.match[2]!, ctx.match[3]));
+  bot.callbackQuery(/^item:note:page:([^:]+):(\d+)$/, async (ctx) => handleNoteDetailPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^archived-note:page:([^:]+):(\d+)$/, async (ctx) => handleArchivedNoteDetailPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]!));
+  bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[3]!, ctx.match[2]!));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[2]!, "title"));
+  bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
   bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
   bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
-    await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
+    await handleCapture(ctx, ai, ctx.match[1]!, ctx.match[2]!);
   });
   bot.callbackQuery(/^image:(note|task|reminder|text|discard):(.+)$/, async (ctx) => {
-    await handleImageAction(ctx, ai, ctx.match[1], ctx.match[2]);
+    await handleImageAction(ctx, ai, ctx.match[1]!, ctx.match[2]!);
   });
   // Expenses are frozen; buttons on old expense cards get a clear answer instead of a spinner.
   bot.callbackQuery(/^expense:/, async (ctx) => ctx.answerCallbackQuery({ text: "Expenses are no longer available in Telegram." }));
   bot.callbackQuery(/^bulk:(confirm|cancel):(.+)$/, async (ctx) => {
-    await handleBulkAction(ctx, ctx.match[1], ctx.match[2]);
+    await handleBulkAction(ctx, ctx.match[1]!, ctx.match[2]!);
   });
   bot.callbackQuery(/^list:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
-    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2]);
+    await handleActiveListPage(ctx, ctx.match[1]!, ctx.match[2]!);
   });
   bot.callbackQuery(/^list:choose:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
-    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2], true);
+    await handleActiveListPage(ctx, ctx.match[1]!, ctx.match[2]!, true);
   });
   bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
@@ -97,7 +97,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   });
   bot.callbackQuery(/^stored-image:search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1], "all", true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true);
     await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:choose:(\d+)$/, async (ctx) => {
@@ -107,23 +107,23 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   });
   bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1], "all", true, true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     await ctx.answerCallbackQuery({ text: "Opening image" });
-    await replyStoredImage(ctx, user.id, ctx.match[1] ?? "", true);
+    await replyStoredImage(ctx, user.id, ctx.match[1]!, true);
   });
   bot.callbackQuery(/^stored-image:caption:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const item = await beginPendingItemEdit(user.id, "image", ctx.match[1] ?? "", "caption");
+    const item = await beginPendingItemEdit(user.id, "image", ctx.match[1]!, "caption");
     await ctx.answerCallbackQuery({ text: "Send the new caption" });
     await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
   });
   bot.callbackQuery(/^stored-image:delete:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const image = await findStoredImageById(user.id, ctx.match[1] ?? "");
+    const image = await findStoredImageById(user.id, ctx.match[1]!);
     await ctx.answerCallbackQuery({ text: "Please confirm" });
     await editOrReplyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
       reply_markup: storedImageDeleteKeyboard(image.id)
@@ -136,13 +136,13 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
       await editOrReplyText(ctx, "Kept it. Nothing changed.", { reply_markup: menuBackKeyboard() });
       return;
     }
-    const image = await deleteStoredImage(user.id, ctx.match[2] ?? "");
+    const image = await deleteStoredImage(user.id, ctx.match[2]!);
     await ctx.answerCallbackQuery({ text: "Image deleted" });
     await editOrReplyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`, { reply_markup: menuBackKeyboard() });
   });
-  bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]));
-  bot.callbackQuery(/^integration:(calendar|excel):(.+)$/, async (ctx) => handleIntegrationAction(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
+  bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^integration:(calendar|excel):(.+)$/, async (ctx) => handleIntegrationAction(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]!));
 }
 
 const SETTING_FIELDS = new Set<SettingChoiceField>(["interval", "mode", "quiet", "due-nudge", "max", "timezone", "currency", "ocr", "dm"]);
@@ -159,8 +159,7 @@ const SETTING_PICKER_COPY: Record<SettingChoiceField, { title: string; instructi
   dm: { title: "📩 Private nudges", instruction: "Also DM you when a group task assigned to you is due." }
 };
 
-async function handleSettingCallback(ctx: Context, action: string | undefined) {
-  if (!action) return;
+async function handleSettingCallback(ctx: Context, action: string) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
   if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
@@ -230,8 +229,7 @@ async function handleSettingCallback(ctx: Context, action: string | undefined) {
   await ctx.answerCallbackQuery({ text: "That setting is no longer available." });
 }
 
-async function handleIdeaBrief(ctx: Context, ai: AiProvider, reference: string | undefined) {
-  if (!reference) return;
+async function handleIdeaBrief(ctx: Context, ai: AiProvider, reference: string) {
   const user = await ensureUser(ctx);
   rememberCallbackControlCard(ctx);
   await ctx.answerCallbackQuery({ text: "Analyzing the idea…" });
@@ -276,8 +274,7 @@ function customSettingInput(field: SettingChoiceField): { action: MenuInputActio
   return input ? { ...input, parent: settingParent(field) } : undefined;
 }
 
-async function handleMenu(ctx: Context, action: string | undefined) {
-  if (!action) return;
+async function handleMenu(ctx: Context, action: string) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
   const group = isGroupChat(ctx);
@@ -455,8 +452,8 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
 }
 
-async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined, selecting = false) {
-  if (!isActiveListKind(kindText) || !pageText) return;
+async function handleActiveListPage(ctx: Context, kindText: string, pageText: string, selecting = false) {
+  if (!isActiveListKind(kindText)) return;
   const requestedPage = Number(pageText);
   if (!Number.isInteger(requestedPage) || requestedPage < 1) return;
   const user = await ensureUser(ctx);
@@ -464,8 +461,8 @@ async function handleActiveListPage(ctx: Context, kindText: string | undefined, 
   await ctx.answerCallbackQuery({ text: selecting ? `Choose from page ${page}` : `Page ${page}` });
 }
 
-async function handleBulkAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId || !ctx.from?.id) return;
+async function handleBulkAction(ctx: Context, action: string, pendingId: string) {
+  if (!ctx.from?.id) return;
   const user = await ensureUser(ctx);
   try {
     if (action === "cancel") {
@@ -483,8 +480,7 @@ async function handleBulkAction(ctx: Context, action: string | undefined, pendin
   }
 }
 
-async function handleImageAction(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+async function handleImageAction(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
   const user = await ensureUser(ctx);
   try {
     const pending = await findPendingImageCapture(user.id, pendingId);
@@ -531,8 +527,8 @@ async function replyInChunks(ctx: Context, text: string) {
   }
 }
 
-async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
-  if (!taskId || !isGroupChat(ctx)) return;
+async function handleTaskClaim(ctx: Context, taskId: string) {
+  if (!isGroupChat(ctx)) return;
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await claimGroupTask(user.id, taskId, collaborationActorFromContext(ctx));
@@ -548,9 +544,8 @@ async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
  * Handles a Done button tap (`task:done:<id>` or `task:done:<id>:<due ms>`).
  * `dueMs` is the due time the card showed; older cards don't carry it.
  */
-async function handleTaskDone(ctx: Context, taskId: string | undefined, dueMs: string | undefined) {
+async function handleTaskDone(ctx: Context, taskId: string, dueMs: string | undefined) {
   const shownDueAt = dueMs ? new Date(Number(dueMs)) : undefined;
-  if (!taskId) return;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
@@ -588,8 +583,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined, dueMs: s
   await convergeTaskControlSurface(ctx, user.id, controlSurface.messageId);
 }
 
-async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+async function handleTaskRestore(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const result = await restoreCompletedTask(user.id, taskId);
@@ -607,8 +601,7 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+async function handleTaskSnooze(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
@@ -629,8 +622,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+async function handleTaskReminderDismiss(ctx: Context, taskId: string) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
@@ -647,8 +639,7 @@ async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefine
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleTaskReminderView(ctx: Context, taskId: string | undefined, expanded: boolean) {
-  if (!taskId) return;
+async function handleTaskReminderView(ctx: Context, taskId: string, expanded: boolean) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await findTaskReference(user.id, taskId);
@@ -679,8 +670,7 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
   }
 }
 
-async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+async function handleTaskCalendar(ctx: Context, taskId: string) {
   if (isGroupChat(ctx)) {
     await ctx.answerCallbackQuery({ text: "Calendar connections are private.", show_alert: true });
     return;
@@ -719,8 +709,7 @@ async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
   }
 }
 
-async function handleIntegrationAction(ctx: Context, provider: string | undefined, action: string | undefined) {
-  if (!provider || !action) return;
+async function handleIntegrationAction(ctx: Context, provider: string, action: string) {
   if (isGroupChat(ctx)) {
     await ctx.answerCallbackQuery({ text: "Personal connections are available in private chat.", show_alert: true });
     return;
@@ -787,8 +776,7 @@ async function showCalendarPanel(ctx: Context, userId: string, chatId: string, n
   });
 }
 
-async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+async function handleTaskCancel(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const task = await findTaskReference(user.id, taskId);
@@ -809,8 +797,7 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   );
 }
 
-async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefined, removeEvent: boolean) {
-  if (!taskId) return;
+async function handleTaskCancelConfirmed(ctx: Context, taskId: string, removeEvent: boolean) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const task = await findTaskReference(user.id, taskId);
@@ -835,8 +822,7 @@ async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefine
   );
 }
 
-async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin: boolean) {
-  if (!taskId) return;
+async function handleTaskPin(ctx: Context, taskId: string, shouldPin: boolean) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const item = await pinItem(user.id, taskId, shouldPin);
@@ -846,8 +832,8 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
-  if (!isEditableItemKind(kind) || kind === "image" || !itemId) return;
+async function handleItemPin(ctx: Context, kind: string, itemId: string, shouldPin: boolean) {
+  if (!isEditableItemKind(kind) || kind === "image") return;
   const interactionUser = await ensureUser(ctx);
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
@@ -864,8 +850,8 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
-  if (!isEditableItemKind(kind) || !itemId) return;
+async function handleItemEdit(ctx: Context, kind: string, itemId: string, field: string) {
+  if (!isEditableItemKind(kind)) return;
   const interactionUser = await ensureUser(ctx);
   const taskUser = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
@@ -882,8 +868,7 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
 }
 
-async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
-  if (!noteId) return;
+async function handleNoteArchive(ctx: Context, noteId: string) {
   const user = await ensureUser(ctx);
   await archiveNote(user.id, noteId);
   await ctx.answerCallbackQuery({ text: "Archived note" });
@@ -906,8 +891,7 @@ async function handleEditCancel(ctx: Context) {
   await editOrReplyText(ctx, canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.", { reply_markup: menuBackKeyboard() });
 }
 
-async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
-  if (!pendingId || !pageText) return;
+async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string, pageText: string) {
   const page = Number(pageText);
   if (!Number.isInteger(page) || page < 1) return;
 
@@ -930,8 +914,7 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
   }
 }
 
-async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
   const user = await ensureUser(ctx);
 
   try {
@@ -962,8 +945,8 @@ function isEditableItemKind(kind: string | undefined): kind is EditableItemKind 
   return kind === "task" || kind === "note" || kind === "idea" || kind === "image";
 }
 
-async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: string | undefined, pageText: string | undefined) {
-  if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
+async function handleItemOpen(ctx: Context, kind: string, itemId: string, pageText: string | undefined) {
+  if (!isEditableItemKind(kind) || kind === "image") return;
   const interactionUser = await ensureUser(ctx);
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
@@ -981,8 +964,7 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pageText: string | undefined) {
-  if (!itemId || !pageText) return;
+async function handleNoteDetailPage(ctx: Context, itemId: string, pageText: string) {
   const user = await ensureUser(ctx);
   const requestedPage = Math.max(1, Number(pageText) || 1);
   const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
@@ -1003,10 +985,9 @@ async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pa
 
 async function handleArchivedNoteDetailPage(
   ctx: Context,
-  publicId: string | undefined,
-  pageText: string | undefined
+  publicId: string,
+  pageText: string
 ) {
-  if (!publicId || !pageText) return;
   const user = await ensureUser(ctx);
   const note = await findAnyNote(user.id, publicId);
   const card = buildArchivedNoteCard(note, Number(pageText) || 1);
@@ -1077,8 +1058,8 @@ async function allowGroupTaskAction(
   }
 }
 
-async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
-  const kind = kindText ? parseArchiveKind(kindText) : undefined;
+async function handleArchivedPage(ctx: Context, kindText: string, pageText: string) {
+  const kind = parseArchiveKind(kindText);
   const page = Number(pageText);
   if (!kind || !Number.isInteger(page)) return;
 
@@ -1090,8 +1071,7 @@ async function handleArchivedPage(ctx: Context, kindText: string | undefined, pa
   });
 }
 
-async function handleCapture(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
 
   const user = await ensureUser(ctx);
   if (action === "ignore") {
