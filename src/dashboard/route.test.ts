@@ -81,6 +81,24 @@ describe("dashboard API routes", () => {
       .sign(privateKey);
   }
 
+  // A refactor that moves or drops a route changes this inventory.
+  it("registers the full dashboard route inventory, Study routes included", async () => {
+    const server = Fastify({ exposeHeadRoutes: false });
+    const routes: string[] = [];
+    server.addHook("onRoute", (route) => {
+      routes.push(`${String(route.method)} ${route.url}`);
+    });
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
+    await server.ready();
+
+    expect(routes).toHaveLength(115);
+    expect(new Set(routes).size).toBe(routes.length);
+    expect(server.hasRoute({ method: "GET", url: "/api/v1/dashboard" })).toBe(true);
+    expect(server.hasRoute({ method: "GET", url: "/api/v1/dashboard/study/snapshot" })).toBe(true);
+    expect(routes.filter((route) => route.includes("/api/v1/dashboard/study/"))).toHaveLength(43);
+    await server.close();
+  });
+
   it("returns only the authenticated user's snapshot with non-cacheable headers", async () => {
     const server = Fastify();
     const loadSnapshot = vi.fn(async () => snapshot);
