@@ -2323,7 +2323,7 @@ async function showGroupHome(ctx: Context, group: CommunityGroup, access: Commun
   const fresh = await communityGroupById(group.id) ?? group;
   const username = ctx.me.username;
   const privateControlsUrl = `https://t.me/${username}?start=manage_${fresh.id}`;
-  const text = groupBeaconHomeText(fresh);
+  const text = groupBeaconHomeText();
   const keyboard = groupBeaconHomeKeyboard(access.owner || access.moderator ? privateControlsUrl : undefined);
   if (edit && ctx.callbackQuery) {
     await answerCallback(ctx);
@@ -2333,7 +2333,7 @@ async function showGroupHome(ctx: Context, group: CommunityGroup, access: Commun
   }
 }
 
-async function showMemberHelp(ctx: Context, group: CommunityGroup, edit = false): Promise<void> {
+async function showMemberHelp(ctx: Context, _group: CommunityGroup, edit = false): Promise<void> {
   const text = [
     "<b>Beacon</b>",
     "Community moderation and reporting."

@@ -96,7 +96,7 @@ export function registerTodayInteractions(bot: Bot): void {
     }
     const draft = await reviewTaskCaptureDraft(draftId, scope.capture.principalTelegramId);
     const url = todayDraftDashboardUrl(draft.id, scope.dashboardWorkspace);
-    await editDraftMessage(ctx, formatDraftEditHelp(draft), new InlineKeyboard()
+    await editDraftMessage(ctx, formatDraftEditHelp(), new InlineKeyboard()
       .url("Open detailed editor", url)
       .row()
       .text("Back to review", `td:review:${draft.id}`));
@@ -348,7 +348,7 @@ export function formatAddMoreCapturePrompt(): string {
 }
 
 /** Help text for editing a draft by plain replies, with a link to the detailed dashboard editor. */
-function formatDraftEditHelp(draft: TaskCaptureDraftRecord): string {
+function formatDraftEditHelp(): string {
   return [bold("What should I change?"), "", "Reply naturally, for example:", `• Move task 3 to Saturday`, `• Give task 2 a Friday deadline`, `• Remove task 4`, "", `The detailed editor also supports titles, exact dates, Study modules, and inclusion.`].join("\n");
 }
 

@@ -1054,7 +1054,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
 }
 
 /** Up to 50 open items of active modules, soonest due first (undated last). */
-export async function upcomingStudyItems(workspaceId: string, now = new Date()) {
+export async function upcomingStudyItems(workspaceId: string) {
   return prisma.studyItem.findMany({
     where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
     include: { module: true },

@@ -14,7 +14,6 @@ import {
   VoiceTranscriptionStatus,
   type VoiceTranscriptionJob
 } from "@prisma/client";
-import type { Api } from "grammy";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
@@ -196,7 +195,6 @@ export function isVoiceLeaseClaimable(status: VoiceTranscriptionStatus, leaseExp
  */
 export async function processVoiceTranscription(
   jobId: string,
-  api: Api,
   botToken: string,
   providerFactory: () => VoiceProvider = () => new OpenAiVoiceProvider()
 ): Promise<void> {
@@ -260,7 +258,6 @@ export async function transcribeWithValidation(
 
 /** Recovery loop body: processes the oldest pending or lease-expired job, one per call. */
 export async function processRecoverableVoiceTranscriptions(
-  api: Api,
   botToken: string
 ): Promise<void> {
   const now = new Date();
@@ -273,7 +270,7 @@ export async function processRecoverableVoiceTranscriptions(
     },
     orderBy: { createdAt: "asc" }
   });
-  if (job) await processVoiceTranscription(job.id, api, botToken);
+  if (job) await processVoiceTranscription(job.id, botToken);
 }
 
 /**

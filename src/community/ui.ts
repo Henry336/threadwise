@@ -53,7 +53,7 @@ export function privateBeaconHomeKeyboard(access: CommunityAccess, reviewCount: 
   return keyboard;
 }
 
-export function groupBeaconHomeText(group: CommunityGroup): string {
+export function groupBeaconHomeText(): string {
   return [
     "<b>Beacon</b>",
     "Community moderation and reporting."
