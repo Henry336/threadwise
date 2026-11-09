@@ -1,3 +1,9 @@
+/**
+ * Production AI provider using the OpenAI chat API in JSON mode. Each method sends one prompt,
+ * then validates the reply with a zod schema through parseModelJson, so malformed model output
+ * falls back to a safe default instead of reaching the database.
+ */
+
 import OpenAI from "openai";
 import { env } from "../config/env";
 import { z } from "zod";
@@ -69,6 +75,10 @@ const ideaScoreSchema = z.object({
   donts: textList
 });
 
+/**
+ * OpenAI-backed `AiProvider`. Remembers the last success and last error in memory so the admin
+ * status endpoint can show them. The client can be injected, which tests use to avoid real calls.
+ */
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAiClient;
   private readonly model = env.OPENAI_MODEL;
@@ -90,6 +100,9 @@ export class OpenAiProvider implements AiProvider {
     };
   }
 
+  /**
+   * Sends one tiny JSON request to confirm the key and model work. Used by the admin status endpoint.
+   */
   async checkHealth(): Promise<AiProviderHealthCheck> {
     const checkedAt = new Date().toISOString();
     try {
@@ -113,6 +126,10 @@ export class OpenAiProvider implements AiProvider {
     }
   }
 
+  /**
+   * Asks the model to suggest idea, task, note or noise. Falls back to "noise" with medium
+   * confidence when the reply cannot be parsed.
+   */
   async classifyMessage(text: string): Promise<Classification> {
     const content = await this.jsonCompletion(
       "Classify a Telegram message for a private productivity and notekeeping bot. Return JSON only.",
@@ -126,6 +143,10 @@ export class OpenAiProvider implements AiProvider {
     });
   }
 
+  /**
+   * Turns rough idea text into a title, concept, problem, target user and type. Tags are always
+   * empty because visible tags were retired across the product.
+   */
   async structureIdea(text: string): Promise<StructuredIdea> {
     const content = await this.jsonCompletion(
       "Structure rough software, product, or workflow ideas into concise portfolio-ready records. Return JSON only.",
@@ -139,6 +160,9 @@ export class OpenAiProvider implements AiProvider {
     return { ...structured, tags: [] };
   }
 
+  /**
+   * Extracts a task title, description and due-date phrase. Falls back to the raw text as the title.
+   */
   async structureTask(text: string): Promise<StructuredTask> {
     const content = await this.jsonCompletion(
       "Extract a task from a rough Telegram message. Return JSON only.",
@@ -151,6 +175,10 @@ export class OpenAiProvider implements AiProvider {
     });
   }
 
+  /**
+   * Cleans a long or messy note into title, body and one-sentence summary while keeping specifics.
+   * services/notes.ts only calls this for notes that shouldUseAiForNoteStructure flags as complex.
+   */
   async structureNote(text: string): Promise<StructuredNote> {
     const content = await this.jsonCompletion(
       "Clean a rough personal note into a readable, recallable note without losing important details. Preserve specifics, names, numbers, dates, caveats, and source wording when useful. Return JSON only.",
@@ -165,6 +193,11 @@ export class OpenAiProvider implements AiProvider {
     return { ...structured, tags: [] };
   }
 
+  /**
+   * Drafts one merged note from several source notes for the preview-and-confirm merge flow.
+   * `attempt` and `previousPreview` let "Try again" ask for stronger connections and a check for
+   * dropped details. Nothing is saved here; the merge only happens when the user confirms.
+   */
   async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
     const content = await this.jsonCompletion(
       "Merge rough personal notes into one clearer, more useful note. Return JSON only. Preserve facts, names, dates, caveats, and useful wording. Do not invent details.",
@@ -190,6 +223,9 @@ export class OpenAiProvider implements AiProvider {
     return { ...preview, tags: [] };
   }
 
+  /**
+   * Gives feedback on the user's note-keeping style based on their saved notes.
+   */
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
     const content = await this.jsonCompletion(
       "Analyze a user's notekeeping style from their saved notes. Be direct, practical, and specific. Return JSON only.",
@@ -205,6 +241,10 @@ export class OpenAiProvider implements AiProvider {
     });
   }
 
+  /**
+   * Scores an idea on seven 1-10 axes plus short advice. Every score goes through clampScore, so
+   * the stored numbers are always in range.
+   */
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     const content = await this.jsonCompletion(
       "Score a product idea for a solo builder portfolio. Use heuristic market knowledge only; do not claim live research. Return JSON only.",
@@ -264,6 +304,10 @@ export class OpenAiProvider implements AiProvider {
   }
 }
 
+/**
+ * Merge preview used when the model reply is unusable: the source notes joined in order, so no
+ * content is lost.
+ */
 function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {
   const title = notes.length === 1 ? notes[0]?.title ?? "Merged Note" : `Merged Notes: ${notes.map((note) => note.publicId).join(", ")}`;
   const body = notes.map((note) => `${note.title}\n${note.body}`).join("\n\n");

@@ -1,3 +1,7 @@
+/**
+ * Helpers for reading structured replies from a language model safely.
+ */
+
 import type { z } from "zod";
 import { logger } from "../logger";
 
@@ -29,6 +33,10 @@ export function parseModelJson<T>(text: string, schema: z.ZodType<T>, fallback: 
   return parsed.data;
 }
 
+/**
+ * Turns any model value into a whole score from 1 to 10. Non-numbers become 5, the middle,
+ * so a sloppy reply cannot produce an out-of-range or missing score.
+ */
 export function clampScore(value: unknown): number {
   const numberValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numberValue)) {
