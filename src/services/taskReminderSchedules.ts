@@ -16,8 +16,7 @@ export const REMINDER_RETRY_CEILING_MINUTES = 6 * 60;
 
 /**
  * Minutes to wait after failed attempt number `attempt` (1-based): the Study Calendar backoff of
- * 2, 4, 8, 16, 32, then every six hours. Transient failures never stop a reminder; only a
- * permanent Telegram refusal does.
+ * 2, 4, 8, 16, 32, then every six hours. No failure stops a reminder for good.
  */
 export function reminderRetryDelayMinutes(attempt: number): number {
   return attempt >= MAX_REMINDER_DELIVERY_ATTEMPTS ? REMINDER_RETRY_CEILING_MINUTES : Math.min(60, 2 ** attempt);
@@ -185,8 +184,8 @@ export async function claimDueTaskReminderSchedules(now = new Date(), limit = 50
 /**
  * Hands a claimed schedule back after a failed delivery. It is held (still PROCESSING) until the
  * backoff lease expires and is then claimed again, slowing to every six hours once the backoff is
- * used up. Only an error no retry can fix cancels it, so a chat that removed the bot is not
- * retried forever while a Telegram outage cannot lose the reminder.
+ * used up. A refusal (the user blocked the bot, the bot lost posting rights) goes straight to the
+ * six-hour retry: it is cheap, and the reminder resumes on its own once the user unblocks the bot.
  */
 export async function releaseTaskReminderSchedule(
   schedule: { id: string; attemptCount: number },
@@ -196,13 +195,11 @@ export async function releaseTaskReminderSchedule(
   const lastError = String(error).slice(0, 1_000);
   await prisma.taskReminderSchedule.update({
     where: { id: schedule.id },
-    data: permanent
-      ? { status: TaskReminderScheduleStatus.CANCELED, leaseExpiresAt: null, lastError }
-      : {
-        status: TaskReminderScheduleStatus.PROCESSING,
-        leaseExpiresAt: new Date(Date.now() + reminderRetryDelayMinutes(schedule.attemptCount) * 60_000),
-        lastError,
-      },
+    data: {
+      status: TaskReminderScheduleStatus.PROCESSING,
+      leaseExpiresAt: new Date(Date.now() + (permanent ? REMINDER_RETRY_CEILING_MINUTES : reminderRetryDelayMinutes(schedule.attemptCount)) * 60_000),
+      lastError,
+    },
   });
 }
 

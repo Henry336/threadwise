@@ -606,7 +606,7 @@ describe("failed deliveries", () => {
     expect(task.nextReminderAt).toEqual(minutes(new Date(), 2));
   });
 
-  it("stops at once when the bot was removed from the group", async () => {
+  it("drops to the six-hour retry when the bot was removed from the group, so reminders resume once it is back", async () => {
     at(DAY);
     const group = user("chat:-1001");
     const tasks = [addTask(group), addTask(group)];
@@ -616,7 +616,7 @@ describe("failed deliveries", () => {
     const run = await runReminderPass(bot, "manual");
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(tasks.map((task) => task.nextReminderAt)).toEqual([null, null]);
+    expect(tasks.map((task) => task.nextReminderAt)).toEqual([minutes(DAY, 360), minutes(DAY, 360)]);
     expect(tasks.map((task) => task.undatedNudgeCount)).toEqual([0, 0]);
     expect(run.failedDeliveries).toBe(1);
   });
@@ -661,7 +661,7 @@ describe("failed deliveries", () => {
     expect(schedule).toMatchObject({ status: "SENT", attemptCount: 7 });
   });
 
-  it("cancels a custom reminder at once when the bot was removed", async () => {
+  it("slows a custom reminder to the six-hour retry when the bot was removed, so it can resume", async () => {
     at(DAY);
     const schedule = addSchedule(addTask(user("chat:-1001"), { nextReminderAt: null }));
     const { bot, sendMessage } = fakeBot();
@@ -669,7 +669,7 @@ describe("failed deliveries", () => {
 
     await runReminderPass(bot, "manual");
 
-    expect(schedule).toMatchObject({ status: "CANCELED", attemptCount: 1 });
+    expect(schedule).toMatchObject({ status: "PROCESSING", leaseExpiresAt: minutes(DAY, 360), attemptCount: 1 });
   });
 });
 

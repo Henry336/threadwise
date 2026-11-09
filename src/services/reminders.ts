@@ -17,7 +17,7 @@ import type { TaskAssigneeInfo } from "./tasks";
 import { runStudyReminderPass } from "./studyReminders";
 import { runPendingStudyCalendarSyncs } from "./studyCalendar";
 import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
-import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule, reminderRetryDelayMinutes } from "./taskReminderSchedules";
+import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule, REMINDER_RETRY_CEILING_MINUTES, reminderRetryDelayMinutes } from "./taskReminderSchedules";
 import { startLoop, type StopLoop } from "../utils/loop";
 
 type ReminderTask = Prisma.TaskGetPayload<{
@@ -536,23 +536,19 @@ const failedTaskAttempts = new Map<string, number>();
 
 /**
  * Reschedules tasks after a failed send: the Study Calendar backoff, then every six hours, so a
- * Telegram or network outage delays reminders but never silences them. Only a permanent refusal
- * (the bot was removed or the chat is gone) stops the automatic cycle (nextReminderAt null);
- * editing or snoozing the task restarts it.
+ * Telegram or network outage delays reminders but never silences them. A refusal (blocked bot,
+ * lost posting rights) skips straight to the six-hour retry, so reminders resume by themselves
+ * once the user unblocks the bot or an admin restores its rights.
  */
 async function retryTasksLater(tasks: ReminderTask[], now: Date, error: unknown): Promise<void> {
   const permanent = isPermanentTelegramDeliveryError(error);
   await Promise.all(tasks.map((task) => {
     const attempt = (failedTaskAttempts.get(task.id) ?? 0) + 1;
-    if (permanent) {
-      failedTaskAttempts.delete(task.id);
-      logger.warn("Stopped reminders that Telegram permanently refused.", { taskId: task.id, attempt });
-    } else {
-      failedTaskAttempts.set(task.id, attempt);
-    }
+    failedTaskAttempts.set(task.id, attempt);
+    if (permanent) logger.warn("Telegram refused a reminder; retrying in six hours.", { taskId: task.id, attempt });
     return prisma.task.update({
       where: { id: task.id },
-      data: { nextReminderAt: permanent ? null : nextIntervalReminderAt(now, reminderRetryDelayMinutes(attempt)) },
+      data: { nextReminderAt: nextIntervalReminderAt(now, permanent ? REMINDER_RETRY_CEILING_MINUTES : reminderRetryDelayMinutes(attempt)) },
     });
   }));
 }
