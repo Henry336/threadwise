@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_BOT_ERROR_MESSAGE, errorLogMetadata, respondToUnhandledBotError, userFacingError } from "./errorResponses";
+import { DEFAULT_BOT_ERROR_MESSAGE, errorLogMetadata, isNotFoundError, respondToUnhandledBotError, userFacingError } from "./errorResponses";
 
 describe("Telegram error responses", () => {
   it("turns Prisma record failures into a useful recovery message", () => {
@@ -74,5 +74,14 @@ describe("Telegram error responses", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(77, DEFAULT_BOT_ERROR_MESSAGE);
     expect(reply).not.toHaveBeenCalled();
+  });
+});
+
+describe("isNotFoundError", () => {
+  it("accepts missing records and stale list numbers but not outages", () => {
+    expect(isNotFoundError(Object.assign(new Error("No record was found for a query."), { code: "P2025" }))).toBe(true);
+    expect(isNotFoundError(new Error("No recent note numbered 4. Run /notes to see the current list."))).toBe(true);
+    expect(isNotFoundError(Object.assign(new Error("Can't reach database server"), { code: "P1001" }))).toBe(false);
+    expect(isNotFoundError(new Error("socket hang up"))).toBe(false);
   });
 });

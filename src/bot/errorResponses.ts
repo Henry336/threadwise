@@ -44,6 +44,17 @@ export function userFacingError(error: unknown, fallback = DEFAULT_BOT_ERROR_MES
   return safeFallback;
 }
 
+/**
+ * True when a lookup failed because the record does not exist, so a handler may answer
+ * "couldn't find that" and let every other failure (outages, bugs) reach bot.catch and the log.
+ * Covers Prisma's P2025 from *OrThrow and the services' stale-list-number refusals.
+ */
+export function isNotFoundError(error: unknown): boolean {
+  const { code, message } = errorDetails(error);
+  // shortcut: the services throw plain Errors for stale list numbers; match their wording until they get a typed error.
+  return code === "P2025" || /^No (?:recent|open|saved) (?:task|note|idea|image) numbered \d+\./.test(message ?? "");
+}
+
 export async function respondToUnhandledBotError(ctx: Context, error: unknown): Promise<void> {
   const message = userFacingError(error);
 

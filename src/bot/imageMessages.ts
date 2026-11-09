@@ -12,7 +12,7 @@ import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./gr
 import { editCancelKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
-import { userFacingError } from "./errorResponses";
+import { isNotFoundError, userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import {
   beginImageUploadBatchCaption,
@@ -42,6 +42,7 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     try {
       await handleIncomingImageAction(ctx, ai, token, ctx.match[1], ctx.match[2]);
     } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.answerCallbackQuery({ text: "This image choice expired or is no longer available.", show_alert: true });
     }
   });
@@ -49,6 +50,7 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     try {
       await handleImageBatchAction(ctx, ctx.match[1], ctx.match[2]);
     } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.answerCallbackQuery({ text: "This image album was already handled or expired.", show_alert: true });
     }
   });

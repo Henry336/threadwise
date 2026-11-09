@@ -48,7 +48,7 @@ import { findStoredImageReference, updateStoredImageCaption } from "../services/
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { userFacingError } from "./errorResponses";
+import { isNotFoundError, userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { prisma } from "../db/prisma";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
@@ -182,7 +182,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
   if (storedImageMatch?.[1]) {
     try {
       await replyStoredImage(ctx, user.id, normalizePublicId(storedImageMatch[1]));
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
     }
     return true;
@@ -193,7 +194,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
     try {
       const image = await updateStoredImageCaption(user.id, normalizePublicId(imageCaptionMatch[1]), imageCaptionMatch[2]);
       await replyHtml(ctx, `${bold("✅ Caption updated")} ${code(image.publicId)} ${h(image.caption ?? imageCaptionMatch[2])}\n${code("/undo")} restores the previous caption.`, { reply_markup: undoKeyboard("↩️ Undo caption") });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
     }
     return true;
@@ -204,7 +206,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
     try {
       const image = await findStoredImageReference(user.id, normalizePublicId(imageDeleteMatch[1]));
       await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
     }
     return true;
@@ -318,13 +321,15 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
         workspace?.id,
       );
       await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       try {
         const card = buildArchivedNoteCard(
           await findAnyNote(user.id, normalizePublicId(viewNoteMatch[1]))
         );
         await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
-      } catch {
+      } catch (archivedError) {
+        if (!isNotFoundError(archivedError)) throw archivedError;
         await ctx.reply("I couldn't find that note. Show notes will list the recent ones.");
       }
     }
@@ -337,7 +342,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
       await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
     return true;
@@ -357,7 +363,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
       const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
       await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
     return true;
@@ -376,7 +383,8 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
             quietHoursEnd: user.settings.quietHoursEnd
           }
         : undefined), { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForNaturalCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that task. tasks will show the current list.");
     }
     return true;
