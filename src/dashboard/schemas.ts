@@ -6,7 +6,8 @@ const trimmed = (maximum: number) => z.string().trim().min(1).max(maximum);
 const optionalNullableText = (maximum: number) => z.string().trim().max(maximum).nullable().optional();
 const dateTime = z.string().datetime({ offset: true });
 const nullableDateTime = dateTime.nullable();
-const dateOnly = z.string()
+/** A real YYYY-MM-DD calendar date: "2026-02-31" is rejected here (400), not later as a 500. */
+export const dateOnly = z.string()
   .regex(/^20\d{2}-\d{2}-\d{2}$/, "Use a date such as 2026-08-31.")
   .refine((value) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
