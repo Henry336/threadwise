@@ -221,6 +221,14 @@ export async function listOpenTasks(userId: string, take?: number): Promise<Task
   return sortTasksForDisplay(tasks);
 }
 
+/**
+ * Marks a task done. Returns `alreadyCompleted: true` when nothing changed.
+ *
+ * One-off tasks become DONE. Recurring tasks stay OPEN and move to their next occurrence.
+ * `expectedDueAt` is the due time the user saw (from a Done button). If the task has
+ * already moved past it, the tap is stale and nothing changes. Text commands and older
+ * buttons pass nothing and complete whatever occurrence is current.
+ */
 export async function completeTask(userId: string, reference: string, expectedDueAt?: Date) {
   const task = await findTaskReference(userId, reference);
   if (task.status === TaskStatus.DONE) {
@@ -228,14 +236,13 @@ export async function completeTask(userId: string, reference: string, expectedDu
   }
   if (task.recurrenceRule && task.dueAt) {
     const dueAt = task.dueAt;
-    if (dueAt.getTime() !== expectedDueAt?.getTime()) {
+    if (expectedDueAt && dueAt.getTime() !== expectedDueAt.getTime()) {
       return { task, alreadyCompleted: true as const };
     }
 
     const nextDueAt = nextRecurringDueAt(dueAt, task.recurrenceRule, task.timezone ?? "UTC", new Date(), task.recurrenceDayOfMonth);
-    
     return prisma.$transaction(async (tx) => {
-      
+      // Matching on dueAt makes a simultaneous double tap advance only once.
       const changed = await tx.task.updateMany({
         where: { id: task.id, userId, dueAt },
         data: {
@@ -256,14 +263,12 @@ export async function completeTask(userId: string, reference: string, expectedDu
         }
       });
 
-      const current = await tx.task.findUniqueOrThrow({ where: { id: task.id }});
+      const current = await tx.task.findUniqueOrThrow({ where: { id: task.id } });
       if (changed.count === 0) {
         return { task: current, alreadyCompleted: true as const };
       }
-
       await recordTaskStateUndo(tx, userId, task, "complete-task");
       await cancelPendingTaskReminderSchedules(tx, task.id);
-
       return { task: current, alreadyCompleted: false as const };
     });
   }
