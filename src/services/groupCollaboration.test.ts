@@ -1,5 +1,6 @@
 import { GroupActivityType, TaskAssigneeStatus, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+import { fakePrisma } from "../test/builders";
 import {
   handoffTaskAssignment,
   setTaskAssignmentStatus,
@@ -49,10 +50,7 @@ describe("group collaboration", () => {
       groupWorkspace: { findUnique: vi.fn(async () => ({ id: "workspace-1" })) },
       groupActivity: { create: activityCreate },
     };
-    const database = {
-      task: { findFirst: vi.fn(async () => task) },
-      $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => work(tx)),
-    } as unknown as PrismaClient;
+    const database = fakePrisma({ task: { findFirst: vi.fn(async () => task) } }, tx) as unknown as PrismaClient;
 
     const result = await setTaskAssignmentStatus(
       "group-owner-1",
@@ -126,10 +124,7 @@ describe("group collaboration", () => {
       groupWorkspace: { findUnique: vi.fn(async () => ({ id: "workspace-1" })) },
       groupActivity: { create: activityCreate },
     };
-    const database = {
-      task: { findFirst: vi.fn(async () => task) },
-      $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => work(tx)),
-    } as unknown as PrismaClient;
+    const database = fakePrisma({ task: { findFirst: vi.fn(async () => task) } }, tx) as unknown as PrismaClient;
 
     const result = await handoffTaskAssignment(
       "group-owner-1",

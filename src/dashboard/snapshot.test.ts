@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardUserNotFoundError, getDashboardSnapshot } from "./snapshot";
+import { settings } from "../test/builders";
 
 const mocks = {
   userFindUnique: vi.fn(),
@@ -35,20 +36,7 @@ describe("dashboard snapshot", () => {
       username: "henry",
       firstName: "Henry",
       lastName: "Derek",
-      settings: {
-        timezone: "Asia/Singapore",
-        reminderIntervalMinutes: 180,
-        quietHoursStart: "3:00",
-        quietHoursEnd: "6:00",
-        maxRemindersPerDay: 200,
-        dueNudgeMinutes: 3,
-        reminderMode: "INDIVIDUAL",
-        expenseCurrency: "SGD",
-        ocrLanguages: "eng",
-        directNudgesEnabled: false,
-        calendarAutoSync: true,
-        excelAutoSync: true
-      },
+      settings: settings({ quietHoursStart: "3:00", quietHoursEnd: "6:00", calendarAutoSync: true, excelAutoSync: true }),
       calendarConnection: { calendarEmail: "henry@example.com", createdAt: new Date("2026-07-01T00:00:00.000Z") },
       microsoftConnection: { microsoftEmail: "henry@example.com", workbookName: "Expenses.xlsx", workbookWebUrl: "https://example.com/expenses", createdAt: new Date("2026-07-01T00:00:00.000Z") }
     });

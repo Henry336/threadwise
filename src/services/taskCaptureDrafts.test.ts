@@ -7,6 +7,7 @@ import {
   findActiveTaskCaptureDraft,
   getTaskCaptureDraft,
 } from "./taskCaptureDrafts";
+import { fakePrisma } from "../test/builders";
 
 const scope = {
   ownerUserId: "user-1",
@@ -33,9 +34,7 @@ describe("task capture drafts", () => {
   it("persists a multi-task review as one durable owner-scoped draft", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "draft-1", ...data, items: [] }));
-    const database = {
-      $transaction: vi.fn(async (work: (tx: unknown) => unknown) => work({ taskCaptureDraft: { updateMany, create } })),
-    } as never;
+    const database = fakePrisma({}, { taskCaptureDraft: { updateMany, create } }) as never;
 
     await createTaskCaptureDraft(
       scope,
@@ -96,9 +95,7 @@ describe("task capture drafts", () => {
 
   it("requires a module before a new Study draft can be committed", async () => {
     const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "draft-study", ...data, items: [] }));
-    const database = {
-      $transaction: vi.fn(async (work: (tx: unknown) => unknown) => work({ taskCaptureDraft: { updateMany: vi.fn(), create } })),
-    } as never;
+    const database = fakePrisma({}, { taskCaptureDraft: { updateMany: vi.fn(), create } }) as never;
     await createTaskCaptureDraft({
       ownerUserId: "user-1",
       principalTelegramId: "123456789",
@@ -125,12 +122,10 @@ describe("task capture drafts", () => {
       title: "Combinational Circuits Quiz 1/2",
       dueAt: canvasDeadline,
     }]);
-    const database = {
-      $transaction: vi.fn(async (work: (tx: unknown) => unknown) => work({
-        taskCaptureDraft: { updateMany: vi.fn(), create },
-        studyItem: { findMany },
-      })),
-    } as never;
+    const database = fakePrisma({}, {
+      taskCaptureDraft: { updateMany: vi.fn(), create },
+      studyItem: { findMany },
+    }) as never;
 
     await createTaskCaptureDraft({
       ownerUserId: "user-1",
@@ -229,10 +224,7 @@ describe("task capture drafts", () => {
       taskCaptureDraftItem: { update: vi.fn(async () => ({})) },
       auditLog: { create: vi.fn(async () => ({})) },
     };
-    const database = {
-      taskCaptureDraft: { findFirst: vi.fn(async () => draft) },
-      $transaction: vi.fn(async (work: (client: unknown) => unknown) => work(tx)),
-    } as never;
+    const database = fakePrisma({ taskCaptureDraft: { findFirst: vi.fn(async () => draft) } }, tx) as never;
 
     await commitTaskCaptureDraft("draft-1", "123456789", database);
 
@@ -304,10 +296,7 @@ describe("task capture drafts", () => {
       taskCaptureDraftItem: { update: vi.fn(async () => ({})) },
       auditLog: { create: vi.fn(async () => ({})) },
     };
-    const database = {
-      taskCaptureDraft: { findFirst: vi.fn(async () => draft) },
-      $transaction: vi.fn(async (work: (client: unknown) => unknown) => work(tx)),
-    } as never;
+    const database = fakePrisma({ taskCaptureDraft: { findFirst: vi.fn(async () => draft) } }, tx) as never;
 
     await commitTaskCaptureDraft("draft-study", "123456789", database);
 

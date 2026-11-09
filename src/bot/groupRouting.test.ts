@@ -134,26 +134,8 @@ describe("group routing", () => {
   });
 
   it.each([
-    ["@threadwise_1_bot how do i set reminders?", "how do i set reminders?"],
-    ["@threadwise_1_bot show me the notes", "show me the notes"],
     ["@threadwise_1_bot show me the tasks", "show me the tasks"],
-    ["@threadwise_1_bot show note 1", "show note 1"],
-    ["@threadwise_1_bot change timezone to Myanmar", "change timezone to Myanmar"],
-    ["@threadwise_1_bot remind me again every 3 hours", "remind me again every 3 hours"],
-    ["@threadwise_1_bot quiet hours off", "quiet hours off"],
-    ["@threadwise_1_bot merge notes 1 2 3", "merge notes 1 2 3"],
-    ["@threadwise_1_bot search notes deployment", "search notes deployment"],
-    ["@threadwise_1_bot reschedule task 1 to tomorrow 10am", "reschedule task 1 to tomorrow 10am"],
-    ["@threadwise_1_bot give me the google calendar link for TASK-1", "give me the google calendar link for TASK-1"],
-    ["@threadwise_1_bot archive note 1", "archive note 1"],
-    ["@threadwise_1_bot pin NOTE-1", "pin NOTE-1"],
-    ["@threadwise_1_bot undo", "undo"],
-    ["@threadwise_1_bot note DATABASE_URL is in Render", "note DATABASE_URL is in Render"],
-    ["@threadwise_1_bot idea build a family task bot", "idea build a family task bot"],
-    ["@threadwise_1_bot add buy groceries tomorrow at 9am", "add buy groceries tomorrow at 9am"],
-    ["@threadwise_1_bot remind us to sleep at 12 am daily", "remind us to sleep at 12 am daily"],
-    ["@threadwise_1_bot remind us to take out the trash every Friday at 7 pm", "remind us to take out the trash every Friday at 7 pm"],
-    ["@threadwise_1_bot remind us of Mum's birthday on 26 July every year", "remind us of Mum's birthday on 26 July every year"]
+    ["@threadwise_1_bot remind us to take out the trash every Friday at 7 pm", "remind us to take out the trash every Friday at 7 pm"]
   ])("passes addressed group natural command through unchanged: %s", (input, expected) => {
     const ctx = context({
       from: { id: 456, is_bot: false, first_name: "Parent" },

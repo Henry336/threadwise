@@ -1,6 +1,7 @@
 import { DailyBriefKind, PlanningScope, Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { claimDailyBriefDelivery, countDailyAgendaCompletions, getDailyAgenda, groupAgendaEntries, planDailyAgendaEntry, reorderPersonalDailyAgenda, type AgendaEntry } from "./dailyAgenda";
+import { fakePrisma } from "../test/builders";
 
 const entry = (overrides: Partial<AgendaEntry> & Pick<AgendaEntry, "id" | "title">): AgendaEntry => ({
   publicId: `TASK-${overrides.id}`,
@@ -78,15 +79,14 @@ describe("daily agenda grouping", () => {
     };
     const update = vi.fn(async () => task);
     const audit = vi.fn(async () => ({}));
-    const database = {
+    const database = fakePrisma({
       user: { findUnique: vi.fn(async () => ({ id: "user-1", settings: { timezone: "Asia/Singapore" } })) },
       groupMembership: { findMany: vi.fn(async () => []) },
       task: { findMany: vi.fn(async () => [task]), findFirst: vi.fn(async () => task), update },
       studyWorkspace: { findFirst: vi.fn(async () => null) },
       dailyAgendaOrderState: { findUnique: vi.fn(async () => null) },
       auditLog: { create: audit },
-      $transaction: vi.fn(async (callback) => callback(database)),
-    } as never;
+    }) as never;
     const planned = await planDailyAgendaEntry({ principalTelegramId: "123", scope: PlanningScope.PERSONAL }, "1", "2026-08-31", database);
     expect(planned.plannedFor).toBe("2026-08-31");
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: {
@@ -153,7 +153,7 @@ describe("daily agenda grouping", () => {
       { id: "task-a", publicId: "TASK-1", title: "Alpha", userId: "user-1", plannedFor: new Date("2026-08-31T00:00:00.000Z"), firstPlannedFor: null, dueAt: null, status: "OPEN", archivedAt: null },
       { id: "task-b", publicId: "TASK-2", title: "Beta", userId: "user-1", plannedFor: new Date("2026-08-31T00:00:00.000Z"), firstPlannedFor: null, dueAt: null, status: "OPEN", archivedAt: null },
     ];
-    const database: any = {
+    const database: any = fakePrisma({
       user: { findUnique: vi.fn(async () => ({ id: "user-1", settings: { timezone: "Asia/Singapore" } })) },
       groupMembership: { findMany: vi.fn(async () => []) },
       task: { findMany: vi.fn(async () => tasks) },
@@ -182,8 +182,7 @@ describe("daily agenda grouping", () => {
         }),
       },
       auditLog: { create: vi.fn(async () => ({})) },
-    };
-    database.$transaction = vi.fn(async (callback: any) => callback(database));
+    });
 
     const scope = { principalTelegramId: "123", scope: PlanningScope.PERSONAL };
     const reordered = await reorderPersonalDailyAgenda(scope, {
