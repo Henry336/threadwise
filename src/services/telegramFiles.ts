@@ -34,7 +34,7 @@ export async function downloadTelegramFile(
   fileId: string,
   options: { maxBytes: number; timeoutMs?: number },
 ): Promise<TelegramFile> {
-  const timeoutMs = options.timeoutMs ?? Math.max(MIN_TIMEOUT_MS, (options.maxBytes / MIN_BYTES_PER_SECOND) * 1000);
+  const timeoutMs = options.timeoutMs ?? Math.max(MIN_TIMEOUT_MS, Math.ceil((options.maxBytes / MIN_BYTES_PER_SECOND) * 1000)); // AbortSignal.timeout needs an integer
   try {
     return await downloadOnce(token, fileId, options.maxBytes, timeoutMs);
   } catch (error) {

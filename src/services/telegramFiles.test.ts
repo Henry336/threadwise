@@ -27,6 +27,11 @@ describe("downloadTelegramFile", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("downloads a large file (20 MB cap) with a size-scaled timeout", async () => {
+    stubFetch(pathResponse("voice/note.ogg"), new Response(new Uint8Array([7])));
+    await expect(downloadTelegramFile("token", "file", { maxBytes: 20 * 1024 * 1024 })).resolves.toMatchObject({ bytes: Buffer.from([7]) });
+  });
+
   it("retries once from getFile after a transient failure", async () => {
     const fetchMock = stubFetch(
       pathResponse("photos/stale.jpg"),
