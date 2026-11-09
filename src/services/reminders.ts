@@ -62,11 +62,6 @@ let reminderDiagnostics: ReminderDiagnostics = {
 };
 let activeReminderRun: Promise<ReminderDiagnostics> | undefined;
 
-export async function sendDueReminders(bot: Bot): Promise<number> {
-  const result = await runReminderPass(bot, "manual");
-  return result.remindersSent;
-}
-
 export function getReminderDiagnostics(): ReminderDiagnostics {
   return { ...reminderDiagnostics };
 }
@@ -177,7 +172,6 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
 
       const isDueNudgeReminder = shouldUseDueNudgePolicy({
         dueAt: task.dueAt,
-        nextReminderAt: task.nextReminderAt,
         dueNudgeMinutes: settings.dueNudgeMinutes,
         now
       });
@@ -316,7 +310,6 @@ async function sendReminderDigestBatch(
   if (!settings) return;
   const bypassLimits = tasks.some((task) => shouldUseDueNudgePolicy({
     dueAt: task.dueAt,
-    nextReminderAt: task.nextReminderAt,
     dueNudgeMinutes: settings.dueNudgeMinutes,
     now,
   }));
@@ -353,7 +346,7 @@ async function sendGroupUndatedReminderBatch(
     settings,
     now,
     text: formatGroupUndatedReminderDigest(tasks),
-    keyboard: groupUndatedReminderKeyboard(tasks),
+    keyboard: reminderDigestKeyboard(tasks),
     limits: {
       countEachTask: true,
       retryCappedAt: (task) => nextIntervalReminderAt(
@@ -758,16 +751,8 @@ export function formatReminderDigest(tasks: Array<{
   ]);
 }
 
+/** "Open TASK-n" buttons, two per row, for any reminder message that covers several tasks. */
 function reminderDigestKeyboard(tasks: Array<{ id: string; publicId: string }>): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  tasks.forEach((task, index) => {
-    keyboard.text(`Open ${task.publicId}`, `task:view-full:${task.id}`);
-    if (index % 2 === 1 || index === tasks.length - 1) keyboard.row();
-  });
-  return keyboard;
-}
-
-function groupUndatedReminderKeyboard(tasks: Array<{ id: string; publicId: string }>): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   tasks.forEach((task, index) => {
     keyboard.text(`Open ${task.publicId}`, `task:view-full:${task.id}`);
@@ -810,13 +795,9 @@ function reminderAssistantLine(publicId: string): string {
   ]);
 }
 
-export function shouldBypassReminderLimits(task: { dueAt?: Date | null; lastRemindedAt?: Date | null; reminderCount: number }): boolean {
-  return Boolean(task.dueAt && !task.lastRemindedAt && task.reminderCount === 0);
-}
-
+/** True once a deadline is inside its due-nudge window, where quiet hours and the daily cap no longer apply. */
 export function shouldUseDueNudgePolicy(task: {
   dueAt?: Date | null;
-  nextReminderAt?: Date | null;
   dueNudgeMinutes: number;
   now: Date;
 }): boolean {
@@ -840,15 +821,6 @@ export function nextUndatedGroupReminderInterval(intervalMinutes: number, consec
 
 export function dueNudgeStartAt(dueAt: Date, dueNudgeMinutes: number): Date {
   return new Date(dueAt.getTime() - Math.max(0, dueNudgeMinutes) * 60_000);
-}
-
-export function nextDueReminderAt(dueAt: Date, dueNudgeMinutes: number, now: Date): Date {
-  if (dueNudgeMinutes <= 0) {
-    return dueAt;
-  }
-
-  const startAt = dueNudgeStartAt(dueAt, dueNudgeMinutes);
-  return startAt.getTime() <= now.getTime() ? now : startAt;
 }
 
 export function nextReminderAtAfterDelivery(input: {
@@ -881,29 +853,6 @@ function nextDueMilestone(dueAt: Date, now: Date, dueNudgeMinutes: number): Date
   if (now >= dueAt) return null;
   const threshold = now.getTime() + 60_000;
   return dueReminderMilestones(dueAt, dueNudgeMinutes).find((milestone) => milestone.getTime() > threshold) ?? dueAt;
-}
-
-export function escalatingReminderIntervalMinutes(
-  dueAt: Date,
-  now: Date,
-  defaultIntervalMinutes: number,
-  finalNudgeMinutes = 0,
-): number {
-  const remainingMinutes = (dueAt.getTime() - now.getTime()) / 60_000;
-  if (finalNudgeMinutes > 0 && remainingMinutes <= finalNudgeMinutes) {
-    return Math.max(1, Math.min(defaultIntervalMinutes, finalNudgeMinutes));
-  }
-  let ladderMinutes: number;
-  if (remainingMinutes <= 0) ladderMinutes = 180;
-  else if (remainingMinutes <= 15) ladderMinutes = Math.max(5, finalNudgeMinutes || 10);
-  else if (remainingMinutes <= 60) ladderMinutes = 15;
-  else if (remainingMinutes <= 4 * 60) ladderMinutes = 30;
-  else if (remainingMinutes <= 12 * 60) ladderMinutes = 60;
-  else if (remainingMinutes <= 24 * 60) ladderMinutes = 180;
-  else if (remainingMinutes <= 3 * 24 * 60) ladderMinutes = 360;
-  else if (remainingMinutes <= 7 * 24 * 60) ladderMinutes = 720;
-  else ladderMinutes = 24 * 60;
-  return Math.max(5, Math.min(defaultIntervalMinutes, ladderMinutes));
 }
 
 export function initialTaskReminderAt(input: {

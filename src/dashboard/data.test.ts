@@ -170,7 +170,8 @@ describe("dashboard data security", () => {
       const rolled = { ...task, dueAt: new Date("2026-07-25T09:00:00.000Z"), nextReminderAt: new Date("2026-07-25T09:00:00.000Z"), remindersDismissedAt: null, automaticReminderCount: 0, undatedNudgeCount: 0 };
       const tx = {
         task: { updateMany: vi.fn(async () => ({ count: 1 })), findUniqueOrThrow: vi.fn(async () => rolled) },
-        auditLog: { create: vi.fn(async () => ({})) }
+        auditLog: { create: vi.fn(async () => ({})) },
+        taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) }
       };
       servicePrisma.task.findFirstOrThrow.mockResolvedValue(task);
       servicePrisma.$transaction.mockImplementation(async (work: (client: typeof tx) => unknown) => work(tx));
@@ -231,7 +232,7 @@ describe("dashboard data security", () => {
     };
     const auditCreate = vi.fn(async () => ({}));
     const taskUpdate = vi.fn(async (_query: { data: Record<string, unknown> }) => task);
-    const tx = { auditLog: { create: auditCreate }, task: { update: taskUpdate } };
+    const tx = { auditLog: { create: auditCreate }, task: { update: taskUpdate }, taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) } };
     const database = {
       user: { findUnique: userFindUnique() },
       task: { findFirst: vi.fn(async () => task) },
@@ -286,7 +287,7 @@ describe("dashboard data security", () => {
     };
     const taskUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...task, ...data, updatedAt: new Date() }));
     const auditCreate = vi.fn(async () => ({}));
-    const tx = { task: { update: taskUpdate }, auditLog: { create: auditCreate } };
+    const tx = { task: { update: taskUpdate }, auditLog: { create: auditCreate }, taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) } };
     const database = {
       user: { findUnique: userFindUnique() },
       task: { findFirst: vi.fn(async () => task) },

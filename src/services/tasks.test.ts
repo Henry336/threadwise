@@ -84,6 +84,7 @@ describe("recurring task completion", () => {
         findUniqueOrThrow: vi.fn().mockResolvedValue(rowAfterUpdate),
       },
       auditLog: { create: vi.fn() },
+      taskReminderSchedule: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     };
     mocks.transaction.mockImplementation(async (run: (client: typeof tx) => unknown) => run(tx));
     return tx;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, isPermanentTelegramDeliveryError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, isPermanentTelegramDeliveryError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -110,14 +110,6 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Assigned To:</b> @henry_derek");
     expect(message).toContain("<b>Repeats:</b> Daily");
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
-  });
-
-  it("ramps the automatic cadence as a deadline approaches", () => {
-    const now = new Date("2026-08-13T00:00:00.000Z");
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-23T00:00:00.000Z"), now, 2_880, 5)).toBe(1_440);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-15T00:00:00.000Z"), now, 2_880, 5)).toBe(360);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T03:00:00.000Z"), now, 2_880, 5)).toBe(30);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T00:05:00.000Z"), now, 2_880, 5)).toBe(5);
   });
 
   it("schedules the first reminder before the final nudge window", () => {

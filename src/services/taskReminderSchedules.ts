@@ -69,9 +69,6 @@ export async function cancelPendingTaskReminderSchedules(
   database: ReminderDatabase,
   taskId: string,
 ): Promise<void> {
-  // Some isolated unit-test transaction doubles intentionally model only the
-  // table under test. Production Prisma clients always expose this model.
-  if (!(database as ReminderDatabase & { taskReminderSchedule?: unknown }).taskReminderSchedule) return;
   await database.taskReminderSchedule.updateMany({
     where: {
       taskId,
@@ -90,7 +87,6 @@ export async function restoreFutureTaskReminderSchedules(
   taskId: string,
   now = new Date(),
 ): Promise<void> {
-  if (!(database as ReminderDatabase & { taskReminderSchedule?: unknown }).taskReminderSchedule) return;
   await database.taskReminderSchedule.updateMany({
     where: {
       taskId,
@@ -152,18 +148,6 @@ export async function claimDueTaskReminderSchedules(now = new Date(), limit = 50
     if (result.count === 1) claimed.push({ ...candidate, attemptCount: candidate.attemptCount + 1 });
   }
   return claimed;
-}
-
-export async function markTaskReminderScheduleSent(id: string, deliveredAt = new Date()): Promise<void> {
-  await prisma.taskReminderSchedule.update({
-    where: { id },
-    data: {
-      status: TaskReminderScheduleStatus.SENT,
-      deliveredAt,
-      leaseExpiresAt: null,
-      lastError: null,
-    },
-  });
 }
 
 /**
