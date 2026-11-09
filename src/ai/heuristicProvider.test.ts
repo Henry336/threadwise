@@ -20,11 +20,22 @@ describe("HeuristicAiProvider", () => {
       note("NOTE-1", "Selling yourself - mentioned by both Matthias and Ma Brenda")
     ]);
 
-    expect(preview.title).toBe("Client-Facing Product And Sales Lessons");
     expect(preview.title).not.toContain("NOTE-");
-    expect(preview.body).toContain("client-facing product path");
-    expect(preview.connections.join(" ")).toContain("client discovery");
+    expect(preview.body).toContain("Key points:");
+    expect(preview.possibleMissingContext.join(" ")).toContain("Matthias");
     expect(preview.tags).toEqual([]);
+  });
+
+  it("connects any notes through the words they share, not a fixed topic list", async () => {
+    const provider = new HeuristicAiProvider();
+    const preview = await provider.mergeNotes([
+      note("NOTE-1", "Water the tomato seedlings every morning"),
+      note("NOTE-2", "Move the tomato seedlings outside once nights warm up"),
+    ]);
+
+    expect(preview.body).toContain("tomato");
+    expect(preview.connections[0]).toBe('NOTE-1 and NOTE-2 all mention "tomato".');
+    expect(preview.possibleMissingContext).toEqual([]);
   });
 });
 
