@@ -153,7 +153,7 @@ export const ideaUpdateSchema = z.object({
 
 export const capturePreviewSchema = z.object({
   text: trimmed(20_000),
-  preferredKind: z.enum(["auto", "task", "note", "idea", "expense"]).default("auto")
+  preferredKind: z.enum(["auto", "task", "note", "idea"]).default("auto")
 }).strict();
 
 export const ideaConvertSchema = z.object({
