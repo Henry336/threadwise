@@ -107,7 +107,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${page}` });
   });
-  bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^stored-image:pick:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
