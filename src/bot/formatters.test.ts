@@ -3,11 +3,11 @@ import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemListKeyboard, noteMergePreviewKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
-import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { formatNoteDetail, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatIdeaDetail, formatIdeaSavedAcknowledgement } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
+import { task } from "../test/builders";
 
 // Copy is pinned with one inline snapshot per card type, so a wording change is one
 // reviewable diff. The explicit assertions guard behaviour: escaping, timezones,
@@ -459,34 +459,3 @@ describe("bot formatter keyboards", () => {
     expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📅 Google Calendar", callback_data: "menu:calendar-settings" });
   });
 });
-
-function task(overrides: Partial<TaskListItem>): TaskListItem {
-  return {
-    id: overrides.id ?? overrides.publicId ?? "task-id",
-    publicId: overrides.publicId ?? "TASK-1",
-    title: overrides.title ?? "Task",
-    description: overrides.description ?? null,
-    sourceText: overrides.sourceText ?? overrides.title ?? "Task",
-    status: overrides.status ?? TaskStatus.OPEN,
-    dueAt: overrides.dueAt ?? null,
-    timezone: overrides.timezone ?? "Asia/Singapore",
-    calendarUrl: overrides.calendarUrl ?? null,
-    calendarEventId: overrides.calendarEventId ?? null,
-    calendarEventUrl: overrides.calendarEventUrl ?? null,
-    calendarSyncedAt: overrides.calendarSyncedAt ?? null,
-    reminderIntervalMinutes: overrides.reminderIntervalMinutes ?? 180,
-    nextReminderAt: overrides.nextReminderAt ?? null,
-    snoozedUntil: overrides.snoozedUntil ?? null,
-    lastRemindedAt: overrides.lastRemindedAt ?? null,
-    reminderCount: overrides.reminderCount ?? 0,
-    assignedTelegramId: overrides.assignedTelegramId ?? null,
-    assignedUsername: overrides.assignedUsername ?? null,
-    assignedDisplayName: overrides.assignedDisplayName ?? null,
-    recurrenceRule: overrides.recurrenceRule ?? null,
-    recurrenceIntervalDays: overrides.recurrenceIntervalDays ?? null,
-    pinnedAt: overrides.pinnedAt ?? null,
-    archivedAt: overrides.archivedAt ?? null,
-    createdAt: overrides.createdAt ?? new Date("2026-07-05T00:00:00.000Z"),
-    updatedAt: overrides.updatedAt ?? new Date("2026-07-05T00:00:00.000Z")
-  };
-}
