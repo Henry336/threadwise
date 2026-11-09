@@ -1,10 +1,10 @@
 import type { Bot, Context } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { dismissTaskReminders, findTaskReference, formatTaskAlreadyCompleted, formatTaskSavedAcknowledgement, restoreCompletedTask, createScheduledReminder, createTask } from "../services/tasks";
+import { dismissTaskReminders, findTaskReference, formatTaskAlreadyCompleted, restoreCompletedTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
-import { consumePendingCapture, findPendingCapture, ignorePendingCapture, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
+import { consumePendingCapture, findPendingCapture, ignorePendingCapture, pendingCaptureTaskOptions, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
@@ -33,7 +33,7 @@ import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationSt
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
 import { claimGroupTask, GroupTaskPermissionError } from "../services/groupTaskPolicy";
 import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
 import { executeTaskCommand, type TaskCommandInput, type TaskCommandResult } from "../services/taskCommands";
@@ -508,12 +508,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string, p
       await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
-    const task = await createTask(user.id, consumed.extractedText);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, consumed.extractedText, { edit: true });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
@@ -1126,12 +1121,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
       return;
     }
     await ctx.answerCallbackQuery({ text: "Saving reminder" });
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed), edit: true });
     return;
   }
 
@@ -1143,12 +1133,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
   await ctx.answerCallbackQuery({ text: "Saving" });
 
   if (action === "task") {
-    const task = await createTask(user.id, pending.sourceText);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, pending.sourceText, { options: pendingCaptureTaskOptions(pending), edit: true });
     return;
   }
 

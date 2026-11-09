@@ -1,5 +1,5 @@
 import type { Context } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import type { ThreadwiseUser } from "../services/users";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
@@ -15,8 +15,8 @@ import {
 } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { createScheduledReminder, createTask, findTaskReference, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, updateTaskDescription } from "../services/tasks";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { findTaskReference, listOpenTasks, renameTaskTitle, rescheduleTask, updateTaskDescription } from "../services/tasks";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
 import { claimGroupTask } from "../services/groupTaskPolicy";
 import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
 import { executeTaskCommand, type TaskCommandInput } from "../services/taskCommands";
@@ -628,12 +628,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
       await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try: by 9pm, at 1.30pm, tomorrow morning, Friday at 3, or in 20 minutes.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, taskCreationOptionsFromContext(ctx, parsed.taskText));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, parsed.taskText, { dueAt: scheduledAt, options: taskCreationOptionsFromContext(ctx, parsed.taskText) });
     return true;
   }
 
@@ -656,12 +651,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
 
   const taskBody = parseNaturalTaskBody(trimmed);
   if (taskBody) {
-    const task = await createTask(user.id, taskBody, taskCreationOptionsFromContext(ctx, taskBody));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, taskBody, { options: taskCreationOptionsFromContext(ctx, taskBody) });
     return true;
   }
 

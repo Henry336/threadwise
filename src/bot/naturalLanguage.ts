@@ -9,11 +9,12 @@ import {
   findLatestPendingCapture,
   findPendingCaptureReminderReply,
   ignorePendingCapture,
+  pendingCaptureTaskOptions,
   rememberPendingCaptureReminderPrompt,
 } from "../services/pendingCaptures";
 import { createIdea, findIdeaReference, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
+import { saveTaskFromTelegram } from "./taskSaves";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
@@ -33,7 +34,6 @@ import { appendListOrigin } from "./navigationState";
 import { replyControlCardHtml } from "./controlCards";
 import { formatIdeaScore } from "./formatters";
 import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
-import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import {
@@ -114,10 +114,8 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           await ctx.reply("I still need a future reminder time. Try: tomorrow at 9am, in 2 hours, or next Monday at noon. Send 'cancel image reminder' to stop.");
           return;
         }
-        const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt);
-        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+        await saveTaskFromTelegram(ctx, user, pendingImageReminder.extractedText, { dueAt });
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
         return;
       }
 
@@ -171,7 +169,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         addressedGroupMessage,
       });
 
-      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id);
+      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id, taskCreationOptionsFromContext(ctx, text).mentions);
       const suggestedKind = suggestedCaptureKind(classification, text, user.settings.timezone);
       await replyControlCardHtml(ctx, formatCaptureReview(text, suggestedKind), {
         reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind)
@@ -247,9 +245,7 @@ async function handleCaptureCorrection(
       await replyHtml(ctx, "That review was already handled or expired. Send the content again if needed.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, taskCreationOptionsFromContext(ctx, claimed.sourceText));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed) });
     return true;
   }
 
@@ -259,9 +255,7 @@ async function handleCaptureCorrection(
     return true;
   }
   if (correction.kind === "task") {
-    const task = await createTask(user.id, claimed.sourceText, taskCreationOptionsFromContext(ctx, claimed.sourceText));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { options: pendingCaptureTaskOptions(claimed) });
   } else if (correction.kind === "note") {
     const note = await createNote(user.id, claimed.sourceText, ai);
     await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
@@ -316,9 +310,7 @@ async function handlePendingCaptureReminderReply(
     await replyHtml(ctx, "That capture was already handled or expired. Send it again if needed.");
     return true;
   }
-  const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt);
-  await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-  await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+  await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed) });
   return true;
 }
 
@@ -340,10 +332,8 @@ async function handlePendingMenuInput(
   }
 
   if (action === "task") {
-    const task = await createTask(user.id, text, taskCreationOptionsFromContext(ctx, text));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { options: taskCreationOptionsFromContext(ctx, text) });
     return true;
   }
 
@@ -353,10 +343,8 @@ async function handlePendingMenuInput(
       await replyHtml(ctx, "I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, text, dueAt, taskCreationOptionsFromContext(ctx, text));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { dueAt, options: taskCreationOptionsFromContext(ctx, text) });
     return true;
   }
 

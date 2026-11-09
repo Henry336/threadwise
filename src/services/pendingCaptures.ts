@@ -1,13 +1,20 @@
-import { CaptureKind } from "@prisma/client";
+import { CaptureKind, type Prisma } from "@prisma/client";
 import type { Classification } from "../ai/types";
 import { prisma } from "../db/prisma";
+import type { TaskCreationOptions, TaskEntityMention } from "./tasks";
 
+/**
+ * Holds an ambiguous capture until its sender picks a type. The original message's Telegram
+ * mentions go into the payload, because a later button tap or reply carries no entities of its
+ * own; without them a review-card save would lose an assignee that /add keeps.
+ */
 export async function createPendingCapture(
   userId: string,
   sourceText: string,
   classification: Classification,
   actorTelegramId?: string | number,
   telegramChatId?: string | number,
+  mentions: TaskEntityMention[] = [],
 ) {
   const kind = toPrismaKind(classification.kind);
   return prisma.pendingCapture.create({
@@ -17,7 +24,7 @@ export async function createPendingCapture(
       telegramChatId: telegramChatId === undefined ? null : String(telegramChatId),
       sourceText,
       kind,
-      payload: classification,
+      payload: { ...classification, ...(mentions.length ? { mentions } : {}) },
       expiresAt: new Date(Date.now() + 24 * 60 * 60_000)
     }
   });
@@ -128,6 +135,19 @@ export async function ignorePendingCapture(
     }
   });
   return result.count > 0;
+}
+
+/** The task options (mentions) saved with a pending capture, read defensively since payload is free-form JSON. */
+export function pendingCaptureTaskOptions(pending: { payload: Prisma.JsonValue }): TaskCreationOptions {
+  const stored = pending.payload && typeof pending.payload === "object" && !Array.isArray(pending.payload)
+    ? (pending.payload as Record<string, unknown>).mentions
+    : undefined;
+  if (!Array.isArray(stored)) return {};
+  const mentions = stored.filter((mention): mention is TaskEntityMention =>
+    Boolean(mention) && typeof mention === "object"
+    && typeof (mention as TaskEntityMention).offset === "number"
+    && typeof (mention as TaskEntityMention).length === "number");
+  return mentions.length ? { mentions } : {};
 }
 
 function toPrismaKind(kind: Classification["kind"]): CaptureKind {

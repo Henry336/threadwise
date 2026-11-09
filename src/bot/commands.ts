@@ -1,5 +1,5 @@
 import type { Bot, Context } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
@@ -15,10 +15,7 @@ import {
   updateIdeaConcept
 } from "../services/ideas";
 import {
-  createScheduledReminder,
-  createTask,
   findTaskReference,
-  formatTaskSavedAcknowledgement,
   listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
@@ -65,7 +62,7 @@ import { findStoredImageReference, updateStoredImageCaption } from "../services/
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
 import { claimGroupTask } from "../services/groupTaskPolicy";
 import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
 import { executeTaskCommand, type TaskCommandInput } from "../services/taskCommands";
@@ -296,12 +293,7 @@ async function handleAdd(ctx: Context) {
   }
 
   try {
-    const task = await createTask(user.id, text, taskCreationOptionsFromContext(ctx, text));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { options: taskCreationOptionsFromContext(ctx, text) });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't add that task. Try again in a moment."));
   }
@@ -341,12 +333,7 @@ async function handleRemind(ctx: Context) {
 
   try {
     const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
-    const task = await createScheduledReminder(user.id, taskText, scheduledAt, taskCreationOptionsFromContext(ctx, taskText));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, settings.timezone));
+    await saveTaskFromTelegram(ctx, user, taskText, { dueAt: scheduledAt, options: taskCreationOptionsFromContext(ctx, taskText) });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't save that reminder. Try again in a moment."));
   }
