@@ -1,3 +1,9 @@
+/**
+ * Dashboard adapter for the Today planner and multi-task capture drafts. It maps the request's
+ * workspace (Personal, Group or Study) to a planning scope and then calls services/dailyAgenda.ts
+ * and services/taskCaptureDrafts.ts, the same services the Telegram /today and /todo flows use.
+ * Called from route.ts and studyRoutes.ts; the whole feature is gated to one configured owner.
+ */
 import { PlanningScope, type PrismaClient, type StudyItemType } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
@@ -23,6 +29,10 @@ export class TodayFoundationAccessError extends Error {
   }
 }
 
+/**
+ * Feature gate: only TODAY_FOUNDATION_OWNER_TELEGRAM_ID may use Today features, and with no
+ * owner configured nobody can. Others get a plain "not found" so the feature stays invisible.
+ */
 export function assertTodayFoundationAccess(
   principalTelegramId: string,
   ownerTelegramId = env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID,
@@ -32,6 +42,7 @@ export function assertTodayFoundationAccess(
   }
 }
 
+/** Loads the derived daily agenda (planned, due-soon and carried-over work) for the request's workspace. */
 export async function todayAgendaForDashboard(
   scope: DashboardWorkspaceScope,
   input: { localDate?: string; dueSoonDays?: number },
@@ -46,6 +57,7 @@ export async function todayAgendaForDashboard(
   }, input, database);
 }
 
+/** Sets or clears the planned day of one agenda entry. A planned day is separate from its deadline. */
 export async function planTodayAgendaEntryForDashboard(
   scope: DashboardWorkspaceScope,
   entryId: string,
@@ -75,6 +87,10 @@ export async function completeTodayAgendaEntryForDashboard(
   }, entryId, database);
 }
 
+/**
+ * Saves a drag-and-drop order for one day of Personal Today. The service stores it as a private per-day ordering
+ * and checks expectedRevision so two devices cannot silently overwrite each other.
+ */
 export async function reorderTodayAgendaForDashboard(
   scope: DashboardWorkspaceScope,
   input: { localDate: string; orderedEntryIds: string[]; movedEntryId: string; expectedRevision: number },
@@ -89,6 +105,11 @@ export async function reorderTodayAgendaForDashboard(
   }, input, database);
 }
 
+/**
+ * Starts a task capture draft from free text (one or more tasks). Nothing becomes a real task
+ * until the draft is committed. The draft functions below all re-check that the draft belongs
+ * to the caller and to the current workspace before delegating to the service.
+ */
 export async function createDashboardTaskCaptureDraft(
   scope: DashboardWorkspaceScope,
   input: { text: string; moduleId?: string; studyItemType?: StudyItemType },
@@ -135,6 +156,7 @@ export async function updateDashboardTaskCaptureDraftItem(
   return updateTaskCaptureDraftItem(draftId, itemId, scope.principalTelegramId, patch, database);
 }
 
+/** Saves every included draft row as a real task, all or nothing (one transaction in the service). */
 export async function commitDashboardTaskCaptureDraft(
   scope: DashboardWorkspaceScope,
   draftId: string,
@@ -153,6 +175,10 @@ export async function cancelDashboardTaskCaptureDraft(
   return cancelTaskCaptureDraft(draftId, scope.principalTelegramId, database);
 }
 
+/**
+ * Translates a dashboard workspace into the planning scope the services expect: Study uses
+ * the sealed Study workspace, Group the shared group (with its timezone), otherwise Personal.
+ */
 async function resolveTaskCaptureScope(
   scope: DashboardWorkspaceScope,
   database: PrismaClient,
@@ -193,6 +219,10 @@ async function resolveTaskCaptureScope(
   };
 }
 
+/**
+ * Loads a draft for the caller and rejects it unless it was created in the same workspace,
+ * so a draft id from one workspace cannot be used from another.
+ */
 async function requireScopedDraft(
   scope: DashboardWorkspaceScope,
   draftId: string,

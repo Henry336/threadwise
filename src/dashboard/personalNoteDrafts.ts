@@ -1,3 +1,8 @@
+/**
+ * Cross-device autosave drafts for the Personal rich-note editor (PersonalNoteDraft rows).
+ * One draft per user per key: "new" for an unsaved note, or the note id when editing one.
+ * Drafts expire after seven days. Called from the personal note-draft routes in route.ts.
+ */
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { DashboardConflictError, DashboardItemNotFoundError } from "./data";
@@ -7,6 +12,7 @@ import { DashboardUserNotFoundError } from "./snapshot";
 
 const PERSONAL_TELEGRAM_ID = /^[1-9]\d{0,19}$/u;
 
+/** Loads the caller's live draft for a new note or an existing note, after clearing their expired drafts. */
 export async function getDashboardPersonalNoteDraft(
   telegramId: string,
   input: PersonalNoteDraftQueryInput,
@@ -23,6 +29,11 @@ export async function getDashboardPersonalNoteDraft(
   });
 }
 
+/**
+ * Autosaves a draft with optimistic concurrency (see saveRevisionedDraft). When the draft
+ * edits an existing note, the note must still be the caller's and unchanged since the draft
+ * began; otherwise it returns a conflict so an old draft cannot overwrite newer saved text.
+ */
 export async function saveDashboardPersonalNoteDraft(
   telegramId: string,
   input: PersonalNoteDraftSaveInput,
@@ -65,6 +76,7 @@ export async function saveDashboardPersonalNoteDraft(
   });
 }
 
+/** Discards one of the caller's drafts (after filing or cancelling). Not found if it is not theirs. */
 export async function deleteDashboardPersonalNoteDraft(
   telegramId: string,
   draftId: string,
@@ -75,6 +87,10 @@ export async function deleteDashboardPersonalNoteDraft(
   if (removed.count !== 1) throw new DashboardItemNotFoundError();
 }
 
+/**
+ * Maps a Telegram id to the internal user id. Only a real human id is accepted (not a
+ * synthetic "chat:" group owner), so these drafts stay Personal-only.
+ */
 async function personalUserId(telegramId: string, database: PrismaClient): Promise<string> {
   if (!PERSONAL_TELEGRAM_ID.test(telegramId)) throw new DashboardUserNotFoundError();
   const user = await database.user.findUnique({ where: { telegramId }, select: { id: true, settings: true } });

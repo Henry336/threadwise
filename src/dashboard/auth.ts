@@ -1,3 +1,9 @@
+/**
+ * Verifies the short-lived service token the Vercel dashboard sends with every API call.
+ * The dashboard signs an EdDSA (Ed25519) JWT whose subject is the verified Telegram id;
+ * this file checks it against the committed public key and returns the caller's identity.
+ * Used by the request guard in route.ts. Replay of the same token id is blocked separately.
+ */
 import { importSPKI, jwtVerify } from "jose";
 
 export const DASHBOARD_TOKEN_ISSUER = "threadwise-dashboard";
@@ -25,12 +31,14 @@ export class DashboardConfigurationError extends Error {
   }
 }
 
+/** The verified caller: Telegram id, the token's unique id (jti) for replay checks, and its expiry. */
 export type DashboardPrincipal = {
   telegramId: string;
   tokenId: string;
   expiresAt: Date;
 };
 
+/** Pulls the compact JWT out of an "Authorization: Bearer ..." header, rejecting oversized or malformed headers. */
 function bearerToken(authorization: string | undefined): string {
   if (!authorization || authorization.length > MAX_AUTHORIZATION_HEADER_LENGTH) {
     throw new DashboardAuthenticationError();
@@ -44,6 +52,7 @@ function bearerToken(authorization: string | undefined): string {
   return match[1];
 }
 
+/** Turns escaped "\n" sequences (common in env vars) back into real newlines so the PEM key parses. */
 function normalizedPublicKey(value: string | undefined): string {
   if (!value?.trim()) {
     throw new DashboardConfigurationError("DASHBOARD_API_PUBLIC_KEY is not configured.");
@@ -52,6 +61,7 @@ function normalizedPublicKey(value: string | undefined): string {
   return value.replace(/\\n/g, "\n").trim();
 }
 
+/** Imports the Ed25519 public key once and caches it, so each request does not re-parse the PEM text. */
 async function dashboardPublicKey(value: string | undefined) {
   const normalized = normalizedPublicKey(value);
   if (cachedPublicKeyText === normalized && cachedPublicKey) {
@@ -68,6 +78,12 @@ async function dashboardPublicKey(value: string | undefined) {
   }
 }
 
+/**
+ * Checks signature, issuer, audience, required claims and a maximum 120-second lifetime,
+ * then re-checks that the subject looks like a Telegram id and the jti is bounded.
+ * Every failure becomes the same DashboardAuthenticationError, so callers learn nothing
+ * about why a token was rejected. A missing or bad key is a configuration error instead.
+ */
 export async function verifyDashboardAuthorization(
   authorization: string | undefined,
   publicKeyText: string | undefined,

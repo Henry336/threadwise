@@ -1,3 +1,9 @@
+/**
+ * Builds the main dashboard snapshot: recent tasks, notes, ideas, images and expenses,
+ * settings, a seven-day activity chart and integration status, in one request.
+ * route.ts adds workspace and collaboration data on top. Row-to-JSON mapping reuses the
+ * view helpers in data.ts so the snapshot and the list endpoints return the same shapes.
+ */
 import type { PrismaClient } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
@@ -86,17 +92,24 @@ export class DashboardUserNotFoundError extends Error {
   }
 }
 
+/** Picks a stable accent colour per user from a simple checksum of their id, so it never changes between loads. */
 function accentFor(telegramId: string): "iris" | "coral" | "mint" {
   const accents = ["iris", "coral", "mint"] as const;
   const checksum = [...telegramId].reduce((sum, character) => sum + character.charCodeAt(0), 0);
   return accents[checksum % accents.length] ?? "iris";
 }
 
+/** Falls back to UTC when the stored timezone is missing or not a valid IANA zone, so date math never breaks. */
 function safeTimezone(value: string | undefined): string {
   if (!value) return "UTC";
   return DateTime.now().setZone(value).isValid ? value : "UTC";
 }
 
+/**
+ * Loads everything for one owner (a human, or a group's synthetic "chat:<id>" owner) in
+ * parallel queries, each capped at 50 rows. Activity counts captures and completions per day
+ * in the user's timezone. Group owners get no integrations, since those are personal accounts.
+ */
 export async function getDashboardSnapshot(
   telegramId: string,
   database: PrismaClient = prisma,
@@ -339,6 +352,7 @@ export async function getDashboardSnapshot(
       eveningDebriefTime: user.settings?.eveningDebriefTime ?? "21:00"
     },
     activity: [...activityByDate.values()],
+    // Each integration is "connected", "attention" (needs reconnect or setup) or "available".
     integrations: telegramId.startsWith("chat:") ? [] : [
       calendarHealth?.reconnectRequired
         ? {

@@ -1,5 +1,13 @@
+/**
+ * Reads the AI-generated idea brief stored as JSON on an Idea row (idea.scores).
+ * Used by data.ts when building idea responses for the dashboard.
+ */
 import type { IdeaScore } from "../ai/types";
 
+/**
+ * Returns the stored brief only if every field has the expected shape (scores 0 to 10, string lists).
+ * The column is untyped JSON, so anything malformed or from an older format is dropped instead of sent.
+ */
 export function storedIdeaBrief(value: unknown): IdeaScore | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const score = value as Record<string, unknown>;

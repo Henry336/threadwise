@@ -1,3 +1,8 @@
+/**
+ * Dashboard Quick Capture preview: guesses whether typed text is a task, note or idea and
+ * drafts its fields, without saving anything. The dashboard shows the preview, then saves
+ * through the normal create routes. Called by the capture preview route in route.ts.
+ */
 import type { PrismaClient } from "@prisma/client";
 import type { AiProvider, Classification } from "../ai/types";
 import { classifyMessageDeterministically } from "../ai/deterministic";
@@ -26,6 +31,13 @@ export type DashboardCapturePreview = {
   payload: Record<string, unknown>;
 };
 
+/**
+ * Picks the kind in priority order: the user's explicit choice, then explicit command wording
+ * ("remind me", "note:" and similar), then the deterministic classifier, and only then the AI
+ * classifier. Fields are then drafted by the AiProvider structure helpers (which have local
+ * fallbacks). Due times in the past are dropped,
+ * and low-confidence "noise" falls back to a note with a review hint.
+ */
 export async function previewDashboardCapture(
   telegramId: string,
   input: CapturePreviewInput,

@@ -1,3 +1,7 @@
+/**
+ * Shared save logic for encrypted rich-note drafts (autosave from the dashboard editor).
+ * personalNoteDrafts.ts and study.ts plug their own table queries into saveRevisionedDraft.
+ */
 import { Prisma } from "@prisma/client";
 
 /** How long an unfinished Personal or Study note draft lives after its last autosave. */
