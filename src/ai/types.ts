@@ -1,5 +1,14 @@
+/**
+ * Shared types for the AI adapter. Every provider (OpenAI, heuristic, resilient wrapper)
+ * implements `AiProvider`, so callers in services and the bot never depend on a specific vendor.
+ */
+
 export type CaptureKind = "idea" | "task" | "note" | "noise";
 
+/**
+ * A suggested capture type for a message. It is only a suggestion: the bot shows it on a
+ * review card and never saves content from the classification alone.
+ */
 export type Classification = {
   kind: CaptureKind;
   confidence: number;
@@ -80,12 +89,14 @@ export type IdeaScore = {
   donts: string[];
 };
 
+/**
+ * Provider state reported by the private GET /admin/ai/status endpoint.
+ */
 export type AiProviderStatus = {
   provider: "openai" | "heuristic";
   apiKeyConfigured: boolean;
   chatModels: string[];
   activeChatModel?: string;
-  embeddingModel?: string;
   lastSuccessfulChatAt?: string;
   lastRateLimit?: {
     model: string;
@@ -106,6 +117,11 @@ export type AiProviderHealthCheck = {
   error?: string;
 };
 
+/**
+ * The contract every AI provider implements. Classification and structuring have local
+ * deterministic paths that run first (see deterministic.ts); these methods are for the harder
+ * synthesis work such as note merges, note analysis and idea scoring.
+ */
 export interface AiProvider {
   getStatus(): AiProviderStatus;
   checkHealth(): Promise<AiProviderHealthCheck>;
@@ -116,5 +132,4 @@ export interface AiProvider {
   mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt?: number): Promise<MergedNotePreview>;
   analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis>;
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore>;
-  embed(text: string): Promise<number[]>;
 }

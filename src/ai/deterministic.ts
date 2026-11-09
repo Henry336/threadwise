@@ -1,3 +1,10 @@
+/**
+ * Local, rule-based message classification and structuring that runs before any AI call.
+ * It keeps the bot fast and useful without an API key or quota. Used by bot/naturalLanguage.ts,
+ * dashboard capture, services/notes.ts and Study natural language. The result is a suggestion
+ * shown on a review card, never a direct save.
+ */
+
 import { parseDueDate } from "../utils/dates";
 import type { Classification, StructuredNote, StructuredTask } from "./types";
 
@@ -47,6 +54,11 @@ const NOTE_TERMS = ["remember", "learned", "insight", "quote", "summary", "impor
 const IDEA_TERMS = ["app", "bot", "build", "idea", "product", "startup", "tool", "website"];
 const STOP_WORDS = new Set(["a", "an", "the", "to", "for", "about", "my", "me", "please"]);
 
+/**
+ * Scores a message as task, note or idea from fixed word lists and a parseable date. Returns
+ * undefined (let the caller decide, usually the AI provider) when the best score is weak or less
+ * than 2 points ahead of the runner-up, so close calls are not guessed.
+ */
 export function classifyMessageDeterministically(text: string, timezone: string): Classification | undefined {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -89,6 +101,10 @@ export function classifyMessageDeterministically(text: string, timezone: string)
   };
 }
 
+/**
+ * Builds a task title by removing reminder wording ("remind me to", "add") and date phrases from
+ * the text. The full original text is kept as the description.
+ */
 export function structureTaskDeterministically(text: string): StructuredTask {
   const cleaned = cleanTaskTitle(stripTaskShell(text));
   const title = sentenceCase(summarize(cleaned || text, 120));
@@ -100,6 +116,10 @@ export function structureTaskDeterministically(text: string): StructuredTask {
   };
 }
 
+/**
+ * Builds a note title, body and summary locally. The title comes from the first clause minus
+ * filler words.
+ */
 export function structureNoteDeterministically(text: string): StructuredNote {
   const body = cleanNoteText(stripLeadingCaptureWord(text));
   const title = titleCase(inferNoteTitle(body));
@@ -113,6 +133,10 @@ export function structureNoteDeterministically(text: string): StructuredNote {
   };
 }
 
+/**
+ * True for notes worth sending to the AI for cleanup: very long, five or more real sentences, or
+ * an explicit ask like "clean up" or "summarize". Short notes stay local and free.
+ */
 export function shouldUseAiForNoteStructure(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length > 700) {
@@ -123,6 +147,9 @@ export function shouldUseAiForNoteStructure(text: string): boolean {
   return sentenceCount >= 5 || /\b(clean up|polish|rewrite|summarize|summarise|organize|organise)\b/i.test(trimmed);
 }
 
+/**
+ * Task score: explicit reminder or task wording, action verbs, and a parseable time each add points.
+ */
 function scoreTaskIntent(text: string, lower: string, hasDueDate: boolean): IntentScore {
   const reasons: string[] = [];
   let score = 0;
@@ -156,6 +183,9 @@ function scoreTaskIntent(text: string, lower: string, hasDueDate: boolean): Inte
   return { kind: "task", score, reasons };
 }
 
+/**
+ * Note score from note-style openers ("note", "remember") and note words.
+ */
 function scoreNoteIntent(lower: string): IntentScore {
   const reasons: string[] = [];
   let score = 0;
@@ -174,6 +204,9 @@ function scoreNoteIntent(lower: string): IntentScore {
   return { kind: "note", score, reasons };
 }
 
+/**
+ * Idea score from idea-style openers and product words ("app", "bot", "build").
+ */
 function scoreIdeaIntent(lower: string): IntentScore {
   const reasons: string[] = [];
   let score = 0;
@@ -192,10 +225,17 @@ function scoreIdeaIntent(lower: string): IntentScore {
   return { kind: "idea", score, reasons };
 }
 
+/**
+ * Removes a leading "idea:", "note:" and similar label so it does not become the title.
+ */
 function stripLeadingCaptureWord(text: string): string {
   return text.replace(/^(idea|note|remember|save this|learned|insight|quote|build|app idea|tool idea|product idea|website idea)\s*:?\s*/i, "").trim();
 }
 
+/**
+ * Removes request wrappers ("can you remind me to", "add task:") and all schedule phrases,
+ * leaving just what needs doing.
+ */
 function stripTaskShell(text: string): string {
   return removeSchedulePhrases(
     text
@@ -212,6 +252,9 @@ function stripTaskShell(text: string): string {
     .trim();
 }
 
+/**
+ * Deletes date and time wording so the task title does not repeat the due time.
+ */
 function removeSchedulePhrases(text: string): string {
   return text
     .replace(/\bday\s+after\s+tomorrow(?:\s+at\s+\d{1,2}(?:[:.](\d{2}))?\s*(?:a\.?m\.?|p\.?m\.?)?)?\b/ig, "")
@@ -228,6 +271,9 @@ function removeSchedulePhrases(text: string): string {
     .replace(/\b(?:tonight|this\s+(?:morning|afternoon|evening|night)|end\s+of\s+(?:the\s+)?day|eod)\b/ig, "");
 }
 
+/**
+ * Expands a few chat abbreviations (sth, asw, rly) and drops a leading article.
+ */
 function cleanTaskTitle(text: string): string {
   return text
     .replace(/^(?:a|an|the)\s+/i, "")
@@ -247,6 +293,9 @@ function cleanNoteText(text: string): string {
     .replace(/\s*->\s*/g, " -> ");
 }
 
+/**
+ * Note title from the first clause, without filler words, capped at 70 characters.
+ */
 function inferNoteTitle(text: string): string {
   const segment = text.split(/\s*->\s*|[.:;]/)[0]?.trim() || text;
   const words = segment.split(/\s+/).filter((word) => !STOP_WORDS.has(word.toLowerCase()));
@@ -275,6 +324,9 @@ function titleCase(text: string): string {
   return text.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+/**
+ * Whole-word, case-insensitive match, so "app" does not match "apple".
+ */
 function hasTerm(text: string, term: string): boolean {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);

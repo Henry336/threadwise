@@ -47,6 +47,7 @@ import {
   TelegramAlbumBatcher,
   type TelegramAlbumBatch
 } from "./codexAttachmentBatch";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const CODEX_REPORT_PAGE_CHARS = 2_800;
 const PROJECTS_PER_PAGE = 8;
@@ -388,34 +389,24 @@ export async function deliverCodexJobOnce(bot: Bot, job: CodexJobWithProject): P
   await markCodexJobDelivered(job.id);
 }
 
-export function startCodexDeliveryLoop(bot: Bot, intervalMs = 60_000): NodeJS.Timeout | undefined {
+/** Retries Codex reports that were finished but never reached Telegram. */
+export function startCodexDeliveryLoop(bot: Bot, intervalMs = 60_000): StopLoop | undefined {
   const config = privateCodexConfig();
   if (!config) return undefined;
   const scope = {
     ownerTelegramId: config.ownerTelegramId,
     telegramChatId: config.telegramChatId
   };
-  let active = false;
-  return setInterval(() => {
-    if (active) return;
-    active = true;
-    void (async () => {
+  return startLoop("Codex delivery retry", intervalMs, async () => {
+    const jobs = await undeliveredCodexJobs(scope, new Date(Date.now() - 60_000));
+    for (const job of jobs) {
       try {
-        const jobs = await undeliveredCodexJobs(scope, new Date(Date.now() - 60_000));
-        for (const job of jobs) {
-          try {
-            await deliverCodexJobOnce(bot, job);
-          } catch (error) {
-            logger.warn("Codex report retry failed.", { jobId: job.id, error: String(error) });
-          }
-        }
+        await deliverCodexJobOnce(bot, job);
       } catch (error) {
-        logger.warn("Codex delivery retry pass failed.", { error: String(error) });
-      } finally {
-        active = false;
+        logger.warn("Codex report retry failed.", { jobId: job.id, error: String(error) });
       }
-    })();
-  }, intervalMs);
+    }
+  });
 }
 
 function parseRunCommand(input: string): ParsedCodexCommand {

@@ -1,3 +1,9 @@
+/**
+ * Process entry point (`npm start` runs dist/main.js). Builds the AI provider, the Threadwise bot
+ * and the optional Beacon bot, starts every background loop, then either registers Telegram
+ * webhooks and starts the HTTP server (production on Render) or uses long polling (local dev).
+ */
+
 import { beaconConfig, env } from "./config/env";
 import { createHash } from "node:crypto";
 import { createAiProvider } from "./ai";
@@ -5,7 +11,7 @@ import { createThreadwiseBot } from "./bot";
 import { defaultDashboardPublicKey } from "./dashboard/publicKey";
 import { prisma } from "./db/prisma";
 import { logger } from "./logger";
-import { startReminderLoop } from "./services/reminders";
+import { startReminderLoop, startStudyReminderLoop } from "./services/reminders";
 import { startNoteCaptureExpiryLoop } from "./services/noteCaptureSessions";
 import { startServer } from "./server";
 import { startCodexDeliveryLoop } from "./bot/codex";
@@ -17,12 +23,17 @@ import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
 import { startStudyCaptureBatchLoop } from "./services/studyCaptureBatches";
 import { startStudyAnalysisLoop } from "./services/studyAnalysisRunner";
 import { startImageUploadBatchLoop } from "./services/imageUploadBatches";
-import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
 import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bot/commandMenus";
 import { startDailyBriefLoop } from "./bot/dailyBriefs";
 import { startTaskDraftExpiryLoop } from "./bot/todayExpiry";
 
+/**
+ * Starts everything in order. Background loops are database-driven, so a restart loses nothing.
+ * With WEBHOOK_URL set it refuses to start without WEBHOOK_SECRET_TOKEN, because the webhook must
+ * be authenticated. Beacon gets its own webhook path and a secret derived from its token. Shutdown
+ * on SIGINT/SIGTERM stops the loops, the server, both bots and the database connection.
+ */
 async function main() {
   const ai = createAiProvider();
   const bot = createThreadwiseBot(env.TELEGRAM_BOT_TOKEN, ai);
@@ -33,39 +44,29 @@ async function main() {
   const beaconWebhookSecret = beaconBot && env.BEACON_BOT_TOKEN
     ? createHash("sha256").update(`threadwise-beacon:${env.BEACON_BOT_TOKEN}`).digest("hex")
     : undefined;
-  await seedStudySmokeTestIfRequested();
-  const beaconCleanupLoop = beaconBot ? startBeaconCleanupLoop() : undefined;
-  const reminderLoop = startReminderLoop(bot, env.REMINDER_POLL_MS);
-  const noteCaptureLoop = startNoteCaptureExpiryLoop(bot);
-  const dailyBriefLoop = startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
-  const taskDraftExpiryLoop = startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
-  const codexDeliveryLoop = startCodexDeliveryLoop(bot);
-  const geminiIdeaDeliveryLoop = startGeminiIdeaDeliveryLoop(bot);
-  const fileCourierDeliveryLoop = startFileCourierDeliveryLoop(bot);
-  const voiceCaptureLoop = startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN);
-  const studyCanvasSyncLoop = startStudyCanvasSyncLoop();
-  const studyNoteCaptureLoop = startStudyNoteCaptureExpiryLoop(bot);
-  const studyCaptureBatchLoop = startStudyCaptureBatchLoop(bot);
-  const imageUploadBatchLoop = startImageUploadBatchLoop(bot);
-  const studyAnalysisLoop = startStudyAnalysisLoop();
+  // Each entry is a stop function, or undefined when that loop is disabled by configuration.
+  const stopLoops = [
+    beaconBot ? startBeaconCleanupLoop() : undefined,
+    startReminderLoop(bot, env.REMINDER_POLL_MS),
+    startStudyReminderLoop(bot, env.REMINDER_POLL_MS),
+    startNoteCaptureExpiryLoop(bot),
+    startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
+    startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
+    startCodexDeliveryLoop(bot),
+    startGeminiIdeaDeliveryLoop(bot),
+    startFileCourierDeliveryLoop(bot),
+    startVoiceCaptureRecoveryLoop(bot, env.TELEGRAM_BOT_TOKEN),
+    startStudyCanvasSyncLoop(),
+    startStudyNoteCaptureExpiryLoop(bot),
+    startStudyCaptureBatchLoop(bot),
+    startImageUploadBatchLoop(bot),
+    startStudyAnalysisLoop()
+  ];
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
 
   const shutdown = async (signal: string) => {
     logger.info("Shutting down Threadwise.", { signal });
-    clearInterval(reminderLoop);
-    clearInterval(noteCaptureLoop);
-    if (dailyBriefLoop) clearInterval(dailyBriefLoop);
-    if (taskDraftExpiryLoop) clearInterval(taskDraftExpiryLoop);
-    if (codexDeliveryLoop) clearInterval(codexDeliveryLoop);
-    if (geminiIdeaDeliveryLoop) clearInterval(geminiIdeaDeliveryLoop);
-    if (fileCourierDeliveryLoop) clearInterval(fileCourierDeliveryLoop);
-    clearInterval(voiceCaptureLoop);
-    clearInterval(studyCanvasSyncLoop);
-    clearInterval(studyNoteCaptureLoop);
-    clearInterval(studyCaptureBatchLoop);
-    clearInterval(imageUploadBatchLoop);
-    if (studyAnalysisLoop) clearInterval(studyAnalysisLoop);
-    if (beaconCleanupLoop) clearInterval(beaconCleanupLoop);
+    for (const stop of stopLoops) stop?.();
     await server?.close();
     await bot.stop();
     await beaconBot?.stop();
@@ -145,6 +146,12 @@ async function main() {
     logger.info("Threadwise is running with Telegram long polling.");
   }
 }
+
+// A stray rejected promise (for example a background query during a database blip) is logged
+// instead of letting Node 22 exit the whole process.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection.", { error: String(reason) });
+});
 
 main().catch(async (error) => {
   logger.error("Threadwise failed to start.", { error: String(error) });

@@ -1,13 +1,26 @@
-import { CaptureKind } from "@prisma/client";
+/**
+ * PendingCapture rows: a message whose type is unclear waits here (24 hours) while its sender picks
+ * Task/Reminder/Note/Idea/Ignore on the review card. Used by src/bot/naturalLanguage.ts and callbacks.
+ * Rows are bound to the sender and chat, so in a group only the person who wrote the message can act on it.
+ * Rows with no recorded actor (the column was added later) remain usable by anyone in the workspace.
+ */
+import { CaptureKind, type Prisma } from "@prisma/client";
 import type { Classification } from "../ai/types";
 import { prisma } from "../db/prisma";
+import type { TaskCreationOptions, TaskEntityMention } from "./tasks";
 
+/**
+ * Holds an ambiguous capture until its sender picks a type. The original message's Telegram
+ * mentions go into the payload, because a later button tap or reply carries no entities of its
+ * own; without them a review-card save would lose an assignee that /add keeps.
+ */
 export async function createPendingCapture(
   userId: string,
   sourceText: string,
   classification: Classification,
   actorTelegramId?: string | number,
   telegramChatId?: string | number,
+  mentions: TaskEntityMention[] = [],
 ) {
   const kind = toPrismaKind(classification.kind);
   return prisma.pendingCapture.create({
@@ -17,12 +30,13 @@ export async function createPendingCapture(
       telegramChatId: telegramChatId === undefined ? null : String(telegramChatId),
       sourceText,
       kind,
-      payload: classification,
+      payload: { ...classification, ...(mentions.length ? { mentions } : {}) },
       expiresAt: new Date(Date.now() + 24 * 60 * 60_000)
     }
   });
 }
 
+/** The sender's newest live pending capture in this chat, used by natural corrections like "make that a note". */
 export async function findLatestPendingCapture(
   userId: string,
   actorTelegramId: string | number,
@@ -39,6 +53,10 @@ export async function findLatestPendingCapture(
   });
 }
 
+/**
+ * Claims a pending capture for saving by deleting it. Only the caller whose delete removed the row
+ * gets it back, so a double tap or a race between two taps saves at most once.
+ */
 export async function consumePendingCapture(
   userId: string,
   pendingId: string,
@@ -70,6 +88,10 @@ export async function findPendingCapture(
   });
 }
 
+/**
+ * Records which "when should I remind you?" prompt message belongs to this capture, so only a reply
+ * to that exact prompt, from the same sender in the same chat, is read as the reminder time.
+ */
 export async function rememberPendingCaptureReminderPrompt(
   userId: string,
   pendingId: string,
@@ -90,6 +112,7 @@ export async function rememberPendingCaptureReminderPrompt(
   return updated.count === 1;
 }
 
+/** Finds the capture whose reminder prompt the user just replied to (matched by chat and prompt message id). */
 export async function findPendingCaptureReminderReply(
   userId: string,
   actorTelegramId: string | number,
@@ -130,6 +153,19 @@ export async function ignorePendingCapture(
   return result.count > 0;
 }
 
+/** The task options (mentions) saved with a pending capture, read defensively since payload is free-form JSON. */
+export function pendingCaptureTaskOptions(pending: { payload: Prisma.JsonValue }): TaskCreationOptions {
+  const stored = pending.payload && typeof pending.payload === "object" && !Array.isArray(pending.payload)
+    ? (pending.payload as Record<string, unknown>).mentions
+    : undefined;
+  if (!Array.isArray(stored)) return {};
+  const mentions = stored.filter((mention): mention is TaskEntityMention =>
+    Boolean(mention) && typeof mention === "object"
+    && typeof (mention as TaskEntityMention).offset === "number"
+    && typeof (mention as TaskEntityMention).length === "number");
+  return mentions.length ? { mentions } : {};
+}
+
 function toPrismaKind(kind: Classification["kind"]): CaptureKind {
   if (kind === "idea") return CaptureKind.IDEA;
   if (kind === "task") return CaptureKind.TASK;
@@ -137,6 +173,7 @@ function toPrismaKind(kind: Classification["kind"]): CaptureKind {
   return CaptureKind.NOISE;
 }
 
+/** Shared filter: the capture's id within this workspace, plus the actor check when an actor is given. */
 function pendingCaptureWhere(
   userId: string,
   pendingId: string,

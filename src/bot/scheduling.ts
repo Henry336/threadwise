@@ -1,3 +1,10 @@
+/**
+ * Telegram side of group "Find a time" availability polls. Registers `/findtime`, the poll card
+ * buttons and the natural "find a time" intent, and renders the one shared poll card per poll.
+ * Domain rules (slots, ranking, revisions) live in `services/groupScheduling.ts`. The dashboard
+ * route also uses the `...WithToken` helpers here to post or refresh the card from outside grammY.
+ */
+
 import { Api, InlineKeyboard, type Bot, type Context } from "grammy";
 import { DateTime } from "luxon";
 import { ensureUser } from "../services/users";
@@ -24,8 +31,14 @@ import { prepareNaturalLanguageText, isGroupChat } from "./groupRouting";
 import { groupScheduleMiniAppUrl } from "./links";
 import { userFacingError } from "./errorResponses";
 
+/** One grammY Api client per bot token, reused so dashboard-triggered posts do not call getMe every time. */
 const apiCache = new Map<string, { api: Api; username?: string }>();
 
+/**
+ * Registers the group scheduling command, callbacks and text intent on the bot.
+ * Finalize, remind and close require a fresh owner/admin role check; finalize and close also carry
+ * the poll revision in the callback so a stale button fails instead of acting on changed data.
+ */
 export function registerGroupScheduling(bot: Bot): void {
   bot.command(["findtime", "schedule"], async (ctx) => {
     if (!isGroupChat(ctx)) {
@@ -125,6 +138,10 @@ export function registerGroupScheduling(bot: Bot): void {
   });
 }
 
+/**
+ * Posts a new poll card into the group and stores its message id, so later updates can edit the
+ * same card instead of posting another message. Used by the dashboard when a poll is created there.
+ */
 export async function publishAvailabilityPollCardWithToken(
   botToken: string,
   scope: SchedulingScope,
@@ -138,6 +155,10 @@ export async function publishAvailabilityPollCardWithToken(
   await setAvailabilityTelegramMessage(scope, poll.id, String(message.message_id));
 }
 
+/**
+ * Edits the existing poll card after a dashboard change. Does nothing if the card was never posted,
+ * and ignores Telegram's "message is not modified" error because an unchanged card is fine.
+ */
 export async function refreshAvailabilityPollCardWithToken(
   botToken: string,
   scope: SchedulingScope,
@@ -155,6 +176,7 @@ export async function refreshAvailabilityPollCardWithToken(
   }
 }
 
+/** Posts a reminder that mentions members who have not responded yet. Used by the dashboard Remind action. */
 export async function sendAvailabilityReminderWithToken(
   botToken: string,
   scope: SchedulingScope,
@@ -166,6 +188,7 @@ export async function sendAvailabilityReminderWithToken(
   await client.api.sendMessage(scope.telegramChatId, formatPendingReminder(poll, pendingMembers), HTML_REPLY);
 }
 
+/** Text of the shared poll card for open, finalized and closed polls. It shows counts, never other members' raw choices. */
 export function formatAvailabilityPollCard(poll: AvailabilityPollView): string {
   const range = formatDateRange(poll);
   if (poll.status === "FINALIZED") {
@@ -191,6 +214,11 @@ export function formatAvailabilityPollCard(poll: AvailabilityPollView): string {
   ].join("\n");
 }
 
+/**
+ * Buttons for the poll card. Availability is entered in the Mini App via a URL button, because
+ * Telegram does not allow `web_app` buttons on group messages. Only the top two slots get a
+ * Confirm button to keep the card small.
+ */
 export function availabilityPollKeyboard(poll: AvailabilityPollView, workspaceId: string, botUsername?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const openUrl = groupScheduleMiniAppUrl(botUsername, workspaceId, poll.publicId);
@@ -210,6 +238,7 @@ export function availabilityPollKeyboard(poll: AvailabilityPollView, workspaceId
   return keyboard;
 }
 
+/** Shows up to five open polls, plus a create link for owners/admins and a link into the Mini App. */
 async function showFindTimeMenu(ctx: Context): Promise<void> {
   try {
     const ready = await schedulingContext(ctx);
@@ -226,6 +255,10 @@ async function showFindTimeMenu(ctx: Context): Promise<void> {
   }
 }
 
+/**
+ * Creates a poll from "/findtime rehearsal next week for 1 hour" style text and posts its card.
+ * Only owners/admins may start a poll; other members are told they can still respond.
+ */
 async function createPollFromText(ctx: Context, text: string): Promise<void> {
   try {
     const ready = await schedulingContext(ctx);
@@ -241,6 +274,10 @@ async function createPollFromText(ctx: Context, text: string): Promise<void> {
   }
 }
 
+/**
+ * Builds the scheduling scope for this group: workspace, chat, viewer and a freshly verified
+ * Telegram role. Throws a forbidden error outside groups or when the group cannot be verified.
+ */
 async function schedulingContext(ctx: Context): Promise<{ scope: SchedulingScope; timezone: string }> {
   if (!isGroupChat(ctx) || !ctx.from || !ctx.chat) throw new GroupSchedulingError("forbidden", "Find a time is available in group chats.");
   const user = await ensureUser(ctx);
@@ -255,10 +292,11 @@ async function schedulingContext(ctx: Context): Promise<{ scope: SchedulingScope
       viewerTelegramId: String(ctx.from.id),
       viewerRole: role,
     },
-    timezone: user.settings?.timezone ?? "Asia/Singapore",
+    timezone: user.settings.timezone,
   };
 }
 
+/** The acting member's Telegram id and a readable display name. */
 function actorFromContext(ctx: Context): SchedulingActor {
   if (!ctx.from) throw new GroupSchedulingError("forbidden", "Telegram could not identify you.");
   return { telegramId: String(ctx.from.id), displayName: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || ctx.from.username || "Group member" };
@@ -272,6 +310,7 @@ function assertSchedulingManager(scope: SchedulingScope, message: string): void 
   if (!isSchedulingManager(scope)) throw new GroupSchedulingError("forbidden", message);
 }
 
+/** Edits the card the button was pressed on. "Message is not modified" is ignored. */
 async function editCurrentCard(ctx: Context, workspaceId: string, poll: AvailabilityPollView): Promise<void> {
   try {
     await ctx.editMessageText(formatAvailabilityPollCard(poll), { ...HTML_REPLY, reply_markup: availabilityPollKeyboard(poll, workspaceId, ctx.me.username) });
@@ -280,6 +319,7 @@ async function editCurrentCard(ctx: Context, workspaceId: string, poll: Availabi
   }
 }
 
+/** Shows an error as a callback alert, and falls back to a normal reply if the callback can no longer be answered. */
 async function answerOrReplyError(ctx: Context, error: unknown): Promise<void> {
   const message = userFacingError(error, "I couldn't update that availability poll just now.");
   try {
@@ -293,6 +333,10 @@ async function safeAnswer(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => undefined);
 }
 
+/**
+ * Returns a cached Api client for the token, filling in the bot username on first success.
+ * The username is only needed for Mini App links, so a failed getMe is tolerated and retried later.
+ */
 async function botClient(token: string): Promise<{ api: Api; username?: string }> {
   const existing = apiCache.get(token);
   if (existing?.username) return existing;
@@ -306,6 +350,7 @@ async function botClient(token: string): Promise<{ api: Api; username?: string }
   return client;
 }
 
+/** Reminder text that mentions up to 20 pending members, using a tg://user link when they have no username. */
 function formatPendingReminder(poll: AvailabilityPollView, pending: AvailabilityPollView["pendingMembers"]): string {
   const names = pending.slice(0, 20).map((member) => member.username
     ? `@${h(member.username)}`

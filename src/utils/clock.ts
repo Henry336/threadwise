@@ -1,3 +1,8 @@
+/**
+ * Small helper for 24-hour clock strings (HH:mm), used for quiet hours and other
+ * settings that store a time of day. dates.ts builds on it.
+ */
+
 const CLOCK = /^(\d{1,2}):(\d{2})$/;
 
 /**

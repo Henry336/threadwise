@@ -1,3 +1,10 @@
+/**
+ * Voice-note capture: a Telegram voice message (or supported audio file) becomes a durable
+ * VoiceTranscriptionJob, is transcribed by OpenAI, optionally lightly cleaned, and saved as a note.
+ * src/bot/voiceCapture.ts queues the job and starts processing right away; a one-minute recovery loop
+ * there picks up jobs left behind by a restart, and another pass delivers finished results.
+ * The raw transcript is always kept, and a cleanup that changes meaning falls back to verbatim text.
+ */
 import { hostname } from "node:os";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
@@ -8,12 +15,12 @@ import {
   type VoiceTranscriptionJob
 } from "@prisma/client";
 import type { Api } from "grammy";
-import type { AiProvider } from "../ai/types";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo } from "./undo";
+import { downloadTelegramFile, TelegramFileError } from "./telegramFiles";
 
 export const TRANSCRIPTION_MODELS = [
   "gpt-4o-mini-transcribe",
@@ -41,6 +48,7 @@ export type VoiceQueueInput = VoiceMedia & {
   languageHint?: string;
 };
 
+/** The speech-to-text and cleanup backend. An interface so tests can pass a fake instead of calling OpenAI. */
 export interface VoiceProvider {
   transcribe(input: {
     bytes: Buffer;
@@ -52,6 +60,10 @@ export interface VoiceProvider {
   cleanup(rawTranscript: string): Promise<string>;
 }
 
+/**
+ * OpenAI implementation: the transcription API for speech, and a chat model with a strict
+ * "punctuation and filler only" prompt for cleanup. Needs OPENAI_API_KEY.
+ */
 export class OpenAiVoiceProvider implements VoiceProvider {
   private readonly client: OpenAI;
 
@@ -98,6 +110,7 @@ export class OpenAiVoiceProvider implements VoiceProvider {
   }
 }
 
+/** Maps user words ("fast", "accuracy") or exact model names to a supported transcription model. */
 export function normalizeTranscriptionModel(value: string): TranscriptionModel | undefined {
   const normalized = value.trim().toLowerCase();
   if (["fast", "mini", TRANSCRIPTION_MODELS[0]].includes(normalized)) return TRANSCRIPTION_MODELS[0];
@@ -121,6 +134,7 @@ const SUPPORTED_MIME_TYPES = new Set([
   "video/webm"
 ]);
 
+/** Checks the MIME type, or for audio files the extension, against formats the transcription API accepts. */
 export function isSupportedVoiceMedia(media: Pick<VoiceMedia, "sourceKind" | "mimeType" | "fileName">): boolean {
   if (media.sourceKind === "VOICE") return !media.mimeType || SUPPORTED_MIME_TYPES.has(media.mimeType.toLowerCase());
   const mime = media.mimeType?.toLowerCase();
@@ -136,6 +150,10 @@ export function voiceFileSizeError(fileSize?: number, maxBytes = env.VOICE_TRANS
   return undefined;
 }
 
+/**
+ * Creates the job for one Telegram message. A unique key on (chat, message id) makes a redelivered
+ * update return the existing job (created: false) instead of transcribing twice.
+ */
 export async function queueVoiceTranscription(
   input: VoiceQueueInput,
   database: Pick<typeof prisma, "voiceTranscriptionJob"> = prisma
@@ -165,16 +183,21 @@ export async function saveVoiceAcknowledgement(jobId: string, messageId: number)
   });
 }
 
+/** A job can be picked up if it is pending, or if its processor's lease ran out (for example after a crash). */
 export function isVoiceLeaseClaimable(status: VoiceTranscriptionStatus, leaseExpiresAt: Date | null, now = new Date()): boolean {
   return status === VoiceTranscriptionStatus.PENDING
     || (status === VoiceTranscriptionStatus.PROCESSING && (!leaseExpiresAt || leaseExpiresAt <= now));
 }
 
+/**
+ * Runs one job end to end under a lease: claim it, download the audio, transcribe, clean up, save the note.
+ * A heartbeat renews the lease while work runs. Each finished step (raw transcript, cleaned text) is stored
+ * first, so a retry after a crash skips steps already paid for. Any error marks the job FAILED.
+ */
 export async function processVoiceTranscription(
   jobId: string,
   api: Api,
   botToken: string,
-  ai: AiProvider,
   providerFactory: () => VoiceProvider = () => new OpenAiVoiceProvider()
 ): Promise<void> {
   const processorId = `${hostname()}-${process.pid}`;
@@ -191,7 +214,7 @@ export async function processVoiceTranscription(
     let rawTranscript = job.rawTranscript;
     const provider = providerFactory();
     if (rawTranscript === null) {
-      const bytes = await downloadTelegramAudio(api, botToken, job.telegramFileId, job.fileSize ?? undefined);
+      const bytes = await downloadTelegramAudio(botToken, job.telegramFileId, job.fileSize ?? undefined);
       rawTranscript = await transcribeWithValidation(provider, {
         bytes,
         fileName: transcriptionFileName(job.fileName, job.mimeType),
@@ -217,13 +240,8 @@ export async function processVoiceTranscription(
         }
       });
     }
-    const embedding = await ai.embed(`${voiceNoteTitle(prepared.cleanedText)}\n${prepared.cleanedText}\n${rawTranscript}`)
-      .catch((error) => {
-        logger.warn("Voice note embedding failed; saving the note without an embedding.", { jobId: job.id, error: String(error) });
-        return undefined;
-      });
 
-    await completeVoiceJob(job.id, rawTranscript, prepared.cleanedText, prepared.cleanupError, embedding);
+    await completeVoiceJob(job.id, rawTranscript, prepared.cleanedText, prepared.cleanupError);
   } catch (error) {
     await failVoiceJob(job.id, error);
   } finally {
@@ -240,10 +258,10 @@ export async function transcribeWithValidation(
   return transcript;
 }
 
+/** Recovery loop body: processes the oldest pending or lease-expired job, one per call. */
 export async function processRecoverableVoiceTranscriptions(
   api: Api,
-  botToken: string,
-  ai: AiProvider
+  botToken: string
 ): Promise<void> {
   const now = new Date();
   const job = await prisma.voiceTranscriptionJob.findFirst({
@@ -255,9 +273,13 @@ export async function processRecoverableVoiceTranscriptions(
     },
     orderBy: { createdAt: "asc" }
   });
-  if (job) await processVoiceTranscription(job.id, api, botToken, ai);
+  if (job) await processVoiceTranscription(job.id, api, botToken);
 }
 
+/**
+ * Picks the note text. VERBATIM keeps the raw transcript. LIGHT asks for a cleanup, but if it fails or
+ * fails validation the raw transcript is saved and the reason is kept in cleanupError.
+ */
 export async function prepareVoiceNoteText(
   rawTranscript: string,
   mode: VoiceCleanupMode,
@@ -275,6 +297,11 @@ export async function prepareVoiceNoteText(
   }
 }
 
+/**
+ * Guards against an AI cleanup that changed meaning. Rejects it if the length moved too much, any
+ * number changed, over a quarter of the words disappeared, or the remaining words are not an in-order
+ * subset of the original (nothing added or reordered). Returns the reason, or undefined if it is safe.
+ */
 export function validateConservativeCleanup(raw: string, cleaned: string): string | undefined {
   if (!cleaned.trim()) return "Cleanup returned empty text; saved verbatim.";
   const ratio = cleaned.length / Math.max(1, raw.length);
@@ -296,6 +323,7 @@ export function validateConservativeCleanup(raw: string, cleaned: string): strin
   return undefined;
 }
 
+/** Splits a long raw transcript into pages that fit in a Telegram message, for the "show raw" view. */
 export function rawTranscriptPage(raw: string, page: number, pageSize = 3200): {
   text: string;
   page: number;
@@ -311,6 +339,7 @@ export function rawTranscriptPage(raw: string, page: number, pageSize = 3200): {
   };
 }
 
+/** Loads a job only if it belongs to this owner and chat, so a button from another chat cannot act on it. */
 export async function findVoiceJobForContext(jobId: string, userId: string, telegramChatId: string) {
   return prisma.voiceTranscriptionJob.findFirst({
     where: { id: jobId, userId, telegramChatId },
@@ -341,6 +370,7 @@ export function canUndoVoiceJob(
   return job.status === VoiceTranscriptionStatus.COMPLETED && Boolean(job.cleanedNoteId);
 }
 
+/** "Keep verbatim" button: replaces the cleaned note text with the raw transcript. */
 export async function keepVoiceNoteVerbatim(jobId: string, userId: string, telegramChatId: string) {
   const job = await findVoiceJobForContext(jobId, userId, telegramChatId);
   if (!job?.rawTranscript || !job.cleanedNoteId || job.status === VoiceTranscriptionStatus.UNDONE) return undefined;
@@ -364,6 +394,7 @@ export async function keepVoiceNoteVerbatim(jobId: string, userId: string, teleg
   return note;
 }
 
+/** Undo button on the result card: archives the saved note and marks the job UNDONE, in one transaction. */
 export async function undoVoiceNote(jobId: string, userId: string, telegramChatId: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     const job = await tx.voiceTranscriptionJob.findFirst({
@@ -384,6 +415,10 @@ export async function undoVoiceNote(jobId: string, userId: string, telegramChatI
   });
 }
 
+/**
+ * Finished or failed jobs whose result message was not yet sent (for example the process restarted
+ * mid-job). markVoiceJobDelivered sets deliveredAt only once, so each result is sent at most once.
+ */
 export async function undeliveredVoiceJobs() {
   return prisma.voiceTranscriptionJob.findMany({
     where: {
@@ -403,6 +438,7 @@ export async function markVoiceJobDelivered(jobId: string, messageId: number): P
   });
 }
 
+/** Conditional update that takes the job for this process; only one processor can win the claim. */
 async function claimVoiceJob(jobId: string, processorId: string) {
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + env.VOICE_TRANSCRIPTION_LEASE_SECONDS * 1_000);
@@ -435,28 +471,29 @@ async function renewVoiceLease(jobId: string, processorId: string): Promise<void
   });
 }
 
-async function downloadTelegramAudio(api: Api, botToken: string, fileId: string, expectedSize?: number): Promise<Buffer> {
+/** Downloads a voice note through the shared Telegram download, capped at the transcription limit. */
+async function downloadTelegramAudio(botToken: string, fileId: string, expectedSize?: number): Promise<Buffer> {
   const initialError = voiceFileSizeError(expectedSize);
   if (initialError) throw new Error(initialError);
-  const file = await api.getFile(fileId);
-  if (!file.file_path) throw new Error("Telegram did not provide a downloadable path for this audio.");
-  const response = await fetch(`https://api.telegram.org/file/bot${botToken}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram audio download failed (${response.status}).`);
-  const contentLength = Number(response.headers.get("content-length"));
-  const headerError = voiceFileSizeError(Number.isFinite(contentLength) ? contentLength : undefined);
-  if (headerError) throw new Error(headerError);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const actualError = voiceFileSizeError(bytes.length);
-  if (actualError) throw new Error(actualError);
-  return bytes;
+  try {
+    return (await downloadTelegramFile(botToken, fileId, { maxBytes: env.VOICE_TRANSCRIPTION_MAX_BYTES })).bytes;
+  } catch (error) {
+    if (error instanceof TelegramFileError && error.reason === "too_large") {
+      throw new Error(`This audio is above the configured ${formatMegabytes(env.VOICE_TRANSCRIPTION_MAX_BYTES)} transcription limit.`);
+    }
+    throw error;
+  }
 }
 
+/**
+ * Creates the note, its undo entry, and the COMPLETED job state in one transaction. Skips if a note
+ * was already saved. Retries up to five times when two writers race for the same NOTE public ID.
+ */
 async function completeVoiceJob(
   jobId: string,
   rawTranscript: string,
   cleanedText: string,
-  cleanupError: string | undefined,
-  embedding: number[] | undefined
+  cleanupError: string | undefined
 ): Promise<void> {
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
@@ -472,8 +509,7 @@ async function completeVoiceJob(
             body: cleanedText,
             summary: voiceNoteSummary(cleanedText),
             sourceText: rawTranscript,
-            tags: [],
-            embedding
+            tags: []
           }
         });
         await recordCreateUndo(tx, job.userId, { kind: "note", id: note.id, publicId, title: note.title });
@@ -504,6 +540,7 @@ function lexicalTokens(text: string): string[] {
   return (text.normalize("NFKC").toLocaleLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
 }
 
+/** Splits text into chunks without cutting a surrogate pair (an emoji or rare character) in half. */
 function splitUnicodeSafe(text: string, pageSize: number): string[] {
   if (!text.length) return [""];
   const chunks: string[] = [];
@@ -533,6 +570,7 @@ async function failVoiceJob(jobId: string, error: unknown): Promise<void> {
   });
 }
 
+/** The transcription API infers the format from the file name, so give it a supported extension. */
 function transcriptionFileName(fileName: string | null, mimeType: string | null): string {
   if (fileName && isSupportedVoiceMedia({ sourceKind: "AUDIO", fileName, mimeType: mimeType ?? undefined })) return fileName;
   if (mimeType?.includes("webm")) return "voice.webm";

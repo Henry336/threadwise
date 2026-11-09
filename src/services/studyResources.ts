@@ -1,3 +1,9 @@
+/**
+ * Study resources (notes, images, links, files, questions) and the capture state around them:
+ * the ten-minute active module, pending captures waiting for a module choice, and silent
+ * note-taking sessions that collect many messages into one note. Used by src/bot/studyCapture.ts,
+ * src/bot/study.ts and the dashboard Study routes. Every query is scoped to one Study workspace.
+ */
 import {
   Prisma,
   StudyResourceKind,
@@ -12,9 +18,13 @@ import { StudyModeError, findStudyModule } from "./study";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 import { deriveStudyResourceAnalysis, studyResourceWikiLookupKeys } from "./studyScale";
+import { highestPublicNumber } from "./publicIds";
+import { startLoop, type StopLoop } from "../utils/loop";
 
+/** A note session auto-saves after 30 minutes without a new paragraph. */
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
 export const STUDY_NOTE_POLL_MS = 60_000;
+/** How long an opened module stays the default target for new captures. */
 export const STUDY_CAPTURE_CONTEXT_MS = 10 * 60_000;
 const RESOURCE_PAGE_SIZE = 6;
 
@@ -39,6 +49,11 @@ export type StudyResourceInput = {
   sourceSentAt?: Date;
 };
 
+/**
+ * Opens a module as the capture target for the next ten minutes. The selection is stored on the
+ * workspace row (not in memory) so it survives restarts, and it expires so later captures are not
+ * filed into a module the owner has stopped thinking about. Archived modules are rejected.
+ */
 export async function setActiveStudyModule(workspace: StudyWorkspace, reference: string): Promise<StudyModule> {
   const module = await findStudyModule(workspace.id, reference);
   if (!module.active) throw new StudyModeError("That module is archived.", "invalid");
@@ -57,6 +72,11 @@ export async function setActiveStudyModule(workspace: StudyWorkspace, reference:
   return module;
 }
 
+/**
+ * Returns the current capture module, or undefined. Reads fresh from the database rather than the
+ * passed workspace object. Clears the selection as a side effect when it expired or the module was
+ * archived, so stale context never lingers.
+ */
 export async function activeStudyModule(workspace: StudyWorkspace): Promise<StudyModule | undefined> {
   const now = new Date();
   const selected = await prisma.studyWorkspace.findUnique({
@@ -84,6 +104,7 @@ export async function activeStudyModule(workspace: StudyWorkspace): Promise<Stud
   return module;
 }
 
+/** Like activeStudyModule, but also returns when the context expires and the minutes left, for display. */
 export async function studyCaptureContext(workspace: StudyWorkspace): Promise<{
   module: StudyModule;
   expiresAt: Date;
@@ -118,6 +139,12 @@ export async function requireActiveStudyModule(workspace: StudyWorkspace): Promi
   return module;
 }
 
+/**
+ * Saves one resource into an active module of this workspace. A repeated Telegram file (same
+ * telegramUniqueId) returns the existing row with duplicate=true instead of saving twice.
+ * The insert, audit log, and for notes the first revision and wiki links, commit in one transaction.
+ * Derived excerpt and wiki lookup columns are computed here so reads stay cheap.
+ */
 export async function createStudyResource(workspace: StudyWorkspace, input: StudyResourceInput) {
   const module = await prisma.studyModule.findFirst({
     where: { id: input.moduleId, workspaceId: workspace.id, active: true },
@@ -188,6 +215,10 @@ export async function createStudyResource(workspace: StudyWorkspace, input: Stud
   return { resource, duplicate: false };
 }
 
+/**
+ * Stores OCR text for an image after local OCR finishes, and refreshes the analysis excerpt.
+ * completeSearchableContentUpdate keeps encrypted fields and their search index consistent.
+ */
 export async function updateStudyResourceOcr(
   workspaceId: string,
   resourceId: string,
@@ -206,6 +237,11 @@ export async function updateStudyResourceOcr(
   });
 }
 
+/**
+ * One page (six items) of active resources, pinned first, optionally filtered by module, kind or text.
+ * Text search matches plaintext columns plus the encrypted-content search clause, then re-checks each
+ * row after decryption with contentMatchesQuery, so a page can hold fewer than six results.
+ */
 export async function listStudyResources(
   workspaceId: string,
   input: { moduleId?: string; kind?: StudyResourceKind; query?: string; page?: number } = {},
@@ -244,6 +280,7 @@ export async function listStudyResources(
   return { resources, page, totalPages, totalItems, query };
 }
 
+/** Finds a resource by public id (e.g. SNOTE-3) or internal UUID, only within active modules of this workspace. */
 export async function findStudyResource(workspaceId: string, reference: string) {
   const normalized = reference.trim().toUpperCase();
   const resource = await prisma.studyResource.findFirst({
@@ -278,6 +315,7 @@ export async function pinStudyResource(workspace: StudyWorkspace, reference: str
   return updated;
 }
 
+/** Soft-deletes a resource by setting archivedAt, so its public id is never reused. Audited. */
 export async function archiveStudyResource(workspace: StudyWorkspace, reference: string) {
   const resource = await findStudyResource(workspace.id, reference);
   const updated = await prisma.studyResource.update({
@@ -295,6 +333,11 @@ export async function archiveStudyResource(workspace: StudyWorkspace, reference:
   return updated;
 }
 
+/**
+ * Parks a capture that cannot be saved yet (no clear module, or the owner must choose what it is).
+ * The row holds the text or Telegram file reference and a random token used in button callbacks,
+ * and expires after 30 minutes. Expired rows for the workspace are cleaned up on each call.
+ */
 export async function createStudyPendingCapture(workspace: StudyWorkspace, input: {
   moduleId?: string;
   sourceText?: string;
@@ -333,6 +376,11 @@ export async function createStudyPendingCapture(workspace: StudyWorkspace, input
   });
 }
 
+/**
+ * Claims a pending capture exactly once by deleting it inside a transaction. If two button taps race,
+ * only the one whose delete removes the row succeeds; the other gets a conflict. When the last capture
+ * of an album batch is claimed, the batch is marked COMPLETED.
+ */
 export async function consumeStudyPendingCapture(workspaceId: string, token: string) {
   return prisma.$transaction(async (tx) => {
     const pending = await tx.studyPendingCapture.findFirst({
@@ -362,6 +410,7 @@ export async function findStudyPendingCapture(workspaceId: string, token: string
   return pending;
 }
 
+/** Newest unexpired pending capture sent by this Telegram user, used when a reply refers to "the last capture". */
 export async function findLatestStudyPendingCapture(workspaceId: string, actorTelegramId: string | number) {
   return prisma.studyPendingCapture.findFirst({
     where: {
@@ -373,6 +422,7 @@ export async function findLatestStudyPendingCapture(workspaceId: string, actorTe
   });
 }
 
+/** Records the module the owner picked for a pending capture, checking it is an active module of this workspace. */
 export async function setStudyPendingCaptureModule(workspaceId: string, token: string, moduleId: string) {
   const pending = await findStudyPendingCapture(workspaceId, token);
   const module = await prisma.studyModule.findFirst({ where: { id: moduleId, workspaceId, active: true } });
@@ -410,6 +460,11 @@ export async function updateStudyPendingCaptureOcr(
   });
 }
 
+/**
+ * Starts silent note-taking for a module: following messages become paragraphs of one note.
+ * There is at most one session per workspace. A live session is resumed; an expired one is saved
+ * first, then replaced.
+ */
 export async function startStudyNoteCaptureSession(workspace: StudyWorkspace, moduleId: string) {
   const module = await prisma.studyModule.findFirst({ where: { id: moduleId, workspaceId: workspace.id, active: true } });
   if (!module) throw new StudyModeError("That module does not belong to this Study workspace.", "forbidden");
@@ -438,6 +493,10 @@ export async function currentStudyNoteCaptureSession(workspaceId: string) {
   });
 }
 
+/**
+ * Adds one Telegram message as a paragraph and pushes the idle expiry forward. A unique constraint on
+ * the message id makes a redelivered Telegram update return "duplicate" instead of a second copy.
+ */
 export async function appendStudyNoteSegment(
   workspaceId: string,
   telegramMessageId: number,
@@ -458,6 +517,7 @@ export async function appendStudyNoteSegment(
   }
 }
 
+/** Discards the note session and its paragraphs; returns how many paragraphs were dropped. */
 export async function cancelStudyNoteCaptureSession(workspaceId: string): Promise<number> {
   const session = await prisma.studyNoteCaptureSession.findUnique({
     where: { workspaceId },
@@ -468,6 +528,10 @@ export async function cancelStudyNoteCaptureSession(workspaceId: string): Promis
   return session._count.segments;
 }
 
+/**
+ * Joins the session's paragraphs in message order into one note, saves it via createStudyResource,
+ * and deletes the session. An empty session is simply closed. Returns the chat id so the caller can reply.
+ */
 export async function finalizeStudyNoteCaptureSession(workspace: StudyWorkspace) {
   const session = await prisma.studyNoteCaptureSession.findUnique({
     where: { workspaceId: workspace.id },
@@ -496,6 +560,10 @@ export async function finalizeStudyNoteCaptureSession(workspace: StudyWorkspace)
   };
 }
 
+/**
+ * Saves up to 20 idle note sessions per pass. Each one is re-read before saving so a session that got
+ * a new paragraph in the meantime is left running.
+ */
 export async function finalizeExpiredStudyNoteSessions(now = new Date()) {
   const sessions = await prisma.studyNoteCaptureSession.findMany({
     where: { expiresAt: { lte: now } },
@@ -513,14 +581,12 @@ export async function finalizeExpiredStudyNoteSessions(now = new Date()) {
   return results;
 }
 
-export function startStudyNoteCaptureExpiryLoop(bot: Bot, pollMs = STUDY_NOTE_POLL_MS): NodeJS.Timeout {
-  const timer = setInterval(() => {
-    void autoSaveStudyNotes(bot);
-  }, pollMs);
-  timer.unref?.();
-  return timer;
+/** Auto-saves Study note captures that ran out of time. */
+export function startStudyNoteCaptureExpiryLoop(bot: Bot, pollMs = STUDY_NOTE_POLL_MS): StopLoop {
+  return startLoop("Study note capture expiry", pollMs, () => autoSaveStudyNotes(bot));
 }
 
+/** Default title: the first sentence of the text, on one line, capped at 96 characters. */
 export function deriveStudyResourceTitle(value: string): string {
   const singleLine = value.replace(/\s+/g, " ").trim() || "Untitled capture";
   const sentence = singleLine.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() ?? singleLine;
@@ -563,6 +629,11 @@ function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase().replace(/^#/, "")).filter(Boolean))].slice(0, 20);
 }
 
+/**
+ * Splits one paragraph that is too long for a Telegram page. Binary search finds the longest prefix
+ * that fits after escaping, then the cut moves back to a nearby space or punctuation mark when one
+ * exists in the last 40 percent of the chunk.
+ */
 function splitStudyTextChunk(value: string, maxEscapedLength: number): string[] {
   const chunks: string[] = [];
   let remaining = Array.from(value);
@@ -599,6 +670,7 @@ function escapedLength(value: string): number {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").length;
 }
 
+/** Next human-readable id for this kind in this workspace (SNOTE-n, SIMG-n, ...), one above the highest used. */
 async function nextStudyResourcePublicId(workspaceId: string, kind: StudyResourceKind): Promise<string> {
   const prefix: Record<StudyResourceKind, string> = {
     [StudyResourceKind.NOTE]: "SNOTE",
@@ -609,15 +681,13 @@ async function nextStudyResourcePublicId(workspaceId: string, kind: StudyResourc
   };
   const root = prefix[kind];
   const rows = await prisma.studyResource.findMany({ where: { workspaceId, publicId: { startsWith: `${root}-` } }, select: { publicId: true } });
-  const pattern = new RegExp(`^${root}-(\\d+)$`);
-  let highest = 0;
-  for (const row of rows) {
-    const suffix = Number(row.publicId.match(pattern)?.[1]);
-    if (Number.isSafeInteger(suffix) && suffix > highest) highest = suffix;
-  }
-  return `${root}-${highest + 1}`;
+  return `${root}-${highestPublicNumber(rows, root) + 1}`;
 }
 
+/**
+ * Loop body: saves expired note sessions, then posts a short confirmation that deletes itself after
+ * 3.5 seconds. Errors are logged so one bad pass does not stop the loop.
+ */
 async function autoSaveStudyNotes(bot: Bot): Promise<void> {
   try {
     const results = await finalizeExpiredStudyNoteSessions();

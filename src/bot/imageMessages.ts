@@ -1,19 +1,25 @@
+/**
+ * Handles photos and image documents sent to the Personal/Group bot. An image is stored as a
+ * pending upload first and saved, captioned, OCR-read or discarded only after the sender chooses.
+ * Albums go to the durable batch flow in `services/imageUploadBatches.ts` so the whole album gets
+ * one review card. OCR runs locally (`services/imageOcr.ts`), not through an AI API.
+ */
+
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
-import { createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
+import { saveTaskFromTelegram } from "./taskSaves";
 import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
+import { downloadTelegramFile, TelegramFileError } from "../services/telegramFiles";
 import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
 import { beginPendingItemEdit, formatEditStarted } from "../services/itemEdits";
 import { ensureUser } from "../services/users";
 import { parseDueDate } from "../utils/dates";
 import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
-import { editCancelKeyboard, expenseConfirmationKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
+import { editCancelKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
-import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
-import { userFacingError } from "./errorResponses";
+import { isNotFoundError, userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import {
   beginImageUploadBatchCaption,
@@ -30,6 +36,7 @@ import {
   saveImageUploadBatch,
 } from "../services/imageUploadBatches";
 
+/** Registers the photo/image-document handlers and the per-image and per-album button callbacks. Expired buttons get a short alert. */
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
   bot.on("message:document", async (ctx, next) => {
@@ -39,10 +46,11 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     }
     await handleImageMessage(ctx, ai, token);
   });
-  bot.callbackQuery(/^image-upload:(save|caption|save-extract|extract|expense|discard):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^image-upload:(save|caption|save-extract|extract|discard):(.+)$/, async (ctx) => {
     try {
       await handleIncomingImageAction(ctx, ai, token, ctx.match[1], ctx.match[2]);
     } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.answerCallbackQuery({ text: "This image choice expired or is no longer available.", show_alert: true });
     }
   });
@@ -50,11 +58,18 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
     try {
       await handleImageBatchAction(ctx, ctx.match[1], ctx.match[2]);
     } catch (error) {
+      if (!isNotFoundError(error)) throw error;
       await ctx.answerCallbackQuery({ text: "This image album was already handled or expired.", show_alert: true });
     }
   });
 }
 
+/**
+ * Entry point for one incoming image. In groups it only acts when the caption mentions the bot,
+ * or when the image belongs to an album that already has an open batch. Album images are recorded
+ * and processing is scheduled rather than replied to one by one. Single images follow the caption
+ * intent: save, save and extract, show the choice card, or go straight to OCR for task/note/reminder.
+ */
 async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): Promise<void> {
   const caption = ctx.message?.caption ?? "";
   const mediaGroupId = ctx.message?.media_group_id;
@@ -115,6 +130,7 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
   await processImageOcr(ctx, ai, token, target, preparedCaption, intent, user);
 }
 
+/** Handles the album review buttons: set one shared caption, cancel the caption step, discard all, or save all images. */
 async function handleImageBatchAction(ctx: Context, action: string | undefined, token: string | undefined): Promise<void> {
   if (!action || !token) return;
   const user = await ensureUser(ctx);
@@ -146,6 +162,11 @@ async function handleImageBatchAction(ctx: Context, action: string | undefined, 
   await editOrReplyHtml(ctx, formatImageUploadBatchSaved(saved), { reply_markup: menuBackKeyboard() });
 }
 
+/**
+ * Handles the single-image choice card buttons. Discard and Save act on the pending upload.
+ * Caption saves the image first and then opens a restart-safe caption edit. Save + extract saves
+ * and then runs OCR on the same file; the remaining action extracts text without saving the image.
+ */
 async function handleIncomingImageAction(
   ctx: Context,
   ai: AiProvider,
@@ -200,7 +221,7 @@ async function handleIncomingImageAction(
     return;
   }
   const pending = await consumePendingImageUpload(user.id, pendingId);
-  await ctx.answerCallbackQuery({ text: action === "expense" ? "Reading receipt" : "Extracting text" });
+  await ctx.answerCallbackQuery({ text: "Extracting text" });
   await processImageOcr(ctx, ai, token, {
     telegramFileId: pending.telegramFileId,
     telegramUniqueId: pending.telegramUniqueId ?? undefined,
@@ -208,9 +229,15 @@ async function handleIncomingImageAction(
     mimeType: pending.mimeType ?? undefined,
     fileName: pending.fileName ?? undefined,
     fileSize: pending.fileSize ?? undefined
-  }, pending.caption ?? "", action === "expense" ? "expense" : "extract", user);
+  }, pending.caption ?? "", "extract", user);
 }
 
+/**
+ * Downloads the image, runs local OCR, and writes the text back to the stored image when one exists.
+ * The text then becomes a note, a task, a timed reminder, or a pending capture with action buttons.
+ * A reminder without a future time from the caption asks for a time. A temporary progress message
+ * is shown and deleted afterwards.
+ */
 async function processImageOcr(
   ctx: Context,
   ai: AiProvider,
@@ -221,29 +248,16 @@ async function processImageOcr(
   user: Awaited<ReturnType<typeof ensureUser>>,
   storedImageId?: string
 ): Promise<void> {
-  const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
+  const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings.ocrLanguages);
   const progressText = `Reading the image locally in ${formatOcrLanguages(ocrLanguages)}. The first scan can take a little longer.`;
   const progress = ctx.callbackQuery?.message
     ? undefined
     : await ctx.reply(progressText);
   if (ctx.callbackQuery?.message) await editOrReplyText(ctx, progressText);
   try {
-    const buffer = await downloadTelegramFile(ctx, token, target.telegramFileId);
+    const buffer = await downloadTelegramImage(token, target.telegramFileId);
     const extracted = await extractTextFromImage(buffer, ocrLanguages);
     if (storedImageId) await updateStoredImageOcr(user.id, storedImageId, extracted.text, extracted.confidence);
-
-    if (intent === "expense") {
-      const pendingExpense = await createPendingExpenseFromText(user.id, extracted.text, user.settings?.timezone ?? "UTC", {
-        sourceType: "receipt",
-        receiptFileUniqueId: target.telegramUniqueId,
-        ocrConfidence: extracted.confidence,
-        defaultCurrency: user.settings?.expenseCurrency
-      });
-      await editOrReplyHtml(ctx, formatPendingExpense(pendingExpense, user.settings?.timezone ?? "UTC"), {
-        reply_markup: expenseConfirmationKeyboard(pendingExpense.id)
-      });
-      return;
-    }
 
     if (intent === "note") {
       const note = await createNote(user.id, extracted.text, ai);
@@ -252,18 +266,14 @@ async function processImageOcr(
     }
 
     if (intent === "task") {
-      const task = await createTask(user.id, extracted.text, ai);
-      await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-      await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+      await saveTaskFromTelegram(ctx, user, extracted.text, { edit: true });
       return;
     }
 
     if (intent === "reminder") {
-      const scheduledAt = parseDueDate(preparedCaption, user.settings?.timezone ?? "UTC");
+      const scheduledAt = parseDueDate(preparedCaption, user.settings.timezone);
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
-        const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
-        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-        await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+        await saveTaskFromTelegram(ctx, user, extracted.text, { dueAt: scheduledAt, edit: true });
         return;
       }
     }
@@ -311,6 +321,7 @@ type ImageTarget = {
   fileSize?: number;
 };
 
+/** Picks the file to read: the largest photo size Telegram sent, or an image document. */
 function imageTarget(ctx: Context): ImageTarget | undefined {
   const photo = ctx.message?.photo?.at(-1);
   if (photo) return { telegramFileId: photo.file_id, telegramUniqueId: photo.file_unique_id, mediaKind: "photo", mimeType: "image/jpeg", fileSize: photo.file_size };
@@ -321,18 +332,17 @@ function imageTarget(ctx: Context): ImageTarget | undefined {
   return undefined;
 }
 
-async function downloadTelegramFile(ctx: Context, token: string, fileId: string): Promise<Buffer> {
-  const file = await ctx.api.getFile(fileId);
-  if (!file.file_path) throw new Error("Telegram did not provide an image download path.");
-  const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram image download failed: ${response.status}`);
-  const length = Number(response.headers.get("content-length") ?? "0");
-  if (length > MAX_IMAGE_BYTES) throw new Error("That image is larger than 10 MB.");
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_IMAGE_BYTES) throw new Error("That image is larger than 10 MB.");
-  return buffer;
+/** Downloads an image for local OCR through the shared Telegram download, keeping the 10 MB cap. */
+async function downloadTelegramImage(token: string, fileId: string): Promise<Buffer> {
+  try {
+    return (await downloadTelegramFile(token, fileId, { maxBytes: MAX_IMAGE_BYTES })).bytes;
+  } catch (error) {
+    if (error instanceof TelegramFileError && error.reason === "too_large") throw new Error("That image is larger than 10 MB.");
+    throw error;
+  }
 }
 
+/** OCR result card with confidence. Long text is cut to about 1,400 characters for display only. */
 function formatImagePreview(text: string, confidence: number, saved = false): string {
   const preview = text.length > 1400 ? `${text.slice(0, 1397)}…` : text;
   return [

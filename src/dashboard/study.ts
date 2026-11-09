@@ -1,7 +1,13 @@
+/**
+ * The Study Mode dashboard layer: request schemas plus the functions behind every Study route.
+ * Study is a sealed, owner-only workspace bound to one Telegram group. Every request first passes
+ * requireDashboardStudyWorkspace, and every query is scoped by workspaceId. Mutations call the same
+ * services/study*.ts code Telegram uses, so both surfaces share one data store.
+ * Called from studyRoutes.ts (and today.ts for the Study planning scope).
+ */
 import {
   Prisma,
   StudyAnalysisMode,
-  StudyCanvasAssignmentStatus,
   StudyItemStatus,
   StudyItemType,
   StudyMistakeCategory,
@@ -67,13 +73,14 @@ import {
   setDefaultStudyOrigin,
 } from "../services/studyTransit";
 import type { DashboardWorkspaceScope } from "./workspaces";
+import { dateOnly } from "./schemas";
+import { saveRevisionedDraft } from "./noteDrafts";
+import { downloadTelegramFile, TelegramFileError, type TelegramFile } from "../services/telegramFiles";
 
 const MAX_STUDY_FILE_BYTES = 20_000_000;
-const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_INLINE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, "Choose a valid calendar date.");
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
 const id = z.string().uuid();
 const isoDate = z.string().datetime({ offset: true });
@@ -87,6 +94,7 @@ const timezone = text(80).refine((value) => {
   }
 }, "Choose a valid IANA timezone, such as Asia/Singapore.");
 
+// Request schemas for the Study routes. The non-Study ones live in schemas.ts.
 export const studyIdParamsSchema = z.object({ id });
 export const studyAnalysisRequestSchema = z.object({
   mode: z.nativeEnum(StudyAnalysisMode).default(StudyAnalysisMode.CONNECTIONS),
@@ -347,6 +355,7 @@ export const studyScheduleDeleteSchema = z.object({
   }
 });
 
+/** Any Study access failure. route.ts maps it to a plain 404 so the Study area's existence is not revealed. */
 export class DashboardStudyAccessError extends Error {
   constructor() {
     super("Not found.");
@@ -354,6 +363,12 @@ export class DashboardStudyAccessError extends Error {
   }
 }
 
+/**
+ * The Study gate. Fails closed unless the request is in the Study-tagged group, the signed-in
+ * user is the configured Study owner, the chat is the configured Study chat, and an active
+ * StudyWorkspace binding exists. It repeats the check workspaces.ts made, on purpose, so no Study
+ * route depends on that earlier tag alone.
+ */
 export async function requireDashboardStudyWorkspace(
   scope: DashboardWorkspaceScope,
   database: PrismaClient = prisma,
@@ -379,6 +394,11 @@ export async function requireDashboardStudyWorkspace(
   return workspace;
 }
 
+/**
+ * Builds the whole Study dashboard payload in one call: the service-side Study summary,
+ * attention ranking, Canvas and Calendar status, modules, work, resource previews, mistakes and
+ * timetable. Lists are capped so the payload stays bounded.
+ */
 export async function getDashboardStudySnapshot(workspace: StudyWorkspace, now = new Date()) {
   const [dashboard, attention, canvas, calendar] = await Promise.all([
     buildStudyDashboard(workspace, now),
@@ -519,6 +539,10 @@ export async function createDashboardStudyModule(workspace: StudyWorkspace, inpu
   });
 }
 
+/**
+ * Edits a module: rename, archive or restore, pin, colour, mastery traffic light, or make it the
+ * active module. Archiving clears it as the active module. Writes an audit row in the same transaction.
+ */
 export async function updateDashboardStudyModule(workspace: StudyWorkspace, moduleId: string, input: z.infer<typeof studyModuleUpdateSchema>) {
   const current = await findStudyModule(workspace.id, moduleId);
   const code = input.code ? normalizeModuleCode(input.code) : undefined;
@@ -565,6 +589,11 @@ export async function createDashboardStudyItem(workspace: StudyWorkspace, input:
   });
 }
 
+/**
+ * Edits a Study work item. For items mirrored from Canvas, a manual title or due date is marked
+ * as overridden so the next Canvas sync keeps the user's value. Moving or skipping the item is
+ * also copied onto its Canvas assignment row. Audited in the same transaction.
+ */
 export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId: string, input: z.infer<typeof studyItemUpdateSchema>) {
   const current = await findStudyItem(workspace.id, itemId);
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
@@ -613,6 +642,7 @@ export async function updateDashboardStudyItem(workspace: StudyWorkspace, itemId
   });
 }
 
+/** "Deleting" a Study item marks it SKIPPED (soft archive); a Canvas item is also marked user-archived so sync does not bring it back. */
 export async function archiveDashboardStudyItem(workspace: StudyWorkspace, itemId: string) {
   const item = await findStudyItem(workspace.id, itemId);
   const archived = await prisma.$transaction(async (tx) => {
@@ -630,6 +660,11 @@ export async function completeDashboardStudyItem(workspace: StudyWorkspace, item
   return completeStudyItem(workspace, itemId, processed);
 }
 
+/**
+ * One page of Library resources for active modules, optionally filtered by module, kind or text.
+ * Without a search it loads only light preview columns; with a search it loads full rows so
+ * the decrypted text can be re-checked after the encrypted-token match.
+ */
 export async function listDashboardStudyResources(workspace: StudyWorkspace, input: z.infer<typeof studyResourceQuerySchema>) {
   const query = input.q?.trim();
   const where: Prisma.StudyResourceWhereInput = {
@@ -673,6 +708,10 @@ export async function getDashboardStudyItem(workspace: StudyWorkspace, itemId: s
   return { ...item, ...deadlineView(workspace, item) };
 }
 
+/**
+ * Adds a trust verdict to a deadline. A suspicious or missing Canvas deadline is flagged for the
+ * user to confirm, instead of being shown as a real overdue date.
+ */
 function deadlineView(
   workspace: StudyWorkspace,
   item: {
@@ -686,6 +725,11 @@ function deadlineView(
   return { deadlineStatus: assessment.status, deadlineIssue: assessment.reason };
 }
 
+/**
+ * Explains, for one timetable block, whether a reminder would actually be sent right now and
+ * if not, why (out of range this week, no bound chat, missing destination or origin, muted,
+ * reminders off, chat check failed). The timetable shows these reasons to the user.
+ */
 function scheduleBlockReminderReadiness(
   workspace: StudyWorkspace,
   block: {
@@ -753,8 +797,6 @@ export async function createDashboardStudyResource(workspace: StudyWorkspace, in
   return result.resource;
 }
 
-const STUDY_NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
-
 export type DashboardStudyNoteDraft = Pick<
   StudyNoteDraft,
   | "id"
@@ -767,6 +809,10 @@ export type DashboardStudyNoteDraft = Pick<
   | "expiresAt"
 >;
 
+/**
+ * Copies only the fields the editor needs out of a draft row. Internal ownership and storage
+ * columns (owner id, workspace id, draft key, resource id, createdAt) are never sent to the browser.
+ */
 function dashboardStudyNoteDraft(draft: StudyNoteDraft | null): DashboardStudyNoteDraft | null {
   if (!draft) return null;
   return {
@@ -781,6 +827,7 @@ function dashboardStudyNoteDraft(draft: StudyNoteDraft | null): DashboardStudyNo
   };
 }
 
+/** Loads the live draft for a new note ("new" key) or for an existing note, after clearing expired drafts. */
 export async function getDashboardStudyNoteDraft(
   workspace: StudyWorkspace,
   input: z.infer<typeof studyNoteDraftQuerySchema>,
@@ -797,6 +844,11 @@ export async function getDashboardStudyNoteDraft(
   return dashboardStudyNoteDraft(draft);
 }
 
+/**
+ * Autosaves an encrypted Study note draft with optimistic revisions (saveRevisionedDraft).
+ * A draft of an existing note must point at a NOTE in this workspace that has not changed
+ * since the draft began, so an old recovered draft cannot overwrite a newer filed note.
+ */
 export async function saveDashboardStudyNoteDraft(
   workspace: StudyWorkspace,
   input: z.infer<typeof studyNoteDraftSaveSchema>,
@@ -811,52 +863,42 @@ export async function saveDashboardStudyNoteDraft(
       throw new StudyModeError("The saved note changed before this draft started. Reload it before continuing.", "conflict");
     }
   }
-  await purgeExpiredStudyNoteDrafts(workspace);
-  const expiresAt = new Date(Date.now() + STUDY_NOTE_DRAFT_TTL_MS);
-  const existing = await prisma.studyNoteDraft.findUnique({
-    where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } },
+  const saved = await saveRevisionedDraft({
+    expectedRevision: input.expectedRevision,
+    find: () => prisma.studyNoteDraft.findUnique({ where: { workspaceId_draftKey: { workspaceId: workspace.id, draftKey } } }),
+    purgeExpired: () => purgeExpiredStudyNoteDrafts(workspace),
+    create: (expiresAt) => prisma.studyNoteDraft.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        draftKey,
+        resourceId,
+        resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+      },
+    }),
+    bump: (existing, expiresAt) => prisma.studyNoteDraft.updateMany({
+      where: {
+        id: existing.id,
+        workspaceId: workspace.id,
+        ownerUserId: workspace.ownerUserId,
+        revision: input.expectedRevision,
+      },
+      data: {
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        body: input.body,
+        expiresAt,
+        revision: { increment: 1 },
+      },
+    }),
+    reload: (id) => prisma.studyNoteDraft.findUniqueOrThrow({ where: { id } }),
+    conflict: () => new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict"),
   });
-  if (!existing) {
-    if (input.expectedRevision !== 0) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-    try {
-      const created = await prisma.studyNoteDraft.create({
-        data: {
-          workspaceId: workspace.id,
-          ownerUserId: workspace.ownerUserId,
-          draftKey,
-          resourceId,
-          resourceUpdatedAt: resourceId ? new Date(input.resourceUpdatedAt!) : null,
-          moduleId: input.moduleId ?? null,
-          title: input.title,
-          body: input.body,
-          expiresAt,
-        },
-      });
-      return dashboardStudyNoteDraft(created)!;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-      }
-      throw error;
-    }
-  }
-  const updated = await prisma.studyNoteDraft.updateMany({
-    where: {
-      id: existing.id,
-      workspaceId: workspace.id,
-      ownerUserId: workspace.ownerUserId,
-      revision: input.expectedRevision,
-    },
-    data: {
-      moduleId: input.moduleId ?? null,
-      title: input.title,
-      body: input.body,
-      expiresAt,
-      revision: { increment: 1 },
-    },
-  });
-  if (updated.count !== 1) throw new StudyModeError("This draft changed somewhere else. Reload it before continuing.", "conflict");
-  return dashboardStudyNoteDraft(await prisma.studyNoteDraft.findUniqueOrThrow({ where: { id: existing.id } }))!;
+  return dashboardStudyNoteDraft(saved)!;
 }
 
 export async function deleteDashboardStudyNoteDraft(workspace: StudyWorkspace, draftId: string) {
@@ -872,6 +914,11 @@ async function purgeExpiredStudyNoteDrafts(workspace: StudyWorkspace) {
   });
 }
 
+/**
+ * Edits a Library resource. Recomputes derived search and analysis fields and wiki-link keys,
+ * and when expectedUpdatedAt is sent the write only lands if the resource is unchanged (else a
+ * conflict). For notes it also records a bounded revision and rebuilds backlinks, in one transaction.
+ */
 export async function updateDashboardStudyResource(workspace: StudyWorkspace, resourceId: string, input: z.infer<typeof studyResourceUpdateSchema>) {
   const resource = await findStudyResource(workspace.id, resourceId);
   if (input.moduleId) await findStudyModule(workspace.id, input.moduleId);
@@ -922,59 +969,31 @@ export async function archiveDashboardStudyResource(workspace: StudyWorkspace, r
   return archiveStudyResource(workspace, resourceId);
 }
 
+/**
+ * Loads one Study resource's original file from Telegram for the dashboard, telling a removed
+ * original (404) apart from a temporary Telegram failure, and picks a content type it can trust.
+ */
 export async function loadDashboardStudyResourceContent(
   workspace: StudyWorkspace,
   resourceId: string,
   botToken: string | undefined,
-  fetcher: typeof fetch = fetch,
   resourceLoader: typeof findStudyResource = findStudyResource,
 ) {
   if (!botToken) throw new StudyModeError("This file is temporarily unavailable.", "invalid");
   const resource = await resourceLoader(workspace.id, resourceId);
   if (!resource.telegramFileId) throw new StudyModeError("This resource has no stored Telegram file.", "not_found");
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let metadata: Response;
-    try {
-      metadata = await fetcher(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(resource.telegramFileId)}`, {
-        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-      });
-    } catch {
-      if (attempt === 0) continue;
-      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-    }
-    if (metadata.status === 400 || metadata.status === 404) {
-      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
-    }
-    if (!metadata.ok) {
-      if (attempt === 0) continue;
-      throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-    }
-    const payload = await metadata.json() as { ok?: boolean; result?: { file_path?: string } };
-    const filePath = payload.ok ? payload.result?.file_path : undefined;
-    if (!filePath || filePath.includes("..") || filePath.startsWith("/")) {
-      throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
-    }
-    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-    try {
-      response = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
-        signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
-      });
-    } catch {
-      response = undefined;
-    }
-    if (response?.ok) break;
-    // Telegram download paths are short-lived. Resolve a fresh path once before failing.
-    if (attempt === 0 && (!response || response.status === 404 || response.status === 410 || response.status >= 500)) continue;
+  let file: TelegramFile;
+  try {
+    file = await downloadTelegramFile(botToken, resource.telegramFileId, { maxBytes: MAX_STUDY_FILE_BYTES });
+  } catch (error) {
+    const reason = error instanceof TelegramFileError ? error.reason : "temporary";
+    if (reason === "unavailable") throw new StudyModeError("The original Telegram file is no longer available.", "not_found");
+    if (reason === "too_large") throw new StudyModeError("This file is too large to open here.", "invalid");
     throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
   }
-  if (!response?.ok) throw new StudyModeError("Telegram is temporarily unavailable. Retry in a moment.", "invalid");
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_STUDY_FILE_BYTES) throw new StudyModeError("This file is too large to open here.", "invalid");
+  const bytes = new Uint8Array(file.bytes);
   const detectedType = detectImageMime(bytes);
-  const upstreamType = safeMime(response.headers.get("content-type"));
+  const upstreamType = safeMime(file.contentType);
   const storedType = safeMime(resource.mimeType);
   const contentType = detectedType
     || (upstreamType && upstreamType !== "application/octet-stream" ? upstreamType : undefined)
@@ -989,6 +1008,11 @@ export async function loadDashboardStudyResourceContent(
   };
 }
 
+/**
+ * Study-only search over work items, Library resources and mistakes in active modules.
+ * Each collection gets a share of the limit, then results are merged newest first.
+ * This is separate from the global search, which never sees Study data.
+ */
 export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.infer<typeof studySearchQuerySchema>) {
   const allowed = new Set(["work", "notes", "images", "links", "files", "questions", "mistakes"]);
   const requested = input.kinds?.split(",").map((kind) => kind.trim().toLowerCase()).filter(Boolean) ?? [];
@@ -1042,6 +1066,7 @@ export async function searchDashboardStudy(workspace: StudyWorkspace, input: z.i
   ].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, input.limit);
 }
 
+/** Starts a Deep Work session and closes today's class reminder sequences for that module, since the user is already studying it. */
 export async function startDashboardStudySession(workspace: StudyWorkspace, input: z.infer<typeof studySessionStartSchema>) {
   const session = await startStudySession(workspace, input.moduleId, input.method, input.itemId, input);
   await acknowledgeStudyScheduleModuleOccurrence(workspace, input.moduleId);
@@ -1082,6 +1107,10 @@ export async function saveDashboardStudyWeeklyReview(workspace: StudyWorkspace, 
   return saveWeeklyReview(workspace, input);
 }
 
+/**
+ * Saves Study workspace settings. Semester name, start date or timezone go through the service
+ * that reconfigures academic weeks; quiet hours must be set or cleared as a pair. Audited.
+ */
 export async function updateDashboardStudySettings(workspace: StudyWorkspace, input: z.infer<typeof studySettingsUpdateSchema>) {
   const nextTimezone = input.timezone ?? workspace.timezone;
   let configured = workspace;
@@ -1117,6 +1146,7 @@ export async function updateDashboardStudySettings(workspace: StudyWorkspace, in
   return updated;
 }
 
+/** Runs a Canvas sync now ("Sync" button), bypassing the usual interval with force: true. */
 export async function syncDashboardStudyCanvas(workspace: StudyWorkspace) {
   return syncStudyCanvas(workspace, { force: true });
 }
@@ -1125,6 +1155,10 @@ export async function importDashboardStudyNusmods(workspace: StudyWorkspace, inp
   return importStudyNusmodsTimetable(workspace, input.url);
 }
 
+/**
+ * Settles a Canvas assignment flagged for review (it went missing from Canvas). "keep" just clears
+ * the flag; "archive" also hides it and marks its Study item SKIPPED. Audited in one transaction.
+ */
 export async function resolveDashboardStudyCanvasAssignment(workspace: StudyWorkspace, assignmentId: string, action: "keep" | "archive") {
   const assignment = await prisma.studyCanvasAssignment.findFirst({ where: { id: assignmentId, workspaceId: workspace.id } });
   if (!assignment?.needsReview) throw new StudyModeError("That Canvas review item is no longer pending.", "not_found");
@@ -1147,6 +1181,7 @@ export async function createDashboardStudyOrigin(workspace: StudyWorkspace, inpu
   return addStudyOriginFromVenue(workspace, input.name, input.venue, input);
 }
 
+/** Renames an origin, makes it the default, and/or makes it the active origin for a number of hours. */
 export async function updateDashboardStudyOrigin(workspace: StudyWorkspace, originId: string, input: z.infer<typeof studyOriginUpdateSchema>) {
   let origin = input.name ? await renameStudyOrigin(workspace, originId, input.name) : undefined;
   if (input.makeDefault) origin = (await setDefaultStudyOrigin(workspace, originId)) as typeof origin;
@@ -1163,6 +1198,10 @@ export async function searchDashboardStudyPlaces(workspace: StudyWorkspace, quer
   return searchStudyPlaces(query, 10);
 }
 
+/**
+ * Creates a timetable block. A destination with a resolved place id arms travel reminders;
+ * a free-text destination is only stored as a label, so it cannot silently enable reminders.
+ */
 export async function createDashboardStudyScheduleBlock(workspace: StudyWorkspace, input: z.infer<typeof studyScheduleCreateSchema>) {
   const block = await addStudyScheduleBlock(workspace, input);
   if (!input.destination) return block;
@@ -1175,6 +1214,10 @@ export async function createDashboardStudyScheduleBlock(workspace: StudyWorkspac
   });
 }
 
+/**
+ * Edits a timetable block: first the core fields, then the destination, where null clears travel,
+ * a resolved place re-arms it, and plain text only relabels it. Same travel rule as creation.
+ */
 export async function updateDashboardStudyScheduleBlock(
   workspace: StudyWorkspace,
   blockId: string,
@@ -1220,6 +1263,7 @@ export async function archiveDashboardStudyScheduleBlock(
   return archiveStudyScheduleBlock(workspace, blockId, input);
 }
 
+/** The user-facing Study settings only; binding, owner and diagnostic columns of the workspace row are left out. */
 function studyWorkspaceView(workspace: StudyWorkspace) {
   return {
     id: workspace.id,
@@ -1242,6 +1286,7 @@ function studyWorkspaceView(workspace: StudyWorkspace) {
   };
 }
 
+/** Light columns for resource lists: precomputed previews instead of full bodies, OCR text or file ids, to keep list payloads small. */
 export const studyResourcePreviewSelect = {
   id: true, workspaceId: true, moduleId: true, publicId: true, kind: true, title: true, url: true, tags: true,
   mediaKind: true, mimeType: true, fileName: true, fileSize: true, ocrConfidence: true, pinnedAt: true,
@@ -1250,6 +1295,11 @@ export const studyResourcePreviewSelect = {
   module: { select: { id: true, code: true, name: true, color: true } },
 } satisfies Prisma.StudyResourceSelect;
 
+/**
+ * Turns a resource row into a list card: a bounded body preview for notes, questions and links,
+ * or caption and OCR previews for images and files, plus "has more" flags. Full text stays
+ * behind the resource detail route.
+ */
 function studyResourcePreview<T extends {
   kind: StudyResourceKind; analysisExcerpt?: string | null; analysisExcerptReady?: boolean; analysisExcerptTruncated?: boolean;
   captionPreview?: string | null; ocrPreview?: string | null; ocrPreviewTruncated?: boolean;
@@ -1273,6 +1323,10 @@ function studyResourcePreview<T extends {
   };
 }
 
+/**
+ * Older resources were saved before preview columns existed (analysisExcerptReady is false).
+ * For those rows only, loads the full text and derives the previews on the fly.
+ */
 async function hydrateLegacyStudyResourceAnalysis<
   T extends {
     id: string; workspaceId: string; kind: StudyResourceKind; analysisExcerpt: string | null; analysisExcerptReady: boolean;
@@ -1289,6 +1343,7 @@ async function hydrateLegacyStudyResourceAnalysis<
   return resources.map((resource) => ({ ...resource, ...derivedById.get(resource.id) }));
 }
 
+/** Text-search conditions for resources: plaintext columns, an exact tag, and encrypted blind-index tokens. */
 function resourceSearchWhere(query: string): Prisma.StudyResourceWhereInput[] {
   const encrypted = encryptedSearchClause("StudyResource", query);
   return [
@@ -1329,12 +1384,17 @@ function excerpt(value: string | null | undefined, max = 240): string | undefine
   return clean.length <= max ? clean : `${clean.slice(0, max - 1).trimEnd()}...`;
 }
 
+/** Accepts only an allow-list of harmless MIME types; anything else (such as HTML or SVG) is treated as unknown. */
 function safeMime(value: string | null | undefined): string | undefined {
   const mime = value?.toLowerCase().split(";")[0]?.trim();
   if (!mime || !/^(?:image\/(?:jpeg|png|webp|gif)|application\/pdf|text\/plain|application\/(?:zip|octet-stream)|application\/vnd\.[a-z0-9.+-]+)$/i.test(mime)) return undefined;
   return mime;
 }
 
+/**
+ * Identifies common image formats from their first bytes ("magic numbers"). Older Telegram
+ * images were stored with a generic MIME type, so the real type is read from the file itself.
+ */
 function detectImageMime(bytes: Uint8Array): string | undefined {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return "image/png";
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
@@ -1344,6 +1404,7 @@ function detectImageMime(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+/** Strips characters that could break the Content-Disposition header (quotes, slashes, newlines) and caps the length. */
 function safeFileName(value: string): string {
   return value.replace(/[\r\n"\\/]/g, "_").slice(0, 180) || "study-resource";
 }
@@ -1355,6 +1416,7 @@ function extensionFor(contentType: string): string {
   return contentType.startsWith("image/") ? contentType.slice(6) : "bin";
 }
 
+/** Writes a Study audit row. Audit actions starting with "study." also count toward the dashboard live-sync revision. */
 async function audit(workspace: StudyWorkspace, action: string, metadata: Prisma.InputJsonObject) {
   await prisma.auditLog.create({ data: { userId: workspace.ownerUserId, action, metadata: { workspaceId: workspace.id, ...metadata } } });
 }

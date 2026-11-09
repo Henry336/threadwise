@@ -1,3 +1,7 @@
+/**
+ * Builds the detail card (text plus buttons) for one task, note, or idea. Commands, callbacks, and
+ * natural-language "show task 3" all use this, so an item looks the same however it is opened.
+ */
 import { findIdeaReference } from "../services/ideas";
 import { findNoteReference } from "../services/notes";
 import { findTaskReference, formatAssignee, formatRecurrence } from "../services/tasks";
@@ -19,6 +23,10 @@ type ArchivedNoteCardRecord = {
   archivedAt?: Date | null;
 };
 
+/**
+ * Looks up the item (scoped to userId) and returns its card text and keyboard. Notes are paged with
+ * notePagination; the returned notePage lets callers show page buttons. Throws if the item is not found.
+ */
 export async function buildItemCard(
   userId: string,
   kind: CardItemKind,
@@ -83,6 +91,7 @@ export async function buildItemCard(
   return { text, keyboard: itemActionsKeyboard("idea", idea, includeDefaultBack, undefined, workspaceId) };
 }
 
+/** Read-only card for an archived note: page buttons and a link back to the archive, no item actions. */
 export function buildArchivedNoteCard(
   note: ArchivedNoteCardRecord,
   requestedPage = 1
@@ -103,6 +112,7 @@ export function buildArchivedNoteCard(
   };
 }
 
+/** Drops the title from the start of the body, since many captures repeat it, so the card does not show it twice. */
 function withoutRepeatedTitle(title: string, body?: string | null): string | undefined {
   if (!body?.trim()) return undefined;
   const clean = body.trim();

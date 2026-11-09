@@ -1,10 +1,26 @@
+/**
+ * Builds the main dashboard snapshot: recent tasks, notes, ideas, images and expenses,
+ * settings, a seven-day activity chart and integration status, in one request.
+ * route.ts adds workspace and collaboration data on top. Row-to-JSON mapping reuses the
+ * view helpers in data.ts so the snapshot and the list endpoints return the same shapes.
+ */
 import type { PrismaClient } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
-import type { IdeaScore } from "../ai/types";
-import { storedIdeaBrief } from "./ideaBrief";
-import type { DashboardGroupCollaboration, DashboardTaskAssignee } from "./collaboration";
+import type { DashboardGroupCollaboration } from "./collaboration";
+import {
+  expenseView,
+  ideaView,
+  imageView,
+  noteView,
+  taskView,
+  type DashboardExpense,
+  type DashboardIdea,
+  type DashboardImage,
+  type DashboardNote,
+  type DashboardTask,
+} from "./data";
 import { calendarConnectionStatus } from "../services/googleCalendar";
 import { normalizeOverviewQuotes, type DashboardOverviewQuote } from "./overviewQuotes";
 
@@ -30,84 +46,11 @@ export type DashboardSnapshot = {
     accent: "iris" | "coral" | "mint";
   };
   generatedAt: string;
-  tasks: Array<{
-    id: string;
-    publicId: string;
-    title: string;
-    description?: string;
-    dueAt?: string;
-    plannedFor?: string;
-    firstPlannedFor?: string;
-    status: "OPEN" | "DONE" | "CANCELED";
-    audience: "UNASSIGNED" | "EVERYONE" | "ASSIGNEES";
-    recurring?: boolean;
-    pinned?: boolean;
-    reminderIntervalMinutes?: number;
-    reminderTimes: string[];
-    nextReminderAt?: string;
-    reminderCount?: number;
-    snoozedUntil?: string;
-    calendarEventId?: string;
-    calendarEventUrl?: string;
-    calendarSyncedAt?: string;
-    assignee?: string;
-    teamOwnerLabel?: string;
-    assignees?: DashboardTaskAssignee[];
-    createdAt: string;
-    updatedAt: string;
-  }>;
-  notes: Array<{
-    id: string;
-    publicId: string;
-    title: string;
-    body: string;
-    summary: string;
-    tags: string[];
-    createdAt: string;
-    pinned?: boolean;
-    brief?: IdeaScore;
-    updatedAt: string;
-  }>;
-  ideas: Array<{
-    id: string;
-    publicId: string;
-    title: string;
-    concept: string;
-    status: "RAW" | "CLARIFIED" | "SELECTED" | "PROTOTYPING" | "BUILT" | "PAUSED" | "REJECTED";
-    tags: string[];
-    createdAt: string;
-    pinned?: boolean;
-    updatedAt: string;
-  }>;
-  expenses: Array<{
-    id: string;
-    publicId: string;
-    merchant: string;
-    description: string;
-    total: number;
-    currency: string;
-    category: string;
-    transactionAt: string;
-    paymentMethod?: string;
-    notes?: string;
-    excelSyncedAt?: string;
-    createdAt: string;
-    updatedAt: string;
-  }>;
-  images: Array<{
-    id: string;
-    publicId: string;
-    mediaKind: string;
-    mimeType?: string;
-    fileName?: string;
-    caption?: string;
-    ocrText?: string;
-    ocrConfidence?: number;
-    pinned?: boolean;
-    contentUrl: string;
-    createdAt: string;
-    updatedAt: string;
-  }>;
+  tasks: DashboardTask[];
+  notes: DashboardNote[];
+  ideas: DashboardIdea[];
+  expenses: DashboardExpense[];
+  images: DashboardImage[];
   settings: {
     timezone: string;
     reminderIntervalMinutes: number;
@@ -149,17 +92,24 @@ export class DashboardUserNotFoundError extends Error {
   }
 }
 
+/** Picks a stable accent colour per user from a simple checksum of their id, so it never changes between loads. */
 function accentFor(telegramId: string): "iris" | "coral" | "mint" {
   const accents = ["iris", "coral", "mint"] as const;
   const checksum = [...telegramId].reduce((sum, character) => sum + character.charCodeAt(0), 0);
   return accents[checksum % accents.length] ?? "iris";
 }
 
+/** Falls back to UTC when the stored timezone is missing or not a valid IANA zone, so date math never breaks. */
 function safeTimezone(value: string | undefined): string {
   if (!value) return "UTC";
   return DateTime.now().setZone(value).isValid ? value : "UTC";
 }
 
+/**
+ * Loads everything for one owner (a human, or a group's synthetic "chat:<id>" owner) in
+ * parallel queries, each capped at 50 rows. Activity counts captures and completions per day
+ * in the user's timezone. Group owners get no integrations, since those are personal accounts.
+ */
 export async function getDashboardSnapshot(
   telegramId: string,
   database: PrismaClient = prisma,
@@ -221,13 +171,10 @@ export async function getDashboardSnapshot(
         pinnedAt: true,
         reminderIntervalMinutes: true,
         nextReminderAt: true,
-        reminderCount: true,
         snoozedUntil: true,
         calendarEventId: true,
         calendarEventUrl: true,
         calendarSyncedAt: true,
-        assignedUsername: true,
-        assignedDisplayName: true,
         teamOwnerLabel: true,
         assignees: {
           select: {
@@ -244,7 +191,7 @@ export async function getDashboardSnapshot(
         },
         reminderSchedules: {
           where: { status: { in: ["PENDING", "PROCESSING"] } },
-          select: { scheduledAt: true },
+          select: { scheduledAt: true, status: true },
           orderBy: { scheduledAt: "asc" }
         },
         createdAt: true,
@@ -366,7 +313,7 @@ export async function getDashboardSnapshot(
 
   const quietHoursStart = normalizeClock(user.settings?.quietHoursStart);
   const quietHoursEnd = normalizeClock(user.settings?.quietHoursEnd);
-  const calendarHealth = database === prisma && !telegramId.startsWith("chat:")
+  const calendarHealth = !telegramId.startsWith("chat:")
     ? await calendarConnectionStatus(user.id)
     : undefined;
 
@@ -380,97 +327,11 @@ export async function getDashboardSnapshot(
       accent: accentFor(user.telegramId)
     },
     generatedAt: now.toISOString(),
-    tasks: tasks.map((task) => ({
-      id: task.id,
-      publicId: task.publicId,
-      title: task.title,
-      ...(task.description ? { description: task.description } : {}),
-      ...(task.dueAt ? { dueAt: task.dueAt.toISOString() } : {}),
-      ...(task.plannedFor ? { plannedFor: task.plannedFor.toISOString().slice(0, 10) } : {}),
-      ...(task.firstPlannedFor ? { firstPlannedFor: task.firstPlannedFor.toISOString().slice(0, 10) } : {}),
-      status: task.status,
-      audience: task.audience ?? "UNASSIGNED",
-      ...(task.recurrenceRule ? { recurring: true } : {}),
-      ...(task.pinnedAt ? { pinned: true } : {}),
-      ...(task.reminderIntervalMinutes ? { reminderIntervalMinutes: task.reminderIntervalMinutes } : {}),
-      reminderTimes: (task.reminderSchedules ?? []).map((schedule) => schedule.scheduledAt.toISOString()),
-      ...(task.nextReminderAt ? { nextReminderAt: task.nextReminderAt.toISOString() } : {}),
-      ...(task.reminderCount > 0 ? { reminderCount: task.reminderCount } : {}),
-      ...(task.snoozedUntil ? { snoozedUntil: task.snoozedUntil.toISOString() } : {}),
-      ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
-      ...(task.calendarEventUrl ? { calendarEventUrl: task.calendarEventUrl } : {}),
-      ...(task.calendarSyncedAt ? { calendarSyncedAt: task.calendarSyncedAt.toISOString() } : {}),
-      ...(task.assignedDisplayName
-        ? { assignee: task.assignedDisplayName }
-        : task.assignedUsername
-          ? { assignee: `@${task.assignedUsername}` }
-          : {}),
-      ...(task.teamOwnerLabel ? { teamOwnerLabel: task.teamOwnerLabel } : {}),
-      assignees: (task.assignees ?? []).map((assignee) => ({
-        id: assignee.id,
-        ...(assignee.telegramId ? { telegramId: assignee.telegramId } : {}),
-        ...(assignee.username ? { username: assignee.username } : {}),
-        displayName: assignee.displayName || (assignee.username ? `@${assignee.username}` : "Assigned member"),
-        status: assignee.status ?? "PENDING",
-        ...(assignee.statusReason ? { statusReason: assignee.statusReason } : {}),
-        ...(assignee.respondedAt ? { respondedAt: assignee.respondedAt.toISOString() } : {}),
-        updatedAt: (assignee.updatedAt ?? task.updatedAt).toISOString()
-      })),
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString()
-    })),
-    notes: notes.map((note) => ({
-      id: note.id,
-      publicId: note.publicId,
-      title: note.title,
-      body: note.body,
-      summary: note.summary,
-      tags: note.tags,
-      createdAt: note.createdAt.toISOString(),
-      ...(note.pinnedAt ? { pinned: true } : {}),
-      updatedAt: note.updatedAt.toISOString()
-    })),
-    ideas: ideas.map((idea) => ({
-      id: idea.id,
-      publicId: idea.publicId,
-      title: idea.title,
-      concept: idea.concept,
-      status: idea.status,
-      tags: idea.tags,
-      createdAt: idea.createdAt.toISOString(),
-      ...(idea.pinnedAt ? { pinned: true } : {}),
-      ...(storedIdeaBrief(idea.scores) ? { brief: storedIdeaBrief(idea.scores) } : {}),
-      updatedAt: idea.updatedAt.toISOString()
-    })),
-    expenses: expenses.map((expense) => ({
-      id: expense.id,
-      publicId: expense.publicId,
-      merchant: expense.merchant?.trim() || "Unspecified merchant",
-      description: expense.description?.trim() || "Expense",
-      total: Number(expense.total),
-      currency: expense.currency,
-      category: expense.category?.trim() || "Other",
-      transactionAt: expense.transactionAt.toISOString(),
-      ...(expense.paymentMethod ? { paymentMethod: expense.paymentMethod } : {}),
-      ...(expense.notes ? { notes: expense.notes } : {}),
-      ...(expense.excelSyncedAt ? { excelSyncedAt: expense.excelSyncedAt.toISOString() } : {}),
-      createdAt: expense.createdAt.toISOString(),
-      updatedAt: expense.updatedAt.toISOString()
-    })),
-    images: images.map((image) => ({
-      id: image.id,
-      publicId: image.publicId,
-      mediaKind: image.mediaKind,
-      ...(image.mimeType ? { mimeType: image.mimeType } : {}),
-      ...(image.fileName ? { fileName: image.fileName } : {}),
-      ...(image.caption ? { caption: image.caption } : {}),
-      ...(image.ocrText ? { ocrText: image.ocrText } : {}),
-      ...(typeof image.ocrConfidence === "number" ? { ocrConfidence: image.ocrConfidence } : {}),
-      ...(image.pinnedAt ? { pinned: true } : {}),
-      contentUrl: `/api/v1/dashboard/images/${encodeURIComponent(image.id)}/content`,
-      createdAt: image.createdAt.toISOString(),
-      updatedAt: image.updatedAt.toISOString()
-    })),
+    tasks: tasks.map(taskView),
+    notes: notes.map(noteView),
+    ideas: ideas.map(ideaView),
+    expenses: expenses.map(expenseView),
+    images: images.map(imageView),
     settings: {
       timezone,
       reminderIntervalMinutes: user.settings?.reminderIntervalMinutes ?? 180,
@@ -491,6 +352,7 @@ export async function getDashboardSnapshot(
       eveningDebriefTime: user.settings?.eveningDebriefTime ?? "21:00"
     },
     activity: [...activityByDate.values()],
+    // Each integration is "connected", "attention" (needs reconnect or setup) or "available".
     integrations: telegramId.startsWith("chat:") ? [] : [
       calendarHealth?.reconnectRequired
         ? {

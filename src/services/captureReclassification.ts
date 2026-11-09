@@ -1,3 +1,9 @@
+/**
+ * Post-save correction for private captures, such as "save that as a note instead".
+ * Within ten minutes of saving, the newest undoable task/note/idea is recreated as the requested
+ * kind, the original is archived, and both create-undo entries collapse into one
+ * `undoable:reclassify` audit row so a single Undo reverses it. Called from src/bot/naturalLanguage.ts.
+ */
 import { Prisma, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
@@ -5,6 +11,7 @@ import type { CaptureCorrectionKind } from "../bot/captureCorrections";
 import { createIdea } from "./ideas";
 import { createNote } from "./notes";
 import { createScheduledReminder, createTask } from "./tasks";
+import { updateItemByKind } from "./undo";
 
 const RECENT_CAPTURE_WINDOW_MS = 10 * 60_000;
 
@@ -31,6 +38,7 @@ export type CaptureReclassificationResult = {
   requestedKind: CaptureCorrectionKind;
 };
 
+/** Tells the bot whether a correction target exists in the ten-minute window, and when it was saved. */
 export async function recentPersonalCaptureCreatedAt(userId: string, now = new Date()): Promise<Date | undefined> {
   return (await latestCreateTarget(userId, now))?.createdAt;
 }
@@ -39,6 +47,8 @@ export async function recentPersonalCaptureCreatedAt(userId: string, now = new D
  * Reclassifies only the user's most recent reversible creation. Callers must
  * enforce private-chat scope: shared workspaces need an actor-bound target,
  * which older create audit rows do not contain.
+ * The replacement is created first; the archive and audit rewrite then run in one transaction.
+ * If that transaction fails, the replacement is archived again so no duplicate is left active.
  */
 export async function reclassifyRecentPersonalCapture(
   userId: string,
@@ -53,9 +63,9 @@ export async function reclassifyRecentPersonalCapture(
   if (requestedKind === "reminder" && (!reminderAt || reminderAt <= now)) return undefined;
 
   const replacement = requestedKind === "task"
-    ? await createTask(userId, candidate.sourceText, ai)
+    ? await createTask(userId, candidate.sourceText)
     : requestedKind === "reminder"
-      ? await createScheduledReminder(userId, candidate.sourceText, reminderAt!, ai)
+      ? await createScheduledReminder(userId, candidate.sourceText, reminderAt!)
       : requestedKind === "note"
         ? await createNote(userId, candidate.sourceText, ai)
         : await createIdea(userId, candidate.sourceText, ai);
@@ -113,6 +123,10 @@ export async function reclassifyRecentPersonalCapture(
   };
 }
 
+/**
+ * Walks the user's recent `undoable:create` audit rows, newest first, and returns the first one
+ * whose item is still active. Items already archived or undone are skipped.
+ */
 async function latestCreateTarget(
   userId: string,
   now: Date,
@@ -137,6 +151,7 @@ async function latestCreateTarget(
   return undefined;
 }
 
+/** Loads an unarchived item owned by the user. Task state is kept so Undo can restore it exactly. */
 async function loadActiveTarget(userId: string, kind: ReclassifiableKind, id: string): Promise<ReclassifiableTarget | undefined> {
   if (kind === "task") {
     const task = await prisma.task.findFirst({ where: { id, userId, archivedAt: null } });
@@ -162,31 +177,23 @@ async function loadActiveTarget(userId: string, kind: ReclassifiableKind, id: st
   return idea ? { kind, id: idea.id, publicId: idea.publicId, title: idea.title, sourceText: idea.sourceText } : undefined;
 }
 
+/** Archives the original inside the transaction; tasks are also canceled so they stop reminding. */
 async function archiveTarget(tx: Prisma.TransactionClient, userId: string, target: ReclassifiableTarget): Promise<boolean> {
-  const archivedAt = new Date();
-  if (target.kind === "task") {
-    const result = await tx.task.updateMany({
-      where: { id: target.id, userId, archivedAt: null },
-      data: { archivedAt, archivedReason: "reclassified", status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
-    });
-    return result.count === 1;
-  }
-  const result = target.kind === "note"
-    ? await tx.note.updateMany({ where: { id: target.id, userId, archivedAt: null }, data: { archivedAt, archivedReason: "reclassified" } })
-    : await tx.idea.updateMany({ where: { id: target.id, userId, archivedAt: null }, data: { archivedAt, archivedReason: "reclassified" } });
+  const result = await updateItemByKind(tx, target.kind, {
+    where: { id: target.id, userId, archivedAt: null },
+    data: { archivedAt: new Date(), archivedReason: "reclassified" },
+    taskData: { status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
+  });
   return result.count === 1;
 }
 
 async function archiveReplacementBestEffort(userId: string, kind: ReclassifiableKind, id: string): Promise<void> {
-  const data = { archivedAt: new Date(), archivedReason: "failed_reclassification" };
   try {
-    if (kind === "task") {
-      await prisma.task.updateMany({ where: { id, userId, archivedAt: null }, data: { ...data, status: TaskStatus.CANCELED, nextReminderAt: null } });
-    } else if (kind === "note") {
-      await prisma.note.updateMany({ where: { id, userId, archivedAt: null }, data });
-    } else {
-      await prisma.idea.updateMany({ where: { id, userId, archivedAt: null }, data });
-    }
+    await updateItemByKind(prisma, kind, {
+      where: { id, userId, archivedAt: null },
+      data: { archivedAt: new Date(), archivedReason: "failed_reclassification" },
+      taskData: { status: TaskStatus.CANCELED, nextReminderAt: null },
+    });
   } catch {
     // The original remains active because its transaction failed. A cleanup
     // failure is intentionally swallowed so the user's correction gets the
@@ -194,6 +201,7 @@ async function archiveReplacementBestEffort(userId: string, kind: Reclassifiable
   }
 }
 
+/** Snapshot of the original stored in the reclassify audit row, including task timing state for Undo. */
 function targetMetadata(target: ReclassifiableTarget): Prisma.InputJsonObject {
   return {
     targetKind: target.kind,

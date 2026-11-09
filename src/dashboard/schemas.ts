@@ -1,3 +1,9 @@
+/**
+ * Zod schemas for every non-Study dashboard request body, query and path parameter.
+ * route.ts parses input with these before calling any service, so bad input becomes a 400.
+ * Schemas are .strict(), so unknown fields (for example a smuggled user id) are rejected.
+ * Study schemas live in study.ts.
+ */
 import { IdeaStatus, ReminderMode, StudyItemType, TaskStatus } from "@prisma/client";
 import { z } from "zod";
 import { OVERVIEW_QUOTE_AUTHOR_LIMIT, OVERVIEW_QUOTE_LIMIT, OVERVIEW_QUOTE_TEXT_LIMIT } from "./overviewQuotes";
@@ -6,7 +12,8 @@ const trimmed = (maximum: number) => z.string().trim().min(1).max(maximum);
 const optionalNullableText = (maximum: number) => z.string().trim().max(maximum).nullable().optional();
 const dateTime = z.string().datetime({ offset: true });
 const nullableDateTime = dateTime.nullable();
-const dateOnly = z.string()
+/** A real YYYY-MM-DD calendar date: "2026-02-31" is rejected here (400), not later as a 500. */
+export const dateOnly = z.string()
   .regex(/^20\d{2}-\d{2}-\d{2}$/, "Use a date such as 2026-08-31.")
   .refine((value) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -22,6 +29,7 @@ const overviewQuote = z.object({
   text: compactQuoteText(OVERVIEW_QUOTE_TEXT_LIMIT),
   author: compactQuoteText(OVERVIEW_QUOTE_AUTHOR_LIMIT).optional()
 }).strict();
+/** The whole quote list is replaced on save; duplicates (ignoring case) are rejected, matching normalizeOverviewQuotes. */
 const overviewQuotes = z.array(overviewQuote).max(OVERVIEW_QUOTE_LIMIT).superRefine((items, context) => {
   const seen = new Set<string>();
   items.forEach((item, index) => {
@@ -61,6 +69,10 @@ export const taskCreateSchema = z.object({
   reminderTimes: reminderTimes.optional()
 }).strict();
 
+/**
+ * Partial task edit. The optional expectedUpdatedAt is the version the client last saw; when
+ * sent, the update fails with a conflict if the task changed since (also on notes, ideas, images).
+ */
 export const taskUpdateSchema = z.object({
   title: trimmed(500).optional(),
   description: optionalNullableText(5_000),
@@ -123,6 +135,10 @@ export const personalNoteDraftQuerySchema = z.object({
   noteId: z.string().uuid().optional(),
 }).strict();
 
+/**
+ * Autosave of a Personal note draft. expectedRevision is the draft revision the client holds
+ * (0 for a new draft). Editing an existing note must also send that note's updatedAt.
+ */
 export const personalNoteDraftSaveSchema = z.object({
   noteId: z.string().uuid().nullable().optional(),
   noteUpdatedAt: dateTime.nullable().optional(),
@@ -152,7 +168,7 @@ export const ideaUpdateSchema = z.object({
 
 export const capturePreviewSchema = z.object({
   text: trimmed(20_000),
-  preferredKind: z.enum(["auto", "task", "note", "idea", "expense"]).default("auto")
+  preferredKind: z.enum(["auto", "task", "note", "idea"]).default("auto")
 }).strict();
 
 export const ideaConvertSchema = z.object({
@@ -236,6 +252,7 @@ export const taskCaptureDraftCreateSchema = z.object({
 
 export const taskCaptureDraftAppendSchema = taskCaptureDraftCreateSchema;
 
+/** Edits one row of a task capture draft before commit; a linked id makes the row plan existing work instead of creating a new task. */
 export const taskCaptureDraftItemUpdateSchema = z.object({
   title: trimmed(500).optional(),
   plannedFor: dateOnly.nullable().optional(),
@@ -299,6 +316,7 @@ export const availabilityCalendarSchema = z.object({
   action: z.enum(["sync", "remove"]),
 }).strict();
 
+/** Account deletion requires this exact typed phrase, so it cannot be triggered by accident. */
 export const deleteAccountSchema = z.object({
   confirmation: z.literal("DELETE MY THREADWISE DATA")
 }).strict();

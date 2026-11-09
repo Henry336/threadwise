@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule } from "@prisma/client";
-import { carryRecurrenceToTaskText, formatDateTimeForUser, isWithinQuietHours, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, splitReminderText, stripRecurrenceText } from "./dates";
+import { carryRecurrenceToTaskText, formatDateTimeForUser, isWithinQuietHours, nextQuietEnd, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, splitReminderText, stripRecurrenceText } from "./dates";
 
 describe("date utilities", () => {
   it("parses relative durations", () => {
@@ -365,5 +365,36 @@ describe("date utilities", () => {
         end: "08:00"
       })
     ).toBe(true);
+  });
+});
+
+describe("quiet hours boundaries (22:00-08:00 Singapore)", () => {
+  const quiet = { timezone: "Asia/Singapore", start: "22:00", end: "08:00" };
+  // Singapore is UTC+8 with no daylight saving, so 22:00 local is 14:00 UTC.
+  const local = (clock: string, day = "2026-11-09") => new Date(`${day}T${clock}:00+08:00`);
+
+  it.each([
+    ["21:59", false],
+    ["22:00", true],
+    ["07:59", true],
+    ["08:00", false],
+  ])("at %s is quiet: %s", (clock, expected) => {
+    expect(isWithinQuietHours(local(clock), quiet)).toBe(expected);
+  });
+
+  it("has no quiet hours when either end is missing", () => {
+    expect(isWithinQuietHours(local("23:00"), { ...quiet, start: null })).toBe(false);
+    expect(isWithinQuietHours(local("23:00"), { ...quiet, end: null })).toBe(false);
+  });
+
+  it("ends quiet hours at the next 08:00", () => {
+    expect(nextQuietEnd(local("23:00"), quiet)).toEqual(local("08:00", "2026-11-10"));
+    expect(nextQuietEnd(local("07:59"), quiet)).toEqual(local("08:00"));
+    expect(nextQuietEnd(local("08:00"), quiet)).toEqual(local("08:00", "2026-11-10"));
+  });
+
+  it("returns now when quiet hours have no end", () => {
+    const now = local("23:00");
+    expect(nextQuietEnd(now, { ...quiet, end: null })).toBe(now);
   });
 });

@@ -1,3 +1,8 @@
+/**
+ * Wraps the OpenAI provider with the heuristic provider as a backup. createAiProvider uses it
+ * when an API key is set, so AI failures degrade to a simpler local answer instead of an error.
+ */
+
 import { logger } from "../logger";
 import type {
   AiProvider,
@@ -14,6 +19,10 @@ import type {
   StructuredTask
 } from "./types";
 
+/**
+ * Tries the primary provider for every call and, if it throws, logs the failure and returns the
+ * fallback provider's answer. Status and health checks report the primary provider only.
+ */
 export class ResilientAiProvider implements AiProvider {
   constructor(private readonly primary: AiProvider, private readonly fallback: AiProvider) {}
 
@@ -57,10 +66,10 @@ export class ResilientAiProvider implements AiProvider {
     return this.withFallback("scoreIdea", () => this.primary.scoreIdea(input), () => this.fallback.scoreIdea(input));
   }
 
-  async embed(text: string): Promise<number[]> {
-    return this.withFallback("embed", () => this.primary.embed(text), () => this.fallback.embed(text));
-  }
-
+  /**
+   * Runs the primary call and, on any error, logs the operation name and error message (never the
+   * user text) and returns the fallback result.
+   */
   private async withFallback<T>(operation: string, primary: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
     try {
       return await primary();

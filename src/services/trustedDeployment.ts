@@ -1,3 +1,10 @@
+/**
+ * Deploy verification for the owner-only Telegram Codex mode's trusted publishing. After the laptop
+ * worker (src/codexWorker.ts) merges a PR, it polls the project's configured health URL until it reports
+ * the merged commit, then records the result. Targets come from the laptop's THREADWISE_DEPLOY_TARGETS
+ * JSON. This only checks deploys done by the host's own Git integration; it never triggers one.
+ * See docs/TELEGRAM_REMOTE_OPERATOR.md.
+ */
 export type TrustedDeployTarget = {
   provider: "render" | "vercel" | "generic-git";
   healthUrl: string;
@@ -12,6 +19,10 @@ export type TrustedDeployResult = {
   blocker?: string;
 };
 
+/**
+ * Parses THREADWISE_DEPLOY_TARGETS into project alias -> target. Bad JSON yields no targets, and each
+ * invalid entry (unknown provider, non-HTTPS or local health URL, odd alias) is dropped rather than trusted.
+ */
 export function parseTrustedDeployTargets(value: string | undefined): Record<string, TrustedDeployTarget> {
   if (!value?.trim()) return {};
   let parsed: unknown;
@@ -43,6 +54,11 @@ export function parseTrustedDeployTargets(value: string | undefined): Record<str
   return targets;
 }
 
+/**
+ * Polls the health URL (every 15 s, up to 20 min by default) until it returns ok=true, the expected
+ * service name, and a commit matching the merge. Returns VERIFIED, or BLOCKED with the last reason.
+ * A health payload without a commit field is accepted once ok and service match.
+ */
 export async function verifyTrustedDeployment(input: {
   alias: string;
   mergeCommitSha: string;

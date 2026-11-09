@@ -1,3 +1,9 @@
+/**
+ * Entry point of the Telegram bot layer. main.ts calls createThreadwiseBot once; the result
+ * receives webhook updates from server.ts. This file only wires shared gates (group migration,
+ * allowlist, addressing, duplicate updates, ephemeral ownership, undo actor) and then registers
+ * each feature's handlers, which call into src/services for the actual work.
+ */
 import { Bot } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { allowedTelegramIds } from "../config/env";
@@ -24,7 +30,13 @@ import { shouldHandleStudyUpdate } from "../services/study";
 import { handleTelegramGroupMigrationUpdate } from "../services/telegramChatMigrations";
 import { hasOpenGroupImageUploadBatch } from "../services/imageUploadBatches";
 import { registerTodayInteractions } from "./today";
+import { withUndoActor } from "../services/undo";
 
+/**
+ * Builds the grammY bot. Middleware order is deliberate: gates run first, then feature handlers
+ * in registration order. Earlier registrations (Today, note sessions, Study, commands) get the
+ * first chance at a message, and natural language is last so it only sees what nothing else claimed.
+ */
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
   configureEphemeralTransport(token);
@@ -38,6 +50,8 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await next();
   });
 
+  // Optional private-bot allowlist (BOT_ALLOWED_TELEGRAM_IDS). Blocked groups are ignored silently
+  // so the bot does not reveal itself in unrelated group chats.
   bot.use(async (ctx, next) => {
     if (!allowlist || allowlist.size === 0) {
       await next();
@@ -59,6 +73,9 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await ctx.reply("This Threadwise bot is private, so I can’t respond from this account.");
   });
 
+  // Drop group messages not addressed to the bot (unless they are the Codex group, the Study group,
+  // or later photos of an album already being captured), then claim the update id in the database
+  // so a Telegram redelivery is processed only once.
   bot.use(async (ctx, next) => {
     if (!privateCodexScopeForContext(ctx) && !(await shouldHandleStudyUpdate(ctx)) && !shouldHandleGroupUpdate(ctx)) {
       const message = ctx.message;
@@ -84,6 +101,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await next();
   });
 
+  // A private (receiver-bound) group menu may only be tapped by the member it was sent to.
   bot.use(async (ctx, next) => {
     if (!callbackMatchesEphemeralReceiver(ctx)) {
       await ctx.answerCallbackQuery({
@@ -95,20 +113,24 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await next();
   });
 
+  // Undo entries recorded while handling this update remember which member made the change.
+  bot.use((ctx, next) => withUndoActor(ctx.from ? String(ctx.from.id) : undefined, next));
+
   registerTodayInteractions(bot);
   registerNoteSessions(bot);
   registerStudyMode(bot);
   registerCommands(bot, ai);
   registerFileCourier(bot);
-  registerVoiceCapture(bot, ai, token);
+  registerVoiceCapture(bot, token);
   registerCodexMode(bot);
   registerGeminiIdeas(bot);
   registerGroupScheduling(bot);
   registerGroupTopics(bot);
-  registerTaskImports(bot, ai);
+  registerTaskImports(bot);
   registerCallbacks(bot, ai);
   registerImageMessages(bot, ai, token);
   registerNaturalLanguage(bot, ai);
+  // Keep stored group membership and the bot's own group role in sync with Telegram.
   bot.on("chat_member", async (ctx) => {
     const update = ctx.chatMember;
     await updateGroupMemberFromTelegram(String(update.chat.id), update.new_chat_member.user, update.new_chat_member.status);
@@ -118,6 +140,7 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     await updateGroupBotStatus(String(update.chat.id), update.new_chat_member.status);
   });
 
+  // Last-resort handler: log safe metadata only and send the user a friendly error.
   bot.catch(async (error) => {
     logger.error("Bot update failed.", {
       ...errorLogMetadata(error.error),

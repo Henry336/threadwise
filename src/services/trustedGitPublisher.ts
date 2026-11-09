@@ -1,3 +1,10 @@
+/**
+ * Trusted publishing for the owner-only Telegram Codex mode. Codex edits files in a sandbox with no
+ * GitHub credentials; afterwards this code, running on the owner's laptop worker (src/codexWorker.ts),
+ * validates the diff, commits it to an `agent/*` branch, pushes without force, opens a PR against main,
+ * and optionally waits for checks and enables auto-merge. Any doubt stops with a BLOCKED result instead.
+ * Every step is reported as an audit event. See docs/PRIVATE_CODEX_IMPLEMENTATION_NOTES.md.
+ */
 import { createHash } from "node:crypto";
 import { lstat, readFile, readlink } from "node:fs/promises";
 import { basename, resolve } from "node:path";
@@ -22,6 +29,7 @@ export type TrustedPublishResult = {
   repairPrompt?: string;
 };
 
+/** One audit step. eventKey is sequence-numbered and unique per job in the database, so a re-sent report is stored once. */
 export type TrustedPublishEvent = {
   eventKey: string;
   action: "COMMIT" | "PUSH" | "PR" | "CHECKS" | "AUTO_MERGE" | "MERGE" | "DEPLOY" | "BLOCKED";
@@ -35,6 +43,10 @@ export type TrustedPublishEvent = {
 
 type FileState = { fingerprint: string };
 
+/**
+ * Git state captured before the Codex turn: HEAD, branch, staged files, and a content fingerprint of
+ * every changed file. Comparing against it afterwards separates Codex's edits from edits that already existed.
+ */
 export type TrustedGitSnapshot = {
   root: string;
   headSha: string;
@@ -50,6 +62,7 @@ export type CommandResult = {
   stderr: string;
 };
 
+/** Runs a process. Injected so tests can fake git, gh, and npm without touching a real repository. */
 export type CommandRunner = (
   executable: string,
   args: string[],
@@ -88,6 +101,10 @@ const DEFAULT_CHECK_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_GITHUB_TIMEOUT_MS = 30 * 60_000;
 const MAX_COMMAND_OUTPUT = 200_000;
 
+/**
+ * Detects publish wording in an owner prompt ("publish", "push to a PR") and whether auto-merge was
+ * also asked for ("auto-merge", "and merge", "merge when checks pass"). Used by src/bot/codex.ts.
+ */
 export function detectTrustedPublishIntent(prompt: string): {
   requested: boolean;
   autoMerge: boolean;
@@ -103,6 +120,7 @@ export function detectTrustedPublishIntent(prompt: string): {
   return { requested: publish, autoMerge };
 }
 
+/** Branch policy: only well-formed `agent/...` names, so the worker can never push to main or other branches. */
 export function isAllowedPublishBranch(branch: string): boolean {
   return /^agent\/[A-Za-z0-9][A-Za-z0-9._/-]{0,150}$/.test(branch)
     && !branch.includes("..")
@@ -110,6 +128,7 @@ export function isAllowedPublishBranch(branch: string): boolean {
     && !branch.includes("//");
 }
 
+/** Returns "owner/repo" for a github.com HTTPS or SSH remote, or undefined for anything else. */
 export function parseGithubRemote(remote: string): string | undefined {
   const value = remote.trim().replace(/\.git$/i, "");
   const https = value.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)$/i);
@@ -118,6 +137,10 @@ export function parseGithubRemote(remote: string): string | undefined {
   return ssh ? `${ssh[1]}/${ssh[2]}` : undefined;
 }
 
+/**
+ * Paths that must never be auto-published: .env files (except examples), Git/Codex internals, SSH and
+ * credential files, private keys, and local databases. Any match blocks the publish for manual review.
+ */
 export function sensitivePublishPaths(paths: string[]): string[] {
   return paths.filter((path) => {
     const normalized = path.replace(/\\/g, "/").toLowerCase();
@@ -134,6 +157,10 @@ export function sensitivePublishPaths(paths: string[]): string[] {
   });
 }
 
+/**
+ * Scans only the added lines of a diff for secrets: private key blocks, GitHub and OpenAI token shapes,
+ * Threadwise bot/worker tokens assigned a value, and Postgres URLs that include a password.
+ */
 export function addedDiffContainsSensitiveValue(diff: string): boolean {
   const additions = diff
     .split(/\r?\n/)
@@ -152,6 +179,7 @@ export function addedDiffContainsSensitiveValue(diff: string): boolean {
     || /postgres(?:ql)?:\/\/[^:\s]+:[^@\s]{8,}@/i.test(joined);
 }
 
+/** Takes the pre-turn snapshot. The folder must be the repository root, not a subfolder. */
 export async function captureTrustedGitSnapshot(
   cwd: string,
   runner: CommandRunner = runCommand
@@ -178,6 +206,13 @@ export async function captureTrustedGitSnapshot(
   };
 }
 
+/**
+ * The main publish pipeline. It blocks if pre-existing staged files exist, HEAD or origin/main moved,
+ * Codex touched files that were already dirty, there is no diff, sensitive paths or secrets appear,
+ * local checks fail or modify files, or the branch exists. Then it commits only Codex's files, pushes,
+ * opens the PR, and with autoMerge waits for checks and enables merge pinned to the exact commit.
+ * A failed check returns a repairPrompt so the same Codex task can try a fix.
+ */
 export async function publishTrustedCodexChanges(input: PublishInput): Promise<TrustedPublishResult> {
   const runner = input.runner ?? runCommand;
   const cwd = resolve(input.cwd);
@@ -423,6 +458,11 @@ export async function publishTrustedCodexChanges(input: PublishInput): Promise<T
   }
 }
 
+/**
+ * Publishes a Codex repair after a failed check: verifies the worktree is still on the PR branch at
+ * the expected commit, reruns the same safety checks, adds a new commit to the existing branch (no
+ * force push), and waits for GitHub checks again. The worker caps passes with the job's maxRepairAttempts.
+ */
 export async function repairTrustedPublishedChanges(input: RepairPublishInput): Promise<TrustedPublishResult> {
   const runner = input.runner ?? runCommand;
   const cwd = resolve(input.cwd);
@@ -535,6 +575,7 @@ export async function repairTrustedPublishedChanges(input: RepairPublishInput): 
   }
 }
 
+/** Builds the follow-up prompt for Codex with the redacted tail (up to 12k chars) of the failing output. */
 function repairPromptForCheck(source: string, label: string, result: CommandResult): string {
   const details = redactCommandOutput(`${result.stderr}\n${result.stdout}`.trim());
   return [
@@ -546,6 +587,7 @@ function repairPromptForCheck(source: string, label: string, result: CommandResu
   ].join("\n");
 }
 
+/** Collects failed-step logs from up to three GitHub Actions runs on the PR, bounded in size. */
 async function githubFailedCheckDetails(
   runner: CommandRunner,
   cwd: string,
@@ -573,6 +615,10 @@ async function githubFailedCheckDetails(
   return { exitCode: fallback.exitCode, stdout: logs.join("\n").slice(-MAX_COMMAND_OUTPUT), stderr: "" };
 }
 
+/**
+ * Spawns a process without a shell (no command injection through arguments), keeps only the last
+ * 200k characters of output, and kills it on timeout (exit 124). Never throws; failures are exit codes.
+ */
 export async function runCommand(
   executable: string,
   args: string[],
@@ -616,6 +662,7 @@ export async function runCommand(
   });
 }
 
+/** Branch name `agent/<title-slug>-<first 8 of job id>`, unique per job. */
 function trustedPublishBranch(title: string, jobId: string): string {
   const slug = title
     .normalize("NFKD")
@@ -632,6 +679,7 @@ function trustedCommitTitle(title: string): string {
   return (oneLine || "Publish Codex task changes").slice(0, 100);
 }
 
+/** All modified tracked files plus untracked (non-ignored) files, each with a content fingerprint. */
 async function changedFiles(cwd: string, runner: CommandRunner): Promise<Map<string, FileState>> {
   const tracked = await nulPaths(runner, ["diff", "--name-only", "-z", "HEAD"], cwd);
   const untracked = await nulPaths(runner, ["ls-files", "--others", "--exclude-standard", "-z"], cwd);
@@ -640,6 +688,7 @@ async function changedFiles(cwd: string, runner: CommandRunner): Promise<Map<str
   return new Map(states);
 }
 
+/** SHA-256 of file content (or symlink target), so "changed again during the turn" can be detected exactly. */
 async function fingerprint(cwd: string, path: string): Promise<string> {
   const absolute = resolve(cwd, path);
   try {
@@ -655,6 +704,7 @@ async function fingerprint(cwd: string, path: string): Promise<string> {
   }
 }
 
+/** Runs a git listing with -z (NUL-separated) so paths with spaces or newlines parse correctly. */
 async function nulPaths(runner: CommandRunner, args: string[], cwd: string): Promise<string[]> {
   const result = await checked(runner, "git", args, cwd, 60_000);
   return result.stdout.split("\0").filter(Boolean).map((path) => path.replace(/\\/g, "/"));
@@ -674,6 +724,11 @@ async function checked(
   return result;
 }
 
+/**
+ * Local checks to run before publishing, read from package.json scripts (db:generate, test, typecheck,
+ * build) plus `prisma validate` when a schema exists (with a dummy DATABASE_URL if none is set).
+ * No detected checks means publishing is blocked.
+ */
 async function detectedLocalChecks(cwd: string): Promise<Array<{
   label: string;
   executable: string;
@@ -754,6 +809,7 @@ function commandSummary(result: CommandResult): string {
   return (value || `exit ${result.exitCode}`).slice(0, 2_000);
 }
 
+/** Masks bearer tokens, key=value secrets, GitHub/OpenAI token shapes, and Postgres passwords in command output before it is stored or sent back to Codex. */
 export function redactCommandOutput(value: string): string {
   return value
     .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/-]{12,}/gi, "Bearer [REDACTED]")

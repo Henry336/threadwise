@@ -15,6 +15,7 @@ import {
 import { ensureUser } from "../services/users";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { splitTelegramReport } from "../services/codex";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 const GEMINI_REPORT_PAGE_CHARS = 2_900;
 
@@ -96,29 +97,19 @@ export async function deliverGeminiIdeaJobOnce(bot: Bot, job: GeminiIdeaJobWithI
   await markGeminiIdeaJobDelivered(job.id);
 }
 
-export function startGeminiIdeaDeliveryLoop(bot: Bot, intervalMs = 60_000): NodeJS.Timeout | undefined {
+/** Retries Gemini idea reports that were finished but never reached Telegram. */
+export function startGeminiIdeaDeliveryLoop(bot: Bot, intervalMs = 60_000): StopLoop | undefined {
   if (!privateCodexConfig()) return undefined;
-  let active = false;
-  return setInterval(() => {
-    if (active) return;
-    active = true;
-    void (async () => {
+  return startLoop("Gemini idea delivery retry", intervalMs, async () => {
+    const jobs = await undeliveredGeminiIdeaJobs(new Date(Date.now() - 60_000));
+    for (const job of jobs) {
       try {
-        const jobs = await undeliveredGeminiIdeaJobs(new Date(Date.now() - 60_000));
-        for (const job of jobs) {
-          try {
-            await deliverGeminiIdeaJobOnce(bot, job);
-          } catch (error) {
-            logger.warn("Gemini idea report retry failed.", { jobId: job.id, error: String(error) });
-          }
-        }
+        await deliverGeminiIdeaJobOnce(bot, job);
       } catch (error) {
-        logger.warn("Gemini idea delivery retry pass failed.", { error: String(error) });
-      } finally {
-        active = false;
+        logger.warn("Gemini idea report retry failed.", { jobId: job.id, error: String(error) });
       }
-    })();
-  }, intervalMs);
+    }
+  });
 }
 
 function ownerScope(ctx: Context) {

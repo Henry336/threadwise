@@ -1,5 +1,10 @@
+/**
+ * Offline `AiProvider` that needs no API key. It is the provider in local development and tests,
+ * and the fallback behind ResilientAiProvider when OpenAI fails. Answers are simple and
+ * conservative, never invented facts.
+ */
+
 import { parseDueDate } from "../utils/dates";
-import { deterministicEmbedding } from "../utils/vector";
 import type {
   AiProvider,
   AiProviderHealthCheck,
@@ -18,14 +23,17 @@ import type {
 const TASK_WORDS = ["todo", "task", "remind", "finish", "submit", "pay", "call", "email", "buy", "send"];
 const IDEA_WORDS = ["idea", "app", "bot", "tool", "build", "product", "startup", "website", "platform"];
 const NOTE_WORDS = ["note", "remember", "learned", "insight", "quote", "summary", "keep", "save this", "important"];
+/**
+ * Rule-based stand-in for every AI method. Classification uses word counts; structuring keeps the
+ * user's text; idea scoring uses fixed values nudged by keywords.
+ */
 export class HeuristicAiProvider implements AiProvider {
   getStatus(): AiProviderStatus {
     return {
       provider: "heuristic",
       apiKeyConfigured: false,
       chatModels: [],
-      activeChatModel: undefined,
-      embeddingModel: "local-deterministic"
+      activeChatModel: undefined
     };
   }
 
@@ -37,6 +45,10 @@ export class HeuristicAiProvider implements AiProvider {
     };
   }
 
+  /**
+   * Picks task, note or idea by counting signal words, with task winning ties. Long text with no
+   * signal is treated as an idea. Returns "noise" when nothing matches.
+   */
   async classifyMessage(text: string): Promise<Classification> {
     const lower = text.toLowerCase();
     const taskScore = scoreWords(lower, TASK_WORDS);
@@ -107,6 +119,10 @@ export class HeuristicAiProvider implements AiProvider {
     };
   }
 
+  /**
+   * Builds a merge preview from the source notes: an inferred theme, up to seven de-duplicated key
+   * points, connections and open questions. Every source note is listed under preserved details.
+   */
   async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
     const noteTexts = notes.map((note) => cleanNoteText(note.sourceText || note.body || note.summary));
     const combined = noteTexts.join("\n");
@@ -126,6 +142,9 @@ export class HeuristicAiProvider implements AiProvider {
     };
   }
 
+  /**
+   * Generic note-keeping advice that does not depend on note content beyond the count.
+   */
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
     return {
       overview: `You have ${notes.length} saved notes.`,
@@ -136,6 +155,9 @@ export class HeuristicAiProvider implements AiProvider {
     };
   }
 
+  /**
+   * Fixed baseline scores adjusted by a few keywords. The summary says it was made without live research.
+   */
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     const source = `${input.title} ${input.concept} ${input.sourceText}`.toLowerCase();
     const portfolioBoost = source.includes("api") || source.includes("bot") || source.includes("automation") ? 2 : 0;
@@ -153,10 +175,6 @@ export class HeuristicAiProvider implements AiProvider {
       dos: ["Start with one narrow user workflow", "Make the data model durable", "Document deployment clearly"],
       donts: ["Overfit the product to vague AI magic", "Skip reminder reliability", "Store sensitive text without clear privacy expectations"]
     };
-  }
-
-  async embed(text: string): Promise<number[]> {
-    return deterministicEmbedding(text);
   }
 }
 
@@ -196,6 +214,9 @@ function inferNoteTitle(text: string): string {
   return summarize(firstSegment, 70);
 }
 
+/**
+ * Rewrites "topic -> detail -> detail" shorthand as "Topic: detail; detail."
+ */
 function formatRoughNote(text: string): string {
   const cleaned = cleanNoteText(text);
   const parts = cleaned.split(/\s*->\s*/).map((part) => part.trim()).filter(Boolean);
@@ -206,6 +227,9 @@ function formatRoughNote(text: string): string {
   return `${capitalize(parts[0] ?? "Note")}: ${parts.slice(1).map((part) => part.replace(/[.。]$/, "")).join("; ")}.`;
 }
 
+/**
+ * Splits a note into short detail lines for the merged note's key points.
+ */
 function extractNoteDetails(text: string): string[] {
   const formatted = formatRoughNote(text);
   const details = formatted
@@ -216,6 +240,10 @@ function extractNoteDetails(text: string): string[] {
   return details.length ? details : [formatted];
 }
 
+/**
+ * Merged note title. The keyword themes (product, client, sales, technical) match the example
+ * notes in heuristicProvider.test.ts; anything else joins the source titles.
+ */
 function inferMergedTitle(text: string, notes: NoteForMerge[]): string {
   const lower = text.toLowerCase();
   const hasProduct = hasTerm(lower, "product manager") || hasTerm(lower, "software design") || hasTerm(lower, "product");
@@ -239,6 +267,9 @@ function inferMergedTitle(text: string, notes: NoteForMerge[]): string {
   return summarize(titles.join(" + "), 80) || "Merged Note";
 }
 
+/**
+ * Opening paragraph for a merged note, chosen from the same keyword themes as inferMergedTitle.
+ */
 function inferMergeTheme(text: string): string {
   const lower = text.toLowerCase();
   const hasProduct = hasTerm(lower, "product manager") || hasTerm(lower, "software design") || hasTerm(lower, "product");
@@ -267,6 +298,9 @@ function inferMergeTheme(text: string): string {
   return "These notes were merged because they appear to describe related observations that should be easier to revisit together.";
 }
 
+/**
+ * Lays out the merged note: theme, key points, why it matters, and a refinement line on retries.
+ */
 function formatMergedBody(theme: string, details: string[], text: string, isRetry: boolean, attempt: number): string {
   const bullets = [...new Set(details.map(cleanDetail))]
     .filter((detail) => detail.length > 0)
@@ -308,6 +342,10 @@ function inferWhyItMatters(text: string): string {
   return "This is worth keeping as one note because the separate observations are more useful when the relationship between them is visible.";
 }
 
+/**
+ * Connection lines for the merge preview, based on keyword themes, with a generic line when
+ * none match and there are several notes.
+ */
 function inferConnections(text: string, notes: NoteForMerge[]): string[] {
   const lower = text.toLowerCase();
   const connections: string[] = [];
@@ -331,6 +369,10 @@ function inferConnections(text: string, notes: NoteForMerge[]): string[] {
   return connections;
 }
 
+/**
+ * Questions about context the merged note may lack. The named people come from the example notes
+ * in heuristicProvider.test.ts. Capped at four.
+ */
 function inferMissingContext(text: string, attempt: number): string[] {
   const missing: string[] = [];
   const lower = text.toLowerCase();
@@ -350,6 +392,9 @@ function inferMissingContext(text: string, attempt: number): string[] {
   return missing.slice(0, 4);
 }
 
+/**
+ * Rough check for two or more different capitalized names in the text.
+ */
 function mentionedByMultiplePeople(text: string): boolean {
   const names = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/g) ?? [];
   const uniqueNames = new Set(names.filter((name) => !["Product Manager", "Learn These", "Selling Yourself"].includes(name)));

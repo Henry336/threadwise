@@ -1,8 +1,13 @@
+/**
+ * Production AI provider using the OpenAI chat API in JSON mode. Each method sends one prompt,
+ * then validates the reply with a zod schema through parseModelJson, so malformed model output
+ * falls back to a safe default instead of reaching the database.
+ */
+
 import OpenAI from "openai";
 import { env } from "../config/env";
-import { logger } from "../logger";
-import { deterministicEmbedding } from "../utils/vector";
-import { safeJsonParse, clampScore } from "./json";
+import { z } from "zod";
+import { parseModelJson, clampScore } from "./json";
 import type {
   AiProvider,
   AiProviderHealthCheck,
@@ -18,39 +23,86 @@ import type {
   StructuredTask
 } from "./types";
 
-const CHAT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+type OpenAiClient = Pick<OpenAI, "chat">;
 
-type OpenAiClient = Pick<OpenAI, "chat" | "embeddings">;
+// Optional model fields: models often send null for "absent", which callers treat as undefined.
+const optionalText = z.string().nullish().transform((value) => value ?? undefined);
+const textList = z.array(z.string()).default([]);
 
+const classificationSchema = z.object({
+  kind: z.enum(["idea", "task", "note", "noise"]),
+  confidence: z.number(),
+  reason: z.string(),
+  suggestedTitle: optionalText,
+  dueDateText: optionalText
+});
+const ideaSchema = z.object({
+  title: z.string(),
+  concept: z.string(),
+  problem: optionalText,
+  targetUser: optionalText,
+  type: optionalText
+});
+const taskSchema = z.object({ title: z.string(), description: optionalText, dueDateText: optionalText });
+const noteSchema = z.object({ title: z.string(), body: z.string(), summary: z.string() });
+const mergedNoteSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  summary: z.string(),
+  connections: textList,
+  preservedDetails: textList,
+  possibleMissingContext: textList
+});
+const noteAnalysisSchema = z.object({
+  overview: z.string(),
+  whatWorks: textList,
+  whatDoesNotWork: textList,
+  suggestions: textList,
+  experiments: textList
+});
+// Scores stay unknown here because clampScore already turns any value into 1-10.
+const ideaScoreSchema = z.object({
+  buildability: z.unknown(),
+  usefulness: z.unknown(),
+  novelty: z.unknown(),
+  portfolioValue: z.unknown(),
+  monetization: z.unknown(),
+  difficulty: z.unknown(),
+  risk: z.unknown(),
+  summary: optionalText,
+  marketNotes: optionalText,
+  dos: textList,
+  donts: textList
+});
+
+/**
+ * OpenAI-backed `AiProvider`. Remembers the last success and last error in memory so the admin
+ * status endpoint can show them. The client can be injected, which tests use to avoid real calls.
+ */
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAiClient;
-  private readonly chatModels: string[];
-  private activeChatModel: string;
+  private readonly model = env.OPENAI_MODEL;
   private lastSuccessfulChatAt?: string;
-  private lastRateLimit?: { model: string; at: string };
   private lastError?: { model?: string; at: string; message: string };
-  private readonly rateLimitedUntil = new Map<string, number>();
-  private readonly unavailableModels = new Set<string>();
 
   constructor(apiKey: string, client: OpenAiClient = new OpenAI({ apiKey })) {
     this.client = client;
-    this.chatModels = uniqueModels([env.OPENAI_MODEL, ...parseModelList(env.OPENAI_MODEL_FALLBACKS)]);
-    this.activeChatModel = this.chatModels[0] ?? env.OPENAI_MODEL;
   }
 
   getStatus(): AiProviderStatus {
     return {
       provider: "openai",
       apiKeyConfigured: true,
-      chatModels: this.chatModels,
-      activeChatModel: this.activeChatModel,
-      embeddingModel: "local-deterministic",
+      chatModels: [this.model],
+      activeChatModel: this.model,
       lastSuccessfulChatAt: this.lastSuccessfulChatAt,
-      lastRateLimit: this.lastRateLimit,
       lastError: this.lastError
     };
   }
 
+  /**
+   * Sends one tiny JSON request to confirm the key and model work. Used by the admin status endpoint.
+   */
   async checkHealth(): Promise<AiProviderHealthCheck> {
     const checkedAt = new Date().toISOString();
     try {
@@ -62,7 +114,7 @@ export class OpenAiProvider implements AiProvider {
         ok: Boolean(model),
         checkedAt,
         provider: this.getStatus(),
-        model: this.activeChatModel
+        model: this.model
       };
     } catch (error) {
       return {
@@ -74,51 +126,66 @@ export class OpenAiProvider implements AiProvider {
     }
   }
 
+  /**
+   * Asks the model to suggest idea, task, note or noise. Falls back to "noise" with medium
+   * confidence when the reply cannot be parsed.
+   */
   async classifyMessage(text: string): Promise<Classification> {
     const content = await this.jsonCompletion(
       "Classify a Telegram message for a private productivity and notekeeping bot. Return JSON only.",
       `Message:\n${text}\n\nReturn: { "kind": "idea" | "task" | "note" | "noise", "confidence": 0-1, "reason": string, "suggestedTitle"?: string, "dueDateText"?: string }`
     );
 
-    return safeJsonParse<Classification>(content, {
+    return parseModelJson<Classification>(content, classificationSchema, {
       kind: "noise",
       confidence: 0.5,
       reason: "Could not confidently classify message."
     });
   }
 
+  /**
+   * Turns rough idea text into a title, concept, problem, target user and type. Tags are always
+   * empty because visible tags were retired across the product.
+   */
   async structureIdea(text: string): Promise<StructuredIdea> {
     const content = await this.jsonCompletion(
       "Structure rough software, product, or workflow ideas into concise portfolio-ready records. Return JSON only.",
       `Idea text:\n${text}\n\nReturn: { "title": string, "concept": string, "problem"?: string, "targetUser"?: string, "type"?: string }`
     );
 
-    const structured = safeJsonParse<Omit<StructuredIdea, "tags">>(content, {
+    const structured = parseModelJson<Omit<StructuredIdea, "tags">>(content, ideaSchema, {
       title: "Untitled Idea",
       concept: text,
     });
     return { ...structured, tags: [] };
   }
 
+  /**
+   * Extracts a task title, description and due-date phrase. Falls back to the raw text as the title.
+   */
   async structureTask(text: string): Promise<StructuredTask> {
     const content = await this.jsonCompletion(
       "Extract a task from a rough Telegram message. Return JSON only.",
       `Task text:\n${text}\n\nReturn: { "title": string, "description"?: string, "dueDateText"?: string }`
     );
 
-    return safeJsonParse<StructuredTask>(content, {
+    return parseModelJson<StructuredTask>(content, taskSchema, {
       title: text,
       description: text
     });
   }
 
+  /**
+   * Cleans a long or messy note into title, body and one-sentence summary while keeping specifics.
+   * services/notes.ts only calls this for notes that shouldUseAiForNoteStructure flags as complex.
+   */
   async structureNote(text: string): Promise<StructuredNote> {
     const content = await this.jsonCompletion(
       "Clean a rough personal note into a readable, recallable note without losing important details. Preserve specifics, names, numbers, dates, caveats, and source wording when useful. Return JSON only.",
       `Raw note:\n${text}\n\nReturn: { "title": string, "body": string, "summary": string }\n\nGuidelines:\n- title should be short and searchable\n- body should be clear, complete, and human-readable\n- summary should be one sentence`
     );
 
-    const structured = safeJsonParse<Omit<StructuredNote, "tags">>(content, {
+    const structured = parseModelJson<Omit<StructuredNote, "tags">>(content, noteSchema, {
       title: "Untitled Note",
       body: text,
       summary: text.slice(0, 180),
@@ -126,6 +193,11 @@ export class OpenAiProvider implements AiProvider {
     return { ...structured, tags: [] };
   }
 
+  /**
+   * Drafts one merged note from several source notes for the preview-and-confirm merge flow.
+   * `attempt` and `previousPreview` let "Try again" ask for stronger connections and a check for
+   * dropped details. Nothing is saved here; the merge only happens when the user confirms.
+   */
   async mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt = 1): Promise<MergedNotePreview> {
     const content = await this.jsonCompletion(
       "Merge rough personal notes into one clearer, more useful note. Return JSON only. Preserve facts, names, dates, caveats, and useful wording. Do not invent details.",
@@ -147,17 +219,20 @@ export class OpenAiProvider implements AiProvider {
       ].join("\n")
     );
 
-    const preview = safeJsonParse<Omit<MergedNotePreview, "tags">>(content, fallbackMergedNotePreview(notes));
+    const preview = parseModelJson<Omit<MergedNotePreview, "tags">>(content, mergedNoteSchema, fallbackMergedNotePreview(notes));
     return { ...preview, tags: [] };
   }
 
+  /**
+   * Gives feedback on the user's note-keeping style based on their saved notes.
+   */
   async analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis> {
     const content = await this.jsonCompletion(
       "Analyze a user's notekeeping style from their saved notes. Be direct, practical, and specific. Return JSON only.",
       `Notes:\n${JSON.stringify(notes, null, 2)}\n\nReturn: { "overview": string, "whatWorks": string[], "whatDoesNotWork": string[], "suggestions": string[], "experiments": string[] }\n\nFocus on retrieval quality, clarity, consistency, missing context, note granularity, and ways to make future notes more useful.`
     );
 
-    return safeJsonParse<NoteAnalysis>(content, {
+    return parseModelJson<NoteAnalysis>(content, noteAnalysisSchema, {
       overview: "Not enough note data to analyze deeply yet.",
       whatWorks: [],
       whatDoesNotWork: [],
@@ -166,13 +241,29 @@ export class OpenAiProvider implements AiProvider {
     });
   }
 
+  /**
+   * Scores an idea on seven 1-10 axes plus short advice. Every score goes through clampScore, so
+   * the stored numbers are always in range.
+   */
   async scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore> {
     const content = await this.jsonCompletion(
       "Score a product idea for a solo builder portfolio. Use heuristic market knowledge only; do not claim live research. Return JSON only.",
       `Idea:\n${JSON.stringify(input, null, 2)}\n\nReturn: { "buildability": 1-10, "usefulness": 1-10, "novelty": 1-10, "portfolioValue": 1-10, "monetization": 1-10, "difficulty": 1-10, "risk": 1-10, "summary": string, "marketNotes": string, "dos": string[], "donts": string[] }`
     );
 
-    const parsed = safeJsonParse<Partial<IdeaScore>>(content, {});
+    const parsed = parseModelJson(content, ideaScoreSchema, {
+      buildability: undefined,
+      usefulness: undefined,
+      novelty: undefined,
+      portfolioValue: undefined,
+      monetization: undefined,
+      difficulty: undefined,
+      risk: undefined,
+      summary: undefined,
+      marketNotes: undefined,
+      dos: [],
+      donts: []
+    });
     return {
       buildability: clampScore(parsed.buildability),
       usefulness: clampScore(parsed.usefulness),
@@ -183,117 +274,40 @@ export class OpenAiProvider implements AiProvider {
       risk: clampScore(parsed.risk),
       summary: parsed.summary ?? "Idea scored.",
       marketNotes: parsed.marketNotes ?? "No market notes returned.",
-      dos: parsed.dos ?? [],
-      donts: parsed.donts ?? []
+      dos: parsed.dos,
+      donts: parsed.donts
     };
   }
 
-  async embed(text: string): Promise<number[]> {
-    return deterministicEmbedding(text);
-  }
-
+  /**
+   * Sends one JSON-mode request to the configured model. A failure is recorded
+   * for /status and rethrown, so ResilientAiProvider answers with the heuristic
+   * provider instead; retrying other models cannot fix a quota error on the key.
+   */
   private async jsonCompletion(system: string, user: string): Promise<string> {
-    const response = await this.chatCompletionWithFallback(system, user);
-
-    return response.choices[0]?.message.content ?? "{}";
-  }
-
-  private async chatCompletionWithFallback(system: string, user: string) {
-    let lastError: unknown;
-    const models = this.orderedModelsForAttempt();
-    if (models.length === 0) {
-      throw new Error("All OpenAI chat models are cooling down after rate limits or are unavailable.");
-    }
-
-    for (const model of models) {
-      try {
-        const response = await this.client.chat.completions.create({
-          model,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user }
-          ]
-        });
-
-        this.activeChatModel = model;
-        this.lastSuccessfulChatAt = new Date().toISOString();
-        this.lastError = undefined;
-        return response;
-      } catch (error) {
-        lastError = error;
-        const message = error instanceof Error ? error.message : String(error);
-        this.lastError = { model, at: new Date().toISOString(), message };
-
-        if (isRateLimitError(error)) {
-          this.lastRateLimit = { model, at: new Date().toISOString() };
-          this.rateLimitedUntil.set(model, Date.now() + CHAT_RATE_LIMIT_COOLDOWN_MS);
-          this.moveActiveModelToNextAvailable();
-          logger.warn("OpenAI chat model hit a rate limit; trying fallback model if configured.", {
-            model,
-            nextModel: this.orderedModelsForAttempt()[0]
-          });
-          continue;
-        }
-
-        if (isModelAvailabilityError(error)) {
-          this.unavailableModels.add(model);
-          this.moveActiveModelToNextAvailable();
-          logger.warn("OpenAI chat model was unavailable; trying fallback model if configured.", {
-            model,
-            nextModel: this.orderedModelsForAttempt()[0]
-          });
-          continue;
-        }
-
-        throw error;
-      }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "OpenAI request failed."));
-  }
-
-  private orderedModelsForAttempt(): string[] {
-    const models = uniqueModels([this.activeChatModel, ...this.chatModels]);
-    const now = Date.now();
-    return models.filter((model) => !this.unavailableModels.has(model) && (this.rateLimitedUntil.get(model) ?? 0) <= now);
-  }
-
-  private moveActiveModelToNextAvailable(): void {
-    const next = this.orderedModelsForAttempt()[0];
-    if (next) {
-      this.activeChatModel = next;
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
+      });
+      this.lastSuccessfulChatAt = new Date().toISOString();
+      this.lastError = undefined;
+      return response.choices[0]?.message.content ?? "{}";
+    } catch (error) {
+      this.lastError = { model: this.model, at: new Date().toISOString(), message: error instanceof Error ? error.message : String(error) };
+      throw error;
     }
   }
 }
-function parseModelList(value?: string): string[] {
-  return value?.split(",").map((model) => model.trim()).filter(Boolean) ?? [];
-}
 
-function uniqueModels(models: string[]): string[] {
-  return [...new Set(models.filter(Boolean))];
-}
-
-function isRateLimitError(error: unknown): boolean {
-  const maybeError = error as { status?: unknown; code?: unknown; type?: unknown };
-  return maybeError.status === 429 || maybeError.code === "rate_limit_exceeded" || maybeError.type === "rate_limit_exceeded";
-}
-
-function isModelAvailabilityError(error: unknown): boolean {
-  const maybeError = error as { status?: unknown; code?: unknown; type?: unknown; message?: unknown };
-  const message = error instanceof Error ? error.message.toLowerCase() : String(maybeError.message ?? "").toLowerCase();
-
-  if (maybeError.code === "model_not_found" || maybeError.type === "model_not_found" || maybeError.status === 404) {
-    return true;
-  }
-
-  return (
-    maybeError.status === 400 &&
-    message.includes("model") &&
-    (message.includes("not found") || message.includes("does not exist") || message.includes("unsupported"))
-  );
-}
-
+/**
+ * Merge preview used when the model reply is unusable: the source notes joined in order, so no
+ * content is lost.
+ */
 function fallbackMergedNotePreview(notes: NoteForMerge[]): MergedNotePreview {
   const title = notes.length === 1 ? notes[0]?.title ?? "Merged Note" : `Merged Notes: ${notes.map((note) => note.publicId).join(", ")}`;
   const body = notes.map((note) => `${note.title}\n${note.body}`).join("\n\n");

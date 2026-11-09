@@ -1,3 +1,8 @@
+/**
+ * Dashboard Quick Capture preview: guesses whether typed text is a task, note or idea and
+ * drafts its fields, without saving anything. The dashboard shows the preview, then saves
+ * through the normal create routes. Called by the capture preview route in route.ts.
+ */
 import type { PrismaClient } from "@prisma/client";
 import type { AiProvider, Classification } from "../ai/types";
 import { classifyMessageDeterministically } from "../ai/deterministic";
@@ -9,15 +14,14 @@ import {
   parseNaturalReminderBody,
   parseNaturalTaskBody
 } from "../bot/naturalCommandParsing";
-import { parseExpenseText } from "../services/expenses";
 import { parseDueDate, splitReminderText } from "../utils/dates";
 import { DashboardUserNotFoundError } from "./snapshot";
-import { DashboardValidationError } from "./data";
 import type { CapturePreviewInput } from "./schemas";
 
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 
-export type DashboardCaptureKind = "task" | "note" | "idea" | "expense";
+// Expenses are a frozen feature: quick capture only previews tasks, notes and ideas.
+export type DashboardCaptureKind = "task" | "note" | "idea";
 
 export type DashboardCapturePreview = {
   kind: DashboardCaptureKind;
@@ -27,6 +31,13 @@ export type DashboardCapturePreview = {
   payload: Record<string, unknown>;
 };
 
+/**
+ * Picks the kind in priority order: the user's explicit choice, then explicit command wording
+ * ("remind me", "note:" and similar), then the deterministic classifier, and only then the AI
+ * classifier. Fields are then drafted by the AiProvider structure helpers (which have local
+ * fallbacks). Due times in the past are dropped,
+ * and low-confidence "noise" falls back to a note with a review hint.
+ */
 export async function previewDashboardCapture(
   telegramId: string,
   input: CapturePreviewInput,
@@ -37,14 +48,13 @@ export async function previewDashboardCapture(
   if (!DASHBOARD_OWNER_ID.test(telegramId)) throw new DashboardUserNotFoundError();
   const user = await database.user.findUnique({
     where: { telegramId },
-    select: { settings: { select: { timezone: true, expenseCurrency: true } } }
+    select: { settings: { select: { timezone: true } } }
   });
   if (!user?.settings) throw new DashboardUserNotFoundError();
 
   const text = normalizeNaturalCommandText(input.text);
   const timezone = user.settings.timezone || "UTC";
   const preferred = input.preferredKind;
-  const explicitExpense = naturalExpenseText(text);
   const explicitReminder = parseNaturalReminderBody(text);
   const explicitTask = parseNaturalTaskBody(text);
   const explicitNote = parseNaturalNoteBody(text);
@@ -55,13 +65,10 @@ export async function previewDashboardCapture(
   if (preferred !== "auto") {
     kind = preferred;
     classification = {
-      kind: preferred === "expense" ? "note" : preferred,
+      kind: preferred,
       confidence: 1,
       reason: `You chose ${preferred}.`
     };
-  } else if (explicitExpense) {
-    kind = "expense";
-    classification = { kind: "note", confidence: 0.99, reason: "Recognized explicit expense language." };
   } else if (explicitReminder || explicitTask) {
     kind = "task";
     classification = { kind: "task", confidence: 0.99, reason: explicitReminder ? "Recognized reminder language and a time expression." : "Recognized explicit task language." };
@@ -74,29 +81,6 @@ export async function previewDashboardCapture(
   } else {
     classification = classifyMessageDeterministically(text, timezone) ?? await ai.classifyMessage(text);
     kind = classification.kind === "noise" ? "note" : classification.kind;
-  }
-
-  if (kind === "expense") {
-    const parsed = parseExpenseText(explicitExpense ?? text, timezone, now, user.settings.expenseCurrency);
-    if (!parsed) {
-      throw new DashboardValidationError("I couldn't find an expense amount. Try: spent $18.40 on lunch at Toast Box today.");
-    }
-    return {
-      kind,
-      confidence: preferred === "expense" ? 1 : classification.confidence,
-      reason: classification.reason,
-      sourceText: text,
-      payload: {
-        ...(parsed.merchant ? { merchant: parsed.merchant } : {}),
-        ...(parsed.description ? { description: parsed.description } : {}),
-        total: parsed.total,
-        currency: parsed.currency,
-        ...(parsed.category ? { category: parsed.category } : {}),
-        transactionAt: parsed.transactionAt.toISOString(),
-        ...(parsed.paymentMethod ? { paymentMethod: parsed.paymentMethod } : {}),
-        ...(parsed.notes ? { notes: parsed.notes } : {})
-      }
-    };
   }
 
   if (kind === "task") {
@@ -150,14 +134,4 @@ export async function previewDashboardCapture(
       tags: structured.tags ?? []
     }
   };
-}
-
-function naturalExpenseText(text: string): string | undefined {
-  if (/^(?:i\s+)?(?:spent|paid)\s+.+/i.test(text)) return text;
-  const explicit = text.match(/^(?:please\s+)?(?:log|record|add|save|track)\s+(?:this\s+)?(?:as\s+)?(?:an?\s+)?expense(?:\s+(?:of|for))?\s+(.+)$/i)
-    ?? text.match(/^expense\s*[:,-]?\s+(.+)$/i);
-  if (explicit?.[1]) return `expense ${explicit[1]}`;
-  const bought = text.match(/^(?:i\s+)?bought\s+(.+?)\s+for\s+(.+\d.+|\d.+)$/i);
-  if (bought?.[1] && bought[2]) return `spent ${bought[2]} on ${bought[1]}`;
-  return undefined;
 }

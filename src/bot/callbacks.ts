@@ -1,10 +1,17 @@
-import { InputFile, type Bot, type Context } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+/**
+ * Inline-button (callback query) handlers for the main Threadwise bot in Personal and Group chats.
+ * `registerCallbacks` is called from `src/bot/index.ts` and matches the callback strings built in
+ * `keyboards.ts`. Handlers answer the tap, call a domain service, and usually edit the tapped
+ * card in place. Group task buttons re-check permission on every tap, because a button can be
+ * pressed by any member who sees it. Study buttons are handled in `study.ts`.
+ */
+import type { Bot, Context } from "grammy";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createScheduledReminder, createTask } from "../services/tasks";
+import { dismissTaskReminders, findTaskReference, formatTaskAlreadyCompleted, restoreCompletedTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
-import { consumePendingCapture, findPendingCapture, ignorePendingCapture, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
+import { consumePendingCapture, findPendingCapture, ignorePendingCapture, pendingCaptureTaskOptions, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
@@ -12,18 +19,17 @@ import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../serv
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
 import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
-import { undoLastAction } from "../services/undo";
+import { undoLastActionForContext } from "../services/undo";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
-import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, microsoftExcelConfigured, syncExpenseToExcel, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
-import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
-import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, excelSettingsKeyboard, expenseConfirmationKeyboard, expensePageKeyboard, expensesModeKeyboard, groupExpensesModeKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
+import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml, replyInChunks } from "../utils/html";
+import { calendarTaskConnectCard } from "./calendarReplies";
+import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList, replyActiveListWithMessage } from "./activeLists";
-import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { formatStoredImageDeletePrompt, replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupMainMenuText, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
 import { formatRegionSettings, formatReminderSettings, formatSettings, formatVoiceSettings, updateSetting } from "../services/settings";
@@ -34,8 +40,10 @@ import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationSt
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
+import { claimGroupTask, GroupTaskPermissionError } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
+import { executeTaskCommand, type TaskCommandInput, type TaskCommandResult } from "../services/taskCommands";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { convergeTaskControlSurface } from "../services/taskControlSurfaces";
@@ -45,90 +53,93 @@ import { resolveGroupTaskCallbackOwner } from "../services/groupTaskCompatibilit
 import { formatCaptureReview, formatCaptureTypeChoice, formatReminderTimePrompt, suggestedPendingCaptureKind } from "./captureReview";
 import { parseDueDate } from "../utils/dates";
 
+/**
+ * Registers every callback pattern. Order matters where patterns overlap: grammY runs the first
+ * matching handler, so `item:<kind>:edit:<field>:<id>` is registered before the generic
+ * `item:<kind>:edit:<id>`, which would otherwise swallow the field name as part of the id.
+ */
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
-  bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):(.+)$/, async (ctx) => handleLegacyTaskAssignmentAction(ctx, ctx.match[2]));
-  bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:done:(.+)$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2], ctx.match[1] === "full"));
-  bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2], ctx.match[1] === "remove"));
-  bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]));
-  bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2], ctx.match[1] === "pin"));
-  bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1], ctx.match[3], ctx.match[2] === "pin"));
-  bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1], ctx.match[2], ctx.match[3]));
-  bot.callbackQuery(/^item:note:page:([^:]+):(\d+)$/, async (ctx) => handleNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^archived-note:page:([^:]+):(\d+)$/, async (ctx) => handleArchivedNoteDetailPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]));
-  bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]));
-  bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[3], ctx.match[2]));
-  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1], ctx.match[2], "title"));
-  bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1], ctx.match[2]));
+  // Cards sent before August still carry these buttons; answer them instead of leaving a spinner.
+  bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):/, async (ctx) => ctx.answerCallbackQuery({
+    text: "Assignments now take effect immediately. Open the task again for its current controls.",
+    show_alert: true,
+  }));
+  bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:done:([^:]+)(?::(\d+))?$/, async (ctx) => handleTaskDone(ctx, ctx.match[1]!, ctx.match[2]));
+  bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:snooze:(.+)$/, async (ctx) => handleTaskSnooze(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:dismiss-reminders:(.+)$/, async (ctx) => handleTaskReminderDismiss(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:view-(full|summary):(.+)$/, async (ctx) => handleTaskReminderView(ctx, ctx.match[2]!, ctx.match[1] === "full"));
+  bot.callbackQuery(/^task:calendar:(.+)$/, async (ctx) => handleTaskCalendar(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:cancel-confirm:(remove|keep):(.+)$/, async (ctx) => handleTaskCancelConfirmed(ctx, ctx.match[2]!, ctx.match[1] === "remove"));
+  bot.callbackQuery(/^task:cancel:(.+)$/, async (ctx) => handleTaskCancel(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^task:(pin|unpin):(.+)$/, async (ctx) => handleTaskPin(ctx, ctx.match[2]!, ctx.match[1] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):(pin|unpin):(.+)$/, async (ctx) => handleItemPin(ctx, ctx.match[1]!, ctx.match[3]!, ctx.match[2] === "pin"));
+  bot.callbackQuery(/^item:(task|note|idea):open:([^:]+)(?::(\d+))?$/, async (ctx) => handleItemOpen(ctx, ctx.match[1]!, ctx.match[2]!, ctx.match[3]));
+  bot.callbackQuery(/^item:note:page:([^:]+):(\d+)$/, async (ctx) => handleNoteDetailPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^archived-note:page:([^:]+):(\d+)$/, async (ctx) => handleArchivedNoteDetailPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^item:idea:brief:(.+)$/, async (ctx) => handleIdeaBrief(ctx, ai, ctx.match[1]!));
+  bot.callbackQuery(/^item:note:archive:(.+)$/, async (ctx) => handleNoteArchive(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(title|description|body|concept):(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[3]!, ctx.match[2]!));
+  bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[2]!, "title"));
+  bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
   bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
   bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
-    await handleCapture(ctx, ai, ctx.match[1], ctx.match[2]);
+    await handleCapture(ctx, ai, ctx.match[1]!, ctx.match[2]!);
   });
-  bot.callbackQuery(/^image:(note|task|reminder|expense|text|discard):(.+)$/, async (ctx) => {
-    await handleImageAction(ctx, ai, ctx.match[1], ctx.match[2]);
+  bot.callbackQuery(/^image:(note|task|reminder|text|discard):(.+)$/, async (ctx) => {
+    await handleImageAction(ctx, ai, ctx.match[1]!, ctx.match[2]!);
   });
-  bot.callbackQuery(/^expense:(save|excel|edit|discard):(.+)$/, async (ctx) => {
-    await handleExpenseAction(ctx, ctx.match[1], ctx.match[2]);
-  });
-  bot.callbackQuery(/^expense:page:(all|day|month|year):([^:]+):(\d+)$/, async (ctx) => {
-    await handleExpensePage(ctx, `${ctx.match[1]}:${ctx.match[2]}`, ctx.match[3]);
-  });
+  // Expenses are frozen; buttons on old expense cards get a clear answer instead of a spinner.
+  bot.callbackQuery(/^expense:/, async (ctx) => ctx.answerCallbackQuery({ text: "Expenses are no longer available in Telegram." }));
   bot.callbackQuery(/^bulk:(confirm|cancel):(.+)$/, async (ctx) => {
-    await handleBulkAction(ctx, ctx.match[1], ctx.match[2]);
+    await handleBulkAction(ctx, ctx.match[1]!, ctx.match[2]!);
   });
   bot.callbackQuery(/^list:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
-    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2]);
+    await handleActiveListPage(ctx, ctx.match[1]!, ctx.match[2]!);
   });
   bot.callbackQuery(/^list:choose:(tasks|notes|ideas):(\d+)$/, async (ctx) => {
-    await handleActiveListPage(ctx, ctx.match[1], ctx.match[2], true);
+    await handleActiveListPage(ctx, ctx.match[1]!, ctx.match[2]!, true);
   });
   bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true);
+    const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true);
     await ctx.answerCallbackQuery({ text: `Page ${page}` });
   });
   bot.callbackQuery(/^stored-image:search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true);
     await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:choose:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true, true);
+    const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${page}` });
   });
-  bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^stored-image:pick:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true, true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     await ctx.answerCallbackQuery({ text: "Opening image" });
-    await replyStoredImage(ctx, user.id, ctx.match[1] ?? "", true);
+    await replyStoredImage(ctx, user.id, ctx.match[1]!, true);
   });
   bot.callbackQuery(/^stored-image:caption:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const item = await beginPendingItemEdit(user.id, "image", ctx.match[1] ?? "", "caption");
+    const item = await beginPendingItemEdit(user.id, "image", ctx.match[1]!, "caption");
     await ctx.answerCallbackQuery({ text: "Send the new caption" });
     await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
   });
   bot.callbackQuery(/^stored-image:delete:(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const image = await findStoredImageById(user.id, ctx.match[1] ?? "");
+    const image = await findStoredImageById(user.id, ctx.match[1]!);
     await ctx.answerCallbackQuery({ text: "Please confirm" });
-    await editOrReplyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
-      reply_markup: storedImageDeleteKeyboard(image.id)
-    });
+    await editOrReplyHtml(ctx, formatStoredImageDeletePrompt(image), { reply_markup: storedImageDeleteKeyboard(image.id) });
   });
   bot.callbackQuery(/^stored-image:delete-(confirm|cancel):(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
@@ -137,13 +148,13 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
       await editOrReplyText(ctx, "Kept it. Nothing changed.", { reply_markup: menuBackKeyboard() });
       return;
     }
-    const image = await deleteStoredImage(user.id, ctx.match[2] ?? "");
+    const image = await deleteStoredImage(user.id, ctx.match[2]!);
     await ctx.answerCallbackQuery({ text: "Image deleted" });
     await editOrReplyHtml(ctx, `${bold("🗑️ Image deleted")} ${code(image.publicId)}\nThe original Telegram message is untouched.`, { reply_markup: menuBackKeyboard() });
   });
-  bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]));
-  bot.callbackQuery(/^integration:(calendar|excel):(.+)$/, async (ctx) => handleIntegrationAction(ctx, ctx.match[1], ctx.match[2]));
-  bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]));
+  bot.callbackQuery(/^setting:(.+)$/, async (ctx) => handleSettingCallback(ctx, ctx.match[1]!));
+  bot.callbackQuery(/^integration:(calendar|excel):(.+)$/, async (ctx) => handleIntegrationAction(ctx, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^menu:(.+)$/, async (ctx) => handleMenu(ctx, ctx.match[1]!));
 }
 
 const SETTING_FIELDS = new Set<SettingChoiceField>(["interval", "mode", "quiet", "due-nudge", "max", "timezone", "currency", "ocr", "dm"]);
@@ -160,8 +171,13 @@ const SETTING_PICKER_COPY: Record<SettingChoiceField, { title: string; instructi
   dm: { title: "📩 Private nudges", instruction: "Also DM you when a group task assigned to you is due." }
 };
 
-async function handleSettingCallback(ctx: Context, action: string | undefined) {
-  if (!action) return;
+/**
+ * Handles every `setting:` button: opening a submenu, showing preset choices, starting a typed
+ * custom value, cancelling, and applying a value (which writes the setting). In groups only a
+ * Telegram admin may change the shared settings. Any pending typed input is cleared first so a
+ * stale prompt cannot catch the next message.
+ */
+async function handleSettingCallback(ctx: Context, action: string) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
   if (isGroupChat(ctx) && !(await isGroupManager(ctx))) {
@@ -231,8 +247,8 @@ async function handleSettingCallback(ctx: Context, action: string | undefined) {
   await ctx.answerCallbackQuery({ text: "That setting is no longer available." });
 }
 
-async function handleIdeaBrief(ctx: Context, ai: AiProvider, reference: string | undefined) {
-  if (!reference) return;
+/** Idea brief button: scores the idea with the AI provider and shows the result on the same card. */
+async function handleIdeaBrief(ctx: Context, ai: AiProvider, reference: string) {
   const user = await ensureUser(ctx);
   rememberCallbackControlCard(ctx);
   await ctx.answerCallbackQuery({ text: "Analyzing the idea…" });
@@ -258,12 +274,14 @@ function settingParent(field: SettingChoiceField): "reminders" | "region" {
   return ["timezone", "currency", "ocr", "dm"].includes(field) ? "region" : "reminders";
 }
 
+/** Converts a button value into the argument list `updateSetting` expects, expanding quiet-hour presets into two times. */
 function settingArguments(field: SettingChoiceField, value: string): string[] {
   if (field === "quiet" && value === "22-08") return ["quiet", "22:00", "08:00"];
   if (field === "quiet" && value === "23-07") return ["quiet", "23:00", "07:00"];
   return [field, value];
 }
 
+/** Prompt copy and menu-input mode for a setting that accepts a typed custom value; undefined for button-only settings. */
 function customSettingInput(field: SettingChoiceField): { action: MenuInputAction; title: string; prompt: string; parent: "reminders" | "region" } | undefined {
   const inputs: Partial<Record<SettingChoiceField, { action: MenuInputAction; title: string; prompt: string }>> = {
     interval: { action: "setting-interval", title: "🔁 Custom repeat interval", prompt: "Send minutes, such as 90. Minimum: 15." },
@@ -277,8 +295,14 @@ function customSettingInput(field: SettingChoiceField): { action: MenuInputActio
   return input ? { ...input, parent: settingParent(field) } : undefined;
 }
 
-async function handleMenu(ctx: Context, action: string | undefined) {
-  if (!action) return;
+/**
+ * Handles every `menu:` button by editing the tapped card into the requested menu screen.
+ * It first cancels any "your next message is input" prompt so navigation never leaves a hidden
+ * mode behind. In groups it prefers a receiver-bound ephemeral reply so one member's menu does
+ * not clutter the chat. "Add" and "Search" entries start a menu input: in private the next message
+ * is the answer, while in groups the member must reply to a force-reply prompt.
+ */
+async function handleMenu(ctx: Context, action: string) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
   const group = isGroupChat(ctx);
@@ -289,8 +313,8 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   rememberCallbackControlCard(ctx);
   if (action === "home") {
     await editOrReplyHtml(ctx, group
-      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone ?? "Asia/Singapore")
-      : formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings.timezone)
+      : formatMainMenuText(user.settings.timezone), {
       reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard()
     });
     return;
@@ -335,8 +359,8 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "expenses") {
     await editOrReplyHtml(ctx, group
-      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone)
-      : formatMainMenuText(user.settings?.timezone), { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings.timezone)
+      : formatMainMenuText(user.settings.timezone), { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
   if (action === "search") {
@@ -356,16 +380,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "images-list") {
-    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
-    return;
-  }
-  if (action === "expenses-list") {
-    const filter = decodeExpenseFilter("all:all");
-    if (!filter) return;
-    const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
-    await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-    });
+    await replyStoredImageList(ctx, user.id, user.settings.timezone, 1, true);
     return;
   }
   if (action === "preferences") {
@@ -417,7 +432,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   const archivedKind = action.match(/^(tasks|notes|ideas)-archived$/)?.[1] as "tasks" | "notes" | "ideas" | undefined;
   if (archivedKind) {
     const archived = await listArchivedItems(user.id, archivedKind, 1);
-    await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+    await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
       reply_markup: archivedPageKeyboard(archivedKind, archived.page, archived.totalPages)
     });
     return;
@@ -431,8 +446,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     "search-input": { action: "search", title: "🔎 Search", prompt: "What are you looking for?", replyObject: "what you want to find", back: "search" },
     "notes-search": { action: "note-search", title: "🔎 Search notes", prompt: "What should I look for?", replyObject: "the note words you remember", back: "notes" },
     "ideas-search": { action: "idea-search", title: "🔎 Search ideas", prompt: "What should I look for?", replyObject: "the idea words you remember", back: "ideas" },
-    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "What do you remember about it?", replyObject: "a caption, filename, or text inside the image", back: "images" },
-    "expenses-add": { action: "expense", title: "＋ Add expense", prompt: "Describe the expense and amount.", replyObject: "the expense details", back: "expenses" }
+    "images-search": { action: "image-search", title: "🔎 Find an image", prompt: "What do you remember about it?", replyObject: "a caption, filename, or text inside the image", back: "images" }
   };
   const input = inputs[action];
   if (input) {
@@ -449,7 +463,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     await editOrReplyHtml(ctx, `${bold("Canceled")}\nNothing was changed.`, { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
-  const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "commands"> = {
+  const topics: Record<string, "reminders" | "notes" | "ideas" | "images" | "commands"> = {
     reminders: "reminders",
     "notes-help": "notes",
     "ideas-help": "ideas",
@@ -462,14 +476,13 @@ async function handleMenu(ctx: Context, action: string | undefined) {
       await editOrReplyHtml(ctx, formatGroupCommandReference(), { reply_markup: menuBackKeyboard("‹ Group help", "menu:help") });
       return;
     }
-    const parentLabel = action === "excel" ? "‹ Expenses" : "‹ Help";
-    const parentCallback = action === "excel" ? "menu:expenses" : "menu:help";
-    await editOrReplyHtml(ctx, group ? formatGroupHelpTopic(topic, ctx.me.username) : formatHelpTopic(topic), { reply_markup: menuBackKeyboard(parentLabel, parentCallback) });
+    await editOrReplyHtml(ctx, group ? formatGroupHelpTopic(topic, ctx.me.username) : formatHelpTopic(topic), { reply_markup: menuBackKeyboard("‹ Help", "menu:help") });
   }
 }
 
-async function handleActiveListPage(ctx: Context, kindText: string | undefined, pageText: string | undefined, selecting = false) {
-  if (!isActiveListKind(kindText) || !pageText) return;
+/** Page and "Choose an item" buttons on task, note, and idea lists. Ignores malformed page numbers. */
+async function handleActiveListPage(ctx: Context, kindText: string, pageText: string, selecting = false) {
+  if (!isActiveListKind(kindText)) return;
   const requestedPage = Number(pageText);
   if (!Number.isInteger(requestedPage) || requestedPage < 1) return;
   const user = await ensureUser(ctx);
@@ -477,8 +490,12 @@ async function handleActiveListPage(ctx: Context, kindText: string | undefined, 
   await ctx.answerCallbackQuery({ text: selecting ? `Choose from page ${page}` : `Page ${page}` });
 }
 
-async function handleBulkAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId || !ctx.from?.id) return;
+/**
+ * Confirm or cancel on a bulk action preview. The service checks that the tapper is the person
+ * who requested the preview, so another member cannot confirm it.
+ */
+async function handleBulkAction(ctx: Context, action: string, pendingId: string) {
+  if (!ctx.from?.id) return;
   const user = await ensureUser(ctx);
   try {
     if (action === "cancel") {
@@ -496,8 +513,12 @@ async function handleBulkAction(ctx: Context, action: string | undefined, pendin
   }
 }
 
-async function handleImageAction(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+/**
+ * Buttons on an image's extracted-text preview. View full text and "set reminder" (which waits
+ * for a typed time) keep the pending capture; Discard deletes it, and Save as note or task
+ * consumes it so a second tap cannot save twice.
+ */
+async function handleImageAction(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
   const user = await ensureUser(ctx);
   try {
     const pending = await findPendingImageCapture(user.id, pendingId);
@@ -518,20 +539,6 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       await editOrReplyText(ctx, "When should I remind you? Try: tomorrow at 9am, in 2 hours, or next Monday at noon.", { reply_markup: imageReminderTimeKeyboard(pendingId) });
       return;
     }
-    if (action === "expense") {
-      const expense = await createPendingExpenseFromText(user.id, pending.extractedText, user.settings?.timezone ?? "UTC", {
-        sourceType: "receipt",
-        receiptFileUniqueId: pending.telegramUniqueId ?? undefined,
-        ocrConfidence: pending.confidence ?? undefined,
-        defaultCurrency: user.settings?.expenseCurrency
-      });
-      await consumePendingImageCapture(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Expense preview" });
-      await editOrReplyHtml(ctx, formatPendingExpense(expense, user.settings?.timezone ?? "UTC"), {
-        reply_markup: expenseConfirmationKeyboard(expense.id)
-      });
-      return;
-    }
     const consumed = await consumePendingImageCapture(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Saving" });
     if (action === "note") {
@@ -539,131 +546,46 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
-    const task = await createTask(user.id, consumed.extractedText, ai);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await saveTaskFromTelegram(ctx, user, consumed.extractedText, { edit: true });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
   }
 }
 
-async function handleExpenseAction(ctx: Context, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
-  const user = await ensureUser(ctx);
-  try {
-    if (action === "discard") {
-      await cancelPendingExpense(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Discarded" });
-      await editOrReplyText(ctx, "Got it—I left that expense unsaved.", { reply_markup: menuBackKeyboard() });
-      return;
-    }
-    if (action === "edit") {
-      await beginExpenseEdit(user.id, pendingId);
-      await ctx.answerCallbackQuery({ text: "Ready to edit" });
-      await editOrReplyText(ctx, "Send the fields to change, for example: total 12.50, merchant Toast Box, category Food, date today. Send 'cancel expense edit' to stop.");
-      return;
-    }
-    const expense = await confirmPendingExpense(user.id, pendingId);
-    await ctx.answerCallbackQuery({ text: action === "excel" ? "Saving and syncing" : "Saved" });
-    let syncMessage = "";
-    if (action === "excel") {
-      try {
-        await syncExpenseToExcel(user.id, expense.id, user.settings?.timezone ?? "UTC");
-        syncMessage = "\nExcel: synced";
-      } catch (error) {
-        syncMessage = `\nExcel: not synced. ${userFacingError(error, "You can retry the sync from Expenses.")}`;
-      }
-    } else {
-      const outcome = await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings?.timezone ?? "UTC");
-      if (outcome === "synced") syncMessage = "\nExcel: synced automatically";
-    }
-    await editOrReplyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}${h(syncMessage)}`, { reply_markup: menuBackKeyboard() });
-  } catch (error) {
-    await ctx.answerCallbackQuery({ text: "Could not save" });
-    await editOrReplyText(ctx, userFacingError(error, "I couldn't save that expense."), { reply_markup: menuBackKeyboard() });
-  }
-}
-
-async function handleExpensePage(ctx: Context, encoded: string, pageText: string | undefined) {
-  const page = Number(pageText);
-  const filter = decodeExpenseFilter(encoded);
-  if (!filter || !Number.isInteger(page) || page < 1) return;
-  const user = await ensureUser(ctx);
-  const result = await listExpenses(user.id, filter, page, user.settings?.timezone ?? "UTC");
-  await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
-  await editOrReplyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-  });
-}
-
-async function replyInChunks(ctx: Context, text: string) {
-  const maxLength = 3800;
-  for (let start = 0; start < text.length; start += maxLength) {
-    await ctx.reply(text.slice(start, start + maxLength));
-  }
-}
-
-async function handleLegacyTaskAssignmentAction(ctx: Context, taskId: string | undefined) {
-  if (!taskId || !isGroupChat(ctx)) return;
-  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  try {
-    const task = await findTaskReference(user.id, taskId);
-    const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
-    await ctx.answerCallbackQuery({ text: "Assignments now take effect immediately." });
-    const card = await buildItemCard(
-      user.id,
-      "task",
-      task.publicId,
-      user.settings?.timezone ?? "UTC",
-      "Assignments now take effect immediately. Use the current task controls below.",
-      false,
-    );
-    await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
-  } catch (error) {
-    await ctx.answerCallbackQuery({
-      text: userFacingError(error, "I couldn't update that assignment.").slice(0, 180),
-      show_alert: true,
-    });
-  }
-}
-
-async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
-  if (!taskId || !isGroupChat(ctx)) return;
+/** Claim button on an unassigned group task. The service makes the claim race-safe; a refusal shows as an alert. */
+async function handleTaskClaim(ctx: Context, taskId: string) {
+  if (!isGroupChat(ctx)) return;
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await claimGroupTask(user.id, taskId, collaborationActorFromContext(ctx));
     const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
     await ctx.answerCallbackQuery({ text: "Task claimed" });
-    await editOrReplyHtml(ctx, formatTaskDetail(task, user.settings?.timezone ?? "UTC"), { reply_markup: keyboard });
+    await editOrReplyHtml(ctx, formatTaskDetail(task, user.settings.timezone), { reply_markup: keyboard });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: userFacingError(error, "I couldn't claim that task.").slice(0, 180), show_alert: true });
   }
 }
 
-async function handleTaskDone(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/**
+ * Handles a Done button tap (`task:done:<id>` or `task:done:<id>:<due ms>`).
+ * `dueMs` is the due time the card showed; older cards don't carry it.
+ * After completing, it replaces the card with the task list and retires the chat's previous task
+ * control message, so only one live set of task controls stays in the chat.
+ */
+async function handleTaskDone(ctx: Context, taskId: string, dueMs: string | undefined) {
+  const shownDueAt = dueMs ? new Date(Number(dueMs)) : undefined;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx)) {
-    try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "complete");
-    } catch (error) {
-      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot complete that task.").slice(0, 180), show_alert: true });
-      return;
-    }
-  }
-  const completion = await completeTask(user.id, taskId);
-  if (completion.alreadyCompleted) {
-    await ctx.answerCallbackQuery({ text: "Already completed" });
-    await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
+  const completion = await executeButtonTaskCommand(ctx, user.id, { action: "complete", ref: taskId, expectedDueAt: shownDueAt }, "You cannot complete that task.");
+  if (!completion || completion.action !== "complete") return;
+  if (completion.status === "stale") {
+    await ctx.answerCallbackQuery({ text: "This card is out of date. Open the task to see when it's next due.", show_alert: true });
     return;
   }
-  if (isGroupChat(ctx)) {
-    const actor = collaborationActorFromContext(ctx);
-    await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
+  if (completion.status === "already-completed") {
+    await ctx.answerCallbackQuery({ text: "Already completed" });
+    await editOrReplyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
+    return;
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
   const controlSurface = await replyActiveListWithMessage(
@@ -677,39 +599,33 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined) {
   await convergeTaskControlSurface(ctx, user.id, controlSurface.messageId);
 }
 
-async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/** Restore button on a completed task: reopens it. Undo is offered when the tapper resolves to the task's owner (every member, for group tasks owned by the chat). */
+async function handleTaskRestore(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
-    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "Task already open", false);
+    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings.timezone, "Task already open", false);
     appendListOrigin(card.keyboard, user.id, "task");
     await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored", false);
+  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings.timezone, "↩️ Task restored", false);
   appendListOrigin(card.keyboard, user.id, "task");
   if (user.id === interactionUser.id) card.keyboard.row().text("↩️ Undo restore", "undo:last");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/** Snooze button: moves the task's next reminder to one hour from now, through the shared task executor. Undoable. */
+async function handleTaskSnooze(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx)) {
-    try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
-    } catch (error) {
-      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot snooze that task.").slice(0, 180), show_alert: true });
-      return;
-    }
-  }
-  const task = await snoozeTask(user.id, taskId, "1h");
+  const snoozed = await executeButtonTaskCommand(ctx, user.id, { action: "snooze", ref: taskId, duration: "1h" }, "You cannot snooze that task.");
+  if (!snoozed) return;
+  const { task } = snoozed;
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings.timezone, "⏰ Snoozed for an hour", false);
   const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
   if (!isGroupChat(ctx)) {
     appendListOrigin(keyboard, user.id, "task");
@@ -718,12 +634,15 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/**
+ * "Dismiss reminders" button: stops further reminders for the task without completing it.
+ * In groups it needs the same permission as snoozing.
+ */
+async function handleTaskReminderDismiss(ctx: Context, taskId: string) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
+      await assertGroupTaskActionForContext(ctx, user.id, taskId, "snooze");
     } catch (error) {
       await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot dismiss reminders for that task.").slice(0, 180), show_alert: true });
       return;
@@ -731,35 +650,34 @@ async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefine
   }
   const task = await dismissTaskReminders(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Reminders dismissed" });
-  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "Reminders dismissed for this task", false);
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings.timezone, "Reminders dismissed for this task", false);
   const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleTaskReminderView(ctx: Context, taskId: string | undefined, expanded: boolean) {
-  if (!taskId) return;
+/** Toggles a reminder card between the short reminder text and the full task detail, keeping the right buttons for each. */
+async function handleTaskReminderView(ctx: Context, taskId: string, expanded: boolean) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await findTaskReference(user.id, taskId);
-    const timezone = user.settings?.timezone ?? "UTC";
+    const timezone = user.settings.timezone;
     const includeCollaboration = isGroupChat(ctx);
 
     if (expanded) {
       const keyboard = includeCollaboration
         ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true, `task:view-summary:${task.id}`)
-        : taskActionsKeyboard(task, true, false).row().text("‹ Reminder", `task:view-summary:${task.id}`);
+        : taskActionsKeyboard(task, true).row().text("‹ Reminder", `task:view-summary:${task.id}`);
       await ctx.answerCallbackQuery({ text: "Full reminder" });
       await editOrReplyHtml(ctx, formatTaskDetail(task, timezone), { reply_markup: keyboard });
       return;
     }
 
-    const reminderMode = user.settings?.reminderMode;
-    if (!reminderMode) throw new Error("Reminder settings are missing.");
+    const reminderMode = user.settings.reminderMode;
     await ctx.answerCallbackQuery({ text: "Reminder" });
     await editOrReplyHtml(ctx, formatReminderMessage(task, { timezone, reminderMode }), {
       reply_markup: includeCollaboration
         ? await groupTaskKeyboardForContext(ctx, user.id, task.id, false)
-        : reminderActionsKeyboard(task, false)
+        : reminderActionsKeyboard(task)
     });
   } catch (error) {
     await ctx.answerCallbackQuery({
@@ -769,8 +687,12 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
   }
 }
 
-async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/**
+ * Calendar button on a task card (private chats only, since Calendar is a personal connection).
+ * Needs a due date. If Calendar is not connected it shows the connect card; otherwise it adds the
+ * task to Google Calendar if it is not there yet.
+ */
+async function handleTaskCalendar(ctx: Context, taskId: string) {
   if (isGroupChat(ctx)) {
     await ctx.answerCallbackQuery({ text: "Calendar connections are private.", show_alert: true });
     return;
@@ -782,15 +704,10 @@ async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
       await ctx.answerCallbackQuery({ text: "Add a due date first.", show_alert: true });
       return;
     }
-    const status = await calendarConnectionStatus(user.id);
-    if (!status.connected) {
-      if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
-      const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-      const connectUrl = await createCalendarConnectUrl(user.id, chatId, { taskId: task.id });
-      await ctx.answerCallbackQuery({ text: status.reconnectRequired ? "Reconnect Calendar" : "Connect Calendar once" });
-      await editOrReplyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`, {
-        reply_markup: calendarTaskKeyboard(task, connectUrl)
-      });
+    const connect = await calendarTaskConnectCard(user.id, ctx.chat ? String(ctx.chat.id) : user.telegramId, task);
+    if (connect) {
+      await ctx.answerCallbackQuery({ text: connect.reconnectRequired ? "Reconnect Calendar" : "Connect Calendar once" });
+      await editOrReplyHtml(ctx, connect.text, { reply_markup: connect.keyboard });
       return;
     }
     if (!task.calendarEventId) {
@@ -809,8 +726,12 @@ async function handleTaskCalendar(ctx: Context, taskId: string | undefined) {
   }
 }
 
-async function handleIntegrationAction(ctx: Context, provider: string | undefined, action: string | undefined) {
-  if (!provider || !action) return;
+/**
+ * Google Calendar buttons from the settings panel and task cards: sync all dated tasks, toggle
+ * automatic sync (writes `UserSettings.calendarAutoSync`), disconnect (with a confirm step), and
+ * add or remove one task's event. Removing an event never changes the Threadwise task.
+ */
+async function handleIntegrationAction(ctx: Context, provider: string, action: string) {
   if (isGroupChat(ctx)) {
     await ctx.answerCallbackQuery({ text: "Personal connections are available in private chat.", show_alert: true });
     return;
@@ -861,50 +782,13 @@ async function handleIntegrationAction(ctx: Context, provider: string | undefine
       }
     }
 
-    if (provider === "excel") {
-      if (action === "create") {
-        await ctx.answerCallbackQuery({ text: "Preparing workbook…" });
-        await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-        await showExcelPanel(ctx, user.id, user.telegramId, "Workbook ready. Existing expenses were imported.");
-        return;
-      }
-      if (action === "sync") {
-        await ctx.answerCallbackQuery({ text: "Syncing expenses…" });
-        const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
-        await showExcelPanel(ctx, user.id, user.telegramId, count ? `${count} expense${count === 1 ? "" : "s"} synced.` : "Everything is already synced.");
-        return;
-      }
-      if (action === "toggle-auto") {
-        const status = await excelConnectionStatus(user.id);
-        await prisma.userSettings.update({ where: { userId: user.id }, data: { excelAutoSync: !status.autoSync } });
-        await ctx.answerCallbackQuery({ text: `Automatic sync ${status.autoSync ? "off" : "on"}` });
-        await showExcelPanel(ctx, user.id, user.telegramId);
-        return;
-      }
-      if (action === "export") {
-        await ctx.answerCallbackQuery({ text: "Preparing download…" });
-        const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
-        await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
-        return;
-      }
-      if (action === "disconnect-confirm") {
-        await ctx.answerCallbackQuery();
-        await editOrReplyHtml(ctx, `${bold("Disconnect Microsoft Excel?")}\nThe OneDrive workbook and Threadwise expenses will stay unchanged.`, { reply_markup: disconnectIntegrationKeyboard("excel") });
-        return;
-      }
-      if (action === "disconnect") {
-        await disconnectMicrosoft(user.id);
-        await ctx.answerCallbackQuery({ text: "Excel disconnected" });
-        await showExcelPanel(ctx, user.id, user.telegramId);
-        return;
-      }
-    }
     await ctx.answerCallbackQuery({ text: "That connection action is no longer available." });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: userFacingError(error, "The connection could not be updated.").slice(0, 180), show_alert: true });
   }
 }
 
+/** Redraws the Calendar settings card, with a fresh connect link when not connected and an optional notice on top. */
 async function showCalendarPanel(ctx: Context, userId: string, chatId: string, notice?: string) {
   const status = await calendarConnectionStatus(userId);
   const connectUrl = !status.connected && calendarConfigured()
@@ -915,27 +799,21 @@ async function showCalendarPanel(ctx: Context, userId: string, chatId: string, n
   });
 }
 
-async function showExcelPanel(ctx: Context, userId: string, chatId: string, notice?: string) {
-  const status = await excelConnectionStatus(userId);
-  const connectUrl = !status.connected && microsoftExcelConfigured()
-    ? await createMicrosoftConnectUrl(userId, chatId, { enableAutoSync: true })
-    : undefined;
-  await editOrReplyHtml(ctx, [notice ? h(notice) : undefined, await formatExcelStatus(userId)].filter(Boolean).join("\n\n"), {
-    reply_markup: excelSettingsKeyboard(status, connectUrl)
-  });
-}
-
-async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
-  if (!taskId) return;
+/**
+ * Cancel button on a task. A private task with a Calendar event first asks whether to remove the
+ * event too; otherwise it cancels right away and shows the task list with Undo.
+ */
+async function handleTaskCancel(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
-  const task = await findTaskReference(user.id, taskId);
-  if (!isGroupChat(ctx) && task.calendarEventId) {
-    await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
-    await editOrReplyHtml(ctx, `${bold("Cancel this task?")}\n${h(task.title)}\nIt also has a Google Calendar event.`, { reply_markup: taskCancelCalendarKeyboard(task.id) });
-    return;
+  if (!isGroupChat(ctx)) {
+    const task = await findTaskReference(user.id, taskId);
+    if (task.calendarEventId) {
+      await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
+      await editOrReplyHtml(ctx, `${bold("Cancel this task?")}\n${h(task.title)}\nIt also has a Google Calendar event.`, { reply_markup: taskCancelCalendarKeyboard(task.id) });
+      return;
+    }
   }
-  await cancelTask(user.id, taskId);
+  if (!(await executeButtonTaskCommand(ctx, user.id, { action: "cancel", ref: taskId }, "That action is not available to you."))) return;
   await ctx.answerCallbackQuery({ text: "Canceled task" });
   await replyActiveList(
     ctx,
@@ -947,12 +825,12 @@ async function handleTaskCancel(ctx: Context, taskId: string | undefined) {
   );
 }
 
-async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefined, removeEvent: boolean) {
-  if (!taskId) return;
+/** Second step of cancelling a Calendar-linked task. The cancel is saved even if removing the Google event fails. */
+async function handleTaskCancelConfirmed(ctx: Context, taskId: string, removeEvent: boolean) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
-  const task = await findTaskReference(user.id, taskId);
-  await cancelTask(user.id, taskId);
+  const canceled = await executeButtonTaskCommand(ctx, user.id, { action: "cancel", ref: taskId }, "That action is not available to you.");
+  if (!canceled) return;
+  const { task } = canceled;
   let eventRemoved = false;
   if (removeEvent && task.calendarEventId) {
     try {
@@ -973,19 +851,19 @@ async function handleTaskCancelConfirmed(ctx: Context, taskId: string | undefine
   );
 }
 
-async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin: boolean) {
-  if (!taskId) return;
+async function handleTaskPin(ctx: Context, taskId: string, shouldPin: boolean) {
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
+  const card = await buildItemCard(user.id, "task", item.publicId, user.settings.timezone, shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleItemPin(ctx: Context, kind: string | undefined, itemId: string | undefined, shouldPin: boolean) {
-  if (!isEditableItemKind(kind) || kind === "image" || !itemId) return;
+/** Star or unstar a task, note, or idea from its card. Group tasks need manage permission. */
+async function handleItemPin(ctx: Context, kind: string, itemId: string, shouldPin: boolean) {
+  if (!isEditableItemKind(kind) || kind === "image") return;
   const interactionUser = await ensureUser(ctx);
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
@@ -997,13 +875,17 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  const card = await buildItemCard(user.id, kind, item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Starred" : "☆ Unstarred", false);
+  const card = await buildItemCard(user.id, kind, item.publicId, user.settings.timezone, shouldPin ? "⭐ Starred" : "☆ Unstarred", false);
   appendListOrigin(card.keyboard, user.id, kind);
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
 
-async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: string | undefined, field: string | undefined) {
-  if (!isEditableItemKind(kind) || !itemId) return;
+/**
+ * Edit button: records a `PendingItemEdit` so the tapper's next message becomes the new value.
+ * The edit is stored against the person who tapped, but for group tasks it targets the group owner's task.
+ */
+async function handleItemEdit(ctx: Context, kind: string, itemId: string, field: string) {
+  if (!isEditableItemKind(kind)) return;
   const interactionUser = await ensureUser(ctx);
   const taskUser = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
@@ -1020,8 +902,7 @@ async function handleItemEdit(ctx: Context, kind: string | undefined, itemId: st
   await editOrReplyHtml(ctx, formatEditStarted(item), { reply_markup: editCancelKeyboard() });
 }
 
-async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
-  if (!noteId) return;
+async function handleNoteArchive(ctx: Context, noteId: string) {
   const user = await ensureUser(ctx);
   await archiveNote(user.id, noteId);
   await ctx.answerCallbackQuery({ text: "Archived note" });
@@ -1034,7 +915,7 @@ async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
 async function handleUndoLast(ctx: Context) {
   const user = await ensureUser(ctx);
   await ctx.answerCallbackQuery({ text: "Undoing" });
-  await editOrReplyHtml(ctx, await undoLastAction(user.id), { reply_markup: menuBackKeyboard() });
+  await editOrReplyHtml(ctx, await undoLastActionForContext(ctx, user.id), { reply_markup: menuBackKeyboard() });
 }
 
 async function handleEditCancel(ctx: Context) {
@@ -1044,8 +925,11 @@ async function handleEditCancel(ctx: Context) {
   await editOrReplyText(ctx, canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.", { reply_markup: menuBackKeyboard() });
 }
 
-async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string | undefined, pageText: string | undefined) {
-  if (!pendingId || !pageText) return;
+/**
+ * Search page buttons. The query is loaded from its `PendingSearch` row and the search is run
+ * again for the requested page. An expired row produces a "search expired" reply.
+ */
+async function handleSearchPage(ctx: Context, pendingId: string, pageText: string) {
   const page = Number(pageText);
   if (!Number.isInteger(page) || page < 1) return;
 
@@ -1053,7 +937,7 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
   try {
     const parsed = await findPendingSearch(user.id, pendingId);
     const pageSize = 5;
-    const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+    const results = await semanticSearch(user.id, parsed.query, parsed.kinds, {
       includeDone: parsed.includeDone,
       doneOnly: parsed.doneOnly
     });
@@ -1068,8 +952,11 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string 
   }
 }
 
-async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+/**
+ * Merge preview buttons. Cancel leaves the notes untouched, Try again regenerates the preview,
+ * and Merge creates the merged note and archives the originals (undoable).
+ */
+async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
   const user = await ensureUser(ctx);
 
   try {
@@ -1087,7 +974,7 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
       return;
     }
 
-    const result = await confirmNoteMerge(user.id, pendingId, ai);
+    const result = await confirmNoteMerge(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Merged" });
     await editOrReplyHtml(ctx, formatNoteMergeConfirmed(result), { reply_markup: undoKeyboard() });
   } catch (error) {
@@ -1100,14 +987,18 @@ function isEditableItemKind(kind: string | undefined): kind is EditableItemKind 
   return kind === "task" || kind === "note" || kind === "idea" || kind === "image";
 }
 
-async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: string | undefined, pageText: string | undefined) {
-  if (!isEditableItemKind(kind) || !itemId || kind === "image") return;
+/**
+ * Numbered button on a list: opens that item's card. It remembers which list page the user came
+ * from so later actions on the card can return to the same page.
+ */
+async function handleItemOpen(ctx: Context, kind: string, itemId: string, pageText: string | undefined) {
+  if (!isEditableItemKind(kind) || kind === "image") return;
   const interactionUser = await ensureUser(ctx);
   const user = kind === "task"
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
     : interactionUser;
   const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false, 1, workspace?.id);
+  const card = await buildItemCard(user.id, kind, itemId, user.settings.timezone, undefined, false, 1, workspace?.id);
   const keyboard = kind === "task" && isGroupChat(ctx)
     ? await groupTaskKeyboardForContext(ctx, user.id, itemId, true)
     : card.keyboard;
@@ -1119,8 +1010,8 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
 
-async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pageText: string | undefined) {
-  if (!itemId || !pageText) return;
+/** Page arrows on a long note card. Only the display is split; the stored note is unchanged. */
+async function handleNoteDetailPage(ctx: Context, itemId: string, pageText: string) {
   const user = await ensureUser(ctx);
   const requestedPage = Math.max(1, Number(pageText) || 1);
   const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
@@ -1128,7 +1019,7 @@ async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pa
     user.id,
     "note",
     itemId,
-    user.settings?.timezone ?? "UTC",
+    user.settings.timezone,
     undefined,
     false,
     requestedPage,
@@ -1141,10 +1032,9 @@ async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pa
 
 async function handleArchivedNoteDetailPage(
   ctx: Context,
-  publicId: string | undefined,
-  pageText: string | undefined
+  publicId: string,
+  pageText: string
 ) {
-  if (!publicId || !pageText) return;
   const user = await ensureUser(ctx);
   const note = await findAnyNote(user.id, publicId);
   const card = buildArchivedNoteCard(note, Number(pageText) || 1);
@@ -1156,6 +1046,10 @@ function isEditableItemField(field: string | undefined): field is EditableItemFi
   return field === "title" || field === "description" || field === "body" || field === "concept" || field === "caption";
 }
 
+/**
+ * Resolves who tapped a task button and who owns the task. In groups the owner is the synthetic
+ * workspace user, so both carry settings and callers can format times without fallbacks.
+ */
 async function taskCallbackUsers(
   ctx: Context,
   taskId: string,
@@ -1171,9 +1065,12 @@ async function taskCallbackUsers(
     where: { id: ownerUserId },
     include: { settings: true },
   });
-  return { interactionUser, taskUser };
+  // Group owners are created through ensureUser, so a missing settings row is an invariant break.
+  if (!taskUser.settings) throw new Error(`Task owner ${taskUser.id} has no settings row.`);
+  return { interactionUser, taskUser: { ...taskUser, settings: taskUser.settings } };
 }
 
+/** Builds the group task keyboard for the tapper's role on that task (claim, assignee, manager, and so on). */
 async function groupTaskKeyboardForContext(
   ctx: Context,
   ownerUserId: string,
@@ -1181,10 +1078,9 @@ async function groupTaskKeyboardForContext(
   expanded: boolean,
   backCallback = "menu:tasks",
 ) {
-  const actor = collaborationActorFromContext(ctx);
-  const access = await getGroupTaskAccess(ownerUserId, taskReference, actor, await isGroupManager(ctx));
+  const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(
-    access.task.id,
+    access.task,
     access.audience as GroupTaskAudience,
     access.workspaceId,
     expanded,
@@ -1192,21 +1088,24 @@ async function groupTaskKeyboardForContext(
   );
 }
 
-async function getGroupTaskAccessForAction(
-  ctx: Context,
-  ownerUserId: string,
-  taskReference: string,
-  action: "complete" | "snooze" | "manage",
-) {
-  return assertGroupTaskAction(
-    ownerUserId,
-    taskReference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-    action,
-  );
+/**
+ * Runs a task command from a button through the shared executor. A group policy refusal is
+ * answered as an alert on the tapped button and returns undefined; other errors reach bot.catch.
+ */
+async function executeButtonTaskCommand(ctx: Context, userId: string, command: TaskCommandInput, refusal: string): Promise<TaskCommandResult | undefined> {
+  try {
+    return await executeTaskCommand({ ...command, userId, actor: taskCommandActorFromContext(ctx), source: "button" });
+  } catch (error) {
+    if (!(error instanceof GroupTaskPermissionError)) throw error;
+    await ctx.answerCallbackQuery({ text: userFacingError(error, refusal).slice(0, 180), show_alert: true });
+    return undefined;
+  }
 }
 
+/**
+ * Boolean form of the group permission check for button handlers: answers the tap with an alert
+ * and returns false when the member is not allowed. Alert text is cut to fit Telegram's limit.
+ */
 async function allowGroupTaskAction(
   ctx: Context,
   ownerUserId: string,
@@ -1214,7 +1113,7 @@ async function allowGroupTaskAction(
   action: "complete" | "snooze" | "manage",
 ): Promise<boolean> {
   try {
-    await getGroupTaskAccessForAction(ctx, ownerUserId, taskReference, action);
+    await assertGroupTaskActionForContext(ctx, ownerUserId, taskReference, action);
     return true;
   } catch (error) {
     await ctx.answerCallbackQuery({
@@ -1225,21 +1124,27 @@ async function allowGroupTaskAction(
   }
 }
 
-async function handleArchivedPage(ctx: Context, kindText: string | undefined, pageText: string | undefined) {
-  const kind = kindText ? parseArchiveKind(kindText) : undefined;
+async function handleArchivedPage(ctx: Context, kindText: string, pageText: string) {
+  const kind = parseArchiveKind(kindText);
   const page = Number(pageText);
   if (!kind || !Number.isInteger(page)) return;
 
   const user = await ensureUser(ctx);
   const archived = await listArchivedItems(user.id, kind, page);
   await ctx.answerCallbackQuery({ text: `Page ${archived.page}` });
-  await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+  await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }
 
-async function handleCapture(ctx: Context, ai: AiProvider, action: string | undefined, pendingId: string | undefined) {
-  if (!action || !pendingId) return;
+/**
+ * Buttons on the capture review card for an ordinary message (`PendingCapture`).
+ * Ignore, Change type, and Back only read or close the review. Saving consumes the pending row
+ * first, which is bound to the original sender, so a second tap or another member cannot save it.
+ * A Reminder with no usable future time asks for one through a force-reply prompt whose actor,
+ * chat, and message id are stored, so only that exact reply can finish the reminder.
+ */
+async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
 
   const user = await ensureUser(ctx);
   if (action === "ignore") {
@@ -1266,7 +1171,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       });
       return;
     }
-    const suggestedKind = suggestedPendingCaptureKind(pending, user.settings?.timezone ?? "UTC");
+    const suggestedKind = suggestedPendingCaptureKind(pending, user.settings.timezone);
     await editOrReplyHtml(ctx, formatCaptureReview(pending.sourceText, suggestedKind), {
       reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind),
     });
@@ -1279,7 +1184,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
       return;
     }
-    const timezone = user.settings?.timezone ?? "UTC";
+    const timezone = user.settings.timezone;
     const dueAt = parseDueDate(pending.sourceText, timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
       if (!ctx.from || !ctx.chat) return;
@@ -1310,12 +1215,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       return;
     }
     await ctx.answerCallbackQuery({ text: "Saving reminder" });
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed), edit: true });
     return;
   }
 
@@ -1327,12 +1227,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
   await ctx.answerCallbackQuery({ text: "Saving" });
 
   if (action === "task") {
-    const task = await createTask(user.id, pending.sourceText, ai);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await saveTaskFromTelegram(ctx, user, pending.sourceText, { options: pendingCaptureTaskOptions(pending), edit: true });
     return;
   }
 

@@ -1,3 +1,10 @@
+/**
+ * Server-side encryption of user text at rest, plus a blind index so encrypted text stays searchable.
+ * src/db/prisma.ts runs prepareContentWrite and decryptContentTree on every query; search code in
+ * src/services and src/dashboard uses encryptedSearchClause and contentMatchesQuery. Values are
+ * AES-256-GCM strings prefixed "twenc:v1". This is not end-to-end encryption: the server holds the
+ * key. See docs/CONTENT_ENCRYPTION.md. Losing CONTENT_ENCRYPTION_KEY makes stored ciphertext unreadable.
+ */
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 const PREFIX = "twenc:v1";
@@ -27,6 +34,10 @@ type ModelPolicy = {
   searchable: readonly string[];
 };
 
+/**
+ * Per model, which fields are encrypted and which also feed the blind search index.
+ * Drafts, revisions and AI job payloads are encrypted but not searchable.
+ */
 export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   Task: { encrypted: ["title", "description", "sourceText"], searchable: ["title", "description", "sourceText"] },
   Note: { encrypted: ["title", "body", "summary", "sourceText"], searchable: ["title", "body", "summary", "sourceText"] },
@@ -42,6 +53,11 @@ export const CONTENT_POLICIES: Record<ContentModel, ModelPolicy> = {
   StudyCanvasMaterial: { encrypted: ["extractedText", "analysisExcerpt"], searchable: [] },
 };
 
+/**
+ * Holds two keys derived from the master key, one for encryption and one for search tokens.
+ * In "off" mode a configured key can still decrypt and build query tokens, but nothing new
+ * is encrypted, so adding the secret alone does not change stored data.
+ */
 export class ContentCipher {
   readonly mode: ContentEncryptionMode;
   private readonly encryptionKey?: Buffer;
@@ -62,6 +78,11 @@ export class ContentCipher {
     return Boolean(this.encryptionKey && this.searchKey);
   }
 
+  /**
+   * Encrypts one field value with a fresh random IV. The model and field name are bound in as
+   * additional authenticated data, so ciphertext copied into another column fails to decrypt.
+   * Already-encrypted values and non-write mode return the input unchanged.
+   */
   encrypt(model: ContentModel, field: string, value: string): string {
     if (this.mode !== "write" || !this.encryptionKey || isEncryptedContent(value)) return value;
     const iv = randomBytes(IV_BYTES);
@@ -72,6 +93,7 @@ export class ContentCipher {
     return [PREFIX, model, field, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), encrypted.toString("base64url")].join(":");
   }
 
+  /** Decrypts a "twenc:v1" string; plain text passes through, so old unencrypted rows still read. */
   decrypt(value: string): string {
     if (!isEncryptedContent(value)) return value;
     if (!this.encryptionKey) throw new Error("Encrypted Threadwise content was found, but CONTENT_ENCRYPTION_KEY is unavailable.");
@@ -88,6 +110,10 @@ export class ContentCipher {
     return Buffer.concat([decipher.update(Buffer.from(ciphertextValue!, "base64url")), decipher.final()]).toString("utf8");
   }
 
+  /**
+   * Builds the blind index for a record: keyed HMACs of word prefixes, whole words and 3-letter
+   * chunks. The database stores only these tokens, so it can match searches without seeing the text.
+   */
   searchTokens(model: ContentModel, values: Array<{ field: string; value: string | null | undefined }>): string[] {
     if (!this.searchKey) return [];
     const tokens = new Set<string>();
@@ -99,12 +125,14 @@ export class ContentCipher {
     return [...tokens];
   }
 
+  /** Builds the HMAC tokens for one search query against one field, matching the shape of searchTokens. */
   queryTokens(model: ContentModel, field: string, query: string): string[] {
     if (!this.searchKey) return [];
     return queryTerms(query).map((term) => createHmac("sha256", this.searchKey!).update(`${model}:${field}:${term}`).digest("base64url").slice(0, 24));
   }
 }
 
+/** Returns the cipher for the current env settings, cached until the mode or key changes. */
 export function contentCipherFromEnvironment(): ContentCipher {
   const configuredMode = process.env.CONTENT_ENCRYPTION_MODE?.trim().toLowerCase();
   const mode: ContentEncryptionMode = configuredMode === "write" ? "write" : "off";
@@ -120,6 +148,7 @@ export function isEncryptedContent(value: unknown): value is string {
   return typeof value === "string" && ENCRYPTED_VALUE_PATTERN.test(value);
 }
 
+/** Walks a query result (objects, arrays, nested relations) and decrypts every encrypted string in place. */
 export function decryptContentTree<T>(value: T, cipher: ContentCipher): T {
   if (typeof value === "string") return cipher.decrypt(value) as T;
   if (Array.isArray(value)) return value.map((item) => decryptContentTree(item, cipher)) as T;
@@ -130,6 +159,10 @@ export function decryptContentTree<T>(value: T, cipher: ContentCipher): T {
   return value;
 }
 
+/**
+ * Encrypts protected fields in create, update and upsert arguments before Prisma sends them.
+ * Other operations and models without a policy are returned untouched.
+ */
 export function prepareContentWrite(model: string | undefined, operation: string, args: unknown, cipher: ContentCipher): unknown {
   if (!model || !(model in CONTENT_POLICIES) || !args || typeof args !== "object") return args;
   if (!operation.startsWith("create") && !operation.startsWith("update") && operation !== "upsert") return args;
@@ -144,6 +177,11 @@ export function prepareContentWrite(model: string | undefined, operation: string
   return args;
 }
 
+/**
+ * Turns a search query into a Prisma where clause: a record matches if, for any one field, its
+ * searchTokens contain every token of the query. Returns undefined when no key is configured,
+ * so callers fall back to plain-text matching.
+ */
 export function encryptedSearchClause(
   model: ContentModel,
   query: string,
@@ -157,12 +195,21 @@ export function encryptedSearchClause(
   return clauses.length ? { OR: clauses } : undefined;
 }
 
+/**
+ * Checks decrypted text against the query. Callers use it after the blind-index lookup to drop
+ * false positives, since 3-letter chunk matches can hit text that does not contain the phrase.
+ */
 export function contentMatchesQuery(model: ContentModel, value: Record<string, unknown>, query: string, fields: readonly string[] = CONTENT_POLICIES[model].searchable): boolean {
   const normalized = normalizeSearchText(query);
   if (!normalized) return true;
   return fields.some((field) => typeof value[field] === "string" && normalizeSearchText(value[field] as string).includes(normalized));
 }
 
+/**
+ * When an update changes any searchable field, fills in the other searchable fields from the
+ * current record. The blind index is rebuilt from the full set of fields, so a partial update
+ * would otherwise drop tokens for the fields it did not touch (prepareData rejects that case).
+ */
 export function completeSearchableContentUpdate<T extends Record<string, unknown>>(
   model: ContentModel,
   current: object,
@@ -177,6 +224,11 @@ export function completeSearchableContentUpdate<T extends Record<string, unknown
   return completed as T;
 }
 
+/**
+ * Encrypts the protected fields of one data object (or each item of a list) and writes the new
+ * searchTokens. On create the tokens are set directly. On update they are replaced only when every
+ * searchable field is supplied, and a partial searchable update throws, so the index stays exact.
+ */
 function prepareData(model: ContentModel, input: unknown, kind: "create" | "update", cipher: ContentCipher): unknown {
   if (Array.isArray(input)) return input.map((value) => prepareData(model, value, kind, cipher));
   if (!input || typeof input !== "object") return input;
@@ -217,6 +269,7 @@ function isSetOperation(value: unknown): value is { set: unknown } {
   return Boolean(value && typeof value === "object" && "set" in value);
 }
 
+/** Terms stored for a text: 1 and 2 letter prefixes, whole words, and every 3-letter chunk. */
 function searchableTerms(value: string): string[] {
   const normalized = value.normalize("NFKC").toLocaleLowerCase("en").replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
   if (!normalized) return [];
@@ -229,6 +282,7 @@ function searchableTerms(value: string): string[] {
   return [...terms];
 }
 
+/** Terms for a search query: a prefix term for very short queries, otherwise its 3-letter chunks. */
 function queryTerms(value: string): string[] {
   const normalized = normalizeSearchText(value);
   if (!normalized) return [];
@@ -242,6 +296,7 @@ function normalizeSearchText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en").replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
+/** Accepts only a canonical base64 string that decodes to exactly 32 bytes. */
 function decodeMasterKey(value: string): Buffer {
   const decoded = Buffer.from(value, "base64");
   if (decoded.length !== 32 || decoded.toString("base64").replace(/=+$/u, "") !== value.replace(/=+$/u, "")) {
@@ -250,6 +305,7 @@ function decodeMasterKey(value: string): Buffer {
   return decoded;
 }
 
+/** Derives a purpose-specific key from the master key with HMAC-SHA256. */
 function deriveKey(master: Buffer, purpose: string): Buffer {
   return createHmac("sha256", master).update(purpose).digest();
 }

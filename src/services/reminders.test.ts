@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, initialTaskReminderAt, isInvalidReminderButtonError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, isPermanentTelegramDeliveryError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -112,14 +112,6 @@ describe("reminder policy", () => {
     expect(message).toContain("<b>Task ID:</b> <code>TASK-1</code>");
   });
 
-  it("ramps the automatic cadence as a deadline approaches", () => {
-    const now = new Date("2026-08-13T00:00:00.000Z");
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-23T00:00:00.000Z"), now, 2_880, 5)).toBe(1_440);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-15T00:00:00.000Z"), now, 2_880, 5)).toBe(360);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T03:00:00.000Z"), now, 2_880, 5)).toBe(30);
-    expect(escalatingReminderIntervalMinutes(new Date("2026-08-13T00:05:00.000Z"), now, 2_880, 5)).toBe(5);
-  });
-
   it("schedules the first reminder before the final nudge window", () => {
     expect(initialTaskReminderAt({
       now: new Date("2026-08-13T00:00:00.000Z"),
@@ -229,18 +221,16 @@ describe("reminder policy", () => {
     expect(message).toContain("Open the group");
   });
 
-  it("starts with empty reminder diagnostics before the first loop run", () => {
-    expect(getReminderDiagnostics()).toMatchObject({
-      dueTasksFound: 0,
-      remindersSent: 0,
-      deferredForQuietHours: 0,
-      cappedByDailyLimit: 0,
-      failedDeliveries: 0
-    });
-  });
-
   it("only falls back to text delivery for Telegram's invalid-button response", () => {
     expect(isInvalidReminderButtonError(new Error("400: Bad Request: BUTTON_TYPE_INVALID"))).toBe(true);
     expect(isInvalidReminderButtonError(new Error("429: Too Many Requests"))).toBe(false);
+  });
+
+  it("treats only unrecoverable Telegram refusals as permanent", () => {
+    expect(isPermanentTelegramDeliveryError(new Error("403: Forbidden: bot was kicked from the group chat"))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(new Error("400: Bad Request: chat not found"))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(Object.assign(new Error("blocked"), { error_code: 403 }))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(new Error("429: Too Many Requests: retry after 5"))).toBe(false);
+    expect(isPermanentTelegramDeliveryError(new Error("socket hang up"))).toBe(false);
   });
 });

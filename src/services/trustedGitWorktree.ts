@@ -1,3 +1,9 @@
+/**
+ * Disposable Git worktrees for owner-only trusted publishing (Telegram Codex mode, laptop worker only).
+ * Each publish job gets a fresh detached checkout of origin/main in a temp folder, so the owner's
+ * desktop checkout and its uncommitted edits are never copied, staged, or overwritten.
+ * Used by src/codexWorker.ts; commands run through trustedGitPublisher's runCommand.
+ */
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
@@ -17,6 +23,11 @@ export type TrustedGitWorktree = {
   cleanup: () => Promise<void>;
 };
 
+/**
+ * Creates the worktree after checking that the folder is the repository root and origin is GitHub,
+ * then installs dependencies and snapshots its Git state. The returned cleanup removes the worktree
+ * (safe to call twice). Any setup failure cleans up before rethrowing.
+ */
 export async function createTrustedGitWorktree(input: {
   cwd: string;
   jobId: string;
@@ -67,6 +78,10 @@ export async function createTrustedGitWorktree(input: {
   }
 }
 
+/**
+ * For npm projects, runs `npm ci` so local checks can run in the fresh worktree.
+ * Requires a lockfile so the install is reproducible.
+ */
 async function prepareTrustedWorktreeDependencies(
   path: string,
   runner: CommandRunner,
@@ -94,6 +109,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+/** Refuses any path outside the worktree root, so cleanup's forced delete can never hit another folder. */
 function assertChild(root: string, candidate: string): void {
   if (!isAbsolute(candidate)) throw new Error("Trusted worktree path must be absolute.");
   const child = relative(root, candidate);
@@ -102,6 +118,7 @@ function assertChild(root: string, candidate: string): void {
   }
 }
 
+/** Runs a command and throws with bounded output on a non-zero exit. */
 async function checked(
   runner: CommandRunner,
   executable: string,

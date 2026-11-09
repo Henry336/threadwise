@@ -1,28 +1,114 @@
-# Architecture Notes
+# Architecture
 
-Updated: 2026-09-15
+Updated: 2026-11-09
 
-Current backend release: v0.35.6 (deployment evidence in PROJECT_CONTEXT.md)
+Current backend release: v0.35.7 (deployment evidence in `PROJECT_CONTEXT.md`)
 
-### Background synchronization budgets
+This document goes from the outside in: first what Threadwise does as a black box, then its parts,
+then how the parts work together, then one section per part. Study mode (the owner's private tool)
+and the side projects that share the process come last, because they are not part of the product
+other people use.
 
-Calendar reconciliation claims and bulk-queues stale enabled workspaces atomically, preserving existing
-pending/retry work. Local edits queue immediately; unchanged provider events are integrity-checked once
-per day rather than replayed every 15 minutes. Drains use stable cutoffs, local single-flight, and
-version-guarded completion.
-See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `BANDWIDTH_REPAIR_2026-09-12.md`.
+## 1. Black box
 
-Dashboard realtime shares one watcher per Telegram owner and checks compact revisions every two minutes.
-Study diagnostic heartbeat timestamps are excluded; semantic settings/content/status still invalidate.
-Revisions are opaque hashes. Visible clients reconcile additionally every five minutes and disconnect
-when hidden/offline; explicit user mutations refresh immediately. This is bounded polling, not a
-database change-feed, and new external edits may take up to two minutes to appear.
+People send messages, photos and voice notes to the Threadwise bot in a private chat or a group.
+Threadwise turns them into tasks, reminders, notes and ideas, reminds people at the right time, and
+shows everything in a web dashboard. It works without a paid AI API: rules handle the obvious cases,
+and AI is optional.
+
+The product is Personal mode (one person's private chat), Group mode (a shared Telegram group) and
+the dashboard. Study mode and the side projects (Beacon, Telegram Codex mode, the file courier) run
+in the same process but are separate from the product.
+
+## 2. The parts
 
 Threadwise is split by bot, dashboard, security, and service responsibility so contributors can change
 one domain without reshaping the whole product. Several legacy composition modules remain large; use
 `docs/DEVELOPER_ONBOARDING.md` and the current post-release audit before extracting them.
 
-## Core Principles
+```mermaid
+flowchart LR
+  TG[Telegram] -->|webhook| SRV[Fastify server<br/>src/server.ts]
+  WEB[Dashboard on Vercel<br/>Next.js + BFF] -->|"signed short-lived JWT"| SRV
+  SRV --> BOT[Bot handlers<br/>src/bot]
+  SRV --> API[Dashboard API<br/>src/dashboard]
+  BOT --> SVC[Domain services<br/>src/services]
+  API --> SVC
+  LOOPS[Background loops<br/>src/main.ts] --> SVC
+  SVC --> DB[(PostgreSQL<br/>via Prisma)]
+  SVC -.-> AI[Optional AI<br/>src/ai]
+  subgraph render [One Render process]
+    SRV
+    BOT
+    API
+    SVC
+    LOOPS
+    AI
+    SIDE[Separate from the product:<br/>Study mode, Beacon,<br/>Codex mode, file courier]
+  end
+```
+
+| Part | Folder | Job |
+|---|---|---|
+| Server | `src/server.ts` | Receives Telegram webhooks and dashboard HTTP calls, checks secrets and rate limits |
+| Bot handlers | `src/bot/` | Turn Telegram updates into calls to services, and turn results back into messages and buttons |
+| Domain services | `src/services/` | Domain rules: tasks, reminders, notes, ideas, undo, groups, search, Study |
+| Dashboard API | `src/dashboard/` | HTTP API for the dashboard: auth, rate limit, workspace scoping, mapping rows to view objects |
+| Security | `src/security/` | Field encryption, replay protection, shared rate limiting |
+| AI adapter | `src/ai/` | Optional AI behind one `AiProvider` interface, with a deterministic fallback |
+| Background loops | `src/main.ts` | Send due reminders, expire drafts and sessions, settle image albums, sync Canvas |
+| Database | `prisma/schema.prisma` | All durable state, in PostgreSQL |
+| Dashboard | separate repo `Henry336/threadwise-dashboard` | Next.js app on Vercel. A server route (the BFF, backend for frontend) signs tokens and forwards an allowlist of calls |
+
+## 3. How they work together
+
+1. A Telegram update arrives at the webhook. The server checks the secret, applies the rate limit and
+   records the update id so a retry is not processed twice.
+2. grammY passes the update down a chain of handlers. Each one checks whether the message is "for it"
+   (an open Today draft, a note session, Study, a pending edit). If not, it calls `next()`.
+3. The natural-language handler tries its local rules in order. The first match calls a service, such
+   as `createTask`.
+4. The service writes to PostgreSQL through Prisma and records an undo entry in `AuditLog`.
+5. The handler formats a reply card with at most three buttons. A button's `callback_data` is a short
+   string, routed in `src/bot/callbacks.ts`.
+6. Background loops wake on a timer to send due reminders, expire drafts, process image albums and
+   sync Canvas.
+7. The dashboard reads one snapshot per workspace and polls a revision number. When it changes, the
+   dashboard refreshes.
+
+```mermaid
+sequenceDiagram
+  participant U as Person in Telegram
+  participant T as Telegram
+  participant S as Server (src/server.ts)
+  participant B as Bot handlers (src/bot)
+  participant V as Services (src/services)
+  participant D as PostgreSQL
+  U->>T: message
+  T->>S: webhook update
+  S->>S: check secret, rate limit
+  S->>B: pass update
+  B->>D: claim update id (skip if seen)
+  B->>B: middleware chain, then local rules
+  B->>V: e.g. createTask
+  V->>D: write row and undo entry
+  V-->>B: saved item
+  B->>T: reply card (at most three buttons)
+  T-->>U: card
+  Note over V,D: Later, the reminder loop reads due rows<br/>from PostgreSQL and sends reminders
+```
+
+The original short version of the request flow:
+
+1. Telegram sends an update.
+2. `src/bot` checks access rules, group addressing rules, and duplicate update claims.
+3. `src/bot` routes it to a command, callback, or natural-language handler.
+4. The handler calls a domain service.
+5. Services read/write through Prisma.
+6. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
+7. Replies are formatted by bot/service formatter helpers.
+
+## 4. Core principles
 
 - Keep task and reminder behavior deterministic.
 - Store all durable state in PostgreSQL.
@@ -36,7 +122,9 @@ one domain without reshaping the whole product. Several legacy composition modul
 - Keep routine capture quiet; preserve important interpretations and persistent action/error surfaces.
 - Keep Telegram handlers thin; domain behavior belongs in services.
 
-## Telegram task-capture boundary
+## 5. Bot handlers (`src/bot/`)
+
+### Telegram task-capture boundary
 
 Today task drafts are an explicit interaction mode, not a global action-verb classifier. A draft may
 start only from `/todo`/`/todos` with content or from a direct reply to the force-reply prompt opened by
@@ -50,55 +138,7 @@ draft but lets reminder commands, note/idea capture, and ordinary ambiguity hand
 Do not reintroduce an action-word fallback in `src/bot/today.ts`. The normal natural-language route now
 persists a short-lived, actor-bound review and never auto-saves ordinary prose from confidence alone.
 
-## Application content protection
-
-Threadwise can optionally protect high-value textual content at the Prisma boundary with versioned AES-256-GCM. The extension encrypts writes and decrypts reads for tasks, notes, ideas, saved-image filename/caption/OCR, and Study-resource title/body/link/filename/caption/OCR fields. A random 96-bit nonce and model/field additional authenticated data make copied or modified ciphertext fail closed.
-
-Search remains server-side and deterministic through a separately derived HMAC key. Each protected model stores field-separated blind prefix, word, and trigram tokens in a PostgreSQL GIN-indexed array. Mixed-rollout queries check both legacy plaintext and blind tokens, then verify the decrypted content exactly before returning it. This preserves partial and scoped image OCR/caption search without decrypting every row in application memory.
-
-`CONTENT_ENCRYPTION_MODE=off` is deliberately inert. Existing plaintext remains readable and a configured key may decrypt already migrated rows, but no write changes until the mode is explicitly `write`. The batch migration rewrites through the same Prisma extension and is dry-run-only unless `--apply` is supplied. The master key lives only in server secrets and never crosses into Telegram, Vercel, or the browser.
-
-This is application-level encryption, not end-to-end encryption: the running backend can decrypt content because search, reminders, synchronization, and dashboard rendering require it. Ownership, due dates, statuses, recurrence, provider identifiers, and other operational metadata remain queryable. The complete activation and recovery boundary is documented in `docs/CONTENT_ENCRYPTION.md`.
-
-## Canonical campus places and journeys
-
-Study routing uses one deterministic place boundary in `src/services/studyTransit.ts`. A resolved place carries a stable id, display name, aliases, venue-or-stop type, coordinates, and ranked nearby stops. Telegram origin setup, natural-language directions, timetable destinations, proactive class reminders, and the protected dashboard search endpoint all call this boundary; none maintains a separate list of place aliases. Exact aliases resolve immediately, fuzzy ambiguity returns bounded candidates, and unresolved timetable labels remain visible but cannot silently enable a travel reminder.
-
-A `StudyJourneyEstimate` is a complete route plan rather than a bus-only answer. It records the initial walking leg, boarding stop, live arrival choices, bus and transfer legs, alighting stop, final walking leg, total travel time, predicted arrival and leave time, data freshness, live/fallback status, and alternative plans. The public Improved NextBus provider remains advisory: unavailable live data produces a labelled conservative fallback and never an invented arrival.
-
-Origin selection is deterministic: an unexpired temporary current location wins, then the timetable block's explicit origin, then the saved default. Current locations are accepted only through Telegram's native private-chat location control, expire after four hours, and are cleared by **I'm here**; Threadwise stores a short-lived point for route calculation and does not continuously track movement. Group prompts deep-link the owner to the private control instead of requesting public location data.
-
-Telegram's native command catalogue is also scoped, not global. Startup registers Personal, Group, Study, Beacon owner/moderator, English, and Burmese command sets with `setMyCommands`. This improves discovery without changing the natural-language-first router or exposing owner-only controls such as Beacon purge to other actors.
-
-## Request Flow
-
-1. Telegram sends an update.
-2. `src/bot` checks access rules, group addressing rules, and duplicate update claims.
-3. `src/bot` routes it to a command, callback, or natural-language handler.
-4. The handler calls a domain service.
-5. Services read/write through Prisma.
-6. AI calls happen only through the `AiProvider` interface, after deterministic handlers have taken the obvious cases.
-7. Replies are formatted by bot/service formatter helpers.
-
-## Dashboard browser-session revocation
-
-Vercel still authenticates backend calls with one-minute Ed25519 service JWTs whose subject is the
-verified Telegram id. Browser login now also creates an owner-scoped `DashboardBrowserSession` row
-through `POST /api/v1/dashboard/browser-sessions`. The browser receives only the opaque random session
-id inside Vercel's signed HttpOnly cookie. Vercel checks that record through the authenticated API before
-every server render or BFF request; expired, revoked, malformed, missing, and cross-owner ids all fail
-closed. `DELETE` marks the exact session revoked and account deletion cascade-removes every session.
-
-The session routes derive ownership only from the signed service-token subject, accept bounded schemas,
-use the shared ingress rate limit and mutation-replay guard, return `no-store`, and never accept a user id
-in the body. The additive table stores no Telegram profile, cookie signature, provider token, or user
-content. Rows more than 30 days beyond expiry/revocation are opportunistically purged. Deploy this
-backend migration and API before a dashboard version that requires the registry; legacy cookies are
-intentionally rejected and require a fresh Telegram sign-in.
-
-Telegram copy follows a small convention: show the saved content first, then a compact metadata block with stable IDs and dates, then any assistant guidance. Shared formatting helpers live in `src/utils/messageFormat.ts`; task list/detail/search formatters live in `src/bot/formatters.ts`; note and idea card formatting lives with their services. New contributors should change copy in those formatter functions instead of spreading ad hoc message strings through handlers.
-
-Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
+### Natural language
 
 Natural-language handling has two deterministic layers before the AI adapter. `naturalCommands.ts`
 executes requests that name their operation and help/control questions such as `add task…`, `note:…`,
@@ -117,29 +157,25 @@ whose actor, chat, and prompt id are stored durably; callback and reply claims a
 Group messages use the same boundary. Study keeps its module-aware Task/Reminder/Note/Question/Resource
 chooser and no longer promotes implicit action prose directly into work.
 
-Group routing lives in `src/bot/groupRouting.ts`. Slash commands are explicit. Ordinary group text is ignored unless it contains the exact runtime bot mention or replies to a normal/receiver-bound Threadwise message. Generic `@something_bot` mentions and a plain leading product name do not activate the router. Two deliberately narrow headings—`TODO:` and `ACTION ITEMS:`—also activate the batch-import path. This keeps normal conversation quiet while giving groups one familiar, low-ceremony capture convention. Telegram privacy mode still controls which unmentioned messages are delivered by Telegram; an exact mention or reply is the universally reliable path.
+### Copy conventions and item actions
 
-Group TODO import is a durable preview-and-commit workflow rather than a loop that creates one task per line immediately. `src/services/taskImports.ts` parses the bounded list, resolves unambiguous active-member usernames/display names, preserves recognizable team-owner labels, leaves ordinary parenthetical details untouched, interprets dates in the group timezone, and stores `PendingTaskImport` plus ordered `PendingTaskImportItem` rows. Telegram exposes the complete ordered review as six-task pages by editing one compact message; import and cancel still act on the review as a whole. The authenticated dashboard is an optional details editor, where the sender or a freshly verified group owner/admin may change inclusion, title, assignees, team owner, due time, and initial Open/Done status. Reviewed assignees enter task creation as structured data rather than being re-parsed from synthetic text entities. Import claims the review, refreshes that lease between rows, creates each task through the existing task service, records per-row success/failure, and leaves failed rows retryable. The source-row id is also unique on the created task, making callbacks and interrupted retries idempotent even across competing recovery attempts.
+Telegram copy follows a small convention: show the saved content first, then a compact metadata block with stable IDs and dates, then any assistant guidance. Shared formatting helpers live in `src/utils/messageFormat.ts`; task list/detail/search formatters live in `src/bot/formatters.ts`; note and idea card formatting lives with their services. New contributors should change copy in those formatter functions instead of spreading ad hoc message strings through handlers.
 
-General and Study image albums use event-driven batch settlement. Each inbound Telegram image persists
-first and schedules one processing wake after the short album settle window. Periodic five-minute passes
-exist only to recover durable work after a process restart or transient failure, and each processor is
-single-flight so a slow external-database round trip cannot overlap the next wake. Do not replace this
-with sub-minute idle polling: production PostgreSQL is external to Render, so every query contributes
-to service-initiated outbound bandwidth. Voice capture follows the same principle: the message handler
-does normal processing and the minute loop is recovery-only.
+Inline item actions follow `One message, one decision`. An ordinary task, note, idea, or image card renders no more than three immediate actions across no more than two rows. Task cards prioritize completion, snooze, and an exact dashboard continuation; list rows reveal numbered item controls only after an explicit Choose action. Secondary editing, starring, archiving/cancellation, Calendar, and assignment management remain available through exact dashboard links or focused Telegram subflows rather than one permanent button wall. Save/edit/action replies retain inline undo or cancel controls where supported, and `PendingItemEdit` keeps text-edit continuations restart-safe.
 
-Forum groups can optionally create one dedicated Threadwise topic. Creation is admin-only and persists the Telegram topic id on `GroupWorkspace`; it is an organizational convention, not an alternate data scope or a requirement for group features.
+Telegram's native command catalogue is also scoped, not global. Startup registers Personal, Group, Study, Beacon owner/moderator, English, and Burmese command sets with `setMyCommands`. This improves discovery without changing the natural-language-first router or exposing owner-only controls such as Beacon purge to other actors.
 
-`ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
+## 6. Personal mode services (`src/services/`)
 
-Group task assignment is durable metadata, not just title text. New assignments take effect immediately; no acceptance step is required. Any active member may claim currently unassigned work through a race-safe mutation. Assignees may complete or snooze their own work, while assignment and reassignment require the task creator or a freshly verified Telegram group owner/admin. Legacy accept, decline, block, unblock, and handoff commands/callbacks return an explanation of the current model without mutating state. Existing historical assignment/audit rows remain readable.
+### Undo and archives
 
-Group availability is modeled separately from tasks. `AvailabilityPoll` owns the shared scheduling window and optimistic revision; `AvailabilityResponse` is unique per poll and human Telegram id; `AvailabilityCalendarEvent` records only that human's optional provider event. `src/services/groupScheduling.ts` generates the bounded grid, verifies every selected cell, ranks only contiguous windows long enough for the requested duration, filters responses to current active members, and never places another member's raw cell choices in the returned view.
+Recent reversible actions are tracked in `AuditLog` with an `undoable:` action prefix. `/undo` consumes the latest undoable entry and restores or archives the affected item without hard-deleting rows, so public IDs do not get reused.
 
-Telegram cannot attach a `web_app` inline button to a normal group message, so Find a time uses the bot's Main Mini App with a short `startapp` parameter. Vercel validates Telegram's signed init data, selects the opaque group workspace, and then opens the requested poll. Telegram retains one compact poll card; availability responses, live dashboard events, manager actions, and finalization refresh that card rather than posting one message per response.
+Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archive note 1` and note archive buttons set `archivedReason = removed` and record an undo entry; `/archived <type>` pages through archived notes, ideas, and tasks.
 
-Shared group control panels use Telegram Bot API receiver-bound ephemeral delivery (`src/bot/ephemeral.ts`). The group keeps one public anchor, but each member receives their own private menu surface. Callback data is still bound to the acting Telegram identity. Shared task, reminder, and scheduling cards remain public because they represent group state.
+### Notes
+
+Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
 
 Private Note sessions are durable state, not an in-memory mode. `NoteCaptureSession` records the owner,
 expiry, and persistent Telegram status-message id; each incoming message is appended immediately as an
@@ -149,6 +185,18 @@ blank lines; the background sweep auto-saves non-empty sessions after one hour o
 discards empty ones. `src/bot/notePagination.ts` splits long display text at paragraph, then sentence,
 then safe character boundaries while leaving the stored note unchanged. This paragraph describes the
 deployed owner-gated Phase 3 runtime.
+
+Personal rich notes keep the existing canonical `Note` table and reuse the dashboard's reviewed rich-body
+renderer rather than introducing another Personal document store. Unfiled state lives in an encrypted
+`PersonalNoteDraft`, uniquely keyed by authenticated `userId` plus `new` or the note id. GET/PATCH/DELETE
+draft routes require a Personal workspace and derive ownership from the signed Telegram principal; no
+browser-supplied user id is accepted. Draft rows expire after seven days, are not blind-indexed, advance
+only from the expected integer revision, and retain the starting `Note.updatedAt` for existing notes.
+Successful filing writes the normal `Note`, then removes the scratch row. The model and migration are
+additive. Group notes do not use Personal drafts because shared draft ownership and collaboration
+semantics have not yet been approved.
+
+### Today planning
 
 Today planning reuses existing actionable records instead of introducing a second to-do model.
 `plannedFor` is an optional local calendar date independent of `dueAt` and reminder schedules;
@@ -167,181 +215,7 @@ the underlying Personal, assigned Group, and Study records and makes stale concu
 closed. Group and Study agenda views remain deterministically sorted and non-reorderable. Old private
 order states are removed after 90 days during subsequent Personal reorder activity.
 
-Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
-
-The approved public-Study direction is additive and does not weaken this sealed path. Its tenant,
-membership, credential, bot, scheduling, privacy, and rollout boundaries are recorded in
-[`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md),
-[`PUBLIC_STUDY_THREAT_MODEL.md`](PUBLIC_STUDY_THREAT_MODEL.md), and
-[`PUBLIC_STUDY_ROLLOUT.md`](PUBLIC_STUDY_ROLLOUT.md). Those Phase 7 documents are architecture only:
-the founder workspace remains behind the current owner/chat gate, and no public bot, OAuth
-connection, tenant migration, invitation, or deployment is active.
-
-Study services are split by responsibility. `study.ts` owns weeks, modules, work, sessions, mistakes, reviews, schedule blocks, dashboard aggregation, and CSV exports. `studyNaturalLanguage.ts` performs deterministic intent and module extraction. `studyCanvas.ts` owns a single-flight, paginated, retry-bounded, read-only Canvas mirror. `studyAttention.ts` scores work from deadlines, explicit priority, mastery, backlog age, effort, and source uncertainty. `studyResources.ts` owns module resources, reply/pending captures, local OCR metadata, durable silent note sessions, and Unicode-safe Telegram pagination. `studyTransit.ts` consumes the public Improved NextBus contract and manages saved/default/temporary origins. `studyReminders.ts` derives and prioritizes proactive candidates while `studyCapture.ts` and `study.ts` keep Telegram handlers thin.
-
-Dashboard transport composition follows the same boundary. `src/dashboard/route.ts` owns shared
-authentication, replay protection, rate limiting, workspace resolution, and error mapping, then injects
-that secured runner into `src/dashboard/studyRoutes.ts`. Study route registration cannot bypass the
-parent boundary; its file owns only Study path/schema/service wiring.
-
-Canvas course identity is anchored to the provider course id plus retained term id/name/date metadata; a matching human-readable module code is not sufficient evidence that two terms are the same. Clearly out-of-semester courses are skipped with reason-coded sync diagnostics. `studyDeadlineTrust.ts` independently classifies each Canvas deadline against its Canvas term and configured Study semester. A suspicious or missing-provider deadline stays visible for manual confirmation but is excluded from overdue totals, module traffic-light deadline pressure, timetable deadline lanes, weekly previews, and urgent reminder candidates.
-
-`studyNusmods.ts` is the deterministic timetable-import boundary. It parses only canonical NUSMods semester share URLs, derives the academic year from the configured Study semester, fetches the selected modules from the public NUSMods API, matches the exact lesson type and class number, and upserts recurring blocks with `source=NUSMODS` plus stable source references. A re-import reconciles only that source namespace: stale NUSMods selections are deactivated, while manual schedule blocks are never rewritten. Published venue labels are passed through `studyTransit.ts`; a resolved venue enables the existing live-journey and class-departure pipeline, while an unresolved venue stays visible and produces an explicit import warning.
-
-`studyCalendar.ts` is a separate one-way provider boundary over the same schedule records. Enabling sync
-creates one durable `StudyScheduleCalendarLink` per block with a deterministic Google event ID. Local
-mutations remain canonical and only enqueue UPSERT/DELETE work; patch-first provider writes, create-
-conflict recovery, bounded exponential retry, and daily provider reconciliation converge repeated/concurrent
-requests on one event and replace Google-side changes. RRULE/EXDATE values represent recurrence and
-occurrence deletion. Existing encrypted OAuth credentials are reused, while event bodies, tokens,
-origins, coordinates, routes, buffers, and preparation notes never enter browser DTOs or logs.
-
-`studyReminders.ts` models timetable interruption as one `StudyScheduleReminderSequence` per occurrence.
-The first schedule is the earlier of start-minus-45-minutes and the live departure time. An admitted
-sequence has at most four attempt-specific deliveries, five minutes apart, and consumes one logical
-daily slot. Acknowledgement, arrival, a matching Study session, or daily timetable mute closes it;
-route details do not. Explicit timetable alerts alone may cross Study quiet hours, and no alert is
-backfilled after start. An abandoned claim advances after a bounded grace period rather than leaving
-the sequence stuck or creating an unbounded resend loop.
-
-Study write routing is explicit. `activeModuleId` plus `activeModuleUntil` form a visible ten-minute
-capture context, not an indefinite default. Switching modules restarts the window; ordinary captures
-do not extend it. After expiry, captures without one unambiguous module reference or module-specific
-bot reply are persisted as `StudyPendingCapture` rows until the owner chooses an active module.
-Image pending rows retain caption, optional OCR preview, sender, and sent-time metadata and are
-atomically consumed only when the owner saves. Canvas source metadata follows
-the same separation: sync may refresh known rows, but `StudyModule.active`, module/item archive
-timestamps, and local closed item statuses remain owner decisions. Inactive modules are excluded at
-the query boundary from operational projections, reminders, travel, search, reviews, and exports.
-
-Study privacy fails closed. Each command and callback verifies the exact actor, exact chat, active binding, and current two-member count. The `chat_member` handler unbinds the workspace if another human joins; reminders and auto-save acknowledgements recheck the group before proactive output. Study queries include `workspaceId`, and the feature remains absent from global search and every ordinary personal/group dashboard route.
-
-The Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. The current shell includes Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings. Timetable derives a full 00:00–24:00 weekly/day view from recurring schedule blocks and planned work while keeping deadline markers distinct from scheduled study time; class blocks may carry a destination, normal origin, and travel buffer. Protected Telegram image/file bytes are fetched server-side only after this lookup. Each request resolves a fresh Telegram file path, retries one stale-download failure, accepts only an upstream raster MIME, enforces the size bound, and returns credential-free temporary or permanent errors.
-
-Study Markdown notes remain ordinary `StudyResource` rows, so Telegram capture, module/session links, search, and analysis evidence do not fork into a browser-only document store. Before filing, one `StudyNoteDraft` per owner/workspace draft key stores encrypted title/body text for seven days. Draft reads and writes repeat the sealed Study authorization gate, expired rows are opportunistically purged, and an integer optimistic revision rejects stale cross-device writes. A new-note draft uses the stable `new` key; an existing note uses its resource id, must resolve to a NOTE in the same workspace, and retains the canonical note's starting `updatedAt` so an old recovered draft cannot overwrite a newer filed note. Drafts are deliberately not search-indexed or analysis evidence. `StudyResourceRevision` retains at most 50 encrypted title/body snapshots per filed note; dashboard detail returns only the newest bounded window. `StudyNoteLink` stores resolved workspace-local edges for backlinks, while unresolved links remain visible in the reader and can resolve after the target note exists and the source is saved again. Dashboard updates include the previously observed `updatedAt` value and fail with a conflict before overwriting a newer note. The dashboard keeps locally emitted Markdown out of its external-replacement path so ordinary autosave renders do not reset the writer's selection. Raw HTML and scripts never execute; Mermaid—including its class, sequence, and state UML grammars—is rendered lazily by the dashboard under strict mode and sanitized again before insertion. PlantUML and remote diagram rendering are not part of the trust boundary. Telegram derives a plain-text fallback and replaces diagrams with an explicit dashboard-viewing marker. Historical tag arrays remain readable at the persistence boundary for compatibility, but current dashboard, Telegram, capture, voice-note, and AI flows neither request, generate, nor display tags.
-
-Personal rich notes keep the existing canonical `Note` table and reuse the dashboard's reviewed rich-body
-renderer rather than introducing another Personal document store. Unfiled state lives in an encrypted
-`PersonalNoteDraft`, uniquely keyed by authenticated `userId` plus `new` or the note id. GET/PATCH/DELETE
-draft routes require a Personal workspace and derive ownership from the signed Telegram principal; no
-browser-supplied user id is accepted. Draft rows expire after seven days, are not blind-indexed, advance
-only from the expected integer revision, and retain the starting `Note.updatedAt` for existing notes.
-Successful filing writes the normal `Note`, then removes the scratch row. The model and migration are
-additive. Group notes do not use Personal drafts because shared draft ownership and collaboration
-semantics have not yet been approved.
-
-Deep Work sessions remain canonical backend records even while their controls appear across several dashboard routes. `StudySession` stores exact timestamps, an optional topic and focus structure, a technique list, outcome data, and a soft-archive marker. `StudySessionResource` links notes, images, files, questions, and other module resources without copying content. The dashboard may PATCH a session while it is active or after completion and may archive completed history; every mutation repeats the Study owner/group gate and validates that linked resources belong to the same workspace and module. Archiving adjusts recorded item minutes but retains the session row for auditability. No AI service participates in timing, completion, resource linking, or retrieval.
-
-Optional module analysis is a separate evidence-processing boundary, not part of Deep Work's canonical control path. Protected `GET` and `POST /api/threadwise/study/modules/:moduleId/analysis` routes repeat the Study owner/group gate: `GET` reads the latest cache, while `POST` is the only way to request work. `GeminiStudyAnalysisJob` is the retained database model name: it snapshots completed, non-archived module sessions and bounded linked evidence, hashes that evidence for idempotency, and is claimed by the deployed backend runner. The runner calls the server-side OpenAI adapter using `OPENAI_API_KEY`, `OPENAI_MODEL`, and the bounded fallback chain; no laptop worker or Gemini credential participates in Study analysis. The service filters unknown evidence ids, drops uncited findings, records uncertainty as a limitation, and never writes mastery, task, reminder, schedule, or session state. A completed cache remains readable during provider outages; absent credentials or provider failures disable only this optional surface. The local Gemini CLI remains a separate legacy path for owner-only Ideas Intelligence.
-
-Inline item actions follow `One message, one decision`. An ordinary task, note, idea, or image card renders no more than three immediate actions across no more than two rows. Task cards prioritize completion, snooze, and an exact dashboard continuation; list rows reveal numbered item controls only after an explicit Choose action. Secondary editing, starring, archiving/cancellation, Calendar, and assignment management remain available through exact dashboard links or focused Telegram subflows rather than one permanent button wall. Save/edit/action replies retain inline undo or cancel controls where supported, and `PendingItemEdit` keeps text-edit continuations restart-safe.
-
-Note merges use `PendingNoteMerge` records. `/merge notes ...` creates a preview from active notes, `Try again` regenerates the preview with stronger connection/preservation instructions, and `Merge` creates a new note while archiving the originals with `archivedReason = merged` and `mergedIntoNoteId` pointing to the generated note. Undo archives the generated note and restores the originals.
-
-## Dashboard Flow
-
-The dashboard is a separate Next.js/Vercel client. It never connects directly to PostgreSQL or receives a database credential.
-
-1. Telegram Login or signed Mini App init data establishes the human Telegram identity on Vercel.
-2. The dashboard signs a short-lived EdDSA JWT with `iss=threadwise-dashboard`, `aud=threadwise-api`, a positive Telegram `sub`, a unique `jti`, and a lifetime no longer than 120 seconds.
-3. `src/dashboard/auth.ts` verifies the bundled public key and claims.
-4. Personal calls resolve the human's owner scope. Group calls also carry `X-Threadwise-Workspace`, an opaque UUID.
-5. `src/dashboard/workspaces.ts` resolves that UUID and revalidates Telegram membership before entering the synthetic group owner scope.
-6. Route handlers validate payloads with the schemas in `src/dashboard/schemas.ts` and call the same domain services used by Telegram.
-7. Mutation paths publish scoped events through `src/dashboard/realtime.ts`; `/api/v1/dashboard/events` streams them with private/no-store semantics so the client can refresh the affected data.
-
-When the resolved workspace is Study Mode, the Next.js client switches to a dedicated module-first shell and requests `/api/v1/dashboard/study/snapshot`. Study mutations call the same services used by Telegram for work, resources, mastery, sessions, mistakes, weekly reviews, Canvas state, origins, and schedule blocks. Realtime revisions include Study workspace/resource/Canvas/audit changes and are keyed to the signed owner, so either surface updates the other without a second data store.
-
-TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. Review deep links select the correct opaque workspace and exact batch. Once imported, ordinary work follows immediate assignment: assignees complete or snooze, an active member may claim an unassigned task, and creator/admin authority controls reassignment.
-
-Group authorization has two layers. Current members may read shared data, mutate only their own availability, claim an unassigned task, and complete/snooze work assigned to them. Creator/admin operations—including assignment/reassignment—and owner/admin operations such as changing group settings or finalizing a scheduling poll perform the appropriate fresh Telegram checks. The server fails closed when a required check cannot establish the privilege.
-
-The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusable file IDs, raw group chat IDs, or another member's availability cells. Saved image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup.
-
-## Reminder Flow
-
-1. The reminder loop periodically queries open tasks where `nextReminderAt <= now`.
-2. It distinguishes an explicit first due delivery from later repeat nudges.
-3. It applies quiet hours and the daily reminder safety limit where the current delivery type requires them.
-4. It batches simultaneously eligible undated tasks for the same group into compact chunks of at most eight tasks; dated and personal reminders retain their normal cards.
-5. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
-6. It records one `ReminderDelivery` row per included task while counting the shared Telegram message only once against the daily message limit, then removes superseded main-chat reminders.
-7. It advances `nextReminderAt` or the recurring calendar occurrence. Undated group tasks use the group's configurable interval (six hours by default), slow to daily after three unanswered follow-ups, and reset that streak after meaningful task activity.
-
-The same loop invokes a separately scoped Study reminder pass after normal task processing. It derives candidates from PostgreSQL, verifies the private group before every pass, applies Study workspace quiet hours and its daily cap, and bulk-reads candidate dedupe keys before claiming only unseen deliveries. The unique `StudyReminderDelivery.dedupeKey` constraint remains the final race-safe authority; expected duplicates must never be implemented as periodic failed inserts because the production database is external to Render. Saturday review, Sunday preview, due mistake reattempts, red modules, Canvas uncertainty, trusted important deadlines, optional study blocks, and missing timed practice therefore remain restart-safe without creating a second scheduler. Eligible candidates are sorted by product urgency before scheduled age so overdue and near-due work cannot be displaced by housekeeping when the daily cap is reached. Every pass records a bounded reason-coded health snapshot (`READY`, `QUIET_HOURS`, `UNSAFE_CHAT`, or `DELIVERY_ERRORS`) for dashboard diagnosis. A Study pass failure is isolated and cannot interrupt ordinary Threadwise reminders.
-
-Recurring Study blocks use a stable series row plus bounded academic-week exceptions. Removing one occurrence appends an idempotent week exception; removing this-and-future shortens the series; removing the entire series deactivates the row. Reminder collection, dashboard projection, and next-block calculation all apply the same exception list.
-
-This avoids in-memory timers. If Render restarts, the database remains the source of truth.
-
-Scheduled reminders use a separate early-warning cadence. If `dueNudgeMinutes` is 5, a dated task starts warning 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
-
-Daily and weekly recurring reminders store `recurrenceRule` plus `recurrenceIntervalDays` on the task row. After each recurring delivery, the reminder pass advances `dueAt` and `nextReminderAt` to the next future occurrence instead of creating another task row. This keeps recurring reminders O(1) per delivery and avoids duplicate task buildup.
-
-Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the current personal or group workspace setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. New personal workspaces default to three hours; new group workspaces default to six. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminder messages/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
-
-Telegram does not provide an exact device timezone to bots during `/start`. New-user settings can only make a best-effort guess from Telegram language code, then users can correct the value with IANA names or common aliases such as `Myanmar`, `Yangon`, `Malaysia`, and `Singapore`.
-
-## AI Adapter
-
-The `AiProvider` interface supports:
-
-- Message classification
-- Idea structuring
-- Task extraction
-- Idea scoring
-- Embeddings
-- Provider status and a small live health check for the private admin endpoint
-
-`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, integration intent, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
-
-The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are wrapped by a bounded in-memory cache keyed by content hash; lookups are O(1), duplicate concurrent calls share a promise, and the oldest entries are evicted when the cache exceeds its cap.
-
-OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted. AI is reserved for synthesis-heavy work such as complex note/idea structuring, note merges, note analysis, and idea scoring.
-
-The private `GET /admin/ai/status` endpoint is enabled only when `ADMIN_STATUS_TOKEN` is set. It is intentionally not exposed through Telegram.
-
-## Performance Model
-
-Most Telegram updates now stay on the deterministic path. For a message of length `L`, natural-command matching, intent scoring, date parsing, title cleanup, and local embedding are `O(L)` with small fixed rule tables. Task and note creation add a constant number of indexed database reads/writes. In practice, deterministic request latency should be dominated by PostgreSQL plus Telegram reply time rather than local parsing.
-
-Approximate per-request work:
-
-- Natural reminder/task capture: `O(L) + DB create + Telegram reply`
-- Recurring reminder delivery: `O(1) DB update` after the normal due-task fetch; the task row is advanced in place.
-- Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
-- Simple note capture: `O(L) + DB create + Telegram reply`
-- Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
-- Calendar auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
-- Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: local cache lookup is `O(1)`; cache misses pay OpenAI latency and provider rate limits.
-
-Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` identical synthesis requests arrive at the same time, the cache stores the in-flight promise so they share one OpenAI call; if they are all different synthesis requests, OpenAI becomes the bottleneck.
-
-Group routing adds only constant-time checks per Telegram update: a few id lookups for the allowlist, a chat-type check, and at most one short bot-mention regex over the incoming message. Once routed, group commands have the same order of growth as private commands because the group chat is just another scoped owner id.
-
-Current bottlenecks to watch as usage grows:
-
-- Public IDs are generated with per-user counts. This is fine for personal scale, but a per-user counter table would be better for very high write volume.
-- Search loads recent rows into memory and scores app-side. This is fine for hundreds of personal items; move to pgvector or indexed full-text search if users reach thousands to tens of thousands of items.
-- Telegram itself is an external latency floor. Even fully deterministic handling still waits on Telegram send operations.
-
-Message formatting helpers are constant-time apart from escaping and truncating user text. The deterministic wording variation uses a small hash over the public ID, so it is `O(id length)`, requires no network call, and produces stable output for the same item.
-
-## Security And Data Scope
-
-Handlers should never look up tasks, notes, ideas, calendar links, pins, or archives by public ID alone. Every lookup must include the current `userId`, either directly in Prisma or through helpers such as `findTaskReference`, `findNoteReference`, and `findIdeaReference`. This keeps another Telegram user from retrieving or mutating someone else's saved items by guessing IDs like `TASK-1`.
-
-In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Human Telegram ids may be stored on task assignment fields, but item lookup and mutation still stay scoped to the group owner id.
-
-Availability management has an additional human boundary. Poll creation, reminders, finalization, and closure require a fresh Telegram owner/admin check. Each active member may write only the response keyed by their verified Telegram id. Shared views contain aggregate overlap counts and response identities, while only the viewer receives their own raw availability cells. Finalized Calendar events remain linked to the real personal user rather than the synthetic group owner.
-
-Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
-
-When `BOT_ALLOWED_TELEGRAM_IDS` is configured, access can be granted by sender id or group chat id. A group chat id may be written as the raw Telegram chat id or as `chat:<id>`. Blocked private users receive a private-bot notice; blocked group messages are ignored silently to avoid leaking bot presence into unrelated group conversations.
-
-Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Calendar/Microsoft OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
-
-## Search
+### Search
 
 Search is personal-scale lexical plus deterministic semantic search:
 
@@ -355,11 +229,152 @@ Search is personal-scale lexical plus deterministic semantic search:
 
 This is intentionally simple. If the dataset grows, move embeddings to pgvector or a vector database without changing command behavior.
 
-## Archives
+## 7. Group mode
 
-Archive fields hide items from active views without hard-deleting them. `archivedReason` explains why an item left the active surface, and merged notes keep `mergedIntoNoteId` so archived views can show where the content went. `/archive note 1` and note archive buttons set `archivedReason = removed` and record an undo entry; `/archived <type>` pages through archived notes, ideas, and tasks.
+### Group owner and data scope
 
-## Integration Lifecycle
+`ensureUser` in `src/services/users.ts` resolves the current Threadwise owner. Private chats use the human Telegram user id. Group and supergroup chats use a synthetic owner id of `chat:<telegram chat id>` and store `reminderChatId` as the real chat id, so existing `userId`-scoped service functions can operate on shared group data without a parallel set of tables.
+
+### Group routing and capture
+
+Group routing lives in `src/bot/groupRouting.ts`. Slash commands are explicit. Ordinary group text is ignored unless it contains the exact runtime bot mention or replies to a normal/receiver-bound Threadwise message. Generic `@something_bot` mentions and a plain leading product name do not activate the router. Two deliberately narrow headings—`TODO:` and `ACTION ITEMS:`—also activate the batch-import path. This keeps normal conversation quiet while giving groups one familiar, low-ceremony capture convention. Telegram privacy mode still controls which unmentioned messages are delivered by Telegram; an exact mention or reply is the universally reliable path.
+
+Group TODO import is a durable preview-and-commit workflow rather than a loop that creates one task per line immediately. `src/services/taskImports.ts` parses the bounded list, resolves unambiguous active-member usernames/display names, preserves recognizable team-owner labels, leaves ordinary parenthetical details untouched, interprets dates in the group timezone, and stores `PendingTaskImport` plus ordered `PendingTaskImportItem` rows. Telegram exposes the complete ordered review as six-task pages by editing one compact message; import and cancel still act on the review as a whole. The authenticated dashboard is an optional details editor, where the sender or a freshly verified group owner/admin may change inclusion, title, assignees, team owner, due time, and initial Open/Done status. Reviewed assignees enter task creation as structured data rather than being re-parsed from synthetic text entities. Import claims the review, refreshes that lease between rows, creates each task through the existing task service, records per-row success/failure, and leaves failed rows retryable. The source-row id is also unique on the created task, making callbacks and interrupted retries idempotent even across competing recovery attempts.
+
+Forum groups can optionally create one dedicated Threadwise topic. Creation is admin-only and persists the Telegram topic id on `GroupWorkspace`; it is an organizational convention, not an alternate data scope or a requirement for group features.
+
+### Assignment and authorization
+
+Group task assignment is durable metadata, not just title text. New assignments take effect immediately; no acceptance step is required. Any active member may claim currently unassigned work through a race-safe mutation. Assignees may complete or snooze their own work, while assignment and reassignment require the task creator or a freshly verified Telegram group owner/admin. Legacy accept, decline, block, unblock, and handoff commands/callbacks return an explanation of the current model without mutating state. Existing historical assignment/audit rows remain readable.
+
+Group authorization has two layers. Current members may read shared data, mutate only their own availability, claim an unassigned task, and complete/snooze work assigned to them. Creator/admin operations—including assignment/reassignment—and owner/admin operations such as changing group settings or finalizing a scheduling poll perform the appropriate fresh Telegram checks. The server fails closed when a required check cannot establish the privilege.
+
+TODO reviews add actor and workspace boundaries inside the shared workspace. The original sender may update, import, or cancel their own review. Another member needs a fresh Telegram owner/admin verification before controlling it; otherwise the dashboard remains read-only and the API rejects the mutation. Telegram callbacks additionally verify that the button is being used in the exact group that created the review. Review deep links select the correct opaque workspace and exact batch. Once imported, ordinary work follows immediate assignment: assignees complete or snooze, an active member may claim an unassigned task, and creator/admin authority controls reassignment.
+
+### Availability polls and control panels
+
+Group availability is modeled separately from tasks. `AvailabilityPoll` owns the shared scheduling window and optimistic revision; `AvailabilityResponse` is unique per poll and human Telegram id; `AvailabilityCalendarEvent` records only that human's optional provider event. `src/services/groupScheduling.ts` generates the bounded grid, verifies every selected cell, ranks only contiguous windows long enough for the requested duration, filters responses to current active members, and never places another member's raw cell choices in the returned view.
+
+Telegram cannot attach a `web_app` inline button to a normal group message, so Find a time uses the bot's Main Mini App with a short `startapp` parameter. Vercel validates Telegram's signed init data, selects the opaque group workspace, and then opens the requested poll. Telegram retains one compact poll card; availability responses, live dashboard events, manager actions, and finalization refresh that card rather than posting one message per response.
+
+Shared group control panels use Telegram Bot API receiver-bound ephemeral delivery (`src/bot/ephemeral.ts`). The group keeps one public anchor, but each member receives their own private menu surface. Callback data is still bound to the acting Telegram identity. Shared task, reminder, and scheduling cards remain public because they represent group state.
+
+## 8. Reminders
+
+1. The reminder loop periodically queries open tasks where `nextReminderAt <= now`.
+2. It distinguishes an explicit first due delivery from later repeat nudges.
+3. It applies quiet hours and the daily reminder safety limit where the current delivery type requires them.
+4. It batches simultaneously eligible undated tasks for the same group into compact chunks of at most eight tasks; dated and personal reminders retain their normal cards.
+5. It sends to the task's personal or group reminder chat, and optionally to eligible opted-in assignees.
+6. It records one `ReminderDelivery` row per included task while counting the shared Telegram message only once against the daily message limit, then removes superseded main-chat reminders.
+7. It advances `nextReminderAt` or the recurring calendar occurrence. Undated group tasks use the group's configurable interval (six hours by default), slow to daily after three unanswered follow-ups, and reset that streak after meaningful task activity.
+
+This avoids in-memory timers. If Render restarts, the database remains the source of truth.
+
+Dated tasks use fixed early-warning milestones instead: 7 days, 3 days, 1 day, 6 hours, 2 hours and 30 minutes before the deadline, at the deadline, plus the owner's `dueNudgeMinutes` offset, within a per-task automatic reminder budget. They stop once the deadline has passed. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
+
+Daily and weekly recurring reminders store `recurrenceRule` plus `recurrenceIntervalDays` on the task row. After each recurring delivery, the reminder pass advances `dueAt` and `nextReminderAt` to the next future occurrence instead of creating another task row. This keeps recurring reminders O(1) per delivery and avoids duplicate task buildup.
+
+Changing `/settings interval` or natural text such as `remind me again every 3 hours` updates the current personal or group workspace setting and reschedules open tasks onto the new cadence without pulling future first scheduled reminders before their due time. New personal workspaces default to three hours; new group workspaces default to six. For short repeat timings, Threadwise also raises an obviously-too-low daily safety limit so the new cadence can actually repeat. The default safety limit is 200 reminder messages/day, high enough for normal reminder-bot use while still guarding against accidental loops. Turning quiet hours off rechecks open tasks, so reminders that were deferred by quiet hours can become eligible again.
+
+Telegram does not provide an exact device timezone to bots during `/start`. New-user settings can only make a best-effort guess from Telegram language code, then users can correct the value with IANA names or common aliases such as `Myanmar`, `Yangon`, `Malaysia`, and `Singapore`.
+
+## 9. Dashboard API (`src/dashboard/`)
+
+The dashboard is a separate Next.js/Vercel client. It never connects directly to PostgreSQL or receives a database credential.
+
+1. Telegram Login or signed Mini App init data establishes the human Telegram identity on Vercel.
+2. The dashboard signs a short-lived EdDSA JWT with `iss=threadwise-dashboard`, `aud=threadwise-api`, a positive Telegram `sub`, a unique `jti`, and a lifetime no longer than 120 seconds.
+3. `src/dashboard/auth.ts` verifies the bundled public key and claims.
+4. Personal calls resolve the human's owner scope. Group calls also carry `X-Threadwise-Workspace`, an opaque UUID.
+5. `src/dashboard/workspaces.ts` resolves that UUID and revalidates Telegram membership before entering the synthetic group owner scope.
+6. Route handlers validate payloads with the schemas in `src/dashboard/schemas.ts` and call the same domain services used by Telegram.
+7. Mutation paths publish scoped events through `src/dashboard/realtime.ts`; `/api/v1/dashboard/events` streams them with private/no-store semantics so the client can refresh the affected data.
+
+The API intentionally never returns OAuth tokens, embeddings, raw Telegram reusable file IDs, raw group chat IDs, or another member's availability cells. Saved image bytes are fetched server-side from Telegram only after an authenticated, owner-scoped lookup.
+
+Dashboard transport composition follows the same boundary. `src/dashboard/route.ts` owns shared
+authentication, replay protection, rate limiting, workspace resolution, and error mapping, then injects
+that secured runner into `src/dashboard/studyRoutes.ts`. Study route registration cannot bypass the
+parent boundary; its file owns only Study path/schema/service wiring.
+
+### Realtime revisions
+
+Dashboard realtime shares one watcher per Telegram owner and checks compact revisions every two minutes.
+Study diagnostic heartbeat timestamps are excluded; semantic settings/content/status still invalidate.
+Revisions are opaque hashes. Visible clients reconcile additionally every five minutes and disconnect
+when hidden/offline; explicit user mutations refresh immediately. This is bounded polling, not a
+database change-feed, and new external edits may take up to two minutes to appear.
+
+### Browser-session revocation
+
+Vercel still authenticates backend calls with one-minute Ed25519 service JWTs whose subject is the
+verified Telegram id. Browser login now also creates an owner-scoped `DashboardBrowserSession` row
+through `POST /api/v1/dashboard/browser-sessions`. The browser receives only the opaque random session
+id inside Vercel's signed HttpOnly cookie. Vercel checks that record through the authenticated API before
+every server render or BFF request; expired, revoked, malformed, missing, and cross-owner ids all fail
+closed. `DELETE` marks the exact session revoked and account deletion cascade-removes every session.
+
+The session routes derive ownership only from the signed service-token subject, accept bounded schemas,
+use the dashboard request rate limit (`limitDashboardRequest`) and mutation-replay guard, return `no-store`, and never accept a user id
+in the body. The additive table stores no Telegram profile, cookie signature, provider token, or user
+content. Rows more than 30 days beyond expiry/revocation are opportunistically purged. Deploy this
+backend migration and API before a dashboard version that requires the registry; legacy cookies are
+intentionally rejected and require a fresh Telegram sign-in.
+
+## 10. Security and data scope
+
+Handlers should never look up tasks, notes, ideas, calendar links, pins, or archives by public ID alone. Every lookup must include the current `userId`, either directly in Prisma or through helpers such as `findTaskReference`, `findNoteReference`, and `findIdeaReference`. This keeps another Telegram user from retrieving or mutating someone else's saved items by guessing IDs like `TASK-1`.
+
+In group chats, the current `userId` is the synthetic chat owner. That means every member of an allowed group intentionally shares the same group tasks, notes, ideas, settings, and reminder history. Human Telegram ids may be stored on task assignment fields, but item lookup and mutation still stay scoped to the group owner id.
+
+Availability management has an additional human boundary. Poll creation, reminders, finalization, and closure require a fresh Telegram owner/admin check. Each active member may write only the response keyed by their verified Telegram id. Shared views contain aggregate overlap counts and response identities, while only the viewer receives their own raw availability cells. Finalized Calendar events remain linked to the real personal user rather than the synthetic group owner.
+
+Database access goes through Prisma query objects rather than string-built SQL, which keeps ordinary command text from becoming SQL injection input. Continue avoiding raw SQL unless there is a measured need, and if raw SQL is added, use Prisma parameter binding.
+
+When `BOT_ALLOWED_TELEGRAM_IDS` is configured, access can be granted by sender id or group chat id. A group chat id may be written as the raw Telegram chat id or as `chat:<id>`. Blocked private users receive a private-bot notice; blocked group messages are ignored silently to avoid leaking bot presence into unrelated group conversations.
+
+Do not log or display secrets. Google Calendar template links are ordinary task metadata, but Calendar/Microsoft OAuth tokens, Telegram bot tokens, OpenAI keys, and admin tokens must stay in environment variables or encrypted storage and should never appear in Telegram replies, README examples with real values, tests, or logs.
+
+### Application content protection
+
+Threadwise can optionally protect high-value textual content at the Prisma boundary with versioned AES-256-GCM. The extension encrypts writes and decrypts reads for tasks, notes, ideas, saved-image filename/caption/OCR, and Study-resource title/body/link/filename/caption/OCR fields. A random 96-bit nonce and model/field additional authenticated data make copied or modified ciphertext fail closed.
+
+Search remains server-side and deterministic through a separately derived HMAC key. Each protected model stores field-separated blind prefix, word, and trigram tokens in a PostgreSQL GIN-indexed array. Mixed-rollout queries check both legacy plaintext and blind tokens, then verify the decrypted content exactly before returning it. This preserves partial and scoped image OCR/caption search without decrypting every row in application memory.
+
+`CONTENT_ENCRYPTION_MODE=off` is deliberately inert. Existing plaintext remains readable and a configured key may decrypt already migrated rows, but no write changes until the mode is explicitly `write`. The batch migration rewrites through the same Prisma extension and is dry-run-only unless `--apply` is supplied. The master key lives only in server secrets and never crosses into Telegram, Vercel, or the browser.
+
+This is application-level encryption, not end-to-end encryption: the running backend can decrypt content because search, reminders, synchronization, and dashboard rendering require it. Ownership, due dates, statuses, recurrence, provider identifiers, and other operational metadata remain queryable. The complete activation and recovery boundary is documented in `docs/CONTENT_ENCRYPTION.md`.
+
+## 11. AI adapter (`src/ai/`)
+
+The `AiProvider` interface supports:
+
+- Message classification
+- Idea structuring
+- Task extraction
+- Idea scoring
+- Provider status and a small live health check for the private admin endpoint
+
+`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, integration intent, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Search vectors are deterministic local word hashes computed at query time, so capture and search never consume OpenAI quota.
+
+The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are not cached: each one is an explicit user action.
+
+OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted. AI is reserved for synthesis-heavy work such as complex note/idea structuring, note merges, note analysis, and idea scoring.
+
+The private `GET /admin/ai/status` endpoint is enabled only when `ADMIN_STATUS_TOKEN` is set. It is intentionally not exposed through Telegram.
+
+## 12. Background loops and bandwidth
+
+General and Study image albums use event-driven batch settlement. Each inbound Telegram image persists
+first and schedules one processing wake after the short album settle window. Periodic five-minute passes
+exist only to recover durable work after a process restart or transient failure, and each processor is
+single-flight so a slow external-database round trip cannot overlap the next wake. Do not replace this
+with sub-minute idle polling: production PostgreSQL is external to Render, so every query contributes
+to service-initiated outbound bandwidth. Voice capture follows the same principle: the message handler
+does normal processing and the minute loop is recovery-only.
+
+## 13. Integrations
 
 Google Calendar is the only active personal-workspace mirror. Threadwise's PostgreSQL rows remain authoritative, so a provider outage never rejects or removes a task that was successfully captured.
 
@@ -375,7 +390,130 @@ Normal task cards do not display long template URLs. Users interact through a co
 
 Gmail was removed from the active runtime in July 2026. Its legacy schema objects are retained inertly to avoid destructive data removal during the lifecycle revamp and should only be dropped in a separately reviewed retention migration.
 
-## Beacon dual-bot boundary
+## 14. Performance model
+
+Most Telegram updates now stay on the deterministic path. For a message of length `L`, natural-command matching, intent scoring, date parsing, title cleanup, and local embedding are `O(L)` with small fixed rule tables. Task and note creation add a constant number of indexed database reads/writes. In practice, deterministic request latency should be dominated by PostgreSQL plus Telegram reply time rather than local parsing.
+
+Approximate per-request work:
+
+- Natural reminder/task capture: `O(L) + DB create + Telegram reply`
+- Recurring reminder delivery: `O(1) DB update` after the normal due-task fetch; the task row is advanced in place.
+- Natural command-like settings/list/detail request: `O(L) + needed DB read/write + Telegram reply`
+- Simple note capture: `O(L) + DB create + Telegram reply`
+- Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
+- Calendar auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
+- Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: each call pays OpenAI latency and provider rate limits.
+
+Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` synthesis requests arrive at the same time, OpenAI becomes the bottleneck.
+
+Group routing adds only constant-time checks per Telegram update: a few id lookups for the allowlist, a chat-type check, and at most one short bot-mention regex over the incoming message. Once routed, group commands have the same order of growth as private commands because the group chat is just another scoped owner id.
+
+Current bottlenecks to watch as usage grows:
+
+- Public IDs are generated with per-user counts. This is fine for personal scale, but a per-user counter table would be better for very high write volume.
+- Search loads recent rows into memory and scores app-side. This is fine for hundreds of personal items; move to pgvector or indexed full-text search if users reach thousands to tens of thousands of items.
+- Telegram itself is an external latency floor. Even fully deterministic handling still waits on Telegram send operations.
+
+Message formatting helpers are constant-time apart from escaping and truncating user text. The deterministic wording variation uses a small hash over the public ID, so it is `O(id length)`, requires no network call, and produces stable output for the same item.
+
+## 15. Study mode (owner's private tool)
+
+Study mode is the owner's private tool, not part of the product other people use. It shares the bot,
+services, reminder loop and database, but every path is gated to one owner and one bound group.
+How the owner uses it (setup, commands, Canvas, travel) is in [`STUDY_MODE.md`](STUDY_MODE.md).
+
+Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
+
+Study privacy fails closed. Each command and callback verifies the exact actor, exact chat, active binding, and current two-member count. The `chat_member` handler unbinds the workspace if another human joins; reminders and auto-save acknowledgements recheck the group before proactive output. Study queries include `workspaceId`, and the feature remains absent from global search and every ordinary personal/group dashboard route.
+
+The approved public-Study direction is additive and does not weaken this sealed path. Its tenant,
+membership, credential, bot, scheduling, privacy, and rollout boundaries are recorded in
+[`PUBLIC_STUDY_ARCHITECTURE.md`](PUBLIC_STUDY_ARCHITECTURE.md),
+[`PUBLIC_STUDY_THREAT_MODEL.md`](PUBLIC_STUDY_THREAT_MODEL.md), and
+[`PUBLIC_STUDY_ROLLOUT.md`](PUBLIC_STUDY_ROLLOUT.md). Those Phase 7 documents are architecture only:
+the founder workspace remains behind the current owner/chat gate, and no public bot, OAuth
+connection, tenant migration, invitation, or deployment is active.
+
+Study services are split by responsibility. `study.ts` owns weeks, modules, work, sessions, mistakes, reviews, schedule blocks, dashboard aggregation, and CSV exports. `studyNaturalLanguage.ts` performs deterministic intent and module extraction. `studyCanvas.ts` owns a single-flight, paginated, retry-bounded, read-only Canvas mirror. `studyAttention.ts` scores work from deadlines, explicit priority, mastery, backlog age, effort, and source uncertainty. `studyResources.ts` owns module resources, reply/pending captures, local OCR metadata, durable silent note sessions, and Unicode-safe Telegram pagination. `studyTransit.ts` consumes the public Improved NextBus contract and manages saved/default/temporary origins. `studyReminders.ts` derives and prioritizes proactive candidates while `studyCapture.ts` and `study.ts` keep Telegram handlers thin.
+
+### Study write routing
+
+Study write routing is explicit. `activeModuleId` plus `activeModuleUntil` form a visible ten-minute
+capture context, not an indefinite default. Switching modules restarts the window; ordinary captures
+do not extend it. After expiry, captures without one unambiguous module reference or module-specific
+bot reply are persisted as `StudyPendingCapture` rows until the owner chooses an active module.
+Image pending rows retain caption, optional OCR preview, sender, and sent-time metadata and are
+atomically consumed only when the owner saves. Canvas source metadata follows
+the same separation: sync may refresh known rows, but `StudyModule.active`, module/item archive
+timestamps, and local closed item statuses remain owner decisions. Inactive modules are excluded at
+the query boundary from operational projections, reminders, travel, search, reviews, and exports.
+
+### Canvas and NUSMods
+
+Canvas course identity is anchored to the provider course id plus retained term id/name/date metadata; a matching human-readable module code is not sufficient evidence that two terms are the same. Clearly out-of-semester courses are skipped with reason-coded sync diagnostics. `studyDeadlineTrust.ts` independently classifies each Canvas deadline against its Canvas term and configured Study semester. A suspicious or missing-provider deadline stays visible for manual confirmation but is excluded from overdue totals, module traffic-light deadline pressure, timetable deadline lanes, weekly previews, and urgent reminder candidates.
+
+`studyNusmods.ts` is the deterministic timetable-import boundary. It parses only canonical NUSMods semester share URLs, derives the academic year from the configured Study semester, fetches the selected modules from the public NUSMods API, matches the exact lesson type and class number, and upserts recurring blocks with `source=NUSMODS` plus stable source references. A re-import reconciles only that source namespace: stale NUSMods selections are deactivated, while manual schedule blocks are never rewritten. Published venue labels are passed through `studyTransit.ts`; a resolved venue enables the existing live-journey and class-departure pipeline, while an unresolved venue stays visible and produces an explicit import warning.
+
+### Campus places and journeys
+
+Study routing uses one deterministic place boundary in `src/services/studyTransit.ts`. A resolved place carries a stable id, display name, aliases, venue-or-stop type, coordinates, and ranked nearby stops. Telegram origin setup, natural-language directions, timetable destinations, proactive class reminders, and the protected dashboard search endpoint all call this boundary; none maintains a separate list of place aliases. Exact aliases resolve immediately, fuzzy ambiguity returns bounded candidates, and unresolved timetable labels remain visible but cannot silently enable a travel reminder.
+
+A `StudyJourneyEstimate` is a complete route plan rather than a bus-only answer. It records the initial walking leg, boarding stop, live arrival choices, bus and transfer legs, alighting stop, final walking leg, total travel time, predicted arrival and leave time, data freshness, live/fallback status, and alternative plans. The public Improved NextBus provider remains advisory: unavailable live data produces a labelled conservative fallback and never an invented arrival.
+
+Origin selection is deterministic: an unexpired temporary current location wins, then the timetable block's explicit origin, then the saved default. Current locations are accepted only through Telegram's native private-chat location control, expire after four hours, and are cleared by **I'm here**; Threadwise stores a short-lived point for route calculation and does not continuously track movement. Group prompts deep-link the owner to the private control instead of requesting public location data.
+
+### Timetable, Calendar mirror and reminders
+
+`studyCalendar.ts` is a separate one-way provider boundary over the same schedule records. Enabling sync
+creates one durable `StudyScheduleCalendarLink` per block with a deterministic Google event ID. Local
+mutations remain canonical and only enqueue UPSERT/DELETE work; patch-first provider writes, create-
+conflict recovery, bounded exponential retry, and daily provider reconciliation converge repeated/concurrent
+requests on one event and replace Google-side changes. RRULE/EXDATE values represent recurrence and
+occurrence deletion. Existing encrypted OAuth credentials are reused, while event bodies, tokens,
+origins, coordinates, routes, buffers, and preparation notes never enter browser DTOs or logs.
+
+Calendar reconciliation claims and bulk-queues stale enabled workspaces atomically, preserving existing
+pending/retry work. Local edits queue immediately; unchanged provider events are integrity-checked once
+per day rather than replayed every 15 minutes. Drains use stable cutoffs, local single-flight, and
+version-guarded completion.
+See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `archive/BANDWIDTH_REPAIR_2026-09-12.md`.
+
+`studyReminders.ts` models timetable interruption as one `StudyScheduleReminderSequence` per occurrence.
+The first schedule is the earlier of start-minus-45-minutes and the live departure time. An admitted
+sequence has at most four attempt-specific deliveries, five minutes apart, and consumes one logical
+daily slot. Acknowledgement, arrival, a matching Study session, or daily timetable mute closes it;
+route details do not. Explicit timetable alerts alone may cross Study quiet hours, and no alert is
+backfilled after start. An abandoned claim advances after a bounded grace period rather than leaving
+the sequence stuck or creating an unbounded resend loop.
+
+The same loop invokes a separately scoped Study reminder pass after normal task processing. It derives candidates from PostgreSQL, verifies the private group before every pass, applies Study workspace quiet hours and its daily cap, and bulk-reads candidate dedupe keys before claiming only unseen deliveries. The unique `StudyReminderDelivery.dedupeKey` constraint remains the final race-safe authority; expected duplicates must never be implemented as periodic failed inserts because the production database is external to Render. Saturday review, Sunday preview, due mistake reattempts, red modules, Canvas uncertainty, trusted important deadlines, optional study blocks, and missing timed practice therefore remain restart-safe without creating a second scheduler. Eligible candidates are sorted by product urgency before scheduled age so overdue and near-due work cannot be displaced by housekeeping when the daily cap is reached. Every pass records a bounded reason-coded health snapshot (`READY`, `QUIET_HOURS`, `UNSAFE_CHAT`, or `DELIVERY_ERRORS`) for dashboard diagnosis. A Study pass failure is isolated and cannot interrupt ordinary Threadwise reminders.
+
+Recurring Study blocks use a stable series row plus bounded academic-week exceptions. Removing one occurrence appends an idempotent week exception; removing this-and-future shortens the series; removing the entire series deactivates the row. Reminder collection, dashboard projection, and next-block calculation all apply the same exception list.
+
+### Study dashboard, notes and Deep Work
+
+The Study dashboard is a separately sealed projection of this domain. `src/dashboard/workspaces.ts` marks a workspace as `mode=STUDY` only when the signed principal, configured owner, configured chat, live Telegram membership, and active `StudyWorkspace` binding match. `src/dashboard/study.ts` repeats the exact gate before every snapshot, search, content, and mutation request; a mismatch returns an opaque not-found response. The current shell includes Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings. Timetable derives a full 00:00–24:00 weekly/day view from recurring schedule blocks and planned work while keeping deadline markers distinct from scheduled study time; class blocks may carry a destination, normal origin, and travel buffer. Protected Telegram image/file bytes are fetched server-side only after this lookup. Each request resolves a fresh Telegram file path, retries one stale-download failure, accepts only an upstream raster MIME, enforces the size bound, and returns credential-free temporary or permanent errors.
+
+When the resolved workspace is Study Mode, the Next.js client switches to a dedicated module-first shell and requests `/api/v1/dashboard/study/snapshot`. Study mutations call the same services used by Telegram for work, resources, mastery, sessions, mistakes, weekly reviews, Canvas state, origins, and schedule blocks. Realtime revisions include Study workspace/resource/Canvas/audit changes and are keyed to the signed owner, so either surface updates the other without a second data store.
+
+Study Markdown notes remain ordinary `StudyResource` rows, so Telegram capture, module/session links, search, and analysis evidence do not fork into a browser-only document store. Before filing, one `StudyNoteDraft` per owner/workspace draft key stores encrypted title/body text for seven days. Draft reads and writes repeat the sealed Study authorization gate, expired rows are opportunistically purged, and an integer optimistic revision rejects stale cross-device writes. A new-note draft uses the stable `new` key; an existing note uses its resource id, must resolve to a NOTE in the same workspace, and retains the canonical note's starting `updatedAt` so an old recovered draft cannot overwrite a newer filed note. Drafts are deliberately not search-indexed or analysis evidence. `StudyResourceRevision` retains at most 50 encrypted title/body snapshots per filed note; dashboard detail returns only the newest bounded window. `StudyNoteLink` stores resolved workspace-local edges for backlinks, while unresolved links remain visible in the reader and can resolve after the target note exists and the source is saved again. Dashboard updates include the previously observed `updatedAt` value and fail with a conflict before overwriting a newer note. The dashboard keeps locally emitted Markdown out of its external-replacement path so ordinary autosave renders do not reset the writer's selection. Raw HTML and scripts never execute; Mermaid—including its class, sequence, and state UML grammars—is rendered lazily by the dashboard under strict mode and sanitized again before insertion. PlantUML and remote diagram rendering are not part of the trust boundary. Telegram derives a plain-text fallback and replaces diagrams with an explicit dashboard-viewing marker. Historical tag arrays remain readable at the persistence boundary for compatibility, but current dashboard, Telegram, capture, voice-note, and AI flows neither request, generate, nor display tags.
+
+Deep Work sessions remain canonical backend records even while their controls appear across several dashboard routes. `StudySession` stores exact timestamps, an optional topic and focus structure, a technique list, outcome data, and a soft-archive marker. `StudySessionResource` links notes, images, files, questions, and other module resources without copying content. The dashboard may PATCH a session while it is active or after completion and may archive completed history; every mutation repeats the Study owner/group gate and validates that linked resources belong to the same workspace and module. Archiving adjusts recorded item minutes but retains the session row for auditability. No AI service participates in timing, completion, resource linking, or retrieval.
+
+Optional module analysis is a separate evidence-processing boundary, not part of Deep Work's canonical control path. Protected `GET` and `POST /api/threadwise/study/modules/:moduleId/analysis` routes repeat the Study owner/group gate: `GET` reads the latest cache, while `POST` is the only way to request work. `GeminiStudyAnalysisJob` is the retained database model name: it snapshots completed, non-archived module sessions and bounded linked evidence, hashes that evidence for idempotency, and is claimed by the deployed backend runner. The runner calls the server-side OpenAI adapter using `OPENAI_API_KEY`, `OPENAI_MODEL`, and the bounded fallback chain; no laptop worker or Gemini credential participates in Study analysis. The service filters unknown evidence ids, drops uncited findings, records uncertainty as a limitation, and never writes mastery, task, reminder, schedule, or session state. A completed cache remains readable during provider outages; absent credentials or provider failures disable only this optional surface. The local Gemini CLI remains a separate legacy path for owner-only Ideas Intelligence.
+
+## 16. Side projects (separate from the product)
+
+These reuse the same process and database but are not part of Threadwise the product. Each has its
+own document:
+
+- Beacon, a community-moderation bot: [`BEACON.md`](BEACON.md), and the section below.
+- Telegram Codex mode, the owner's remote coding tool: [`PRIVATE_CODEX_MODE.md`](PRIVATE_CODEX_MODE.md),
+  [`PRIVATE_CODEX_IMPLEMENTATION_NOTES.md`](PRIVATE_CODEX_IMPLEMENTATION_NOTES.md) and
+  [`TELEGRAM_REMOTE_OPERATOR.md`](TELEGRAM_REMOTE_OPERATOR.md).
+- The owner-only file courier: [`OWNER_FILE_COURIER.md`](OWNER_FILE_COURIER.md).
+
+### Beacon dual-bot boundary
 
 Beacon is an optional second grammY `Bot` instance created in `src/main.ts`. It shares the Fastify process, Prisma client, PostgreSQL database, and Render service with Threadwise, but uses a separate Telegram token, webhook path, update-id table, command list, allowlist, and `Community*` tables. The process derives a Telegram webhook header secret from the Beacon token, supplies it to `setWebhook`, and rejects requests without a timing-safe header match.
 

@@ -1,5 +1,6 @@
 import { DailyBriefDeliveryStatus, DailyBriefKind, PlanningScope } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { settings } from "../test/builders";
 
 const mocks = vi.hoisted(() => ({
   agenda: vi.fn(),
@@ -43,11 +44,9 @@ describe("private daily brief delivery", () => {
   it("delivers one bounded cross-mode morning brief with a private carryover decision", async () => {
     const sendMessage = vi.fn(async () => ({ message_id: 1 }));
     const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "Asia/Singapore",
-      quietHoursStart: "22:00", quietHoursEnd: "08:00",
-      morningBriefEnabled: true, morningBriefTime: "08:00",
-      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
-    }]) } } as never;
+      ...settings({ reminderChatId: "123", morningBriefEnabled: true }),
+      user: { id: "user-1", telegramId: "123" },
+    }]) }, dailyBriefDelivery: { findUnique: vi.fn(async () => null) } } as never;
     const summary = await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-08-31T00:05:00.000Z"), database);
     expect(summary).toMatchObject({ checked: 1, sent: 1, failed: 0 });
     expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ kind: DailyBriefKind.MORNING, scope: PlanningScope.PERSONAL, scopeKey: "private-cross-mode" }), database);
@@ -62,10 +61,8 @@ describe("private daily brief delivery", () => {
   it("does not interrupt during quiet hours", async () => {
     const sendMessage = vi.fn();
     const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "Asia/Singapore",
-      quietHoursStart: "22:00", quietHoursEnd: "08:00",
-      morningBriefEnabled: true, morningBriefTime: "07:00",
-      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
+      ...settings({ reminderChatId: "123", morningBriefEnabled: true, morningBriefTime: "07:00" }),
+      user: { id: "user-1", telegramId: "123" },
     }]) } } as never;
     const summary = await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-08-30T23:05:00.000Z"), database);
     expect(summary).toEqual({ checked: 1, sent: 0, skipped: 0, failed: 0 });
@@ -80,10 +77,8 @@ describe("private daily brief delivery", () => {
   it("does not send when the owner has no established private bot chat", async () => {
     const sendMessage = vi.fn();
     const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: null, timezone: "Asia/Singapore",
-      quietHoursStart: null, quietHoursEnd: null,
-      morningBriefEnabled: true, morningBriefTime: "08:00",
-      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
+      ...settings({ quietHoursStart: null, quietHoursEnd: null, morningBriefEnabled: true }),
+      user: { id: "user-1", telegramId: "123" },
     }]) } } as never;
     await expect(runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-08-31T00:05:00.000Z"), database))
       .resolves.toEqual({ checked: 0, sent: 0, skipped: 0, failed: 0 });
@@ -103,24 +98,51 @@ describe("private daily brief delivery", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("claims a local-day brief once across repeated polling and a DST overlap", async () => {
+  /** A settings fake plus a delivery ledger that remembers each claimed (date, kind) key. */
+  function briefDatabase(overrides: Parameters<typeof settings>[0]) {
+    const claimed = new Set<string>();
+    mocks.claim.mockImplementation(async (input: { localDate: Date; kind: string }) => {
+      claimed.add(`${input.localDate.toISOString()}|${input.kind}`);
+      return { claimed: true, delivery: { id: "delivery-1", status: DailyBriefDeliveryStatus.PENDING } };
+    });
+    const findUnique = vi.fn(async ({ where }: { where: { recipientTelegramId_localDate_kind_scopeKey: { localDate: Date; kind: string } } }) => {
+      const key = where.recipientTelegramId_localDate_kind_scopeKey;
+      return claimed.has(`${key.localDate.toISOString()}|${key.kind}`) ? { id: "delivery-1" } : null;
+    });
+    const database = {
+      userSettings: { findMany: vi.fn(async () => [{
+        ...settings({ reminderChatId: "123", quietHoursStart: null, quietHoursEnd: null, morningBriefEnabled: true, ...overrides }),
+        user: { id: "user-1", telegramId: "123" },
+      }]) },
+      dailyBriefDelivery: { findUnique },
+    } as never;
+    return { database, findUnique };
+  }
+
+  it("sends a local-day brief once across repeated polling and a DST overlap, without rebuilding it", async () => {
     const sendMessage = vi.fn(async () => ({ message_id: 1 }));
-    const database = { userSettings: { findMany: vi.fn(async () => [{
-      user: { id: "user-1", telegramId: "123" }, reminderChatId: "123", timezone: "America/New_York",
-      quietHoursStart: null, quietHoursEnd: null,
-      morningBriefEnabled: true, morningBriefTime: "01:00",
-      eveningDebriefEnabled: false, eveningDebriefTime: "21:00",
-    }]) } } as never;
-    mocks.claim
-      .mockResolvedValueOnce({ claimed: true, delivery: { id: "delivery-1", status: DailyBriefDeliveryStatus.PENDING } })
-      .mockResolvedValueOnce({ claimed: false, delivery: { id: "delivery-1", status: DailyBriefDeliveryStatus.SENT } });
+    const { database } = briefDatabase({ timezone: "America/New_York", morningBriefTime: "01:00" });
 
     await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-11-01T05:05:00.000Z"), database);
     await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-11-01T06:05:00.000Z"), database);
 
-    expect(mocks.claim).toHaveBeenCalledTimes(2);
-    expect(mocks.claim).toHaveBeenNthCalledWith(1, expect.objectContaining({ localDate: new Date("2026-11-01T04:00:00.000Z") }), database);
-    expect(mocks.claim).toHaveBeenNthCalledWith(2, expect.objectContaining({ localDate: new Date("2026-11-01T04:00:00.000Z") }), database);
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ localDate: new Date("2026-11-01T00:00:00.000Z") }), database);
+    expect(mocks.agenda).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the Singapore calendar day, not the UTC day before it", async () => {
+    const sendMessage = vi.fn(async () => ({ message_id: 1 }));
+    const { database, findUnique } = briefDatabase({ timezone: "Asia/Singapore", morningBriefTime: "08:00" });
+
+    // 08:05 on 10 November in Singapore is 00:05 UTC the same day; local midnight is 9 November 16:00 UTC.
+    await runDailyBriefPass({ api: { sendMessage } } as never, "123", new Date("2026-11-10T00:05:00.000Z"), database);
+
+    expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recipientTelegramId_localDate_kind_scopeKey: expect.objectContaining({ localDate: new Date("2026-11-10T00:00:00.000Z") }) },
+    }));
+    expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ localDate: new Date("2026-11-10T00:00:00.000Z") }), database);
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });

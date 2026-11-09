@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Review follow-through (v0.36.0)
+- Fixes from the 2026-11-01 review (`docs/REVIEW_2026-11-01.md`): Done on a recurring task can no
+  longer skip an occurrence; dashboard completion uses the task services; group `/undo` reverses only
+  the member's own changes (admins can undo anyone's) and never over another member's newer change;
+  ordinary "paid/spent" messages are no longer captured as expenses; a failing background loop tick
+  cannot crash the process; the image search button fits Telegram's 64-byte limit; review-card saves
+  keep @mentions.
+- Reminders go through one delivery path. Failed sends back off (2, 4, 8, 16, 32 minutes, then every
+  six hours) instead of retrying every 15 minutes; a refused send (bot blocked or removed) goes
+  straight to the six-hour retry so reminders resume after an unblock.
+- Dashboard API: one shared Telegram file download with a size-scaled timeout, in-memory rate limits
+  (single instance), side-project routes moved into a Fastify plugin. Every task action runs through
+  one executor; `handleNaturalCommand` is an ordered rule list.
+- Dependency advisories fixed (zod 4, openai 6, fastify, sharp, vitest 5); dead code, stored
+  embeddings and the AI cache removed; `noUnusedLocals` on; high-level comments across the codebase.
+- No migration. The first daily brief after deploy may be sent once more, because the stored brief
+  day is now the local calendar day.
+
 ### Study Calendar weekday correction (v0.35.7)
 - Converts the persisted semester-start instant into the workspace-local calendar date before deriving
   weekly Google events. A Monday stored as Sunday UTC no longer moves Tuesday/Wednesday classes to

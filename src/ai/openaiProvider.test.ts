@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-describe("OpenAiProvider fallback handling", () => {
+describe("OpenAiProvider", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token");
@@ -9,39 +9,37 @@ describe("OpenAiProvider fallback handling", () => {
     vi.stubEnv("OPENAI_MODEL_FALLBACKS", "gpt-b");
   });
 
-  it("moves to the next model after a rate limit", async () => {
+  it("calls only the configured model and rethrows its failure for the heuristic fallback", async () => {
     const { OpenAiProvider } = await import("./openaiProvider");
     const calls: string[] = [];
-    const client = fakeClient(async (model) => {
-      calls.push(model);
-      if (model === "gpt-a") {
-        throw rateLimitError();
-      }
-
-      return jsonResponse({ title: "Fallback task" });
-    });
-
-    const provider = new OpenAiProvider("test-key", client);
-    await expect(provider.structureTask("do the thing")).resolves.toMatchObject({ title: "Fallback task" });
-    await expect(provider.structureTask("do the next thing")).resolves.toMatchObject({ title: "Fallback task" });
-
-    expect(calls).toEqual(["gpt-a", "gpt-b", "gpt-b"]);
-    expect(provider.getStatus().activeChatModel).toBe("gpt-b");
-  });
-
-  it("does not keep hammering cooled-down rate-limited models", async () => {
-    const { OpenAiProvider } = await import("./openaiProvider");
-    const calls: string[] = [];
-    const client = fakeClient(async (model) => {
+    const provider = new OpenAiProvider("test-key", fakeClient(async (model) => {
       calls.push(model);
       throw rateLimitError();
-    });
+    }));
 
-    const provider = new OpenAiProvider("test-key", client);
     await expect(provider.structureTask("do the thing")).rejects.toThrow("Rate limited");
-    await expect(provider.structureTask("do the next thing")).rejects.toThrow("cooling down");
+    await expect(provider.structureTask("do the next thing")).rejects.toThrow("Rate limited");
 
-    expect(calls).toEqual(["gpt-a", "gpt-b"]);
+    expect(calls).toEqual(["gpt-a", "gpt-a"]);
+    expect(provider.getStatus().lastError).toMatchObject({ model: "gpt-a", message: "Rate limited" });
+  });
+
+  it("uses the fallback when the reply is valid JSON of the wrong shape", async () => {
+    const { OpenAiProvider } = await import("./openaiProvider");
+    const provider = new OpenAiProvider("test-key", fakeClient(async () => jsonResponse({ kind: "spaceship", confidence: "high" })));
+
+    await expect(provider.classifyMessage("buy milk")).resolves.toEqual({
+      kind: "noise",
+      confidence: 0.5,
+      reason: "Could not confidently classify message."
+    });
+  });
+
+  it("accepts a valid reply and treats null optional fields as absent", async () => {
+    const { OpenAiProvider } = await import("./openaiProvider");
+    const provider = new OpenAiProvider("test-key", fakeClient(async () => jsonResponse({ title: "Buy milk", description: null })));
+
+    await expect(provider.structureTask("buy milk")).resolves.toEqual({ title: "Buy milk", description: undefined, dueDateText: undefined });
   });
 });
 
@@ -51,9 +49,6 @@ function fakeClient(create: (model: string) => Promise<unknown>) {
       completions: {
         create: (input: { model: string }) => create(input.model)
       }
-    },
-    embeddings: {
-      create: async () => ({ data: [{ embedding: [1, 0, 0] }] })
     }
   } as never;
 }

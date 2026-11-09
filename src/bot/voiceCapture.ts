@@ -1,6 +1,11 @@
+/**
+ * Voice and audio notes become saved notes. Handlers queue a durable transcription job
+ * (services/voiceTranscription.ts) and start it right away; the job turns into a Note and a result
+ * message with Raw transcript, Undo, Edit, and Keep verbatim buttons. A minute-long recovery loop
+ * finishes jobs interrupted by a restart. See docs/VOICE_NOTE_CAPTURE.md.
+ */
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { VoiceCleanupMode, VoiceTranscriptionStatus } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { logger } from "../logger";
 import { ensureUser } from "../services/users";
 import {
@@ -18,10 +23,16 @@ import {
   voiceFileSizeError,
   type VoiceMedia
 } from "../services/voiceTranscription";
+import { startLoop, type StopLoop } from "../utils/loop";
 
-export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string): void {
+/**
+ * Registers voice, audio, and audio-document handlers plus the transcript buttons. Voice messages
+ * are always transcribed; audio files only when the user enabled voiceAutoTranscribeAudio, otherwise
+ * they pass to the next handler (for example file saving). Button lookups are scoped to user and chat.
+ */
+export function registerVoiceCapture(bot: Bot, botToken: string): void {
   bot.on("message:voice", async (ctx) => {
-    await queueVoiceFromContext(ctx, ai, botToken, {
+    await queueVoiceFromContext(ctx, botToken, {
       telegramFileId: ctx.message.voice.file_id,
       telegramFileUniqueId: ctx.message.voice.file_unique_id,
       sourceKind: "VOICE",
@@ -33,11 +44,11 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
 
   bot.on("message:audio", async (ctx, next) => {
     const user = await ensureUser(ctx);
-    if (!user.settings?.voiceAutoTranscribeAudio) {
+    if (!user.settings.voiceAutoTranscribeAudio) {
       await next();
       return;
     }
-    await queueVoiceFromContext(ctx, ai, botToken, {
+    await queueVoiceFromContext(ctx, botToken, {
       telegramFileId: ctx.message.audio.file_id,
       telegramFileUniqueId: ctx.message.audio.file_unique_id,
       sourceKind: "AUDIO",
@@ -63,11 +74,11 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
       return;
     }
     const user = await ensureUser(ctx);
-    if (!user.settings?.voiceAutoTranscribeAudio) {
+    if (!user.settings.voiceAutoTranscribeAudio) {
       await next();
       return;
     }
-    await queueVoiceFromContext(ctx, ai, botToken, media, user);
+    await queueVoiceFromContext(ctx, botToken, media, user);
   });
 
   bot.callbackQuery(/^voice:raw:([0-9a-f-]+):(\d+)$/, async (ctx) => {
@@ -121,26 +132,20 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
   });
 }
 
-export function startVoiceCaptureRecoveryLoop(bot: Bot, ai: AiProvider, botToken: string): NodeJS.Timeout {
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      await processRecoverableVoiceTranscriptions(bot.api, botToken, ai);
-      await deliverVoiceTranscriptionResults(bot);
-    } catch (error) {
-      logger.error("Voice capture recovery loop failed.", { error: String(error) });
-    } finally {
-      busy = false;
-    }
-  };
-  void tick();
+/** Finishes voice transcriptions interrupted by a restart and delivers any undelivered results. */
+export function startVoiceCaptureRecoveryLoop(bot: Bot, botToken: string): StopLoop {
   // Voice submissions are processed immediately in their handler. This is a
   // restart-recovery sweep, not a hot queue poll.
-  return setInterval(() => void tick(), 60_000);
+  return startLoop("Voice capture recovery", 60_000, async () => {
+    await processRecoverableVoiceTranscriptions(bot.api, botToken);
+    await deliverVoiceTranscriptionResults(bot);
+  }, { runImmediately: true });
 }
 
+/**
+ * Sends the result message for every finished job not yet delivered (success or failure) and marks
+ * it delivered. A send failure is logged and left for the next pass, so results are not lost.
+ */
 export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> {
   const jobs = await undeliveredVoiceJobs();
   for (const job of jobs) {
@@ -177,9 +182,13 @@ export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> 
   }
 }
 
+/**
+ * Validates format and size (Telegram's hosted Bot API downloads at most 20 MB), writes the job
+ * row, replies "Transcription started", then processes it in the background without blocking the
+ * update. A repeated Telegram update finds the existing job and does nothing.
+ */
 async function queueVoiceFromContext(
   ctx: Context,
-  ai: AiProvider,
   botToken: string,
   media: VoiceMedia,
   existingUser?: Awaited<ReturnType<typeof ensureUser>>
@@ -196,7 +205,6 @@ async function queueVoiceFromContext(
   }
   const user = existingUser ?? await ensureUser(ctx);
   const settings = user.settings;
-  if (!settings) throw new Error("Voice settings are unavailable.");
   const queued = await queueVoiceTranscription({
     ...media,
     userId: user.id,
@@ -212,7 +220,7 @@ async function queueVoiceFromContext(
     `🎙️ Transcription started\nModel: ${settings.voiceTranscriptionModel}\nCleanup: ${settings.voiceCleanupMode === VoiceCleanupMode.VERBATIM ? "verbatim" : "light"}`
   );
   await saveVoiceAcknowledgement(queued.job.id, acknowledgement.message_id);
-  void processVoiceTranscription(queued.job.id, ctx.api, botToken, ai)
+  void processVoiceTranscription(queued.job.id, ctx.api, botToken)
     .catch((error) => logger.error("Immediate voice capture processing failed.", { jobId: queued.job.id, error: String(error) }));
 }
 

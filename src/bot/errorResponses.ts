@@ -1,3 +1,8 @@
+/**
+ * Turns thrown errors into friendly Telegram messages and safe log fields. Raw database, provider,
+ * or stack-trace text must never reach users (it can leak internals or secrets), so known failure
+ * types get fixed wording and anything technical falls back to a generic message.
+ */
 import type { Context } from "grammy";
 import { truncate } from "../utils/text";
 import { isEphemeralInteractionContext } from "./ephemeral";
@@ -10,6 +15,11 @@ type ErrorDetails = {
   name?: string;
 };
 
+/**
+ * Picks the message to show for an error: fixed copy for missing records, conflicts, database
+ * outages, connected-service and AI failures; the error's own text only when it already reads
+ * like user copy and looks non-technical; otherwise the fallback.
+ */
 export function userFacingError(error: unknown, fallback = DEFAULT_BOT_ERROR_MESSAGE): string {
   const safeFallback = safeFallbackText(fallback);
   const details = errorDetails(error);
@@ -44,6 +54,21 @@ export function userFacingError(error: unknown, fallback = DEFAULT_BOT_ERROR_MES
   return safeFallback;
 }
 
+/**
+ * True when a lookup failed because the record does not exist, so a handler may answer
+ * "couldn't find that" and let every other failure (outages, bugs) reach bot.catch and the log.
+ * Covers Prisma's P2025 from *OrThrow and the services' stale-list-number refusals.
+ */
+export function isNotFoundError(error: unknown): boolean {
+  const { code, message } = errorDetails(error);
+  // shortcut: the services throw plain Errors for stale list numbers; match their wording until they get a typed error.
+  return code === "P2025" || /^No (?:recent|open|saved) (?:task|note|idea|image) numbered \d+\./.test(message ?? "");
+}
+
+/**
+ * Tells the user something failed, used by bot.catch. Button taps get an alert; private group
+ * menus get a private message instead of exposing the failure in the shared chat. It never throws.
+ */
 export async function respondToUnhandledBotError(ctx: Context, error: unknown): Promise<void> {
   const message = userFacingError(error);
 
@@ -76,6 +101,7 @@ export async function respondToUnhandledBotError(ctx: Context, error: unknown): 
   }
 }
 
+/** Log fields for an error: only its type and code, never its message, which may contain user content. */
 export function errorLogMetadata(error: unknown): Record<string, unknown> {
   const details = errorDetails(error);
   return {
@@ -97,6 +123,7 @@ function errorDetails(error: unknown): ErrorDetails {
   };
 }
 
+/** Makes sure even a caller-supplied fallback is not technical text. */
 function safeFallbackText(fallback: string): string {
   const clean = cleanUserMessage(fallback);
   return clean && !looksTechnical(clean) ? clean : DEFAULT_BOT_ERROR_MESSAGE;
@@ -124,10 +151,12 @@ function isAiProviderFailure(message: string): boolean {
   return /openai|chat completions|embedding provider|insufficient_quota|rate limit|model .*?(?:unavailable|not found)|api[_ -]?key/i.test(message);
 }
 
+/** Detects Prisma, SQL, stack trace, network, and secret-like text that must not be shown to users. */
 function looksTechnical(message: string): boolean {
   return /prisma\.|prismaclient|invalid `?[^`\s]+\.(?:find|create|update|delete|upsert)|an operation failed because|no record was found for a query|\bP\d{4}\b|\b(?:select|insert|update|delete)\s+.+\b(?:from|into|set|where)\b|cannot read propert|is not a function|at \S+ \([^)]*:\d+:\d+\)|econn(?:refused|reset)|etimedout|fetch failed|socket hang up|\b(?:database|openai|google|microsoft|gmail)_[A-Z0-9_]+\b|secret|api[_ -]?key|bearer\s+[A-Za-z0-9._-]+|https?:\/\/\S+\/(?:oauth|token|v\d+\/)/i.test(message);
 }
 
+/** True for messages written as user copy by the services ("I couldn't...", "Only...", "Task ..."). */
 function isClearlyUserFacing(message: string): boolean {
   return /^(?:I (?:can't|cannot|couldn't|could not|need)|That |This |No |Only |Pick |Use |Try |You |Your |Task |Note |Idea |Expense |Excel |Gmail |Google Calendar |Microsoft Excel |Those |One of |The selected |Merge )/i.test(message);
 }

@@ -7,7 +7,7 @@ function database() {
   return {
     user: {
       findUnique: vi.fn(async () => ({
-        settings: { timezone: "Asia/Singapore", expenseCurrency: "SGD" }
+        settings: { timezone: "Asia/Singapore" }
       }))
     }
   } as unknown as PrismaClient;
@@ -47,17 +47,17 @@ describe("dashboard intelligent capture", () => {
     });
   });
 
-  it("recognizes natural expense language and returns the canonical create-expense shape", async () => {
-    const preview = await previewDashboardCapture(
-      "123456789",
-      { text: "Spent $18.40 on lunch at Toast Box today", preferredKind: "auto" },
-      new HeuristicAiProvider(),
-      database(),
-      new Date("2026-07-17T04:00:00.000Z")
-    );
+  it("does not turn spending language into a frozen expense preview", async () => {
+    for (const text of ["Paid the electricity bill", "Spent $18.40 on lunch at Toast Box today"]) {
+      const preview = await previewDashboardCapture(
+        "123456789",
+        { text, preferredKind: "auto" },
+        new HeuristicAiProvider(),
+        database(),
+        new Date("2026-07-17T04:00:00.000Z")
+      );
 
-    expect(preview.kind).toBe("expense");
-    expect(preview.payload).toMatchObject({ total: 18.4, currency: "SGD" });
-    expect(preview.payload.transactionAt).toBeTypeOf("string");
+      expect(["task", "note", "idea"]).toContain(preview.kind);
+    }
   });
 });

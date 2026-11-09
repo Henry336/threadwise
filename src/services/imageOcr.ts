@@ -1,3 +1,9 @@
+/**
+ * Local image OCR (Tesseract.js + Sharp, no paid API) plus the short-lived PendingImageCapture rows
+ * that hold an image's text while the user picks what to do with it (note, task, reminder, store).
+ * Used by the image message handlers, callbacks, and Study capture in src/bot.
+ * Also parses photo captions like "save as receipt" into an intent.
+ */
 import Tesseract from "tesseract.js";
 import sharp from "sharp";
 import os from "os";
@@ -19,8 +25,14 @@ let workerLanguages: OcrLanguages | undefined;
 let queue: Promise<void> = Promise.resolve();
 let languageDirectoryPromise: Promise<string> | undefined;
 
-export type ImageIntent = "note" | "task" | "reminder" | "expense" | "extract" | "store" | "store-extract" | "choose";
+/** What a photo caption asked for. "choose" means no clear intent, so the bot shows action buttons. */
+export type ImageIntent = "note" | "task" | "reminder" | "extract" | "store" | "store-extract" | "choose";
 
+/**
+ * Cleans up the image (rotate, resize, grayscale, sharpen) and reads its text with one shared
+ * Tesseract worker. Jobs run one at a time through a queue to bound CPU and memory on the server.
+ * A timeout throws the worker away so a stuck run cannot block later images.
+ */
 export async function extractTextFromImage(input: Buffer, languages: OcrLanguages = "eng"): Promise<{ text: string; confidence: number }> {
   if (input.length > MAX_IMAGE_BYTES) {
     throw new Error("That image is larger than 10 MB. Send a smaller or compressed image.");
@@ -53,6 +65,7 @@ export async function extractTextFromImage(input: Buffer, languages: OcrLanguage
   });
 }
 
+/** Collapses spaces and drops blank lines from raw OCR output. */
 export function normalizeExtractedText(text: string): string {
   return text
     .replace(/\r/g, "")
@@ -63,13 +76,16 @@ export function normalizeExtractedText(text: string): string {
     .trim();
 }
 
+/**
+ * Deterministic caption parser. Order matters: combined "save and extract" is checked first,
+ * then store, reminder, task, note, and extract, so the most specific wording wins.
+ */
 export function parseImageCaptionIntent(caption: string): ImageIntent {
   const text = caption.toLowerCase().trim();
   if (/\b(?:save|store|keep|archive)\b.*\b(?:and|\+)\s*(?:extract|scan|read|ocr)\b/.test(text)
     || /\b(?:extract|scan|read|ocr)\b.*\b(?:and|\+)\s*(?:save|store|keep)\b/.test(text)) return "store-extract";
   if (/\b(?:save|store|keep|archive)\b.*\b(?:image|photo|picture|screenshot)\b/.test(text)
     || /^(?:please\s+)?(?:save|store|keep)\s+(?:this|it)$/.test(text)) return "store";
-  if (/\b(?:expense|receipt|purchase|spending|spent|paid|reimburse)\b/.test(text)) return "expense";
   if (/\b(?:remind|reminder|nudge|don't forget|do not forget)\b/.test(text)) return "reminder";
   if (/\b(?:task|todo|to-do|action item|something to do)\b/.test(text)) return "task";
   if (/\b(?:as|into)\s+(?:a\s+)?notes?\b/.test(text)) return "note";
@@ -79,6 +95,7 @@ export function parseImageCaptionIntent(caption: string): ImageIntent {
   return "choose";
 }
 
+/** Pulls the label out of captions like "save this as receipt" or "caption: lecture slide". */
 export function captionForStoredImage(caption: string): string | undefined {
   const trimmed = caption.trim();
   const patterns = [
@@ -97,6 +114,10 @@ export function captionForStoredImage(caption: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Stores an image's OCR text and Telegram file ids for 24 hours so the user's button choice
+ * still works after a restart (state lives in PostgreSQL, not memory).
+ */
 export async function createPendingImageCapture(input: {
   userId: string;
   extractedText: string;
@@ -120,6 +141,7 @@ export async function findPendingImageCapture(userId: string, pendingId: string)
   });
 }
 
+/** Reads and deletes the pending capture so the same button press cannot save it twice. */
 export async function consumePendingImageCapture(userId: string, pendingId: string) {
   const pending = await findPendingImageCapture(userId, pendingId);
   await prisma.pendingImageCapture.delete({ where: { id: pending.id } });
@@ -130,6 +152,10 @@ export async function discardPendingImageCapture(userId: string, pendingId: stri
   await prisma.pendingImageCapture.deleteMany({ where: { id: pendingId, userId } });
 }
 
+/**
+ * Marks a pending image as waiting for the user's next message to be a reminder time.
+ * findPendingImageReminder later finds it; cancelPendingImageReminders clears the wait.
+ */
 export async function awaitImageReminderTime(userId: string, pendingId: string) {
   const pending = await findPendingImageCapture(userId, pendingId);
   return prisma.pendingImageCapture.update({ where: { id: pending.id }, data: { awaitingAction: "reminder-time" } });
@@ -150,6 +176,7 @@ export async function cancelPendingImageReminders(userId: string): Promise<numbe
   return result.count;
 }
 
+/** Reuses one Tesseract worker; it is recreated only when the requested languages change. */
 async function getWorker(languages: OcrLanguages): Promise<Tesseract.Worker> {
   if (workerPromise && workerLanguages !== languages) {
     await resetWorker();
@@ -182,6 +209,11 @@ async function resetWorker(): Promise<void> {
   }
 }
 
+/**
+ * Copies the bundled English and Burmese language files into one temp folder, once per process.
+ * Tesseract takes a single language path, and the two data packages install in separate folders.
+ * Bundling them avoids downloading language data at runtime.
+ */
 async function prepareLanguageDirectory(): Promise<string> {
   languageDirectoryPromise ??= (async () => {
     const directory = path.join(os.tmpdir(), "threadwise-tesseract-languages");
@@ -195,6 +227,7 @@ async function prepareLanguageDirectory(): Promise<string> {
   return languageDirectoryPromise;
 }
 
+/** Chains OCR jobs so only one runs at a time. A failed job does not break the chain for the next one. */
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {
   const job = queue.then(operation, operation);
   queue = job.then(() => undefined, () => undefined);

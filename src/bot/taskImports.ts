@@ -1,6 +1,11 @@
+/**
+ * Group TODO import in Telegram. A list sent as "/todo ..." or starting with TODO: or ACTION ITEMS:
+ * becomes a durable PendingTaskImport review (parsed by services/taskImports.ts) instead of creating
+ * tasks right away. The group sees one compact review card with Import, Cancel, and a dashboard link
+ * for detailed edits; nothing is created until Import is tapped.
+ */
 import { TaskImportItemStatus, TaskImportStatus, TaskStatus } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
-import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import {
@@ -25,7 +30,11 @@ import { taskCreationOptionsFromContext } from "./taskMentions";
 
 export const TASK_IMPORT_PAGE_SIZE = 6;
 
-export function registerTaskImports(bot: Bot, ai: AiProvider): void {
+/**
+ * Registers group /todo, the TODO:/ACTION ITEMS: heading detector, and the ti: review buttons.
+ * Non-matching text passes to the next handler. Private /todo is handled elsewhere (Today).
+ */
+export function registerTaskImports(bot: Bot): void {
   bot.command("todo", async (ctx) => {
     if (!isGroupChat(ctx) || !ctx.from) return;
     const body = typeof ctx.match === "string" ? ctx.match.trim() : "";
@@ -49,7 +58,7 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
     const action = ctx.match[1]?.toLowerCase();
     const importId = ctx.match[2];
     if (!importId || (action !== "import" && action !== "cancel" && action !== "refresh")) return;
-    await handleTaskImportCallback(ctx, ai, action, importId);
+    await handleTaskImportCallback(ctx, action, importId);
   });
 
   bot.callbackQuery(/^ti:page:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
@@ -65,6 +74,11 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
   });
 }
 
+/**
+ * Parses the list into a pending review (writes PendingTaskImport and its items), posts the review
+ * card, and stores the card's message id on the review. Mentions and the forum topic id are kept so
+ * assignees and replies stay correct.
+ */
 async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void> {
   if (!ctx.from || !ctx.message) return;
   const user = await ensureUser(ctx);
@@ -80,11 +94,11 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
       requestedByTelegramId: String(ctx.from.id),
       requestedByName: displayName(ctx),
       sourceText,
-      timezone: user.settings?.timezone ?? "UTC",
+      timezone: user.settings.timezone,
       mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
       telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
     });
-    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
+    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings.timezone), {
       reply_markup: taskImportPreviewKeyboard(taskImport, 0),
     }) as { message_id?: number };
     if (message.message_id) {
@@ -99,6 +113,7 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
   }
 }
 
+/** Redraws the review card for a page button, after checking the review belongs to this exact group. */
 async function handleTaskImportPageCallback(ctx: Context, importId: string, requestedPage: number): Promise<void> {
   if (!ctx.from) return;
   try {
@@ -108,7 +123,7 @@ async function handleTaskImportPageCallback(ctx: Context, importId: string, requ
     }
     const page = clampTaskImportPage(taskImport, requestedPage);
     await ctx.answerCallbackQuery({ text: `Page ${page + 1} of ${taskImportPageCount(taskImport)}` });
-    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), page), {
+    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
       reply_markup: taskImportPreviewKeyboard(taskImport, page),
     });
   } catch (error) {
@@ -121,9 +136,13 @@ async function handleTaskImportPageCallback(ctx: Context, importId: string, requ
   }
 }
 
+/**
+ * Import, Cancel, or Refresh for a review. The button must be used in the group that created it.
+ * The admin check runs only when the tapper is not the original sender; the service enforces that
+ * only the sender or an admin may act. Partial failures keep the card open so ready rows can be retried.
+ */
 async function handleTaskImportCallback(
   ctx: Context,
-  ai: AiProvider,
   action: "import" | "cancel" | "refresh",
   importId: string,
 ): Promise<void> {
@@ -139,7 +158,7 @@ async function handleTaskImportCallback(
     if (action === "refresh") {
       if (!sender && !isManager) throw new TaskImportError("Only the sender or a group administrator can open this review.", "forbidden");
       await ctx.answerCallbackQuery({ text: "Review refreshed" });
-      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), 0), {
+      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
         reply_markup: taskImportPreviewKeyboard(taskImport, 0),
       });
       return;
@@ -152,7 +171,7 @@ async function handleTaskImportCallback(
     }
 
     await ctx.answerCallbackQuery({ text: "Importing tasks…" });
-    const result = await importReviewedTasks(importId, actor, ai);
+    const result = await importReviewedTasks(importId, actor);
     if (result.failed > 0) {
       await editOrReplyHtml(ctx, [
         bold("Some tasks need another look"),
@@ -175,7 +194,8 @@ async function handleTaskImportCallback(
   }
 }
 
-export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string, requestedPage = 0): string {
+/** Review card text: counts (assigned, team-owned, done), the first three rows, and what to do next. */
+export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string): string {
   const included = includedTaskImportItems(taskImport);
   const completed = included.filter((item) => item.initialStatus === TaskStatus.DONE).length;
   const assigned = included.filter((item) => Array.isArray(item.assignees) && item.assignees.length > 0).length;
@@ -200,6 +220,10 @@ export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezo
   ].join("\n");
 }
 
+/**
+ * Review card buttons: the dashboard editor link, plus Import (or Retry ready rows) and Cancel while
+ * the review is still open. The page argument is currently unused; the card has no page buttons.
+ */
 export function taskImportPreviewKeyboard(taskImport: TaskImportReview, _requestedPage = 0): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   keyboard.url("Review & edit ↗", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
@@ -222,6 +246,7 @@ function clampTaskImportPage(taskImport: TaskImportReview, requestedPage: number
   return Math.min(Math.max(0, Math.trunc(requestedPage)), taskImportPageCount(taskImport) - 1);
 }
 
+/** "@alice + Design team" style label from the stored assignee JSON and team owner. */
 function importOwnerLabel(value: unknown, teamOwnerLabel: string | null): string {
   const assignees = Array.isArray(value) ? value : [];
   const people = assignees.map((item) => {
@@ -232,6 +257,7 @@ function importOwnerLabel(value: unknown, teamOwnerLabel: string | null): string
   return [...people, ...(teamOwnerLabel ? [teamOwnerLabel] : [])].join(" + ");
 }
 
+/** The group workspace's timezone, used to show due dates on a redrawn card. */
 async function importTimezone(ownerUserId: string): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: ownerUserId }, select: { settings: { select: { timezone: true } } } });
   return user?.settings?.timezone ?? "UTC";

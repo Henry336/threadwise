@@ -1,20 +1,28 @@
-import { Prisma } from "@prisma/client";
+/**
+ * Idea records: create, list, find, rename, edit, archive, score, and turn into a coding brief.
+ * Used by the /ideas, /score and /brief commands, idea callbacks and cards in src/bot, and the
+ * dashboard routes. Every write that the user can reverse also records an undo audit entry.
+ * The AI provider structures and scores ideas; the deterministic provider handles it when no API key is set.
+ */
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 
+/**
+ * Saves a new idea after the AI adapter splits the text into title, concept, problem, and so on.
+ * The public ID (IDEA-n) and the create-undo entry are written in the same transaction.
+ */
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.concept}\n${sourceText}`);
-  const publicId = await nextPublicId(userId, "IDEA");
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "IDEA", async (tx, publicId) => {
     const idea = await tx.idea.create({
       data: {
         userId,
@@ -25,8 +33,7 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
         targetUser: structured.targetUser,
         type: structured.type,
         tags: structured.tags,
-        sourceText,
-        embedding
+        sourceText
       }
     });
     await recordCreateUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title });
@@ -34,16 +41,19 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+// Starred items first (newest star first), then the rest newest first. Sorting in the
+// query keeps an old starred item from falling off a list cut short by `take`.
+const PINNED_FIRST = [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }] satisfies Prisma.IdeaOrderByWithRelationInput[];
+
 export async function listRecentIdeas(userId: string, take?: number) {
-  const ideas = await prisma.idea.findMany({
+  return prisma.idea.findMany({
     where: { userId, archivedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take
   });
-
-  return sortPinnedFirst(ideas);
 }
 
+/** Finds an active idea by database id or public ID, always within the user's own data. Throws if missing. */
 export async function findIdea(userId: string, publicOrUuid: string) {
   return prisma.idea.findFirstOrThrow({
     where: {
@@ -54,12 +64,20 @@ export async function findIdea(userId: string, publicOrUuid: string) {
   });
 }
 
+/**
+ * Resolves what a user typed: a plain number means "the Nth row of /ideas" (same starred-first order),
+ * anything else is treated as an id or public ID.
+ */
 export async function findIdeaReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
-    const ideas = await listRecentIdeas(userId);
-    const idea = ideas[activeIndex - 1];
+    // Fetch only the row at that position of the /ideas list, not the whole list.
+    const idea = await prisma.idea.findFirst({
+      where: { userId, archivedAt: null },
+      orderBy: PINNED_FIRST,
+      skip: activeIndex - 1
+    });
     if (!idea) {
       throw new Error(`No recent idea numbered ${activeIndex}. Run /ideas to see the current list.`);
     }
@@ -69,6 +87,7 @@ export async function findIdeaReference(userId: string, reference: string) {
   return findIdea(userId, normalized);
 }
 
+/** Hides an idea with archivedReason "removed" (no hard delete) and records an undo entry in the same transaction. */
 export async function archiveIdea(userId: string, reference: string) {
   const idea = await findIdeaReference(userId, reference);
   const archivedAt = new Date();
@@ -88,6 +107,11 @@ export async function archiveIdea(userId: string, reference: string) {
   });
 }
 
+/**
+ * Changes an idea's title and records the old one for Undo.
+ * completeSearchableContentUpdate sends every searchable field so the encrypted search tokens
+ * are rebuilt from the whole record, not just the changed field.
+ */
 export async function renameIdeaTitle(userId: string, publicOrUuid: string, title: string) {
   const idea = await findIdea(userId, publicOrUuid);
   const nextTitle = title.trim();
@@ -104,6 +128,7 @@ export async function renameIdeaTitle(userId: string, publicOrUuid: string, titl
   });
 }
 
+/** Replaces the idea's concept (and source text) and records the previous concept for Undo. */
 export async function updateIdeaConcept(userId: string, publicOrUuid: string, concept: string) {
   const idea = await findIdea(userId, publicOrUuid);
   const nextConcept = concept.trim();
@@ -117,13 +142,13 @@ export async function updateIdeaConcept(userId: string, publicOrUuid: string, co
       where: { id: idea.id },
       data: completeSearchableContentUpdate("Idea", idea, {
         concept: nextConcept,
-        sourceText: nextConcept,
-        embedding: Prisma.JsonNull
+        sourceText: nextConcept
       })
     });
   });
 }
 
+/** Asks the AI adapter to score an idea and stores the scores and do/don't notes on the row. Not undoable. */
 export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProvider): Promise<{ publicId: string; score: IdeaScore }> {
   const idea = await findIdea(userId, publicOrUuid);
 
@@ -150,6 +175,10 @@ export async function scoreIdea(userId: string, publicOrUuid: string, ai: AiProv
   return { publicId: idea.publicId, score };
 }
 
+/**
+ * Builds a copy-paste prompt for a coding assistant from the idea and its scores (the /brief command).
+ * Pure text building from stored data; no AI call and no writes.
+ */
 export async function createImplementationBrief(userId: string, publicOrUuid: string): Promise<{ publicId: string; prompt: string }> {
   const idea = await findIdea(userId, publicOrUuid);
 
@@ -222,6 +251,7 @@ export function formatIdeaSavedAcknowledgement(idea: { title: string }): string 
   return `${bold("Idea saved")} · ${h(idea.title)}`;
 }
 
+/** Renders the /ideas list. Row numbers continue across pages so they match findIdeaReference. */
 export function formatRecentIdeas(ideas: Array<{ publicId: string; title: string; concept: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (ideas.length === 0) {
     return "No ideas saved yet—send one over when something starts to take shape.";
@@ -272,17 +302,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   }
 
   return value as Record<string, unknown>;
-}
-
-function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    if (a.pinnedAt && b.pinnedAt) {
-      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
-    }
-
-    if (a.pinnedAt && !b.pinnedAt) return -1;
-    if (!a.pinnedAt && b.pinnedAt) return 1;
-
-    return b.createdAt.getTime() - a.createdAt.getTime();
-  });
 }

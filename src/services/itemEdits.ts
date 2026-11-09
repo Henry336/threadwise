@@ -1,3 +1,9 @@
+/**
+ * Two-step text edits from Telegram: tapping "Edit" stores a PendingItemEdit, and the user's next
+ * message becomes the new title/body/concept/caption. Keeping this in PostgreSQL (with a 15-minute
+ * expiry) makes the edit survive restarts. Used by callbacks, interactions, and message handlers in
+ * src/bot; the actual writes (and their undo entries) live in the tasks/notes/ideas/storedImages services.
+ */
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
 import { renameIdeaTitle, updateIdeaConcept } from "./ideas";
@@ -24,6 +30,11 @@ export type AppliedItemEdit = {
 
 const EDIT_TTL_MS = 15 * 60_000;
 
+/**
+ * Starts an edit for the person tapping (userId) on an item that may belong to someone else
+ * (itemOwnerUserId, for example the synthetic group owner). Any earlier pending edit by the same
+ * person is replaced, so only one edit can wait for their next message.
+ */
 export async function beginPendingItemEdit(
   userId: string,
   kind: EditableItemKind,
@@ -58,6 +69,11 @@ export async function cancelPendingItemEdit(userId: string): Promise<boolean> {
   return result.count > 0;
 }
 
+/**
+ * Applies the user's message to their waiting edit, if any. The pending row is deleted before the
+ * write so the same edit is never applied twice. Returns undefined when nothing is waiting, which
+ * lets the message continue to normal capture routing.
+ */
 export async function applyPendingItemEdit(userId: string, value: string): Promise<AppliedItemEdit | undefined> {
   const nextValue = value.trim();
   if (!nextValue) {
@@ -127,6 +143,7 @@ export function formatEditStarted(item: EditableItem): string {
   ].join("\n");
 }
 
+/** Loads the item scoped to its owner and narrows the requested field to one that kind supports. */
 async function findEditableItem(userId: string, kind: EditableItemKind, itemId: string, field: EditableItemField): Promise<EditableItem> {
   if (kind === "task") {
     const task = await prisma.task.findFirstOrThrow({ where: { userId, id: itemId, archivedAt: null } });

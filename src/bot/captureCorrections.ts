@@ -1,3 +1,8 @@
+/**
+ * Parser for natural corrections such as "save that as a note instead" or "this was a task,
+ * not an idea". It only recognizes the wording; the natural-language router decides which
+ * pending review or recent capture the correction applies to.
+ */
 export type CaptureCorrectionKind = "task" | "reminder" | "note" | "idea";
 
 export type CaptureCorrection = {

@@ -1,3 +1,8 @@
+/**
+ * Short "Saved" style replies that delete themselves after a few seconds. This keeps routine
+ * capture quiet in the chat, a design rule from docs/ARCHITECTURE.md. Errors and cards with
+ * useful buttons use the normal reply helpers and stay visible.
+ */
 import type { Context } from "grammy";
 import { editOrReplyHtml, replyHtml } from "../utils/html";
 import { deleteEphemeralMessage, ephemeralDeletionTarget } from "./ephemeral";
@@ -9,6 +14,7 @@ type TelegramMessageResult = {
   chat?: { id?: unknown };
 };
 
+/** Works out which chat and message to delete: the sent message, or the tapped card after an edit. */
 function messageTarget(ctx: Context, result: unknown): { chatId: number | string; messageId: number } | undefined {
   const response = result && typeof result === "object" ? result as TelegramMessageResult : undefined;
   const responseChatId = response?.chat?.id;
@@ -24,6 +30,11 @@ function messageTarget(ctx: Context, result: unknown): { chatId: number | string
   return chatId !== undefined && messageId !== undefined ? { chatId, messageId } : undefined;
 }
 
+/**
+ * Schedules deletion of the acknowledgement. Receiver-bound ephemeral messages need their own
+ * delete call. The timer is unref'd so it never keeps the process alive, and failures are ignored
+ * (the message may already be gone). A restart before the timer fires leaves the message in place.
+ */
 function removeSoon(ctx: Context, result: unknown, ttlMs: number): void {
   const ephemeral = ephemeralDeletionTarget(ctx, result);
   if (ephemeral) {

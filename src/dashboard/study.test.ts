@@ -1,9 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardStudyAccessError,
   loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
+  studyItemCreateSchema,
   studyModuleCreateSchema,
   studyModuleUpdateSchema,
   studyNoteDraftQuerySchema,
@@ -76,6 +77,12 @@ describe("private Study dashboard authorization", () => {
 });
 
 describe("Study dashboard input contracts", () => {
+  it("rejects an impossible planned date as invalid input instead of passing it on", () => {
+    const item = { moduleId: "3f0c5a9e-8d1b-4c2a-9e7f-1a2b3c4d5e6f", type: "REVISION", title: "Revise" };
+    expect(studyItemCreateSchema.safeParse({ ...item, plannedFor: "2026-02-31" }).success).toBe(false);
+    expect(studyItemCreateSchema.safeParse({ ...item, plannedFor: "2026-02-28" }).success).toBe(true);
+  });
+
   it("keeps list and snapshot resource queries on bounded excerpt fields", () => {
     expect(studyResourcePreviewSelect).toMatchObject({ analysisExcerpt: true, analysisExcerptTruncated: true });
     expect(studyResourcePreviewSelect).not.toHaveProperty("body");
@@ -154,6 +161,10 @@ describe("Study dashboard input contracts", () => {
 });
 
 describe("Study Telegram resource delivery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const resource = {
     id: "resource-1",
     publicId: "SIMG-1",
@@ -166,11 +177,11 @@ describe("Study Telegram resource delivery", () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/fresh.jpg" } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/png" } }));
+    vi.stubGlobal("fetch", fetcher);
     const result = await loadDashboardStudyResourceContent(
       workspace as never,
       resource.id,
       "token",
-      fetcher as typeof fetch,
       vi.fn(async () => resource) as never,
     );
     expect(result.contentType).toBe("image/png");
@@ -184,11 +195,11 @@ describe("Study Telegram resource delivery", () => {
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
       .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/fresh.jpg" } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([4]), { status: 200, headers: { "content-type": "image/jpeg" } }));
+    vi.stubGlobal("fetch", fetcher);
     await expect(loadDashboardStudyResourceContent(
       workspace as never,
       resource.id,
       "token",
-      fetcher as typeof fetch,
       vi.fn(async () => resource) as never,
     )).resolves.toMatchObject({ contentType: "image/jpeg" });
     expect(fetcher).toHaveBeenCalledTimes(4);
@@ -199,11 +210,11 @@ describe("Study Telegram resource delivery", () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, result: { file_path: "photos/historical.bin" } }))
       .mockResolvedValueOnce(new Response(png, { status: 200, headers: { "content-type": "application/octet-stream" } }));
+    vi.stubGlobal("fetch", fetcher);
     await expect(loadDashboardStudyResourceContent(
       workspace as never,
       resource.id,
       "token",
-      fetcher as typeof fetch,
       vi.fn(async () => ({ ...resource, mimeType: null })) as never,
     )).resolves.toMatchObject({ contentType: "image/png", inline: true });
   });
@@ -211,11 +222,13 @@ describe("Study Telegram resource delivery", () => {
   it("separates a removed original from a temporary Telegram failure", async () => {
     const loader = vi.fn(async () => resource) as never;
     const missing = vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
-    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", missing, loader))
+    vi.stubGlobal("fetch", missing);
+    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", loader))
       .rejects.toMatchObject({ code: "not_found", message: "The original Telegram file is no longer available." });
 
     const temporary = vi.fn(async () => new Response(null, { status: 503 })) as unknown as typeof fetch;
-    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", temporary, loader))
+    vi.stubGlobal("fetch", temporary);
+    await expect(loadDashboardStudyResourceContent(workspace as never, resource.id, "token", loader))
       .rejects.toMatchObject({ code: "invalid", message: "Telegram is temporarily unavailable. Retry in a moment." });
   });
 });

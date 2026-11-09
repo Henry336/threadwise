@@ -1,3 +1,9 @@
+/**
+ * Archived-item browsing and restore for notes, ideas, and tasks.
+ * Archiving hides an item from active views without deleting the row, so public IDs are never reused.
+ * Used by the `/archived` and `/restore` commands, their natural-language forms, and archive page
+ * callbacks in src/bot. Every query is scoped by the owner's userId.
+ */
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h, italic } from "../utils/html";
@@ -29,6 +35,7 @@ export type ArchivedPage = {
 
 const DEFAULT_PAGE_SIZE = 10;
 
+/** Accepts singular or plural user input ("note", "notes") and maps it to an archive kind. */
 export function parseArchiveKind(value: string): ArchiveKind | undefined {
   const normalized = value.trim().toLowerCase();
   if (normalized === "note" || normalized === "notes") return "notes";
@@ -37,6 +44,11 @@ export function parseArchiveKind(value: string): ArchiveKind | undefined {
   return undefined;
 }
 
+/**
+ * Returns one page of the user's archived items of one kind, newest archive first.
+ * The page number is clamped so an out-of-range request shows the last real page.
+ * Merged notes include the public ID of the note they were merged into.
+ */
 export async function listArchivedItems(userId: string, kind: ArchiveKind, page = 1, pageSize = DEFAULT_PAGE_SIZE): Promise<ArchivedPage> {
   if (kind === "notes") {
     const totalItems = await prisma.note.count({ where: { userId, archivedAt: { not: null } } });
@@ -103,6 +115,11 @@ export async function listArchivedItems(userId: string, kind: ArchiveKind, page 
   return pageResult(kind, 1, pageSize, 0, []);
 }
 
+/**
+ * Brings an archived item back to its active list, chosen by its public ID prefix (NOTE-, IDEA-, TASK-).
+ * Restored notes lose their merge link; restored tasks reopen and are re-synced to Google Calendar
+ * on a best-effort basis. Returns undefined when nothing archived matched for this user.
+ */
 export async function restoreArchivedItem(userId: string, reference: string) {
   const normalized = reference.trim().toUpperCase();
   if (normalized.startsWith("NOTE-")) {
@@ -140,6 +157,7 @@ export async function restoreArchivedItem(userId: string, reference: string) {
   return undefined;
 }
 
+/** Renders an archived page as Telegram HTML, ending with a `/restore` hint using a real ID. */
 export function formatArchivedPage(page: ArchivedPage, timezone = "UTC"): string {
   if (page.totalItems === 0) {
     return `Nothing archived in ${page.kind} yet.`;

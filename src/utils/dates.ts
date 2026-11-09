@@ -1,3 +1,10 @@
+/**
+ * Deterministic natural-language date and time parsing for tasks and reminders
+ * ("tomorrow 3pm", "in 20 min", "every Monday"). It is the reason reminders work without AI.
+ * All parsing happens in the user's timezone. Also holds recurrence and quiet-hours math used by
+ * the reminder loop.
+ */
+
 import { DateTime } from "luxon";
 import { RecurrenceRule } from "@prisma/client";
 import { normalizeClock } from "./clock";
@@ -8,6 +15,12 @@ export type QuietHours = {
   timezone: string;
 };
 
+/**
+ * Parses a date or time phrase into a Date, in the user's timezone. Patterns are tried from most
+ * specific to most general (relative durations, named times, weekdays, month-day, numeric and ISO
+ * dates, then a bare clock time). A date without a time defaults to 9:00, and a time that has
+ * already passed today moves to tomorrow. Returns undefined when nothing matches.
+ */
 export function parseDueDate(input: string, timezone: string, now: Date = new Date()): Date | undefined {
   const text = normalizeNaturalDateText(input);
   const base = DateTime.fromJSDate(now).setZone(timezone);
@@ -94,6 +107,9 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
   return undefined;
 }
 
+/**
+ * Formats a date for Telegram copy in the user's timezone, with a short timezone name.
+ */
 export function formatDateTimeForUser(date: Date, timezone: string): string {
   return DateTime.fromJSDate(date)
     .setZone(timezone)
@@ -104,6 +120,11 @@ export function formatDateTimeForUser(date: Date, timezone: string): string {
     });
 }
 
+/**
+ * Splits the body of "remind me ..." into the part that says when and the task text.
+ * Supports "when | task", "me to ...", "@user to ..." and "everyone to ...". Several patterns return the
+ * whole phrase as both parts.
+ */
 export function splitReminderText(input: string): { whenText: string; taskText: string } | undefined {
   const pipeParts = input.split("|").map((part) => part.trim()).filter(Boolean);
   if (pipeParts.length >= 2) {
@@ -184,6 +205,10 @@ export type RecurrencePattern = {
   intervalDays: number;
 };
 
+/**
+ * Detects daily, weekly, monthly or yearly wording ("every day", "weekly", "Mondays").
+ * `intervalDays` is an approximate length; nextRecurringDueAt does the real calendar math.
+ */
 export function parseRecurrencePattern(input: string): RecurrencePattern | undefined {
   const text = input.toLowerCase();
   if (/\b(?:every\s+(?:single\s+)?(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening)|once\s+a\s+day|every\s+24\s+hours)\b/.test(text)) {
@@ -205,6 +230,9 @@ export function parseRecurrencePattern(input: string): RecurrencePattern | undef
   return undefined;
 }
 
+/**
+ * Removes recurrence wording from text so it does not end up in the task title.
+ */
 export function stripRecurrenceText(input: string): string {
   return input
     .replace(/\b(?:every\s+(?:single\s+)?(?:day|night|morning|evening)|daily|nightly|each\s+(?:day|night|morning|evening)|once\s+a\s+day|every\s+24\s+hours)\b/ig, "")
@@ -218,6 +246,12 @@ export function stripRecurrenceText(input: string): string {
     .trim();
 }
 
+/**
+ * Next future occurrence of a recurring task after `previousDueAt`. Steps forward until it is
+ * after `now`, so missed occurrences are skipped instead of firing in a burst. Monthly tasks keep
+ * their intended day (for example the 31st) and clamp to the month's last day, so they do not
+ * drift earlier after a short month.
+ */
 export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, timezone: string, now: Date = new Date(), monthlyDayOfMonth?: number | null): Date {
   let next = DateTime.fromJSDate(previousDueAt).setZone(timezone);
   const current = DateTime.fromJSDate(now).setZone(timezone);
@@ -243,11 +277,18 @@ export function nextRecurringDueAt(previousDueAt: Date, rule: RecurrenceRule, ti
   return next.toJSDate();
 }
 
+/**
+ * The day of month a monthly task should keep, stored so nextRecurringDueAt can avoid drift.
+ */
 export function recurrenceDayOfMonth(dueAt: Date | undefined, rule: RecurrenceRule | undefined, timezone: string): number | undefined {
   if (!dueAt || rule !== RecurrenceRule.MONTHLY) return undefined;
   return DateTime.fromJSDate(dueAt).setZone(timezone).day;
 }
 
+/**
+ * Reads "in 20 min", "after an hour and a half" or "2 hours from now" as a number of minutes.
+ * Only adjacent duration parts are added up, so other numbers later in the sentence are ignored.
+ */
 export function parseRelativeDurationMinutes(input: string): number | undefined {
   const text = input.toLowerCase();
   const candidates = [...text.matchAll(/\b(?:in|after)\s+(?:(?:about|around|roughly|approximately|approx\.?|nearly)\s+)?/g)]
@@ -278,6 +319,10 @@ export function parseRelativeDurationMinutes(input: string): number | undefined 
   return undefined;
 }
 
+/**
+ * Copies a recurrence phrase from the schedule part of a reminder onto the task text, when the
+ * split left it only in the schedule part, so the saved task still repeats.
+ */
 export function carryRecurrenceToTaskText(taskText: string, scheduleText: string): string {
   if (parseRecurrencePattern(taskText)) return taskText;
   const recurrence = parseRecurrencePattern(scheduleText);
@@ -299,12 +344,19 @@ export function formatRecurrenceRule(rule: RecurrenceRule): string {
   return "Daily";
 }
 
+/**
+ * True when the text contains any time or date wording. Used to decide whether a phrase can
+ * be read as a reminder time.
+ */
 function hasReminderTimeText(input: string): boolean {
   if (parseRelativeDurationMinutes(input)) return true;
   const text = normalizeNaturalDateText(input);
   return /\b(?:(?:in|after)\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half(?:\s+an?)?)\s*(?:minute|minutes|min|mins|m|hour|hours|hr|hrs|day|days)|day\s+after\s+tomorrow|(?:today|tomorrow|tonight|this\s+(?:morning|afternoon|evening|night)|next\s+\w+)(?:\s+(?:at|by|before|around)?\s*\d{1,2})?|end\s+of\s+(?:the\s+)?day|eod|noon|midnight|midday|lunchtime|(?:at|by|before|around|no\s+later\s+than)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b/i.test(text);
 }
 
+/**
+ * Converts a number or number word ("two", "half", "couple") to a value; unknown words count as 1.
+ */
 function relativeAmount(value: string): number {
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) return numeric;
@@ -337,6 +389,9 @@ function relativeAmount(value: string): number {
   return values[value.toLowerCase()] ?? 1;
 }
 
+/**
+ * Applies an hour, minute and am/pm to a date. With no hour given, uses 9:00 as the default time.
+ */
 function withOptionalTime(base: DateTime, hourText?: string, minuteText?: string, meridiem?: string): DateTime {
   if (!hourText) {
     return base.set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
@@ -358,6 +413,9 @@ function withOptionalTime(base: DateTime, hourText?: string, minuteText?: string
   });
 }
 
+/**
+ * Parses "Friday", "next Monday 3pm". A weekday that is today but already past moves to next week.
+ */
 function parseWeekday(text: string, base: DateTime): DateTime | undefined {
   const weekdays = new Map([
     ["monday", 1],
@@ -389,6 +447,9 @@ function parseWeekday(text: string, base: DateTime): DateTime | undefined {
   return scheduled;
 }
 
+/**
+ * Parses "12 March", "March 12th" or "3pm 12 Mar". A date already past this year moves to next year.
+ */
 function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
   const months = new Map([
     ["jan", 1],
@@ -459,6 +520,10 @@ function parseMonthDay(text: string, base: DateTime): DateTime | undefined {
   });
 }
 
+/**
+ * For monthly wording with a day ("on the 15th every month"), finds the next month that has that
+ * day, skipping months that are too short.
+ */
 function parseMonthlyDay(text: string, base: DateTime): DateTime | undefined {
   if (!/\b(?:every\s+month|monthly|each\s+month|once\s+a\s+month)\b/.test(text)) return undefined;
   const dayMatch = text.match(/\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+(?:every|each)\s+month\b/)
@@ -477,6 +542,9 @@ function parseMonthlyDay(text: string, base: DateTime): DateTime | undefined {
   return undefined;
 }
 
+/**
+ * Builds the date for parseMonthDay and rolls it to next year when it is already past.
+ */
 function monthDayDateTime(input: {
   base: DateTime;
   months: Map<string, number>;
@@ -507,6 +575,10 @@ function monthDayDateTime(input: {
   return scheduled;
 }
 
+/**
+ * Finds a clock time on its own: "at 7", "5:30pm", "half past six". Rejects impossible values
+ * such as 13pm.
+ */
 function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: string; meridiem?: string } | undefined {
   const spoken = text.match(/\b(half|quarter)\s+(past|to)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)?\b/);
   if (spoken?.[1] && spoken[2] && spoken[3]) {
@@ -538,6 +610,10 @@ function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: 
   };
 }
 
+/**
+ * Lower-cases and normalizes date text before matching: "p.m." to "pm", "5.30" to "5:30",
+ * "tmr" to "tomorrow", short weekday names to full names. All patterns above assume this form.
+ */
 function normalizeNaturalDateText(input: string): string {
   return input
     .toLowerCase()
@@ -560,6 +636,10 @@ function normalizeNaturalDateText(input: string): string {
     .trim();
 }
 
+/**
+ * Parses "this evening", "tomorrow morning", "tonight" to fixed hours (9, 14, 18, 20) unless an
+ * explicit time is also given.
+ */
 function parseRelativeDayPart(text: string, base: DateTime): DateTime | undefined {
   const match = text.match(/\b(?:(today|tomorrow|this)\s+)?(morning|afternoon|evening|night|tonight)\b/);
   if (!match?.[2]) return undefined;
@@ -575,6 +655,9 @@ function parseRelativeDayPart(text: string, base: DateTime): DateTime | undefine
   return scheduled;
 }
 
+/**
+ * Parses "end of day" (17:00), "next week" (start of next week, 9:00) and "next month".
+ */
 function parseBroaderRelativeDate(text: string, base: DateTime): DateTime | undefined {
   if (/\b(?:end\s+of\s+(?:the\s+)?day|eod)\b/.test(text)) {
     let scheduled = base.set({ hour: 17, minute: 0, second: 0, millisecond: 0 });
@@ -590,6 +673,9 @@ function parseBroaderRelativeDate(text: string, base: DateTime): DateTime | unde
   return undefined;
 }
 
+/**
+ * Parses day-first numeric dates such as 12/3 or 12-03-2027, with an optional time.
+ */
 function parseNumericDate(text: string, base: DateTime): DateTime | undefined {
   const match = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?(?:\s+(?:(?:at|by|before|around)\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?\b/);
   if (!match?.[1] || !match[2]) return undefined;
@@ -613,6 +699,10 @@ function clockWordValue(value: string): number | undefined {
   return words[value];
 }
 
+/**
+ * Reads the first "<number> <unit>" (minutes, hours, days) as minutes, for snooze and interval
+ * settings. Returns the fallback when no duration is found.
+ */
 export function parseDurationMinutes(input: string, fallbackMinutes: number): number {
   const match = input.toLowerCase().match(/(\d+)\s*(m|min|minute|minutes|h|hr|hrs|hour|hours|d|day|days)/);
   if (!match?.[1] || !match[2]) {
@@ -633,6 +723,10 @@ export function parseDurationMinutes(input: string, fallbackMinutes: number): nu
   return amount;
 }
 
+/**
+ * True when `now` falls inside the quiet-hours window in the user's timezone. Handles windows that
+ * cross midnight (for example 23:00 to 07:00).
+ */
 export function isWithinQuietHours(now: Date, quiet: QuietHours): boolean {
   if (!quiet.start || !quiet.end) {
     return false;
@@ -653,6 +747,9 @@ export function isWithinQuietHours(now: Date, quiet: QuietHours): boolean {
   return current >= start || current < end;
 }
 
+/**
+ * When the current quiet-hours window ends, so a deferred reminder can be rescheduled to then.
+ */
 export function nextQuietEnd(now: Date, quiet: QuietHours): Date {
   if (!quiet.end) {
     return now;
@@ -672,6 +769,9 @@ export function startOfUserDay(now: Date, timezone: string): Date {
   return DateTime.fromJSDate(now).setZone(timezone).startOf("day").toJSDate();
 }
 
+/**
+ * Sets a stored HH:mm clock value on a given day.
+ */
 function parseClock(value: string, base: DateTime): DateTime | undefined {
   const normalized = normalizeClock(value);
   if (!normalized) return undefined;

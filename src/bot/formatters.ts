@@ -1,3 +1,7 @@
+/**
+ * Telegram copy for task lists, task details, search results, and idea briefs. Per the project
+ * convention, wording changes belong here rather than inline in handlers.
+ */
 import { DateTime } from "luxon";
 import type { IdeaScore } from "../ai/types";
 import type { SearchResult } from "../services/search";
@@ -8,6 +12,7 @@ import { joinBlocks } from "../utils/messageFormat";
 import { truncate } from "../utils/text";
 import type { ListPageInfo } from "../services/listPagination";
 
+/** One page of the open task list. Numbers continue across pages so they match the number buttons. */
 export function formatOpenTasks(
   tasks: TaskListItem[],
   fallbackTimezone = "UTC",
@@ -26,16 +31,9 @@ export function formatOpenTasks(
   ].join("\n\n");
 }
 
-export type ReminderSettingsView = {
-  reminderIntervalMinutes: number;
-  maxRemindersPerDay: number;
-  quietHoursStart?: string | null;
-  quietHoursEnd?: string | null;
-};
-
-export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
+/** Full task text: title, description, then a metadata block (status, due, recurrence, people, Calendar). */
+export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC"): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  void settings;
   const description = withoutRepeatedTitle(task.title, task.description || task.sourceText);
   const metadata = [
     task.status === "DONE" ? "✅ Completed" : task.status === "CANCELED" ? "🗑 Cancelled" : undefined,
@@ -55,21 +53,7 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
   ]);
 }
 
-export function formatSearchResults(results: SearchResult[], label?: string): string {
-  if (results.length === 0) {
-    return label ? `Nothing close in ${label} yet—try another phrase.` : "Nothing close yet—try another phrase.";
-  }
-
-  return [
-    bold(label ? `🔎 Search results: ${label}` : "🔎 Search results"),
-    "",
-    ...results.map((result) => {
-      const percent = Math.round(result.score * 100);
-      return `${code(result.publicId)} ${bold(result.title)}\n${italic(`${result.kind}, ${percent}% match`)}\n${h(truncate(result.summary, 160))}`;
-    })
-  ].join("\n\n");
-}
-
+/** One page of search results with a match percentage from the search score. */
 export function formatSearchResultsPage(results: SearchResult[], page: number, pageSize: number, label?: string): string {
   if (results.length === 0) {
     return label ? `Nothing close in ${label} yet—try another phrase.` : "Nothing close yet—try another phrase.";
@@ -91,6 +75,7 @@ export function formatSearchResultsPage(results: SearchResult[], page: number, p
   ].filter(Boolean).join("\n\n");
 }
 
+/** The AI idea brief. It ends by saying it is not live market research, so the scores are not over-trusted. */
 export function formatIdeaScore(publicId: string, score: IdeaScore): string {
   return [
     `${bold("✨ Idea brief")} · ${code(publicId)}`,
@@ -111,6 +96,7 @@ export function formatIdeaScore(publicId: string, score: IdeaScore): string {
   ].join("\n");
 }
 
+/** One two-line list row; the marker shows starred or overdue at a glance. */
 function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone: string): string {
   const timezone = task.timezone ?? fallbackTimezone;
   const marker = task.pinnedAt ? "⭐" : task.dueAt && dueBucket(task.dueAt, timezone) === "overdue" ? "⚠️" : "·";
@@ -123,6 +109,7 @@ function formatTaskListItem(task: TaskListItem, number: number, fallbackTimezone
   return `${number} ${marker} ${bold(truncate(task.title, 72))}\n${context}`;
 }
 
+/** Short due label in the task's timezone: Overdue, Today, Tomorrow, or a date. */
 function formatCompactDue(dueAt: Date, timezone: string): string {
   const due = DateTime.fromJSDate(dueAt).setZone(timezone);
   const bucket = dueBucket(dueAt, timezone);
@@ -133,6 +120,7 @@ function formatCompactDue(dueAt: Date, timezone: string): string {
   return due.toFormat("d LLL · h:mm a");
 }
 
+/** Drops the title from the start of the body so the card does not show it twice. Same rule as itemCards.ts. */
 function withoutRepeatedTitle(title: string, body?: string | null): string | undefined {
   if (!body?.trim()) return undefined;
   const clean = body.trim();

@@ -1,7 +1,14 @@
+/**
+ * Deterministic text parser for Study Mode. src/bot/studyCapture.ts calls it on owner messages in the
+ * bound Study group and routes on the returned intent. It uses only regular expressions and the local
+ * deterministic structurers, never AI, so the response path stays instant and predictable. Anything it
+ * cannot classify comes back as "ambiguous" so the bot can ask instead of guessing.
+ */
 import { StudyResourceKind, StudyTrafficLight } from "@prisma/client";
 import { structureNoteDeterministically, structureTaskDeterministically } from "../ai/deterministic";
 import { parseDueDate } from "../utils/dates";
 
+/** Every action a Study message can map to. Module and item references are returned normalized (e.g. "CS2040S", "STUDY-12"). */
 export type StudyNaturalIntent =
   | { kind: "menu" }
   | { kind: "study_dashboard" }
@@ -40,10 +47,15 @@ export type StudyNaturalIntent =
   | { kind: "help" }
   | { kind: "ambiguous"; sourceText: string; moduleReference?: string };
 
+/**
+ * Maps one message to a Study intent. Order matters: exact navigation phrases first, then item
+ * commands (complete, reschedule, mastery), travel origins and routes, search and listing, explicit
+ * resources, and explicit tasks. A task needs a clear prefix such as "task:" or "add a task", so
+ * ordinary prose is not turned into work. Due dates are parsed in the workspace timezone.
+ */
 export function parseStudyNaturalLanguage(text: string, timezone: string): StudyNaturalIntent | undefined {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return undefined;
-  const lower = trimmed.toLowerCase();
 
   if (/^(?:(?:open|show|visit)\s+)?(?:the\s+)?(?:study\s+)?dashboard$/i.test(trimmed)) return { kind: "study_dashboard" };
   if (/^(?:(?:open|show|view)\s+)?(?:my\s+)?(?:study\s+)?(?:timetable|class schedule)$/i.test(trimmed)
@@ -147,6 +159,7 @@ export function parseStudyNaturalLanguage(text: string, timezone: string): Study
   return { kind: "ambiguous", sourceText: extracted.text, moduleReference: extracted.moduleReference };
 }
 
+/** Builds a create_task intent only for explicitly marked task text, stripping the prefix and any module reference. */
 function taskIntent(text: string, timezone: string): Extract<StudyNaturalIntent, { kind: "create_task" }> | undefined {
   const explicit = /^(?:todo|to-do|task|assignment|deadline)\s*[:\-]/i.test(text)
     || /^(?:add|create|save)\s+(?:a\s+)?(?:task|assignment|deadline)\b/i.test(text);
@@ -166,6 +179,10 @@ function taskIntent(text: string, timezone: string): Extract<StudyNaturalIntent,
   };
 }
 
+/**
+ * Recognises notes, questions and links from a "note:" style prefix or "save X as a note".
+ * A message that is mostly a URL (160 characters or less besides the URL) is saved as a link.
+ */
 function parseExplicitResource(text: string): Extract<StudyNaturalIntent, { kind: "create_resource" }> | undefined {
   const extracted = extractModuleReference(text);
   const patterns: Array<[StudyResourceKind, RegExp]> = [
@@ -207,6 +224,10 @@ function parseListResources(text: string): Extract<StudyNaturalIntent, { kind: "
   return { kind: "list_resources", resourceKind, moduleReference: match[2] ? normalizeModule(match[2]) : undefined };
 }
 
+/**
+ * Pulls a module code (like CS2040S) out of the text and returns the remaining text. Accepts a leading
+ * "CS2040S:" or "[CS2040S] task", a trailing "for CS2040S", or "for/in/under CS2040S" mid-sentence.
+ */
 function extractModuleReference(text: string): { text: string; moduleReference?: string } {
   const leading = text.match(/^\[?([a-z]{2,6}\s*\d{3,5}[a-z]?)\]?\s*[:\-]\s*(.+)$/i);
   if (leading?.[1] && leading[2]) return { text: leading[2].trim(), moduleReference: normalizeModule(leading[1]) };
@@ -228,6 +249,7 @@ function extractModuleReference(text: string): { text: string; moduleReference?:
   return { text };
 }
 
+/** First http(s) URL in the text, without trailing sentence punctuation. */
 function firstUrl(text: string): string | undefined {
   return text.match(/https?:\/\/[^\s<>()]+/i)?.[0]?.replace(/[.,;!?]+$/, "");
 }

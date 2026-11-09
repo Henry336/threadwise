@@ -1,6 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardUserNotFoundError, getDashboardSnapshot } from "./snapshot";
+import { settings } from "../test/builders";
+
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  calendarConnectionStatus: vi.fn(async () => undefined),
+}));
 
 const mocks = {
   userFindUnique: vi.fn(),
@@ -35,20 +41,7 @@ describe("dashboard snapshot", () => {
       username: "henry",
       firstName: "Henry",
       lastName: "Derek",
-      settings: {
-        timezone: "Asia/Singapore",
-        reminderIntervalMinutes: 180,
-        quietHoursStart: "3:00",
-        quietHoursEnd: "6:00",
-        maxRemindersPerDay: 200,
-        dueNudgeMinutes: 3,
-        reminderMode: "INDIVIDUAL",
-        expenseCurrency: "SGD",
-        ocrLanguages: "eng",
-        directNudgesEnabled: false,
-        calendarAutoSync: true,
-        excelAutoSync: true
-      },
+      settings: settings({ quietHoursStart: "3:00", quietHoursEnd: "6:00", calendarAutoSync: true, excelAutoSync: true }),
       calendarConnection: { calendarEmail: "henry@example.com", createdAt: new Date("2026-07-01T00:00:00.000Z") },
       microsoftConnection: { microsoftEmail: "henry@example.com", workbookName: "Expenses.xlsx", workbookWebUrl: "https://example.com/expenses", createdAt: new Date("2026-07-01T00:00:00.000Z") }
     });
@@ -125,7 +118,9 @@ describe("dashboard snapshot", () => {
       timezone: "Asia/Singapore"
     });
     expect(snapshot.tasks[0]).toMatchObject({ publicId: "TASK-1", title: "Ship dashboard", pinned: true });
-    expect(snapshot.expenses[0]?.total).toBe(14.9);
+    // The snapshot uses the same mappers as the item routes, so both shapes match.
+    expect(snapshot.notes[0]).toMatchObject({ publicId: "NOTE-1", pinned: false });
+    expect(snapshot.expenses[0]).toMatchObject({ total: 14.9, merchant: "NUS Co-op" });
     expect(snapshot.settings).toMatchObject({ quietHoursStart: "03:00", quietHoursEnd: "06:00" });
     expect(snapshot.activity.reduce((total, day) => total + day.captures, 0)).toBe(5);
     expect(snapshot.activity.reduce((total, day) => total + day.completed, 0)).toBe(1);

@@ -1,6 +1,7 @@
 import { TaskAudience, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess, GroupTaskPermissionError } from "./groupTaskPolicy";
+import { fakePrisma } from "../test/builders";
 
 function databaseFor(options: { creator?: string; assignees?: string[]; audience?: TaskAudience } = {}): PrismaClient {
   const assignees = (options.assignees ?? []).map((telegramId, index) => ({
@@ -65,7 +66,7 @@ describe("group task authorization", () => {
       findUniqueOrThrow: vi.fn(async () => ({ id: "task-1", publicId: "TASK-1", title: "Ship", assignees: [] })),
       updateMany: vi.fn(async () => ({ count: 0 })),
     };
-    const database = {
+    const database = fakePrisma({
       groupWorkspace: {
         findUnique: vi.fn(async () => ({ id: "workspace-1", ownerUser: { telegramId: "owner" } })),
       },
@@ -75,12 +76,11 @@ describe("group task authorization", () => {
       groupActivity: {
         findFirst: vi.fn(async () => ({ actorTelegramId: "creator" })),
       },
-      $transaction: vi.fn(async (work: (tx: unknown) => unknown) => work({
-        task: transactionTask,
-        taskAssignee: { create },
-        groupActivity: { create: vi.fn() },
-      })),
-    } as unknown as PrismaClient;
+    }, {
+      task: transactionTask,
+      taskAssignee: { create },
+      groupActivity: { create: vi.fn() },
+    }) as unknown as PrismaClient;
 
     await expect(claimGroupTask("group-owner", "TASK-1", {
       telegramId: "member",

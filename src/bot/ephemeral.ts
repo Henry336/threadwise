@@ -1,3 +1,9 @@
+/**
+ * Receiver-bound ("ephemeral") messages in groups: a message only one member can see. Group menus,
+ * lists, and prompts use them so each member gets a private view while the group keeps one public
+ * anchor. These Bot API methods are called directly with fetch through callTelegram below rather
+ * than through grammY's api object. If private delivery fails, nothing falls back to a public message.
+ */
 import type { Context } from "grammy";
 import { logger } from "../logger";
 
@@ -17,19 +23,26 @@ type TelegramApiResponse<T> = {
 const preferredContexts = new WeakSet<Context>();
 let configuredToken: string | undefined;
 
+/** Stores the bot token for the direct Bot API calls. Called once from createThreadwiseBot. */
 export function configureEphemeralTransport(token: string): void {
   configuredToken = token;
 }
 
+/**
+ * Marks this update so a reply to a tap on a public group card opens a private view for the tapper
+ * instead of editing the shared card. A WeakSet keeps it tied to this one update.
+ */
 export function preferEphemeralInteraction(ctx: Context): void {
   preferredContexts.add(ctx);
 }
 
+/** False when someone taps a button on a private view that was sent to a different member. */
 export function callbackMatchesEphemeralReceiver(ctx: Context): boolean {
   const receiverId = ephemeralMessage(ctx.callbackQuery?.message)?.receiver_user?.id;
   return receiverId === undefined || receiverId === ctx.from?.id;
 }
 
+/** Answers a member's reply to a private message privately too. Returns undefined if the message was not ephemeral. */
 export async function replyToIncomingEphemeral(
   ctx: Context,
   text: string,
@@ -47,6 +60,13 @@ export async function replyToIncomingEphemeral(
   });
 }
 
+/**
+ * Shows the result of a button tap privately: edits the tapped private message, or opens a new
+ * private one when the tap came from a public card marked with preferEphemeralInteraction.
+ * A force-reply prompt cannot be an edit, so it is sent new and the old private message deleted.
+ * Returns undefined when the caller should use a normal edit, and true after a delivery failure so
+ * the caller does not edit the shared group message instead.
+ */
 export async function editOrSendEphemeral(
   ctx: Context,
   text: string,
@@ -130,6 +150,7 @@ export async function editEphemeralMessageText(
   });
 }
 
+/** Identifies the private message to delete later (used by quiet acknowledgements), or undefined if it is not ephemeral. */
 export function ephemeralDeletionTarget(
   ctx: Context,
   result: unknown
@@ -149,6 +170,7 @@ export function ephemeralDeletionTarget(
   };
 }
 
+/** True when this update belongs to a private per-member flow, so errors should also be private. */
 export function isEphemeralInteractionContext(ctx: Context): boolean {
   return Boolean(
     ephemeralMessage(ctx.callbackQuery?.message)?.ephemeral_message_id
@@ -165,6 +187,7 @@ function isForceReply(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && "force_reply" in value);
 }
 
+/** POSTs one Bot API method and throws Telegram's description on failure. The token never appears in the error. */
 async function callTelegram<T = unknown>(method: string, payload: Record<string, unknown>): Promise<T> {
   if (!configuredToken) throw new Error("Telegram ephemeral transport is not configured.");
   const response = await fetch(`https://api.telegram.org/bot${configuredToken}/${method}`, {

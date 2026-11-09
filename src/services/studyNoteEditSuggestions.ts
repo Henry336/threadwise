@@ -1,3 +1,8 @@
+/**
+ * Owner review of AI-proposed edits to a Study note. The AI analysis only stores suggestions; nothing
+ * changes a note until the owner applies one from the dashboard (src/dashboard/studyRoutes.ts).
+ * Applying rewrites the note, records a revision, rebuilds wiki links, and writes an audit log row.
+ */
 import { createHash } from "node:crypto";
 import { StudyNoteEditSuggestionStatus, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
@@ -11,6 +16,12 @@ export type StudyNoteSuggestionReview = {
   replacementText?: string;
 };
 
+/**
+ * Applies or dismisses one pending suggestion in the owner's workspace. The apply path re-reads the
+ * suggestion inside a transaction and compares a hash of the current note body with the hash taken
+ * when the suggestion was made. If the note changed or was archived, the suggestion becomes
+ * SUPERSEDED and a conflict error is thrown, so a stale AI edit can never overwrite newer writing.
+ */
 export async function reviewStudyNoteEditSuggestion(
   workspace: StudyWorkspace,
   suggestionId: string,
@@ -67,6 +78,7 @@ export async function reviewStudyNoteEditSuggestion(
   throw new StudyModeError("That note suggestion has already been reviewed.", "conflict");
 }
 
+/** Strips NUL bytes, trims, caps at 5,000 characters, and rejects an empty replacement. */
 function cleanReplacement(value: string): string {
   const clean = Array.from(value.replace(/\u0000/g, "").trim()).slice(0, 5_000).join("");
   if (!clean) throw new StudyModeError("The replacement note cannot be empty.", "invalid");

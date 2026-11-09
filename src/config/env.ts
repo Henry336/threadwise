@@ -1,3 +1,10 @@
+/**
+ * Reads and validates every environment variable once at startup, with defaults.
+ * Importing this module throws if a required value is missing or malformed, so a bad deploy
+ * fails at boot instead of later. Feature helpers below return undefined when their variables
+ * are not set, which keeps optional features (Beacon, Study, Codex mode) switched off.
+ * The authoritative list of variables is .env.example and render.yaml.
+ */
 import { z } from "zod";
 import { normalizeClock } from "../utils/clock";
 
@@ -5,11 +12,13 @@ const clock = z.string()
   .refine((value) => Boolean(normalizeClock(value)), "Use a valid 24-hour time such as 03:00 or 22:30.")
   .transform((value) => normalizeClock(value)!);
 
+/** Treats an empty string as "not set", since hosting dashboards often keep blank variables. */
 const optional = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
   schema.optional(),
 );
 
+/** A base64 string that decodes to exactly 32 bytes, as CONTENT_ENCRYPTION_KEY requires. */
 const encryptionKey = z.string().refine((value) => {
   try {
     const decoded = Buffer.from(value, "base64");
@@ -19,19 +28,23 @@ const encryptionKey = z.string().refine((value) => {
   }
 }, "Use a base64-encoded 32-byte key.");
 
+/**
+ * The full variable list. The cross-field rules at the end require a key for write-mode
+ * encryption, and the secret token Telegram echoes back whenever a public webhook URL is set.
+ */
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   DATABASE_URL: z.string().min(1),
-  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(10).default(3),
-  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
+  // Validated here only; src/db/prisma.ts reads them and src/db/connectionUrl.ts owns the defaults.
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(10).optional(),
+  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).optional(),
   SUPABASE_RUNTIME_POOL_MODE: z.enum(["auto", "session", "transaction"]).default("auto"),
   CONTENT_ENCRYPTION_MODE: z.enum(["off", "write"]).default("off"),
   CONTENT_ENCRYPTION_KEY: optional(encryptionKey),
   OPENAI_API_KEY: optional(z.string()),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_MODEL_FALLBACKS: z.string().default("gpt-5.5,gpt-5.4,gpt-5.4-nano"),
-  GEMINI_API_KEY: optional(z.string().min(8)),
   // Keep the durable queue responsive without continuously churning the remote database.
   // Explicit hosting configuration may lower this, but production-safe defaults must stand alone.
   STUDY_ANALYSIS_POLL_MS: z.coerce.number().int().min(5_000).max(60_000).default(60_000),
@@ -77,10 +90,7 @@ const envSchema = z.object({
   CANVAS_BASE_URL: z.string().url().default("https://canvas.nus.edu.sg/api/v1"),
   STUDY_CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1_440).default(30),
   STUDY_TRANSIT_BASE_URL: z.string().url().default("https://improved-nextbus.vercel.app"),
-  STUDY_EXTERNAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(12_000),
-  // Owner-operated, date-bounded production smoke seed. It is ignored on every
-  // other local date and never contains credentials or user content.
-  STUDY_SMOKE_TEST_DATE: optional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+  STUDY_EXTERNAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(12_000)
 }).superRefine((value, context) => {
   if (value.CONTENT_ENCRYPTION_MODE === "write" && !value.CONTENT_ENCRYPTION_KEY) {
     context.addIssue({
@@ -100,6 +110,7 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
+/** Optional comma-separated allowlist of Telegram user ids; undefined means everyone may use the bot. */
 export function allowedTelegramIds(): Set<string> | undefined {
   if (!env.BOT_ALLOWED_TELEGRAM_IDS) {
     return undefined;
@@ -132,6 +143,7 @@ export type BeaconConfig = {
   webhookPath: string;
 };
 
+/** Beacon settings, or undefined when the Beacon bot token or owner id is missing. */
 export function beaconConfig(): BeaconConfig | undefined {
   if (!env.BEACON_BOT_TOKEN || !env.BEACON_OWNER_TELEGRAM_ID) return undefined;
   return {
@@ -143,6 +155,7 @@ export function beaconConfig(): BeaconConfig | undefined {
   };
 }
 
+/** The sealed Study owner and its one allowed group chat, or undefined when Study is not configured. */
 export function privateStudyConfig(): PrivateStudyConfig | undefined {
   if (!env.STUDY_OWNER_TELEGRAM_ID || !env.STUDY_ALLOWED_CHAT_ID) return undefined;
   return {
@@ -151,6 +164,7 @@ export function privateStudyConfig(): PrivateStudyConfig | undefined {
   };
 }
 
+/** Settings for owner-only Telegram Codex mode, or undefined unless owner, chat and worker token are all set. */
 export function privateCodexConfig(): PrivateCodexConfig | undefined {
   if (!env.CODEX_OWNER_TELEGRAM_ID || !env.CODEX_TELEGRAM_CHAT_ID || !env.CODEX_WORKER_TOKEN) {
     return undefined;

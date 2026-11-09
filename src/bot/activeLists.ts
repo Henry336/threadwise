@@ -1,3 +1,8 @@
+/**
+ * Paged lists of open tasks, recent notes, and recent ideas in Telegram. Commands, menu buttons,
+ * and paging callbacks all go through here so the list looks the same wherever it is opened.
+ * Pages are three items long to keep each card short.
+ */
 import type { Context } from "grammy";
 import { formatRecentIdeas, listRecentIdeas } from "../services/ideas";
 import { paginateList } from "../services/listPagination";
@@ -13,9 +18,10 @@ import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 export type ActiveListKind = "tasks" | "notes" | "ideas";
 const ACTIVE_LIST_PAGE_SIZE = 3;
 
+/** Shows one page of a list and returns the page number actually shown. */
 export async function replyActiveList(
   ctx: Context,
-  user: { id: string; settings?: { timezone?: string | null } | null },
+  user: { id: string; settings: { timezone: string } },
   kind: ActiveListKind,
   requestedPage = 1,
   replaceCurrent = false,
@@ -25,9 +31,14 @@ export async function replyActiveList(
   return (await replyActiveListWithMessage(ctx, user, kind, requestedPage, replaceCurrent, extraAction, selecting)).page;
 }
 
+/**
+ * Shows one page of a list and also returns the Telegram message id, so callers can bind later
+ * replies to that exact card. replaceCurrent edits the tapped card instead of sending a new one;
+ * selecting shows numbered item buttons (the explicit Choose step); extraAction adds one button row.
+ */
 export async function replyActiveListWithMessage(
   ctx: Context,
-  user: { id: string; settings?: { timezone?: string | null } | null },
+  user: { id: string; settings: { timezone: string } },
   kind: ActiveListKind,
   requestedPage = 1,
   replaceCurrent = false,
@@ -41,7 +52,7 @@ export async function replyActiveListWithMessage(
     const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset, workspaceId: workspace?.id };
     const keyboard = taskListKeyboard(page.items, ACTIVE_LIST_PAGE_SIZE, navigation, selecting) ?? modeBackKeyboard("tasks");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
-    const sent = await send(ctx, formatOpenTasks(page.items, user.settings?.timezone ?? "UTC", page), { reply_markup: keyboard });
+    const sent = await send(ctx, formatOpenTasks(page.items, user.settings.timezone, page), { reply_markup: keyboard });
     return { page: page.page, ...messageIdentity(sent, ctx.callbackQuery?.message?.message_id) };
   }
 
@@ -62,6 +73,7 @@ export async function replyActiveListWithMessage(
   return { page: page.page, ...messageIdentity(sent, ctx.callbackQuery?.message?.message_id) };
 }
 
+/** Message id of the sent card, falling back to the tapped card's id when the send returned none (edits). */
 function messageIdentity(result: unknown, fallback?: number): { messageId?: number } {
   if (result && typeof result === "object" && "message_id" in result) {
     const messageId = (result as { message_id?: unknown }).message_id;

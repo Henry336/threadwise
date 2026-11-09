@@ -1,6 +1,12 @@
+/**
+ * Slash-command handlers for the main Threadwise bot (Personal and Group chats).
+ * `registerCommands` is called from `src/bot/index.ts`. Each handler parses the command text,
+ * resolves the owner with `ensureUser`, calls a domain service, and replies. Handlers stay thin:
+ * business rules live in `src/services/`, copy lives in formatter helpers.
+ * Study Mode and Today commands are registered elsewhere (`study.ts`, `today.ts`).
+ */
 import type { Bot, Context } from "grammy";
-import { InputFile } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText, formatStartShortcutText } from "./help";
 import { ensureUser } from "../services/users";
@@ -16,21 +22,10 @@ import {
   updateIdeaConcept
 } from "../services/ideas";
 import {
-  assignTask,
-  cancelTask,
-  createScheduledReminder,
-  createTask,
-  completeTask,
   findTaskReference,
-  formatAssignee,
-  formatTaskAlreadyCompleted,
-  formatTaskCompleted,
-  formatTaskSavedAcknowledgement,
   listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
-  snoozeTask,
-  unassignTask,
   updateTaskDescription
 } from "../services/tasks";
 import {
@@ -50,38 +45,44 @@ import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
-import { undoLastAction } from "../services/undo";
+import { undoLastActionForContext } from "../services/undo";
 import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchivedItem } from "../services/archives";
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus } from "../services/googleCalendar";
 import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { bold, code, h, replyHtml } from "../utils/html";
-import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, excelSettingsKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
+import { bold, code, h, replyHtml, replyInChunks } from "../utils/html";
+import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
-import { createPendingExpenseFromText, encodeExpenseFilter, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses, parseExpenseFilter, updateSavedExpense } from "../services/expenses";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, disconnectMicrosoft, excelConnectionStatus, exportExpensesWorkbook, formatExcelStatus, linkExpenseWorkbook, microsoftExcelConfigured, syncUnsyncedExpenses } from "../services/excel";
-import { expenseConfirmationKeyboard, expensePageKeyboard, restoreCompletedTaskKeyboard } from "./keyboards";
+import { microsoftExcelConfigured } from "../services/excel";
 import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { formatStoredImageDeletePrompt, replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
+import { claimGroupTask } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
+import { executeTaskCommand, type TaskCommandInput } from "../services/taskCommands";
+import { replyTaskCommandResult } from "./taskCommandReplies";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
 
+/**
+ * Wires every slash command to its handler. Several commands have aliases (for example
+ * `/move` for `/reschedule`); handlers that care check `ctx.message.text` to echo the alias
+ * the user typed in their usage hints.
+ */
 export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("start", async (ctx) => handleStart(ctx));
   bot.command("menu", async (ctx) => handleMenuCommand(ctx));
@@ -99,8 +100,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
   bot.command("merge", async (ctx) => handleMerge(ctx, ai));
   bot.command("review", async (ctx) => handleReview(ctx));
-  bot.command("add", async (ctx) => handleAdd(ctx, ai));
-  bot.command("remind", async (ctx) => handleRemind(ctx, ai));
+  bot.command("add", async (ctx) => handleAdd(ctx));
+  bot.command("remind", async (ctx) => handleRemind(ctx));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
   bot.command("task", async (ctx) => handleTaskDetail(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
@@ -110,7 +111,6 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("unassign", async (ctx) => handleUnassign(ctx));
   bot.command("claim", async (ctx) => handleClaim(ctx));
   bot.command("mytasks", async (ctx) => handleMyGroupTasks(ctx));
-  bot.command(["accept", "decline", "block", "unblock", "handoff"], async (ctx) => handleLegacyAssignmentCommand(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
@@ -121,20 +121,18 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("restore", async (ctx) => handleRestore(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command("settings", async (ctx) => handleSettings(ctx));
-  bot.command("search", async (ctx) => handleSearch(ctx, ai));
+  bot.command("search", async (ctx) => handleSearch(ctx));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, true));
   bot.command("googlecal", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, false));
-  bot.command("expense", async (ctx) => handleExpense(ctx));
-  bot.command("expenses", async (ctx) => handleExpenses(ctx));
-  bot.command("excel", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Excel") : handleExcel(ctx));
   bot.command("images", async (ctx) => handleImages(ctx));
   bot.command("image", async (ctx) => handleImage(ctx));
   bot.command("version", async (ctx) => handleVersion(ctx, ai));
   bot.command("groupcheck", async (ctx) => handleGroupCheck(ctx));
 }
 
+/** `/help [topic]`: the full guide with topic buttons, or one topic. Groups get group-specific copy. */
 async function handleHelp(ctx: Context) {
   const topicText = commandBody(ctx.message?.text ?? "", "help");
   const topic = topicText ? parseNaturalHelpRequest(`help ${topicText}`) : undefined;
@@ -149,6 +147,7 @@ async function handleHelp(ctx: Context) {
   await replyHtml(ctx, topic ? formatHelpTopic(topic) : formatHelpGuide(), topic ? {} : { reply_markup: helpTopicsKeyboard() });
 }
 
+/** `/idea <text>`: saves an idea (writes to the database) and sends a quiet acknowledgement. */
 async function handleIdea(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "idea");
@@ -165,6 +164,10 @@ async function handleIdea(ctx: Context, ai: AiProvider) {
   }
 }
 
+/**
+ * `/note` does two jobs. A bare number or NOTE-id opens that note's card (falling back to
+ * the archived card if it is no longer active); any other text is saved as a new note.
+ */
 async function handleNote(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "note");
@@ -177,7 +180,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-      const card = await buildItemCard(user.id, "note", note.publicId, user.settings?.timezone ?? "UTC", undefined, true, 1, workspace?.id);
+      const card = await buildItemCard(user.id, "note", note.publicId, user.settings.timezone, undefined, true, 1, workspace?.id);
       await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
       try {
@@ -199,6 +202,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
   }
 }
 
+/** `/notes` shows the paged active list; `/notes <query>` searches notes instead. */
 async function handleNotes(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "notes");
@@ -211,21 +215,30 @@ async function handleNotes(ctx: Context) {
   await replyControlCardHtml(ctx, formatRecentNotes(notes), keyboard ? { reply_markup: keyboard } : undefined);
 }
 
+/** Group reply for integration commands: OAuth connections belong to a person, so they are managed privately. */
 async function explainPrivateIntegration(ctx: Context, provider: string): Promise<void> {
   await ctx.reply(`${provider} connections stay attached to a person's private Threadwise account, so they are not opened or shared from a group. Message me privately to manage ${provider}.`);
 }
 
+/**
+ * `/images` lists saved images; `/images <query>` searches them. A `caption:` or `text:`/`ocr:`
+ * prefix narrows the search to captions or extracted text only.
+ */
 async function handleImages(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "images");
   if (query) {
     const scoped = query.match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
-    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? query, user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? query, user.settings.timezone, 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
     return;
   }
-  await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+  await replyStoredImageList(ctx, user.id, user.settings.timezone);
 }
 
+/**
+ * `/image <id>` shows one saved image, `/image caption <id> <text>` changes its caption
+ * (undoable), and `/image delete <id>` asks for confirmation before deleting.
+ */
 async function handleImage(ctx: Context) {
   const user = await ensureUser(ctx);
   const reference = commandBody(ctx.message?.text ?? "", "image");
@@ -243,7 +256,7 @@ async function handleImage(ctx: Context) {
     const deleteMatch = reference.match(/^(?:delete|remove|forget)\s+(\d+|IMG-\d+)$/i);
     if (deleteMatch?.[1]) {
       const image = await findStoredImageReference(user.id, normalizePublicId(deleteMatch[1]));
-      await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
+      await replyHtml(ctx, formatStoredImageDeletePrompt(image), { reply_markup: storedImageDeleteKeyboard(image.id) });
       return;
     }
     await replyStoredImage(ctx, user.id, normalizePublicId(reference));
@@ -252,6 +265,7 @@ async function handleImage(ctx: Context) {
   }
 }
 
+/** `/ideas` shows the paged active list; `/ideas <id>` opens one idea card. */
 async function handleIdeas(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "ideas");
@@ -262,7 +276,7 @@ async function handleIdeas(ctx: Context) {
 
   try {
     const idea = await findIdeaReference(user.id, normalizePublicId(body));
-    await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+    await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
   } catch {
     await ctx.reply("I couldn't find that idea. /ideas will show the recent ones.");
   }
@@ -274,6 +288,11 @@ async function handleNoteAnalysis(ctx: Context, ai: AiProvider) {
   await replyHtml(ctx, formatNoteAnalysis(analysis));
 }
 
+/**
+ * `/merge notes 1 2 3`: builds a merge preview (stored as a `PendingNoteMerge`) and shows
+ * Merge / Try again / Cancel. Nothing is merged until the user confirms, because merging
+ * archives the original notes.
+ */
 async function handleMerge(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "merge");
@@ -295,11 +314,15 @@ async function handleMerge(ctx: Context, ai: AiProvider) {
 
 async function handleReview(ctx: Context) {
   const user = await ensureUser(ctx);
-  const review = await buildReview(user.id, user.settings?.timezone ?? "UTC");
+  const review = await buildReview(user.id, user.settings.timezone);
   await replyHtml(ctx, review);
 }
 
-async function handleAdd(ctx: Context, ai: AiProvider) {
+/**
+ * `/add <task>`: an explicit command, so it saves a task directly instead of opening the
+ * capture review card. Group mentions in the text become assignees via the creation options.
+ */
+async function handleAdd(ctx: Context) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "add");
   if (!text) {
@@ -308,18 +331,18 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   try {
-    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { options: taskCreationOptionsFromContext(ctx, text) });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't add that task. Try again in a moment."));
   }
 }
 
-async function handleRemind(ctx: Context, ai: AiProvider) {
+/**
+ * `/remind <when> | <what>`: saves a task with a due time. It refuses a missing or past time
+ * rather than guessing. A recurrence in the time part ("every day") is copied onto the task text
+ * so the task service still sets the task up as recurring.
+ */
+async function handleRemind(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "remind");
   if (!body) {
@@ -329,10 +352,6 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 
   const parsed = splitReminderText(body);
   const settings = user.settings;
-  if (!settings) {
-    await ctx.reply("Your reminder settings are missing. Try /start once, then send the reminder again.");
-    return;
-  }
 
   const scheduledAt = parseDueDate(parsed?.whenText ?? body, settings.timezone);
   if (!parsed || !scheduledAt) {
@@ -357,12 +376,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 
   try {
     const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
-    const task = await createScheduledReminder(user.id, taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, taskText));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, settings.timezone));
+    await saveTaskFromTelegram(ctx, user, taskText, { dueAt: scheduledAt, options: taskCreationOptionsFromContext(ctx, taskText) });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't save that reminder. Try again in a moment."));
   }
@@ -373,6 +387,7 @@ async function handleTasks(ctx: Context) {
   await replyActiveList(ctx, user, "tasks");
 }
 
+/** `/task <id>`: shows one task card. In groups the buttons depend on the viewer's role for that task. */
 async function handleTaskDetail(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "task");
@@ -385,14 +400,7 @@ async function handleTaskDetail(ctx: Context) {
     const task = await findTaskReference(user.id, normalizePublicId(id));
     await replyControlCardHtml(
       ctx,
-      formatTaskDetail(task, user.settings?.timezone, user.settings
-        ? {
-            reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
-            maxRemindersPerDay: user.settings.maxRemindersPerDay,
-            quietHoursStart: user.settings.quietHoursStart,
-            quietHoursEnd: user.settings.quietHoursEnd
-          }
-        : undefined),
+      formatTaskDetail(task, user.settings.timezone),
       { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) }
     );
   } catch (error) {
@@ -400,6 +408,10 @@ async function handleTaskDetail(ctx: Context) {
   }
 }
 
+/**
+ * `/done <id>` completes one task. Several ids (`/done 1 2 3`) open a bulk preview to confirm
+ * first; in groups bulk completion is limited to Telegram admins.
+ */
 async function handleDone(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "done");
@@ -418,21 +430,7 @@ async function handleDone(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "complete");
-    const completion = await completeTask(user.id, normalizePublicId(id));
-    if (completion.alreadyCompleted) {
-      await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
-      return;
-    }
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
-    }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "complete", ref: id });
 }
 
 async function handleSnooze(ctx: Context) {
@@ -444,15 +442,13 @@ async function handleSnooze(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "snooze");
-    const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-    await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "snooze", ref: id, duration: durationParts.join(" ") });
 }
 
+/**
+ * `/reschedule` (alias `/move`) `<id> <when>`: changes a task's due time, or clears it with
+ * "no date". In groups only someone allowed to manage the task may do this. Undoable.
+ */
 async function handleReschedule(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/move") ? "move" : "reschedule";
@@ -466,12 +462,13 @@ async function handleReschedule(ctx: Context) {
   try {
     await assertCommandGroupTaskAction(ctx, user.id, parsed.reference, "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
-    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
+    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings.timezone))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
   } catch (error) {
     await ctx.reply(userFacingError(error, taskLookupError(error)));
   }
 }
 
+/** `/assign <id> <people>`: parses the target and assignee text, then hands off to the shared task executor. */
 async function handleAssign(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "assign");
@@ -481,19 +478,10 @@ async function handleAssign(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
-    const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_ASSIGNED, task, `${actor.displayName} assigned ${task.publicId} to ${formatAssignee(task)}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${assigneeDmSetupLine(ctx)}`);
-  } catch (error) {
-    await ctx.reply(userFacingError(error, taskLookupError(error)));
-  }
+  await runTaskCommand(ctx, user, { action: "assign", ref: match[1], assignees: match[2], options: taskCreationOptionsFromContext(ctx, match[2]) });
 }
 
+/** `/unassign <id> [person]`: removes one assignee, or everyone when no person is named. */
 async function handleUnassign(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "unassign");
@@ -503,19 +491,13 @@ async function handleUnassign(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
-    const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_UNASSIGNED, task, `${actor.displayName} updated the assignees on ${task.publicId}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "unassign", ref: match[1], assignee: match[2], options: taskCreationOptionsFromContext(ctx, match[2] ?? "") });
 }
 
+/**
+ * `/mytasks` in a group: open shared tasks assigned to the sender, matched by Telegram id or
+ * username. Shows at most three so the reply stays short.
+ */
 async function handleMyGroupTasks(ctx: Context) {
   if (!isGroupChat(ctx)) {
     await ctx.reply("My tasks is for shared group workspaces. Use /tasks here.");
@@ -531,10 +513,11 @@ async function handleMyGroupTasks(ctx: Context) {
     await ctx.reply("Nothing is assigned to you right now.");
     return;
   }
-  const text = formatOpenTasks(tasks, user.settings?.timezone ?? "UTC").replace(bold("📋 Tasks"), bold("My shared tasks"));
+  const text = formatOpenTasks(tasks, user.settings.timezone).replace(bold("📋 Tasks"), bold("My shared tasks"));
   await replyHtml(ctx, text, { reply_markup: taskListKeyboard(tasks, 3) });
 }
 
+/** `/claim <id>` in a group: the sender takes an unassigned task. The service makes the claim race-safe. */
 async function handleClaim(ctx: Context) {
   if (!isGroupChat(ctx)) {
     await ctx.reply("/claim is for unassigned tasks in a group workspace.");
@@ -554,17 +537,7 @@ async function handleClaim(ctx: Context) {
   }
 }
 
-async function handleLegacyAssignmentCommand(ctx: Context) {
-  const command = (ctx.message?.text ?? "").match(/^\/([a-z-]+)/i)?.[1] ?? "assignment";
-  await ctx.reply(
-    command === "accept"
-      ? "Assignments now take effect immediately. Use /claim TASK-1 only when a task is unassigned."
-      : command === "handoff"
-        ? "Task handoffs were removed. The task creator or a current Telegram group administrator can reassign it with /assign TASK-1 @username."
-        : "Accept, decline, and blocked assignment states were removed. Add blockers to the task details instead; the task creator or a current group administrator can edit them."
-  );
-}
-
+/** Throws if a group member may not do this action on the task. A no-op in private chats, where the owner can do anything. */
 async function assertCommandGroupTaskAction(
   ctx: Context,
   ownerUserId: string,
@@ -572,35 +545,42 @@ async function assertCommandGroupTaskAction(
   action: "complete" | "snooze" | "manage",
 ): Promise<void> {
   if (!isGroupChat(ctx)) return;
-  await assertGroupTaskAction(
-    ownerUserId,
-    reference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-    action,
-  );
+  await assertGroupTaskActionForContext(ctx, ownerUserId, reference, action);
 }
 
+/** Builds the expanded group task keyboard for the sender's role on that task. */
 async function groupTaskKeyboardForCommand(ctx: Context, ownerUserId: string, taskReference: string) {
-  const access = await getGroupTaskAccess(
-    ownerUserId,
-    taskReference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-  );
-  return groupTaskActionsKeyboard(access.task.id, access.audience, access.workspaceId, true, "menu:tasks");
+  const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
+  return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
-function assigneeDmSetupLine(ctx: Context): string {
-  if (!isGroupChat(ctx) || !ctx.me.username) return "";
-  return `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm`;
+/**
+ * Runs one parsed slash-command task action through the shared executor and replies with the
+ * shared copy. Any failure, including a group policy refusal, becomes a reply in the chat.
+ */
+async function runTaskCommand(ctx: Context, user: Awaited<ReturnType<typeof ensureUser>>, command: TaskCommandInput): Promise<void> {
+  try {
+    const result = await executeTaskCommand({ ...command, userId: user.id, actor: taskCommandActorFromContext(ctx), source: "command" });
+    await replyTaskCommandResult(ctx, result, user.settings.timezone);
+  } catch (error) {
+    await ctx.reply(userFacingError(error, taskLookupError(error)));
+  }
 }
 
+/**
+ * `/undo`: reverses the latest undoable action. In groups a non-admin can only undo their own
+ * actions (see `undoLastActionForContext`).
+ */
 async function handleUndo(ctx: Context) {
   const user = await ensureUser(ctx);
-  await replyHtml(ctx, await undoLastAction(user.id));
+  await replyHtml(ctx, await undoLastActionForContext(ctx, user.id));
 }
 
+/**
+ * `/rename` (alias `/edit`) changes a title, or another field when named:
+ * `details` for a task, `body` for a note, `concept` for an idea. The item type comes from the
+ * reference (a bare number means a task). Every change is undoable.
+ */
 async function handleRename(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/edit") ? "edit" : "rename";
@@ -665,6 +645,10 @@ async function handleRename(ctx: Context) {
   }
 }
 
+/**
+ * Pins (stars) or unpins a task, note, or idea; shared by `/pin`, `/star`, `/important`,
+ * `/unpin`, and `/unstar`. Group tasks need manage permission. Offers Undo only if something changed.
+ */
 async function handlePin(ctx: Context, shouldPin: boolean) {
   const user = await ensureUser(ctx);
   const command = shouldPin
@@ -692,6 +676,7 @@ async function handlePins(ctx: Context) {
   await replyHtml(ctx, formatPinnedItems(await listPinnedItems(user.id)));
 }
 
+/** `/archived <notes|ideas|tasks> [page]`: pages through archived items of one kind. */
 async function handleArchived(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", ctx.message?.text?.startsWith("/archives") ? "archives" : "archived");
@@ -704,11 +689,15 @@ async function handleArchived(ctx: Context) {
 
   const page = Number(pageText ?? "1");
   const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
-  await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+  await replyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }
 
+/**
+ * `/archive` (alias `/remove`): several references open a bulk preview; a single reference
+ * archives that note. Archiving hides the note without deleting it, and Undo brings it back.
+ */
 async function handleArchive(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/remove") ? "remove" : "archive";
@@ -735,6 +724,7 @@ async function handleArchive(ctx: Context) {
   }
 }
 
+/** `/restore <id>`: brings an archived note, idea, or task back. Group tasks need manage permission. */
 async function handleRestore(ctx: Context) {
   const user = await ensureUser(ctx);
   const reference = commandBody(ctx.message?.text ?? "", "restore");
@@ -750,6 +740,11 @@ async function handleRestore(ctx: Context) {
   await replyHtml(ctx, message ?? "I couldn't find that archived item. Try /archived notes, /archived ideas, or /archived tasks.");
 }
 
+/**
+ * `/cancel` (alias `/delete`): one id cancels that task through the shared executor. Several ids,
+ * or a typed list like `/delete notes 1 2 3`, open a bulk preview to confirm first; in groups bulk
+ * changes are limited to Telegram admins.
+ */
 async function handleCancel(ctx: Context) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/delete") ? "delete" : "cancel";
@@ -773,15 +768,10 @@ async function handleCancel(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "manage");
-    const task = await cancelTask(user.id, normalizePublicId(id));
-  await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "cancel", ref: id });
 }
 
+/** True for references that point at a task (a bare number, TASK-n, or "task n"), so group permission checks apply. */
 function looksLikeTaskReference(reference: string): boolean {
   const normalized = reference.trim();
   return /^\d+$/.test(normalized)
@@ -789,6 +779,10 @@ function looksLikeTaskReference(reference: string): boolean {
     || /^task\s+/i.test(normalized);
 }
 
+/**
+ * `/settings` alone opens the settings menu. `/settings <field> <value>` changes one setting;
+ * in groups only a Telegram admin may change the shared workspace settings.
+ */
 async function handleSettings(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "settings");
@@ -813,7 +807,11 @@ async function handleSettings(ctx: Context) {
   await ctx.reply(result.message);
 }
 
-async function handleSearch(ctx: Context, ai: AiProvider) {
+/**
+ * `/search <query>`: searches tasks, notes, and ideas, or images when the query starts with
+ * "images". It stores the parsed query as a `PendingSearch` so page buttons can refer to it by id.
+ */
+async function handleSearch(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "search");
   if (!query) {
@@ -824,7 +822,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
   const imageSearch = query.match(/^(?:images?|photos?|pictures?|screenshots?)\s+(.+)$/i);
   if (imageSearch?.[1]) {
     const scoped = imageSearch[1].match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
-    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? imageSearch[1], user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? imageSearch[1], user.settings.timezone, 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
     return;
   }
 
@@ -834,7 +832,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+  const results = await semanticSearch(user.id, parsed.query, parsed.kinds, {
     includeDone: parsed.includeDone,
     doneOnly: parsed.doneOnly
   });
@@ -846,6 +844,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
   });
 }
 
+/** `/score <idea>`: asks the AI provider to score an idea, then offers the implementation brief. */
 async function handleScore(ctx: Context, ai: AiProvider) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "score");
@@ -860,6 +859,7 @@ async function handleScore(ctx: Context, ai: AiProvider) {
   });
 }
 
+/** `/brief <idea>`: builds an implementation prompt from an idea and sends it in chunks, since it can exceed Telegram's message limit. */
 async function handleBrief(ctx: Context) {
   const user = await ensureUser(ctx);
   const id = commandBody(ctx.message?.text ?? "", "brief");
@@ -872,6 +872,11 @@ async function handleBrief(ctx: Context) {
   await replyInChunks(ctx, [`Implementation prompt for ${result.publicId}:`, "", result.prompt].join("\n"));
 }
 
+/**
+ * `/calendar` covers status, connect, and disconnect for Google Calendar, and `/calendar <task>`
+ * adds one task to Calendar. `/googlecal <task>` is the same task action without the `.ics` file.
+ * The connect link remembers the chat so the OAuth callback can reply in the right place.
+ */
 async function handleCalendar(ctx: Context, includeIcs: boolean) {
   const user = await ensureUser(ctx);
   const command = ctx.message?.text?.startsWith("/googlecal") ? "googlecal" : "calendar";
@@ -914,11 +919,16 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
   await replyWithTaskCalendar(ctx, {
     userId: user.id,
     reference: id,
-    timezone: user.settings?.timezone,
+    timezone: user.settings.timezone,
     includeIcs
   });
 }
 
+/**
+ * `/start`: creates the user if needed and shows the main menu. In private chats it also pins the
+ * persistent reply keyboard. The `?start=dm` deep link turns on private assignment nudges, which
+ * Telegram only allows after the user has started the bot privately.
+ */
 async function handleStart(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "start");
@@ -931,7 +941,7 @@ async function handleStart(ctx: Context) {
     await ctx.reply(result.message);
     return;
   }
-  const timezone = user.settings?.timezone ?? "Asia/Singapore";
+  const timezone = user.settings.timezone;
   if (!isGroupChat(ctx)) {
     await ctx.reply(formatStartShortcutText(), {
       reply_markup: privateMenuKeyboard()
@@ -943,9 +953,13 @@ async function handleStart(ctx: Context) {
 async function handleMenuCommand(ctx: Context) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
-  await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
+  await showMainMenu(ctx, user.settings.timezone, user.id, ctx.from.id);
 }
 
+/**
+ * `/groupcheck`: a diagnostic card for setting up the bot in a group. It shows the version, ids,
+ * allowlist status, and whether Telegram privacy mode will hide ordinary @mention messages.
+ */
 async function handleGroupCheck(ctx: Context) {
   if (!isGroupChat(ctx)) {
     await ctx.reply("/groupcheck is for Telegram groups. Add or open the bot in a group, then run it there.");
@@ -969,111 +983,7 @@ async function handleGroupCheck(ctx: Context) {
   ].join("\n"));
 }
 
-async function handleExpense(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "expense");
-  if (!body) {
-    await ctx.reply("Send it like this: /expense spent $18.40 on lunch at Toast Box today using Visa. You can also send a clear receipt photo with the caption 'save as expense'.");
-    return;
-  }
-  const editMatch = body.match(/^edit\s+(\S+)\s+(.+)$/i);
-  if (editMatch?.[1] && editMatch[2]) {
-    try {
-      const expense = await updateSavedExpense(user.id, normalizePublicId(editMatch[1]), editMatch[2], user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, `${formatExpenseCreated(expense, user.settings?.timezone ?? "UTC")}\nUpdated. Future exports use the correction. If this row was already sent to a linked Excel workbook, edit or remove that old Excel row manually.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't update that expense."));
-    }
-    return;
-  }
-  try {
-    const pending = await createPendingExpenseFromText(user.id, body, user.settings?.timezone ?? "UTC", { sourceType: "manual", defaultCurrency: user.settings?.expenseCurrency });
-    await replyHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expenseConfirmationKeyboard(pending.id)
-    });
-  } catch (error) {
-    await ctx.reply(userFacingError(error, "I couldn't prepare that expense."));
-  }
-}
-
-async function handleExpenses(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "expenses");
-  const filter = parseExpenseFilter(body || "all", user.settings?.timezone ?? "UTC");
-  if (!filter) {
-    await ctx.reply("Try /expenses, /expenses today, /expenses 2026-07-12, /expenses this month, /expenses June 2026, or /expenses 2026.");
-    return;
-  }
-  const result = await listExpenses(user.id, filter, 1, user.settings?.timezone ?? "UTC");
-  await replyHtml(ctx, formatExpensePage(result, user.settings?.timezone ?? "UTC"), {
-    reply_markup: expensePageKeyboard(encodeExpenseFilter(filter), result.page, result.totalPages)
-  });
-}
-
-async function handleExcel(ctx: Context) {
-  const user = await ensureUser(ctx);
-  const body = commandBody(ctx.message?.text ?? "", "excel").trim();
-  const lower = body.toLowerCase();
-  if (!body || lower === "status") {
-    const status = await excelConnectionStatus(user.id);
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const connectUrl = !status.connected && microsoftExcelConfigured()
-      ? await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true })
-      : undefined;
-    await replyHtml(ctx, await formatExcelStatus(user.id), { reply_markup: excelSettingsKeyboard(status, connectUrl) });
-    return;
-  }
-  if (lower === "connect") {
-    if (!microsoftExcelConfigured()) {
-      await ctx.reply("Excel OAuth is not configured on the server yet. The setup instructions are in README.md.");
-      return;
-    }
-    const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-    const url = await createMicrosoftConnectUrl(user.id, chatId, { enableAutoSync: true });
-    await replyHtml(ctx, `${bold("📊 Microsoft Excel")}\nConnect once. Threadwise will prepare your expense workbook and import existing expenses.`, {
-      reply_markup: excelSettingsKeyboard({ connected: false, autoSync: false, workbookReady: false }, url)
-    });
-    return;
-  }
-  if (lower === "create" || lower === "setup" || lower === "set up") {
-    try {
-      const item = await createExpenseWorkbook(user.id, user.settings?.timezone ?? "UTC");
-      await replyHtml(ctx, [bold("✅ Excel workbook ready"), h(item.name ?? "Threadwise Expenses.xlsx"), item.webUrl ? h(item.webUrl) : undefined, "", "New expenses can now use Save + sync Excel."].filter(Boolean).join("\n"));
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't create the workbook."));
-    }
-    return;
-  }
-  if (lower.startsWith("use ")) {
-    try {
-      const item = await linkExpenseWorkbook(user.id, body.slice(4).trim());
-      await replyHtml(ctx, `${bold("✅ Excel workbook linked")}\n${h(item.name ?? "Workbook")}\n${h(item.webUrl ?? "")}\nNew expense syncs now have a home.`);
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't link that workbook."));
-    }
-    return;
-  }
-  if (lower === "sync" || lower === "sync expenses") {
-    try {
-      const count = await syncUnsyncedExpenses(user.id, user.settings?.timezone ?? "UTC");
-      await ctx.reply(count ? `Synced ${count} expense${count === 1 ? "" : "s"} to Excel.` : "Everything is already synced to Excel.");
-    } catch (error) {
-      await ctx.reply(userFacingError(error, "I couldn't sync those expenses to Excel."));
-    }
-    return;
-  }
-  if (lower === "export" || lower === "download") {
-    const workbook = await exportExpensesWorkbook(user.id, user.settings?.timezone ?? "UTC");
-    await ctx.replyWithDocument(new InputFile(workbook, "Threadwise Expenses.xlsx"));
-    return;
-  }
-  if (lower === "disconnect") {
-    await replyHtml(ctx, await disconnectMicrosoft(user.id));
-    return;
-  }
-  await ctx.reply("Open /excel and use the buttons, or tell me what you want to do in plain language.");
-}
-
+/** `/version`: release number plus AI, Calendar, Excel, and reminder-loop status. */
 async function handleVersion(ctx: Context, ai: AiProvider) {
   await replyHtml(ctx, formatVersionStatus({
     ai: ai.getStatus(),
@@ -1083,6 +993,10 @@ async function handleVersion(ctx: Context, ai: AiProvider) {
   }));
 }
 
+/**
+ * Stores a bulk action as a pending preview tied to the requester's Telegram id and shows
+ * Confirm / Cancel. Bulk changes are preview-and-confirm so a typo cannot hit many items at once.
+ */
 async function replyBulkActionPreview(ctx: Context, userId: string, request: BulkActionRequest) {
   if (!ctx.from?.id) {
     await ctx.reply("I couldn't identify who requested that bulk action.");
@@ -1098,13 +1012,7 @@ async function replyBulkActionPreview(ctx: Context, userId: string, request: Bul
   }
 }
 
-async function replyInChunks(ctx: Context, text: string) {
-  const maxLength = 3800;
-  for (let start = 0; start < text.length; start += maxLength) {
-    await ctx.reply(text.slice(start, start + maxLength));
-  }
-}
-
+/** Turns a lookup failure into a reply. Keeps the service's own "No open task numbered" text because it is already user-friendly. */
 function taskLookupError(error: unknown): string {
   if (error instanceof Error && error.message.startsWith("No open task numbered")) {
     return error.message;
@@ -1121,6 +1029,10 @@ function taskOrNoteLookupError(error: unknown): string {
   return "I couldn't find that task or note. Try /tasks or /notes to check the ID.";
 }
 
+/**
+ * Splits `/rename` input into a reference, an optional field name, and the new text.
+ * Accepts both "1 New title" and "note 2 body New text" shapes.
+ */
 function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {
   const parts = body.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
@@ -1155,6 +1067,7 @@ function editableField(value?: string): "title" | "description" | "body" | "conc
   return undefined;
 }
 
+/** Splits `/reschedule` input into the task reference and the "when" text (an optional "to" is dropped). */
 function parseRescheduleBody(body: string): { reference: string; whenText: string } | undefined {
   const trimmed = body.trim();
   const match = trimmed.match(/^(\S+)\s+(?:to\s+)?(.+)$/i);

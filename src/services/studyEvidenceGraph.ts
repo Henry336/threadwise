@@ -1,3 +1,10 @@
+/**
+ * Builds the bounded "evidence graph" that the AI module review reads (geminiStudyAnalysis.ts).
+ * For one module it gathers recent sessions, notes and images, work items, Canvas materials and
+ * assignments, gives each a short citation id (S1, R1, W1, C1, A1), and links sessions to the
+ * resources and work they touched. The AI may only cite these ids, and every query is capped by
+ * STUDY_SCALE_BUDGETS so prompt size stays fixed. Image bytes and Canvas file bodies are never included.
+ */
 import { StudyAnalysisMode, StudyItemSource, StudyResourceKind, type StudyWorkspace } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { StudyModeError } from "./study";
@@ -11,6 +18,7 @@ const MAX_ASSIGNMENTS = STUDY_SCALE_BUDGETS.evidenceAssignments;
 const MAX_DETAIL = 1_200;
 
 export type StudyEvidenceKind = "SESSION" | "RESOURCE" | "WORK_ITEM" | "CANVAS_MATERIAL" | "CANVAS_ASSIGNMENT";
+/** How far a piece of evidence can be trusted: the learner's own writing, OCR, course content, or metadata only. */
 export type StudyEvidenceAuthority = "LEARNER_RECORD" | "OCR_TRANSCRIPT" | "COURSE_MATERIAL" | "COURSE_METADATA" | "ACTIVITY_LOG";
 export type StudyEvidenceEdgeKind = "USED_IN_SESSION" | "CAPTURED_DURING_SESSION" | "SESSION_ADDRESSES_WORK";
 
@@ -28,6 +36,7 @@ export type StudyAnalysisEvidence = {
   canvasMaterialId?: string;
   canvasAssignmentId?: string;
   courseModulePosition?: number;
+  /** Full note text, set only when the whole note fits the excerpt. Only such notes can receive AI edit suggestions. Stripped before evidence is shown. */
   editableText?: string;
 };
 
@@ -39,6 +48,10 @@ export type StudyEvidenceEdge = {
   basis: "EXPLICIT" | "TEMPORAL";
 };
 
+/**
+ * Pace context from Canvas release dates. TIMED means Canvas published unlock dates, so the review can
+ * say how much material should already be covered; UNKNOWN means it must not judge pace.
+ */
 export type StudyCoverage = {
   status: "TIMED" | "UNKNOWN";
   explanation: string;
@@ -65,6 +78,12 @@ export type EvidenceSnapshot = {
   edges: StudyEvidenceEdge[];
 };
 
+/**
+ * Collects the evidence snapshot for one module in the owner's workspace (read-only).
+ * Each source takes its newest capped rows, then lists them oldest first so citation ids follow time.
+ * Older rows without precomputed excerpts are filled in on the fly. Also computes Canvas coverage:
+ * which released course modules the learner should have reached by today in the workspace timezone.
+ */
 export async function collectStudyEvidence(
   workspace: StudyWorkspace,
   moduleId: string,
@@ -275,6 +294,10 @@ export async function collectStudyEvidence(
   };
 }
 
+/**
+ * For resources saved before analysis excerpts existed, loads the full body/caption/OCR in one query
+ * and derives the excerpt in memory. Normal rows skip this and never load full bodies.
+ */
 async function hydrateLegacyResourceAnalysis<
   T extends { id: string; analysisExcerpt: string | null; analysisExcerptReady: boolean; analysisExcerptTruncated: boolean },
 >(workspaceId: string, resources: T[]): Promise<T[]> {
@@ -288,6 +311,7 @@ async function hydrateLegacyResourceAnalysis<
   return resources.map((resource) => ({ ...resource, ...derivedById.get(resource.id) }));
 }
 
+/** Same fallback as above for Canvas materials synced before the excerpt column existed. */
 async function hydrateLegacyCanvasAnalysis<
   T extends { id: string; analysisExcerpt: string | null; analysisExcerptReady: boolean },
 >(workspaceId: string, materials: T[]): Promise<T[]> {
@@ -304,6 +328,11 @@ async function hydrateLegacyCanvasAnalysis<
   return materials.map((material) => ({ ...material, ...derivedById.get(material.id) }));
 }
 
+/**
+ * Links evidence items. Explicit edges (confidence 1) come from resources attached to a session and
+ * the work item a session was for. Temporal edges (confidence 0.75) link a resource captured while a
+ * session was running, unless an explicit edge already covers that pair.
+ */
 export function buildStudyEvidenceEdges(input: {
   sessions: Array<{
     id: string; itemId: string | null; startedAt: Date; endedAt: Date | null; durationMinutes: number | null;
@@ -345,6 +374,7 @@ export function buildStudyEvidenceEdges(input: {
   return edges;
 }
 
+/** Evidence safe to return to the dashboard: drops the full editable note text. */
 export function publicStudyEvidence(evidence: StudyAnalysisEvidence[]): StudyAnalysisEvidence[] {
   return evidence.map(({ editableText: _editableText, ...entry }) => entry);
 }
@@ -353,6 +383,7 @@ function cleanText(value: string, maximum: number): string {
   return Array.from(value.replace(/\u0000/g, "").trim()).slice(0, maximum).join("");
 }
 
+/** YYYY-MM-DD in the given timezone, falling back to the UTC date if the timezone is invalid. */
 function dateKey(value: Date, timezone: string): string {
   try {
     return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(value);

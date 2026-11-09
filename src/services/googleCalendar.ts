@@ -1,3 +1,10 @@
+/**
+ * Google Calendar integration over the user's own OAuth connection. Handles the connect flow and
+ * callback, status checks, and creating/updating/removing events for tasks, group meetings, and Study
+ * timetable blocks. OAuth tokens are stored AES-256-GCM encrypted with GOOGLE_TOKEN_ENCRYPTION_KEY.
+ * Called by the bot command/callback handlers, dashboard data routes, task services, groupScheduling,
+ * and studyCalendar (the Study mirror). The no-account link fallback lives in calendar.ts.
+ */
 import crypto from "crypto";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { InlineKeyboard, type Bot } from "grammy";
@@ -12,6 +19,7 @@ const CALENDAR_SCOPES = [
   "openid",
   "email"
 ];
+/** Remembers, per connection and access token hash, that Google accepted the token recently, so status views do not call Google every time. */
 const calendarHealthCache = new Map<string, { tokenFingerprint: string; expiresAt: number }>();
 const CALENDAR_HEALTH_TTL_MS = 5 * 60_000;
 
@@ -58,6 +66,7 @@ export type GoogleCalendarMeetingInput = {
   timezone: string;
 };
 
+/** A Study timetable event. eventId is chosen by Threadwise (deterministic per block) so retries hit the same event. */
 export type GoogleCalendarStudyEventInput = GoogleCalendarMeetingInput & {
   eventId: string;
   location?: string | null;
@@ -85,6 +94,7 @@ export type CalendarConnectionStatus = {
   issue?: string;
 };
 
+/** The saved authorization no longer works (expired, revoked, or refused); the user must reconnect. */
 class CalendarAuthorizationError extends Error {
   constructor(message = "Google Calendar authorization expired or was revoked. Reconnect Google Calendar.") {
     super(message);
@@ -99,12 +109,14 @@ class GoogleCalendarHttpError extends Error {
   }
 }
 
+/** True when a Google API error has the given HTTP status; also matches older plain errors ending in ": <status>". */
 function isGoogleStatus(error: unknown, status: number): boolean {
   return error instanceof GoogleCalendarHttpError
     ? error.status === status
     : error instanceof Error && error.message.endsWith(`: ${status}`);
 }
 
+/** Calendar features are offered only when OAuth client, redirect URI, and token encryption key are all set. */
 export function calendarConfigured(): boolean {
   return Boolean(
     env.GOOGLE_CLIENT_ID &&
@@ -114,6 +126,11 @@ export function calendarConfigured(): boolean {
   );
 }
 
+/**
+ * Starts the OAuth flow. Stores a random one-time state (valid 15 minutes, one per user) that remembers
+ * the chat, an optional task to sync afterwards, and where to send the browser back. Requests offline
+ * access with forced consent so Google returns a refresh token.
+ */
 export async function createCalendarConnectUrl(userId: string, chatId: string, options: CalendarConnectOptions = {}): Promise<string> {
   if (!calendarConfigured()) {
     throw new Error("Google Calendar is not configured. Add the Google OAuth credentials, Calendar redirect URI, and token encryption key.");
@@ -145,6 +162,12 @@ export async function createCalendarConnectUrl(userId: string, chatId: string, o
   return url.toString();
 }
 
+/**
+ * Completes OAuth after Google redirects back. Matches the state, exchanges the code, keeps the old
+ * refresh token if Google did not send a new one, and saves encrypted tokens in one transaction.
+ * Then optionally syncs the pending task or backfills dated tasks, and confirms in Telegram.
+ * Sync and Telegram failures here are logged and reported softly; the connection itself still stands.
+ */
 export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: string; state?: string; error?: string }): Promise<OAuthCallbackResult> {
   const pending = query.state
     ? await prisma.pendingCalendarOAuth.findFirst({ where: { state: query.state, expiresAt: { gt: new Date() } } })
@@ -240,6 +263,7 @@ export async function handleCalendarOAuthCallback(bot: Bot, query: { code?: stri
   }
 }
 
+/** Deletes the stored connection and pending states and turns auto-sync off. Events already in Google are left alone. */
 export async function disconnectCalendar(userId: string): Promise<string> {
   const existing = await prisma.calendarConnection.findUnique({ where: { userId }, select: { id: true } });
   await prisma.$transaction([
@@ -251,6 +275,11 @@ export async function disconnectCalendar(userId: string): Promise<string> {
   return "Google Calendar disconnected. Existing calendar events are left in Google Calendar.";
 }
 
+/**
+ * Connection status for settings screens. Actually tests the token against Google (cached 5 minutes).
+ * Auth or decryption failures mean "reconnect required"; other failures (e.g. Google is down) still
+ * report connected with a soft warning, so a blip does not tell the user to reconnect.
+ */
 export async function calendarConnectionStatus(userId: string): Promise<CalendarConnectionStatus> {
   const [connection, settings, syncedTasks] = await Promise.all([
     prisma.calendarConnection.findUnique({ where: { userId } }),
@@ -298,6 +327,7 @@ export async function calendarConnectionStatus(userId: string): Promise<Calendar
   }
 }
 
+/** Cheapest possible Calendar read (one event, one field) to prove the token works; skipped while cached. */
 async function validateCalendarAccess(connectionId: string, accessToken: string): Promise<void> {
   const tokenFingerprint = crypto.createHash("sha256").update(accessToken).digest("hex");
   const cached = calendarHealthCache.get(connectionId);
@@ -339,6 +369,11 @@ export async function formatCalendarStatus(userId: string, knownStatus?: Calenda
   ].join("\n");
 }
 
+/**
+ * Creates or updates the Google event for a dated task and saves the event id and link on the task.
+ * If the stored event was deleted in Google (404), a new one is created. Returns undefined when the
+ * user has no connection.
+ */
 export async function syncTaskToGoogleCalendar(userId: string, task: CalendarTask): Promise<{ created: boolean; eventId: string; eventUrl: string } | undefined> {
   if (!task.dueAt) {
     throw new Error("This task needs a due date before it can be added to Google Calendar.");
@@ -394,6 +429,7 @@ export async function syncTaskToGoogleCalendar(userId: string, task: CalendarTas
   return { created, eventId: response.id, eventUrl: response.htmlLink };
 }
 
+/** Same create-or-update flow for a group scheduling meeting; the caller stores the returned event id. */
 export async function syncMeetingToGoogleCalendar(
   userId: string,
   input: GoogleCalendarMeetingInput,
@@ -441,6 +477,7 @@ export async function removeMeetingFromGoogleCalendar(userId: string, eventId: s
   }
 }
 
+/** Deletes the task's Google event (an already-missing event counts as success) and clears the link on the task. */
 export async function removeTaskFromGoogleCalendar(userId: string, task: CalendarTask): Promise<{ removed: boolean }> {
   if (!task.calendarEventId) return { removed: false };
   const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
@@ -459,6 +496,11 @@ export async function removeTaskFromGoogleCalendar(userId: string, task: Calenda
   return { removed: true };
 }
 
+/**
+ * Called after any task change. Keeps Google in step (sync, or remove if the task lost its date or was
+ * canceled) when auto-sync is on or the task is already linked. Never throws, so a Google problem can
+ * never block saving the Threadwise task.
+ */
 export async function syncTaskCalendarBestEffort(userId: string, task: CalendarTask): Promise<"synced" | "removed" | "skipped" | "failed"> {
   const settings = await prisma.userSettings.findUnique({ where: { userId }, select: { calendarAutoSync: true } });
   if (!task.calendarEventId && !settings?.calendarAutoSync) return "skipped";
@@ -482,6 +524,7 @@ export async function syncTaskCalendarBestEffort(userId: string, task: CalendarT
   }
 }
 
+/** Backfill: syncs up to 100 open dated tasks one by one, counting failures instead of stopping. */
 export async function syncEligibleTasksToGoogleCalendar(userId: string, limit = 100): Promise<{ synced: number; failed: number }> {
   const connection = await prisma.calendarConnection.findUnique({ where: { userId }, select: { id: true } });
   if (!connection) throw new Error("Connect Google Calendar first.");
@@ -504,6 +547,7 @@ export async function syncEligibleTasksToGoogleCalendar(userId: string, limit = 
   return { synced, failed };
 }
 
+/** Event body for a task: 30 minutes at the due time, with an RRULE for recurring tasks and a private threadwise tag. */
 export function buildGoogleCalendarEvent(input: GoogleCalendarEventInput) {
   const start = DateTime.fromJSDate(input.dueAt).setZone(input.timezone);
   const end = start.plus({ minutes: 30 });
@@ -530,6 +574,7 @@ export function buildGoogleCalendarMeeting(input: GoogleCalendarMeetingInput) {
   };
 }
 
+/** Event body for a Study block, tagged privately with the block id so mirrored events can be traced back. */
 export function buildGoogleCalendarStudyEvent(input: GoogleCalendarStudyEventInput) {
   const start = DateTime.fromJSDate(input.startAt).setZone(input.timezone);
   const end = DateTime.fromJSDate(input.endAt).setZone(input.timezone);
@@ -558,6 +603,10 @@ function googleRecurrenceRule(rule: RecurrenceRule, dueAt: DateTime): string {
   return `RRULE:FREQ=YEARLY;BYMONTH=${dueAt.month};BYMONTHDAY=${dueAt.day}`;
 }
 
+/**
+ * Returns a usable access token: the stored one if it has more than a minute left, otherwise a fresh
+ * one from the refresh token, saved back encrypted. A refused refresh raises CalendarAuthorizationError.
+ */
 async function validAccessToken(connection: { id: string; accessToken?: string | null; refreshToken: string; accessTokenExpiresAt?: Date | null }): Promise<string> {
   if (connection.accessToken && connection.accessTokenExpiresAt && connection.accessTokenExpiresAt.getTime() > Date.now() + 60_000) {
     return unprotectToken(connection.accessToken);
@@ -613,6 +662,7 @@ async function googleGet<T>(accessToken: string, url: string): Promise<T> {
   return googleRequest<T>(accessToken, url);
 }
 
+/** Authenticated Google API call. 401 becomes CalendarAuthorizationError, 403 a clear permission error, others GoogleCalendarHttpError. */
 async function googleRequest<T>(accessToken: string, url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -631,6 +681,11 @@ async function googleRequest<T>(accessToken: string, url: string, init: RequestI
   return response.json() as Promise<T>;
 }
 
+/**
+ * Idempotent write of a Study event under its fixed eventId: PATCH first; on 404, POST with that id;
+ * if the POST hits 409 (the id exists, e.g. a concurrent create), PATCH again. Used by studyCalendar's
+ * one-way mirror, so repeated syncs never create duplicate events.
+ */
 export async function upsertStudyEventInGoogleCalendar(
   userId: string,
   input: GoogleCalendarStudyEventInput,
@@ -671,6 +726,7 @@ export async function upsertStudyEventInGoogleCalendar(
   return { created, eventId: response.id, eventUrl: response.htmlLink };
 }
 
+/** Deletes a mirrored Study event; a 404 (already gone) counts as success. */
 export async function removeStudyEventFromGoogleCalendar(userId: string, eventId: string): Promise<void> {
   const connection = await prisma.calendarConnection.findUnique({ where: { userId } });
   if (!connection) throw new Error("Reconnect Google Calendar before removing this event.");
@@ -694,6 +750,7 @@ function calendarReconnectMessage(error: unknown): string {
   return "Threadwise could not verify the saved Calendar authorization. Reconnect Google Calendar.";
 }
 
+/** Decides from the error whether only a reconnect can fix it (auth, permission, or token decryption problems). */
 function calendarReconnectRequired(error: unknown): boolean {
   if (error instanceof CalendarAuthorizationError) return true;
   return error instanceof Error && /decrypt|encrypted|denied this action|authorization|credential/i.test(error.message);
@@ -704,6 +761,7 @@ function safeCalendarError(error: unknown): string {
   return `${error.name}: ${error.message}`.slice(0, 500);
 }
 
+/** Adds connection=...&result=... to an https return URL so the dashboard can show the outcome. */
 function withConnectionResult(returnTo: string, provider: string, result: "connected" | "error"): string {
   try {
     const url = new URL(returnTo);
@@ -716,6 +774,7 @@ function withConnectionResult(returnTo: string, provider: string, result: "conne
   }
 }
 
+/** OAuth redirect: the explicit env value, or the webhook base URL plus /calendar/oauth/callback. */
 function calendarRedirectUri(): string | undefined {
   if (env.GOOGLE_CALENDAR_REDIRECT_URI) {
     return env.GOOGLE_CALENDAR_REDIRECT_URI;
@@ -727,6 +786,7 @@ function expiresAt(expiresInSeconds?: number): Date | undefined {
   return expiresInSeconds ? new Date(Date.now() + expiresInSeconds * 1000) : undefined;
 }
 
+/** Encrypts a token as "gcm1:iv:tag:ciphertext" with AES-256-GCM and a random 12-byte IV. */
 function protectToken(token: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", tokenKey(), iv);
@@ -735,6 +795,10 @@ function protectToken(token: string): string {
   return ["gcm1", iv.toString("base64url"), tag.toString("base64url"), encrypted.toString("base64url")].join(":");
 }
 
+/**
+ * Decrypts a stored token. Values without the "gcm1:" prefix are returned unchanged, which keeps
+ * rows written before encryption readable. A tampered value fails the GCM auth check and throws.
+ */
 function unprotectToken(value: string): string {
   if (!value.startsWith("gcm1:")) {
     return value;
@@ -748,6 +812,7 @@ function unprotectToken(value: string): string {
   return Buffer.concat([decipher.update(Buffer.from(encryptedText, "base64url")), decipher.final()]).toString("utf8");
 }
 
+/** 32-byte key derived by SHA-256 of GOOGLE_TOKEN_ENCRYPTION_KEY. Changing that env value makes saved tokens unreadable. */
 function tokenKey(): Buffer {
   const secret = tokenEncryptionSecret();
   if (!secret) {

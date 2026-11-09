@@ -1,23 +1,31 @@
-import { Prisma } from "@prisma/client";
+/**
+ * Ordinary (Personal/Group) notes: create, list, search, find, rename, edit, archive, and analyze.
+ * Used by note commands, callbacks, and cards in src/bot, the dashboard routes, and by
+ * noteMerges/captureReclassification/itemEdits. All lookups are scoped by the owner's userId,
+ * and user-reversible writes record an undo audit entry in the same transaction.
+ */
+import type { Prisma } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../ai/deterministic";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 import { prisma } from "../db/prisma";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
+/**
+ * Saves a note. Short text is structured by local rules; only long or "clean this up" style text
+ * goes to the AI adapter, so normal capture never waits on an AI call.
+ */
 export async function createNote(userId: string, sourceText: string, ai: AiProvider) {
   const structured = shouldUseAiForNoteStructure(sourceText)
     ? await ai.structureNote(sourceText)
     : structureNoteDeterministically(sourceText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.summary}\n${structured.body}\n${sourceText}`);
-  const publicId = await nextPublicId(userId, "NOTE");
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "NOTE", async (tx, publicId) => {
     const note = await tx.note.create({
       data: {
         userId,
@@ -26,8 +34,7 @@ export async function createNote(userId: string, sourceText: string, ai: AiProvi
         body: structured.body,
         summary: structured.summary,
         sourceText,
-        tags: structured.tags,
-        embedding
+        tags: structured.tags
       }
     });
     await recordCreateUndo(tx, userId, { kind: "note", id: note.id, publicId: note.publicId, title: note.title });
@@ -35,16 +42,22 @@ export async function createNote(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+// Starred items first (newest star first), then the rest newest first. Sorting in the
+// query keeps an old starred item from falling off a list cut short by `take`.
+const PINNED_FIRST = [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }] satisfies Prisma.NoteOrderByWithRelationInput[];
+
 export async function listRecentNotes(userId: string, take?: number) {
-  const notes = await prisma.note.findMany({
+  return prisma.note.findMany({
     where: { userId, archivedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take
   });
-
-  return sortPinnedFirst(notes);
 }
 
+/**
+ * Searches active notes. The query matches both plaintext rows and encrypted rows (through blind
+ * search tokens), then each hit is checked again on the decrypted text to drop token false positives.
+ */
 export async function searchNotes(userId: string, query: string) {
   const encrypted = encryptedSearchClause("Note", query);
   const notes = await prisma.note.findMany({
@@ -60,13 +73,13 @@ export async function searchNotes(userId: string, query: string) {
         ...(encrypted ? [encrypted] : [])
       ]
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take: 15
   });
 
-  return sortPinnedFirst(notes.filter((note) =>
+  return notes.filter((note) =>
     note.publicId.toUpperCase() === query.toUpperCase() || contentMatchesQuery("Note", note, query)
-  ));
+  );
 }
 
 export async function findNote(userId: string, publicOrUuid: string) {
@@ -79,6 +92,7 @@ export async function findNote(userId: string, publicOrUuid: string) {
   });
 }
 
+/** Like findNote but also returns archived notes, for opening an archived or merged note by ID. */
 export async function findAnyNote(userId: string, publicId: string) {
   return prisma.note.findFirstOrThrow({
     where: {
@@ -88,12 +102,17 @@ export async function findAnyNote(userId: string, publicId: string) {
   });
 }
 
+/** A plain number means "the Nth row of /notes" (starred-first order); otherwise an id or public ID. */
 export async function findNoteReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
-    const notes = await listRecentNotes(userId);
-    const note = notes[activeIndex - 1];
+    // Fetch only the row at that position of the /notes list, not the whole list.
+    const note = await prisma.note.findFirst({
+      where: { userId, archivedAt: null },
+      orderBy: PINNED_FIRST,
+      skip: activeIndex - 1
+    });
     if (!note) {
       throw new Error(`No recent note numbered ${activeIndex}. Run /notes to see the current list.`);
     }
@@ -103,6 +122,10 @@ export async function findNoteReference(userId: string, reference: string) {
   return findNote(userId, normalized);
 }
 
+/**
+ * Renames a note and records the old title for Undo. completeSearchableContentUpdate includes every
+ * searchable field so encrypted search tokens are rebuilt from the whole record.
+ */
 export async function renameNoteTitle(userId: string, publicId: string, title: string) {
   const note = await findNote(userId, publicId);
   const nextTitle = title.trim();
@@ -119,6 +142,7 @@ export async function renameNoteTitle(userId: string, publicId: string, title: s
   });
 }
 
+/** Replaces the body (and its summary/source text) and records the previous body for Undo. */
 export async function updateNoteBody(userId: string, publicId: string, body: string) {
   const note = await findNote(userId, publicId);
   const nextBody = body.trim();
@@ -133,13 +157,16 @@ export async function updateNoteBody(userId: string, publicId: string, body: str
       data: completeSearchableContentUpdate("Note", note, {
         body: nextBody,
         summary: summarizeManualText(nextBody),
-        sourceText: nextBody,
-        embedding: Prisma.JsonNull
+        sourceText: nextBody
       })
     });
   });
 }
 
+/**
+ * Archives a note with archivedReason "removed" (no hard delete) and records an undo entry.
+ * Accepts a database row id (from buttons) as well as a typed reference.
+ */
 export async function archiveNote(userId: string, reference: string) {
   const note = await findNoteByRowId(userId, reference) ?? await findNoteReference(userId, reference);
   const archivedAt = new Date();
@@ -174,6 +201,7 @@ async function findNoteByRowId(userId: string, id: string) {
   });
 }
 
+/** Sends the latest 100 active notes to the AI adapter for feedback on the user's note-keeping habits. Read only. */
 export async function analyzeNoteStyle(userId: string, ai: AiProvider) {
   const notes = await prisma.note.findMany({
     where: { userId, archivedAt: null },
@@ -204,6 +232,7 @@ export function formatNoteSavedAcknowledgement(note: { title: string }): string 
   return `${bold("Note saved")} · ${h(note.title)}`;
 }
 
+/** Renders the /notes list. Row numbers continue across pages so they match findNoteReference. */
 export function formatRecentNotes(notes: Array<{ publicId: string; title: string; summary: string; pinnedAt?: Date | null }>, page?: ListPageInfo): string {
   if (notes.length === 0) {
     return "Nothing saved here yet—send a note when something is worth keeping.";
@@ -269,19 +298,6 @@ function formatList(title: string, items: string[]): string | undefined {
   }
 
   return [bold(title), ...items.map((item) => `- ${h(item)}`)].join("\n");
-}
-
-function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    if (a.pinnedAt && b.pinnedAt) {
-      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
-    }
-
-    if (a.pinnedAt && !b.pinnedAt) return -1;
-    if (!a.pinnedAt && b.pinnedAt) return 1;
-
-    return b.createdAt.getTime() - a.createdAt.getTime();
-  });
 }
 
 function summarizeManualText(value: string): string {

@@ -1,3 +1,9 @@
+/**
+ * Group "TODO:" list import. A member pastes a list under a TODO: or ACTION ITEMS:
+ * heading; it becomes a pending review (one row per task) that the sender or a
+ * group admin can edit in Telegram or the dashboard, then import as real tasks.
+ * Used by src/bot/taskImports.ts and the dashboard routes in src/dashboard/route.ts.
+ */
 import {
   GroupMemberStatus,
   GroupActivityType,
@@ -7,7 +13,6 @@ import {
   TaskStatus,
   type PrismaClient,
 } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { parseDueDate } from "../utils/dates";
@@ -47,6 +52,10 @@ export type TaskImportReview = Prisma.PendingTaskImportGetPayload<{
   include: { items: { orderBy: { position: "asc" } }; workspace: { select: { title: true; telegramChatId: true } } };
 }>;
 
+/**
+ * Import failure with a user-safe message and a code the dashboard maps to an
+ * HTTP status (invalid, not_found, forbidden, expired, conflict).
+ */
 export class TaskImportError extends Error {
   constructor(
     message: string,
@@ -57,12 +66,22 @@ export class TaskImportError extends Error {
   }
 }
 
+/**
+ * Returns the list body after a TODO: / TO DO: / ACTION ITEMS: heading, or
+ * undefined when the message is not an import.
+ */
 export function stripTaskImportHeader(text: string): string | undefined {
   const match = text.match(/^\s*(?:TODO|TO\s+DO|ACTION\s+ITEMS?)\s*:\s*/iu);
   if (!match) return undefined;
   return text.slice(match[0].length).trim();
 }
 
+/**
+ * Turns the list body into review rows, deterministically. For each line it
+ * detects done markers, a trailing "(owner)" clause, @mentions and member names,
+ * a due date and a title. Assignees are matched to active group members where
+ * possible. Capped at MAX_TASK_IMPORT_ITEMS.
+ */
 export function parseTaskImportText(
   sourceText: string,
   timezone: string,
@@ -139,6 +158,10 @@ export function parseTaskImportText(
   }).filter((item) => item.title.length > 0);
 }
 
+/**
+ * Parses the message against the group's active members and stores a pending
+ * import with its rows. Nothing becomes a task yet. The review expires after 24 hours.
+ */
 export async function createPendingTaskImport(input: {
   ownerUserId: string;
   workspaceId: string;
@@ -186,6 +209,10 @@ export async function createPendingTaskImport(input: {
   });
 }
 
+/**
+ * Loads an import review, optionally limited to one workspace. A pending review
+ * past its expiry is marked EXPIRED on read.
+ */
 export async function getTaskImportReview(importId: string, workspaceId?: string, database: PrismaClient = prisma): Promise<TaskImportReview> {
   const taskImport = await database.pendingTaskImport.findFirst({
     where: { id: importId, ...(workspaceId ? { workspaceId } : {}) },
@@ -203,6 +230,10 @@ export async function getTaskImportReview(importId: string, workspaceId?: string
   return taskImport;
 }
 
+/**
+ * Builds the acting member's name from the stored group membership, for
+ * permission checks and activity entries.
+ */
 export async function resolveTaskImportActor(
   workspaceId: string,
   telegramId: string,
@@ -224,6 +255,11 @@ export async function resolveTaskImportActor(
   };
 }
 
+/**
+ * Edits one review row (title, due date, assignees, owner label, done state,
+ * include or skip). Only the sender or an admin may edit, and only while the
+ * review is still pending. Warnings are recalculated on every edit.
+ */
 export async function updateTaskImportItem(
   importId: string,
   itemId: string,
@@ -271,6 +307,10 @@ export async function updateTaskImportItem(
   return getTaskImportReview(importId, workspaceId, database);
 }
 
+/**
+ * Cancels the review. Repeating a cancel, or cancelling a finished import,
+ * returns it unchanged; a review that is importing right now cannot be cancelled.
+ */
 export async function cancelTaskImport(
   importId: string,
   actor: { telegramId: string; isManager: boolean },
@@ -288,10 +328,16 @@ export async function cancelTaskImport(
   });
 }
 
+/**
+ * Creates tasks from the included rows. The import is claimed by moving it to
+ * IMPORTING with a conditional update, so two presses cannot run it twice. A
+ * claim older than ten minutes (a crashed run) can be taken over. Each row is
+ * linked to its task through importSourceItemId, so a retry never creates a
+ * duplicate. Failed rows leave the import PARTIAL so they can be retried.
+ */
 export async function importReviewedTasks(
   importId: string,
   actor: CollaborationActor & { isManager: boolean },
-  ai: AiProvider,
   workspaceId?: string,
   database: PrismaClient = prisma,
 ): Promise<{ taskImport: TaskImportReview; imported: number; failed: number; skipped: number }> {
@@ -339,7 +385,7 @@ export async function importReviewedTasks(
         });
         continue;
       }
-      const task = await createTask(initial.ownerUserId, item.sourceText, ai, {
+      const task = await createTask(initial.ownerUserId, item.sourceText, {
         titleOverride: item.title,
         dueAt: item.dueAt ?? undefined,
         importItemId: item.id,
@@ -389,10 +435,15 @@ export async function importReviewedTasks(
   return importCounts(taskImport);
 }
 
+/** True when an IMPORTING claim has not been refreshed for ten minutes. */
 export function importClaimExpired(updatedAt: Date, now = new Date()): boolean {
   return now.getTime() - updatedAt.getTime() >= IMPORT_CLAIM_TTL_MS;
 }
 
+/**
+ * Touches the import's updatedAt between rows so a long import is not seen as
+ * abandoned. Throws if another run has taken over the import.
+ */
 async function heartbeatTaskImport(importId: string, database: PrismaClient): Promise<void> {
   const heartbeat = await database.pendingTaskImport.updateMany({
     where: { id: importId, status: TaskImportStatus.IMPORTING },
@@ -401,6 +452,11 @@ async function heartbeatTaskImport(importId: string, database: PrismaClient): Pr
   if (heartbeat.count === 0) throw new TaskImportError("This import is no longer active. Refresh the review before trying again.", "conflict");
 }
 
+/**
+ * Splits the list body into items. Bullets, numbers and checkboxes start a new
+ * item; plain lines continue the previous one; blank lines end it. Ticked
+ * checkboxes are kept as "[x]" so the item imports as done.
+ */
 function splitTaskCandidates(body: string): string[] {
   const lines = body.replace(/\r/g, "").split("\n");
   const items: string[] = [];
@@ -434,11 +490,13 @@ function splitTaskCandidates(body: string): string[] {
   return items;
 }
 
+/** True when an item is marked done (a tick, [x], or a trailing "(done)"). */
 function completedTaskText(value: string): boolean {
   return /^\s*(?:(?:✅|☑)\uFE0F?|\[x\]|\(x\))/iu.test(value)
     || /\s*(?:\((?:done|completed|sent already|already sent)\)|\[(?:done|completed)\])\s*$/iu.test(value);
 }
 
+/** Removes the done markers so they do not end up in the title. */
 function stripCompletionMarkers(value: string): string {
   return value
     .replace(/^\s*(?:(?:✅|☑)\uFE0F?|☐|\[[ x]\]|\(x\))\s*/iu, "")
@@ -446,6 +504,11 @@ function stripCompletionMarkers(value: string): string {
     .trim();
 }
 
+/**
+ * Splits a trailing "(...)" off the item when it looks like an owner (a mention,
+ * "owner:", a known member name, or a team name such as "design team").
+ * Other brackets stay part of the title.
+ */
 function extractOwnerClause(value: string, memberAliases: MemberAliasMap): { taskText: string; ownerText?: string } {
   const match = value.match(/\s*\(([^()\n]{1,100})\)\s*$/u);
   if (!match?.[1]) return { taskText: value };
@@ -458,11 +521,16 @@ function extractOwnerClause(value: string, memberAliases: MemberAliasMap): { tas
   return { taskText: value.slice(0, match.index).trim(), ownerText };
 }
 
+/** True for team-like owner labels such as "comms" or "marketing team". */
 function isTeamOwnerPhrase(value: string): boolean {
   const normalized = value.replace(/^(?:owner|team|by|assigned to)\s*:\s*/iu, "").trim();
   return /^(?:(?:internal|external|brand|project|product|growth|community|customer|people|web|mobile|group)\s+)*(?:comms|communications|ops|operations|design|engineering|marketing|finance|logistics|product|content|social|legal|sales|events?|committee|crew|squad|department|dept)(?:\s+team)?$/iu.test(normalized);
 }
 
+/**
+ * Maps each member's username, full name and first name to that member. A name
+ * shared by two members maps to null so it is never guessed.
+ */
 function buildMemberAliases(memberships: TaskImportMembership[]): MemberAliasMap {
   const aliases: MemberAliasMap = new Map();
   for (const member of memberships) {
@@ -474,6 +542,7 @@ function buildMemberAliases(memberships: TaskImportMembership[]): MemberAliasMap
   return aliases;
 }
 
+/** Adds one alias, marking it ambiguous (null) when it already points at someone else. */
 function addMemberAlias(aliases: MemberAliasMap, label: string, member: TaskImportMembership): void {
   const key = normalizeMemberAlias(label);
   if (!key) return;
@@ -485,6 +554,7 @@ function addMemberAlias(aliases: MemberAliasMap, label: string, member: TaskImpo
   if (!aliases.has(key)) aliases.set(key, member);
 }
 
+/** Finds the group members named in an owner clause such as "Alex & Sam". */
 function membersFromOwnerClause(ownerText: string | undefined, aliases: MemberAliasMap): TaskImportMembership[] {
   if (!ownerText) return [];
   const found: TaskImportMembership[] = [];
@@ -500,6 +570,10 @@ function normalizeMemberAlias(value: string): string {
   return value.replace(/^@/u, "").replace(/\s+/g, " ").trim().toLocaleLowerCase();
 }
 
+/**
+ * What is left of the owner clause after removing the people who became
+ * assignees, kept as a free-text team owner label.
+ */
 function normalizeTeamOwner(ownerText: string | undefined, assignees: TaskImportAssignee[], memberAliases: MemberAliasMap): string | undefined {
   if (!ownerText) return undefined;
   const segments = ownerText
@@ -526,6 +600,10 @@ function memberDisplayName(member: { firstName: string | null; lastName: string 
   return [member.firstName, member.lastName].filter(Boolean).join(" ").trim();
 }
 
+/**
+ * Adds an assignee unless the same person is already listed, merging the extra
+ * identity details into the existing entry.
+ */
 function addImportAssignee(list: TaskImportAssignee[], assignee: TaskImportAssignee): void {
   if (!assignee.telegramId && !assignee.username && !assignee.displayName) return;
   const username = assignee.username?.toLocaleLowerCase();
@@ -557,6 +635,7 @@ function addImportAssignee(list: TaskImportAssignee[], assignee: TaskImportAssig
   }
 }
 
+/** Reads the assignee JSON stored on a review row, ignoring malformed entries. */
 function readAssignees(value: Prisma.JsonValue): TaskImportAssignee[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is Prisma.JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item))).map((item) => ({
@@ -566,6 +645,10 @@ function readAssignees(value: Prisma.JsonValue): TaskImportAssignee[] {
   }));
 }
 
+/**
+ * Review warnings shown next to a row: unassigned, an @user the bot has not seen
+ * in this group (so cannot be linked), or "will be imported as completed".
+ */
 export function buildTaskImportWarnings(
   assignees: TaskImportAssignee[],
   teamOwnerLabel: string | null | undefined,
@@ -580,10 +663,15 @@ export function buildTaskImportWarnings(
   return [...new Set(warnings)];
 }
 
+/** Only the member who sent the list, or a group admin, may change or run the import. */
 export function canControlTaskImport(requestedByTelegramId: string, actor: { telegramId: string; isManager: boolean }): boolean {
   return requestedByTelegramId === actor.telegramId || actor.isManager;
 }
 
+/**
+ * True when a button press comes from the same chat as the import, so an import
+ * cannot be driven from another chat.
+ */
 export function taskImportBelongsToChat(workspaceTelegramChatId: string, currentChatId: string | number | undefined): boolean {
   return currentChatId !== undefined && workspaceTelegramChatId === String(currentChatId);
 }
@@ -594,6 +682,7 @@ function assertImportControl(taskImport: TaskImportReview, actor: { telegramId: 
   }
 }
 
+/** Throws unless the review is still pending or partly imported. */
 function assertReviewEditable(taskImport: TaskImportReview): void {
   if (taskImport.status === TaskImportStatus.EXPIRED) throw new TaskImportError("This review expired. Send the TODO list again.", "expired");
   if (taskImport.status !== TaskImportStatus.PENDING && taskImport.status !== TaskImportStatus.PARTIAL) {
@@ -601,6 +690,7 @@ function assertReviewEditable(taskImport: TaskImportReview): void {
   }
 }
 
+/** Imported, failed and skipped row counts for the result message. */
 function importCounts(taskImport: TaskImportReview) {
   return {
     taskImport,
@@ -610,6 +700,10 @@ function importCounts(taskImport: TaskImportReview) {
   };
 }
 
+/**
+ * Shows the original error only when it is a known validation message; anything
+ * else becomes a generic message so internal errors are not shown to users.
+ */
 function importFailureMessage(error: unknown): string {
   if (error instanceof Error && /title|date|task|assignee/i.test(error.message)) return error.message.slice(0, 240);
   return "This row could not be imported. Review it and try again.";

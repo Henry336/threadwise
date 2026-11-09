@@ -1,14 +1,42 @@
+/**
+ * Telegram replies that put a task on a calendar. It syncs to the user's connected Google Calendar
+ * when possible, and otherwise falls back to a no-login Google Calendar template link plus an
+ * .ics file, so the user can always add the event even without connecting an account.
+ */
 import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import { createGoogleCalendarUrl, createIcs } from "../services/calendar";
-import { syncTaskToGoogleCalendar } from "../services/googleCalendar";
-import { findTaskReference } from "../services/tasks";
+import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, syncTaskToGoogleCalendar } from "../services/googleCalendar";
+import { findTaskReference, type TaskListItem } from "../services/tasks";
+import { calendarTaskKeyboard } from "./keyboards";
 import { formatDateTimeForUser } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { field, fieldHtml, joinBlocks } from "../utils/messageFormat";
 import { normalizePublicId } from "../utils/text";
 import { userFacingError } from "./errorResponses";
 
+/**
+ * The "connect Google Calendar once" card for a dated task, or undefined when Calendar is
+ * already connected. Shared by the task Calendar button and "add task 3 to calendar" text
+ * so both offer the same connect link and wording.
+ */
+export async function calendarTaskConnectCard(userId: string, chatId: string, task: TaskListItem) {
+  const status = await calendarConnectionStatus(userId);
+  if (status.connected) return undefined;
+  if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
+  const connectUrl = await createCalendarConnectUrl(userId, chatId, { taskId: task.id });
+  return {
+    text: `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`,
+    keyboard: calendarTaskKeyboard(task, connectUrl),
+    reconnectRequired: status.reconnectRequired,
+  };
+}
+
+/**
+ * Replies with calendar options for one task (it needs a due date). With includeIcs it first tries
+ * a real Google Calendar sync, which writes the event and its id to the task; on failure it explains
+ * and sends the template link and .ics file instead. Without includeIcs it sends only the link.
+ */
 export async function replyWithTaskCalendar(
   ctx: Context,
   input: {

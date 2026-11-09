@@ -1,9 +1,31 @@
 import { RecurrenceRule, TaskStatus, type PrismaClient, type UserSettings } from "@prisma/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The task services the dashboard delegates status changes to use the shared Prisma client.
+const servicePrisma = vi.hoisted(() => ({
+  task: { findFirstOrThrow: vi.fn() },
+  user: { findUniqueOrThrow: vi.fn() },
+  $transaction: vi.fn()
+}));
+vi.mock("../db/prisma", () => ({ prisma: servicePrisma }));
+
+// Provider side effects run on every production path; the tests replace the providers, not the path.
+vi.mock("../services/googleCalendar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/googleCalendar")>(),
+  syncTaskCalendarBestEffort: vi.fn(async () => "skipped"),
+  removeTaskFromGoogleCalendar: vi.fn(async () => ({ removed: true })),
+}));
+vi.mock("../services/excel", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/excel")>(),
+  syncExpenseToExcelIfEnabled: vi.fn(async () => "skipped"),
+  syncUnsyncedExpenses: vi.fn(async () => 7),
+}));
+
 import {
   analyzeDashboardIdea,
   DashboardConflictError,
   DashboardUnsupportedMediaError,
+  DashboardValidationError,
   archiveDashboardTask,
   createDashboardTask,
   deleteDashboardAccount,
@@ -17,6 +39,7 @@ import {
   updateDashboardTask
 } from "./data";
 import type { AiProvider, IdeaScore } from "../ai/types";
+import { syncUnsyncedExpenses } from "../services/excel";
 
 const settings = {
   id: "settings-1",
@@ -60,6 +83,10 @@ function storedImage(mimeType = "image/png") {
 }
 
 describe("dashboard data security", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("canonicalizes legacy one-digit quiet hours at the API boundary", () => {
     expect(settingsView({ ...settings, quietHoursStart: "3:00", quietHoursEnd: "6:00" } as UserSettings)).toMatchObject({
       quietHoursStart: "03:00",
@@ -123,7 +150,7 @@ describe("dashboard data security", () => {
     });
   });
 
-  it("rolls a recurring task forward when the dashboard completes it and records an undo entry", async () => {
+  it("completes a recurring task through the shared service, which resets its reminder state for the next occurrence", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-17T00:00:00.000Z"));
     try {
@@ -131,62 +158,60 @@ describe("dashboard data security", () => {
         id: "task-1",
         userId: "user-1",
         publicId: "TASK-1",
-        title: "Weekly review",
-        description: "Review the week",
-        sourceText: "Weekly review",
+        title: "Weekly report",
+        description: null,
+        sourceText: "Weekly report",
         status: TaskStatus.OPEN,
+        audience: "UNASSIGNED" as const,
         dueAt: new Date("2026-07-18T09:00:00.000Z"),
+        plannedFor: null,
+        firstPlannedFor: null,
         timezone: "UTC",
         reminderIntervalMinutes: 180,
-        nextReminderAt: new Date("2026-07-18T08:57:00.000Z"),
+        nextReminderAt: null,
         snoozedUntil: null,
         completedAt: null,
-        lastRemindedAt: null,
-        reminderCount: 0,
-        embedding: null,
-        calendarUrl: null,
-        calendarEventId: null,
-        calendarEventUrl: null,
-        calendarSyncedAt: null,
-        assignedTelegramId: null,
-        assignedUsername: null,
-        assignedDisplayName: null,
         recurrenceRule: RecurrenceRule.WEEKLY,
-        recurrenceIntervalDays: null,
         recurrenceDayOfMonth: null,
+        // This week's reminders were dismissed and nudged; next week must start fresh.
+        remindersDismissedAt: new Date("2026-07-16T00:00:00.000Z"),
+        automaticReminderCount: 4,
+        undatedNudgeCount: 2,
         pinnedAt: null,
+        assignees: [],
+        reminderSchedules: [],
         archivedAt: null,
-        archivedReason: null,
         createdAt: new Date("2026-07-01T00:00:00.000Z"),
         updatedAt: new Date("2026-07-01T00:00:00.000Z")
       };
-      const auditCreate = vi.fn(async () => ({}));
-      const taskUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-        ...task,
-        ...data,
-        updatedAt: new Date()
-      }));
-      const tx = { auditLog: { create: auditCreate }, task: { update: taskUpdate } };
+      const rolled = { ...task, dueAt: new Date("2026-07-25T09:00:00.000Z"), nextReminderAt: new Date("2026-07-25T09:00:00.000Z"), remindersDismissedAt: null, automaticReminderCount: 0, undatedNudgeCount: 0 };
+      const tx = {
+        task: { updateMany: vi.fn(async () => ({ count: 1 })), findUniqueOrThrow: vi.fn(async () => rolled) },
+        auditLog: { create: vi.fn(async () => ({})) },
+        taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) }
+      };
+      servicePrisma.task.findFirstOrThrow.mockResolvedValue(task);
+      servicePrisma.$transaction.mockImplementation(async (work: (client: typeof tx) => unknown) => work(tx));
       const database = {
         user: { findUnique: userFindUnique() },
-        task: { findFirst: vi.fn(async () => task) },
-        $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => work(tx))
+        task: { findFirst: vi.fn().mockResolvedValueOnce(task).mockResolvedValueOnce(rolled) }
       } as unknown as PrismaClient;
 
       const updated = await updateDashboardTask("123456789", "TASK-1", { status: TaskStatus.DONE }, database);
 
       expect(updated.status).toBe(TaskStatus.OPEN);
       expect(updated.dueAt).toBe("2026-07-25T09:00:00.000Z");
-      expect(updated.nextReminderAt).toBe("2026-07-25T09:00:00.000Z");
-      expect(taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
-        where: { id: "task-1" },
+      expect(tx.task.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: "task-1", userId: "user-1", dueAt: task.dueAt },
         data: expect.objectContaining({
           status: TaskStatus.OPEN,
           dueAt: new Date("2026-07-25T09:00:00.000Z"),
-          nextReminderAt: new Date("2026-07-25T09:00:00.000Z")
+          remindersDismissedAt: null,
+          automaticReminderCount: 0,
+          undatedNudgeCount: 0
         })
       }));
-      expect(auditCreate).toHaveBeenCalledWith({
+      expect(tx.auditLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: "user-1",
           action: "undoable:complete-task",
@@ -196,6 +221,18 @@ describe("dashboard data security", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects a status change combined with other field edits", async () => {
+    servicePrisma.$transaction.mockClear();
+    const database = {
+      user: { findUnique: userFindUnique() },
+      task: { findFirst: vi.fn(async () => ({ id: "task-1", status: TaskStatus.OPEN, updatedAt: new Date() })) }
+    } as unknown as PrismaClient;
+
+    await expect(updateDashboardTask("123456789", "TASK-1", { status: TaskStatus.DONE, title: "Renamed" }, database))
+      .rejects.toBeInstanceOf(DashboardValidationError);
+    expect(servicePrisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("archives dashboard tasks with undo metadata without destroying their reminder schedule", async () => {
@@ -212,7 +249,7 @@ describe("dashboard data security", () => {
     };
     const auditCreate = vi.fn(async () => ({}));
     const taskUpdate = vi.fn(async (_query: { data: Record<string, unknown> }) => task);
-    const tx = { auditLog: { create: auditCreate }, task: { update: taskUpdate } };
+    const tx = { auditLog: { create: auditCreate }, task: { update: taskUpdate }, taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) } };
     const database = {
       user: { findUnique: userFindUnique() },
       task: { findFirst: vi.fn(async () => task) },
@@ -267,7 +304,7 @@ describe("dashboard data security", () => {
     };
     const taskUpdate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...task, ...data, updatedAt: new Date() }));
     const auditCreate = vi.fn(async () => ({}));
-    const tx = { task: { update: taskUpdate }, auditLog: { create: auditCreate } };
+    const tx = { task: { update: taskUpdate }, auditLog: { create: auditCreate }, taskReminderSchedule: { updateMany: vi.fn(async () => ({ count: 0 })) } };
     const database = {
       user: { findUnique: userFindUnique() },
       task: { findFirst: vi.fn(async () => task) },
@@ -311,7 +348,8 @@ describe("dashboard data security", () => {
         headers: { "content-type": "image/png", "content-length": "4" }
       }));
 
-    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher);
+    vi.stubGlobal("fetch", fetcher);
+    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database);
 
     expect(result).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     expect(imageFindFirst).toHaveBeenCalledWith({
@@ -437,7 +475,8 @@ describe("dashboard data security", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, result: { file_path: "documents/a.svg" } }), { status: 200 }))
       .mockResolvedValueOnce(new Response("<svg/>", { status: 200, headers: { "content-type": "image/svg+xml" } }));
 
-    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher))
+    vi.stubGlobal("fetch", fetcher);
+    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database))
       .rejects.toBeInstanceOf(DashboardUnsupportedMediaError);
   });
 
@@ -464,13 +503,11 @@ describe("dashboard data security", () => {
 
   it("resolves the signed Telegram owner before synchronizing that user's Excel expenses", async () => {
     const database = { user: { findUnique: userFindUnique() } } as unknown as PrismaClient;
-    const syncExpenses = vi.fn(async () => 7);
-
-    await expect(syncDashboardExcelExpenses("123456789", database, syncExpenses)).resolves.toEqual({
+    await expect(syncDashboardExcelExpenses("123456789", database)).resolves.toEqual({
       provider: "excel",
       synced: 7
     });
-    expect(syncExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
+    expect(syncUnsyncedExpenses).toHaveBeenCalledWith("user-1", "Asia/Singapore");
   });
 
   it("preserves per-task reminder intervals when another shared reminder setting changes", async () => {

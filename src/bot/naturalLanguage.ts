@@ -1,3 +1,11 @@
+/**
+ * Last-stop text handler for Personal and Group chats: any non-command text that earlier
+ * middleware did not claim ends up here. It first resumes open conversations (reminder-time
+ * replies, album captions, menu prompts, pending edits, corrections), then explicit natural
+ * commands, and only then the deterministic classifier. Classified prose is never saved directly:
+ * it becomes a short-lived, actor-bound `PendingCapture` shown on a review card.
+ */
+
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { classifyMessageDeterministically } from "../ai/deterministic";
@@ -9,20 +17,20 @@ import {
   findLatestPendingCapture,
   findPendingCaptureReminderReply,
   ignorePendingCapture,
+  pendingCaptureTaskOptions,
   rememberPendingCaptureReminderPrompt,
 } from "../services/pendingCaptures";
 import { createIdea, findIdeaReference, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
+import { saveTaskFromTelegram } from "./taskSaves";
 import { applyPendingItemEdit, cancelPendingItemEdit } from "../services/itemEdits";
-import { applyPendingExpenseEdit, createPendingExpenseFromText, formatPendingExpense } from "../services/expenses";
 import { consumePendingImageCapture, discardPendingImageCapture, findPendingImageReminder } from "../services/imageOcr";
 import { parseDueDate } from "../utils/dates";
 import { bold, code, h, replyHtml } from "../utils/html";
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 import { recentPersonalCaptureCreatedAt, reclassifyRecentPersonalCapture } from "../services/captureReclassification";
-import { captureConfirmationKeyboard, expenseConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, undoKeyboard } from "./keyboards";
+import { captureConfirmationKeyboard, ideaBriefKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, undoKeyboard } from "./keyboards";
 import { PRIVATE_MENU_LABELS } from "./keyboards";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { handleNaturalCommand } from "./naturalCommands";
@@ -34,7 +42,6 @@ import { appendListOrigin } from "./navigationState";
 import { replyControlCardHtml } from "./controlCards";
 import { formatIdeaScore } from "./formatters";
 import { formatRegionSettings, formatReminderSettings, updateSetting } from "../services/settings";
-import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import {
@@ -45,6 +52,11 @@ import {
 import { formatCaptureReview, formatReminderTimePrompt, suggestedCaptureKind } from "./captureReview";
 import { parseCaptureCorrection } from "./captureCorrections";
 
+/**
+ * Registers the natural-language text handler. The order of checks is the routing priority:
+ * an open follow-up always wins over a fresh interpretation of the same text. In groups, only
+ * messages that mention or reply to the bot get this far (see `prepareNaturalLanguageText`).
+ */
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
     const rawText = ctx.message.text;
@@ -65,7 +77,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       const user = await ensureUser(ctx);
 
-      if (await handlePendingCaptureReminderReply(ctx, ai, user, text)) return;
+      if (await handlePendingCaptureReminderReply(ctx, user, text)) return;
 
       const captionedImageBatch = await applyPendingImageUploadBatchCaption(user.id, text);
       if (captionedImageBatch) {
@@ -92,7 +104,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (!isGroupChat(ctx)) {
         if (text === PRIVATE_MENU_LABELS.menu) {
-          await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
+          await showMainMenu(ctx, user.settings.timezone, user.id, ctx.from.id);
           return;
         }
         if (text === PRIVATE_MENU_LABELS.dashboard) {
@@ -103,20 +115,6 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (await handlePendingMenuInput(ctx, ai, user, text)) return;
 
-      const expenseEdit = await applyPendingExpenseEdit(user.id, text, user.settings?.timezone ?? "UTC");
-      if (expenseEdit) {
-        if (expenseEdit.canceled) {
-          await ctx.reply("Expense edit canceled. The preview is still exactly as it was.");
-        } else if (expenseEdit.message) {
-          await ctx.reply(expenseEdit.message);
-        } else {
-          await replyControlCardHtml(ctx, formatPendingExpense(expenseEdit.pending, user.settings?.timezone ?? "UTC"), {
-            reply_markup: expenseConfirmationKeyboard(expenseEdit.pending.id)
-          });
-        }
-        return;
-      }
-
       const pendingImageReminder = await findPendingImageReminder(user.id);
       if (pendingImageReminder) {
         if (/^(?:cancel|stop|discard)(?:\s+(?:image\s+)?reminder)?$/i.test(text.trim())) {
@@ -124,15 +122,13 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           await ctx.reply("Image reminder canceled. I left it unsaved.");
           return;
         }
-        const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+        const dueAt = parseDueDate(text, user.settings.timezone);
         if (!dueAt || dueAt.getTime() <= Date.now()) {
           await ctx.reply("I still need a future reminder time. Try: tomorrow at 9am, in 2 hours, or next Monday at noon. Send 'cancel image reminder' to stop.");
           return;
         }
-        const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
-        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
+        await saveTaskFromTelegram(ctx, user, pendingImageReminder.extractedText, { dueAt });
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
         return;
       }
 
@@ -155,7 +151,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           editResult.ownerUserId,
           editResult.kind,
           editResult.publicId,
-          user.settings?.timezone ?? "UTC",
+          user.settings.timezone,
           "✅ Updated",
           false,
           1,
@@ -168,11 +164,11 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (await handleCaptureCorrection(ctx, ai, user, text)) return;
 
-      if (await handleNaturalCommand(ctx, ai, text)) {
+      if (await handleNaturalCommand(ctx, ai, user, text)) {
         return;
       }
 
-      const deterministicClassification = classifyMessageDeterministically(text, user.settings?.timezone ?? "UTC");
+      const deterministicClassification = classifyMessageDeterministically(text, user.settings.timezone);
       const classification = deterministicClassification ?? {
         kind: "noise" as const,
         confidence: 0,
@@ -186,8 +182,8 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         addressedGroupMessage,
       });
 
-      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id);
-      const suggestedKind = suggestedCaptureKind(classification, text, user.settings?.timezone ?? "UTC");
+      const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id, taskCreationOptionsFromContext(ctx, text).mentions);
+      const suggestedKind = suggestedCaptureKind(classification, text, user.settings.timezone);
       await replyControlCardHtml(ctx, formatCaptureReview(text, suggestedKind), {
         reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind)
       });
@@ -197,6 +193,13 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   });
 }
 
+/**
+ * Handles "save that as a note instead" style corrections. In private chats, a reversible item
+ * saved within the last ten minutes is replaced (the original is archived and Undo restores it),
+ * unless a newer review card is waiting. Otherwise the correction applies to the sender's latest
+ * unexpired review card in this chat. Groups never correct saved items, because older creation
+ * audit rows do not record which member created them.
+ */
 async function handleCaptureCorrection(
   ctx: Context,
   ai: AiProvider,
@@ -213,7 +216,7 @@ async function handleCaptureCorrection(
   const recentSavedAt = !isGroupChat(ctx) ? await recentPersonalCaptureCreatedAt(user.id) : undefined;
   if (recentSavedAt && (!pending || recentSavedAt > pending.createdAt)) {
     const reminderAt = correction.kind === "reminder" && correction.reminderTimeText
-      ? parseDueDate(correction.reminderTimeText, user.settings?.timezone ?? "UTC")
+      ? parseDueDate(correction.reminderTimeText, user.settings.timezone)
       : undefined;
     if (correction.kind === "reminder" && (!reminderAt || reminderAt.getTime() <= Date.now())) {
       await replyHtml(ctx, `${bold("Tell me when")}\nTry ${code("Make that a reminder for tomorrow at 5pm")}. Nothing was changed.`);
@@ -242,7 +245,7 @@ async function handleCaptureCorrection(
     return true;
   }
 
-  const timezone = user.settings?.timezone ?? "UTC";
+  const timezone = user.settings.timezone;
   if (correction.kind === "reminder") {
     const dueAt = parseDueDate(correction.reminderTimeText ?? pending.sourceText, timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
@@ -262,9 +265,7 @@ async function handleCaptureCorrection(
       await replyHtml(ctx, "That review was already handled or expired. Send the content again if needed.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed) });
     return true;
   }
 
@@ -274,9 +275,7 @@ async function handleCaptureCorrection(
     return true;
   }
   if (correction.kind === "task") {
-    const task = await createTask(user.id, claimed.sourceText, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { options: pendingCaptureTaskOptions(claimed) });
   } else if (correction.kind === "note") {
     const note = await createNote(user.id, claimed.sourceText, ai);
     await replyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
@@ -287,9 +286,13 @@ async function handleCaptureCorrection(
   return true;
 }
 
+/**
+ * Handles a reply to the "when should I remind you?" force-reply prompt. The prompt is bound to
+ * the exact actor, chat and message id, so other members' replies or other messages are ignored.
+ * Without a usable future time it asks again with a new prompt; "cancel" drops the capture.
+ */
 async function handlePendingCaptureReminderReply(
   ctx: Context,
-  ai: AiProvider,
   user: Awaited<ReturnType<typeof ensureUser>>,
   text: string,
 ): Promise<boolean> {
@@ -312,7 +315,7 @@ async function handlePendingCaptureReminderReply(
     return true;
   }
 
-  const timezone = user.settings?.timezone ?? "UTC";
+  const timezone = user.settings.timezone;
   const dueAt = parseDueDate(text, timezone);
   if (!dueAt || dueAt.getTime() <= Date.now()) {
     const prompt = await ctx.reply(formatReminderTimePrompt(pending.sourceText), {
@@ -332,12 +335,16 @@ async function handlePendingCaptureReminderReply(
     await replyHtml(ctx, "That capture was already handled or expired. Send it again if needed.");
     return true;
   }
-  const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
-  await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-  await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+  await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed) });
   return true;
 }
 
+/**
+ * Completes a menu button that asked for text input ("Add task", "Set timezone", "Search notes").
+ * The waiting action is kept per owner and actor by `menuInputs.ts`. Settings inputs reuse the
+ * `/settings` code path and then redraw the settings panel. Search inputs are turned into a
+ * natural search command.
+ */
 async function handlePendingMenuInput(
   ctx: Context,
   ai: AiProvider,
@@ -356,23 +363,19 @@ async function handlePendingMenuInput(
   }
 
   if (action === "task") {
-    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { options: taskCreationOptionsFromContext(ctx, text) });
     return true;
   }
 
   if (action === "reminder") {
-    const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+    const dueAt = parseDueDate(text, user.settings.timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
       await replyHtml(ctx, "I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
-    await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await saveTaskFromTelegram(ctx, user, text, { dueAt, options: taskCreationOptionsFromContext(ctx, text) });
     return true;
   }
 
@@ -416,21 +419,8 @@ async function handlePendingMenuInput(
     const panel = settingInput.parent === "region"
       ? await formatRegionSettings(user.id)
       : await formatReminderSettings(user.id);
-    const invalid = /^(?:I don't|Choose|Pick|Send it|Try:)/i.test(result.message);
-    await replyControlCardHtml(ctx, invalid ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
+    await replyControlCardHtml(ctx, !result.applied ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
       reply_markup: settingInput.parent === "region" ? regionSettingsKeyboard() : reminderSettingsKeyboard()
-    });
-    return true;
-  }
-
-  if (action === "expense") {
-    const pending = await createPendingExpenseFromText(user.id, text, user.settings?.timezone ?? "UTC", {
-      sourceType: "manual",
-      defaultCurrency: user.settings?.expenseCurrency
-    });
-    clearMenuInput(user.id, actorId);
-    await replyControlCardHtml(ctx, formatPendingExpense(pending, user.settings?.timezone ?? "UTC"), {
-      reply_markup: expenseConfirmationKeyboard(pending.id)
     });
     return true;
   }
@@ -443,5 +433,5 @@ async function handlePendingMenuInput(
         ? "search images "
         : "search ";
   clearMenuInput(user.id, actorId);
-  return handleNaturalCommand(ctx, ai, `${prefix}${text}`);
+  return handleNaturalCommand(ctx, ai, user, `${prefix}${text}`);
 }

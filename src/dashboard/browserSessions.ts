@@ -1,3 +1,9 @@
+/**
+ * Server-side registry of dashboard browser logins (DashboardBrowserSession rows).
+ * The browser cookie holds only an opaque session id; Vercel asks the backend to check it on
+ * every request, so a session can be revoked here (logout) even while the cookie is still valid.
+ * Called from the browser-session routes in route.ts. Ownership always comes from the signed token.
+ */
 import { prisma } from "../db/prisma";
 
 export const DASHBOARD_BROWSER_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -17,6 +23,10 @@ export type DashboardBrowserSession = {
   expiresAt: Date;
 };
 
+/**
+ * Creates a session row for the Telegram user after a dashboard login. The TTL is bounded
+ * (5 minutes to 7 days). Also triggers a best-effort purge of long-dead rows without waiting for it.
+ */
 export async function createDashboardBrowserSession(
   telegramId: string,
   ttlSeconds: number,
@@ -40,6 +50,11 @@ export async function createDashboardBrowserSession(
   return session;
 }
 
+/**
+ * Confirms a session id belongs to this Telegram user and is neither revoked nor expired.
+ * Malformed, missing, cross-owner and dead sessions all fail the same way ("inactive"),
+ * so a guessed id reveals nothing.
+ */
 export async function requireActiveDashboardBrowserSession(
   telegramId: string,
   sessionId: string,
@@ -60,6 +75,7 @@ export async function requireActiveDashboardBrowserSession(
   return session;
 }
 
+/** Marks the exact session revoked (logout). Only the owner's own active session can be changed; unknown ids are a no-op. */
 export async function revokeDashboardBrowserSession(
   telegramId: string,
   sessionId: string,
@@ -73,6 +89,10 @@ export async function revokeDashboardBrowserSession(
   });
 }
 
+/**
+ * Deletes rows that expired or were revoked more than 30 days ago. To keep it cheap it only
+ * runs when the current minute is a multiple of 32 (minutes 0 and 32), and errors are ignored.
+ */
 async function purgeExpiredDashboardBrowserSessions(database: BrowserSessionDatabase, now: Date): Promise<void> {
   if ((now.getUTCMinutes() & 31) !== 0) return;
   const retentionBoundary = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1_000);

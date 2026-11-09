@@ -32,7 +32,7 @@ const workspace = { id: "workspace", ownerUserId: "owner" } as StudyWorkspace;
 const baseDraft = {
   id: "draft", workspaceId: workspace.id, ownerUserId: workspace.ownerUserId, draftKey: "new",
   resourceId: null, resourceUpdatedAt: null, moduleId: "module", title: "Draft", body: "Body", revision: 1,
-  expiresAt: new Date("2026-09-07T00:00:00Z"), createdAt: new Date(), updatedAt: new Date(),
+  expiresAt: new Date("2099-09-07T00:00:00Z"), createdAt: new Date(), updatedAt: new Date(),
 };
 const browserDraft = {
   id: baseDraft.id,

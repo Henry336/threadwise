@@ -1,3 +1,11 @@
+/**
+ * Capture, library, Canvas, and travel screens for private Study Mode.
+ * Called from `study.ts` once the workspace and group seal are verified. It turns
+ * free text, replies, photos, and documents into module-scoped StudyItems or
+ * StudyResources, and renders attention, weekly preview, resource, origin, and
+ * route cards. Business rules stay in the `src/services/study*.ts` services.
+ */
+
 import {
   StudyCanvasAssignmentStatus,
   StudyItemStatus,
@@ -21,7 +29,6 @@ import {
   clearStudyConversation,
   completeStudyItem,
   createStudyItem,
-  findStudyItem,
   findStudyModule,
   getStudyConversation,
   listStudyModules,
@@ -34,6 +41,7 @@ import {
 import { buildStudyAttentionSnapshot, buildStudyWeeklyPreview } from "../services/studyAttention";
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
 import { extractTextFromImage, MAX_IMAGE_BYTES } from "../services/imageOcr";
+import { downloadTelegramFile, TelegramFileError } from "../services/telegramFiles";
 import { parseStudyNaturalLanguage, type StudyNaturalIntent } from "../services/studyNaturalLanguage";
 import { markdownForTelegram } from "../services/studyMarkdown";
 import {
@@ -114,6 +122,9 @@ import {
   updateStudyCaptureBatchCaption,
 } from "../services/studyCaptureBatches";
 
+/**
+ * Callback prefixes handled in this file instead of `study.ts`.
+ */
 const EXTENDED_CALLBACKS = [
   "study:onboarding",
   "study:setup:start",
@@ -154,6 +165,9 @@ export function isExtendedStudyCallback(data: string): boolean {
   return EXTENDED_CALLBACKS.some((prefix) => data === prefix || data.startsWith(prefix));
 }
 
+/**
+ * Persistent reply keyboard for the Study group, with one "Study menu" button.
+ */
 export function studyModeKeyboard(): Keyboard {
   return new Keyboard()
     .text("Study menu")
@@ -162,6 +176,10 @@ export function studyModeKeyboard(): Keyboard {
     .placeholder("Capture for Study Mode…");
 }
 
+/**
+ * Reply keyboard shown during a note session, so Save and Cancel are always one
+ * tap away.
+ */
 export function studyNoteModeKeyboard(): Keyboard {
   return new Keyboard()
     .text("Save note")
@@ -171,6 +189,13 @@ export function studyNoteModeKeyboard(): Keyboard {
     .placeholder("Each message becomes a paragraph…");
 }
 
+/**
+ * Main path for ordinary text in the Study group (and for phrases replayed by
+ * slash commands via `rawOverride`). Order matters: an active note session takes
+ * every message as a paragraph first; then a "save this to CS2100" reply; then a
+ * natural correction of a waiting capture; then deterministic Study intent parsing.
+ * Text that matches no intent is never saved directly; it opens the type chooser.
+ */
 export async function handleStudyAmbientText(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -208,6 +233,12 @@ export async function handleStudyAmbientText(
   await executeStudyIntent(ctx, workspace, intent);
 }
 
+/**
+ * Handles phrases like "save that as a note instead" against this sender's latest
+ * waiting capture. Ideas are refused because Study has no idea type. A reminder
+ * without a future time asks through a force-reply prompt whose actor, chat, and
+ * message id are stored, so only that exact reply can continue it.
+ */
 async function handleStudyPendingCorrection(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -266,6 +297,12 @@ async function handleStudyPendingCorrection(
   return true;
 }
 
+/**
+ * Saves the message the owner replied to ("save this to CS2100 as a note") into
+ * that module. Text becomes a task, note, question, or link; a photo or document
+ * becomes a resource. Writes to the database and sends a short self-deleting
+ * confirmation.
+ */
 async function handleStudyReplyCapture(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -351,6 +388,11 @@ async function handleStudyReplyCapture(
   return true;
 }
 
+/**
+ * Parses "save/keep/capture this to <MODULE> [as a task|note|question|resource|link]".
+ * Returns undefined unless both the verb and a module code are present, so ordinary
+ * sentences are not mistaken for a capture command.
+ */
 export function parseReplyCaptureInstruction(text: string): {
   moduleReference: string;
   action?: "task" | "note" | "question" | "resource" | "link";
@@ -365,6 +407,9 @@ export function parseReplyCaptureInstruction(text: string): {
   };
 }
 
+/**
+ * Converts a Telegram photo message into StudyMedia (largest size) and queues it.
+ */
 export async function handleStudyPhoto(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const photo = ctx.message?.photo?.at(-1);
   if (!photo) return;
@@ -382,6 +427,9 @@ export async function handleStudyPhoto(ctx: Context, workspace: StudyWorkspace):
   });
 }
 
+/**
+ * Converts a Telegram document message into StudyMedia and queues it.
+ */
 export async function handleStudyDocument(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const document = ctx.message?.document;
   if (!document) return;
@@ -400,6 +448,11 @@ export async function handleStudyDocument(ctx: Context, workspace: StudyWorkspac
   });
 }
 
+/**
+ * Stores a shared Telegram location as a temporary travel origin for four hours.
+ * It is a single point for route planning, not continuous tracking. In private chat
+ * the location keyboard is removed afterwards.
+ */
 export async function handleStudyLocation(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -416,6 +469,10 @@ export async function handleStudyLocation(
     : { reply_markup: studyModeKeyboard() });
 }
 
+/**
+ * Setup checklist: semester, Canvas, capture target, and travel origins, with
+ * buttons for each. On a fresh send it also installs the Study reply keyboard.
+ */
 export async function showStudyOnboarding(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const [canvas, captureContext, origins] = await Promise.all([
     studyCanvasStatus(workspace.id),
@@ -451,6 +508,12 @@ export async function showStudyOnboarding(ctx: Context, workspace: StudyWorkspac
   }
 }
 
+/**
+ * Router for the callbacks listed in EXTENDED_CALLBACKS: Canvas, attention and
+ * preview, module hubs, note sessions, library resources, single and batch image
+ * captures, travel, and origins. Returns false for any other callback so `study.ts`
+ * can handle it.
+ */
 export async function handleExtendedStudyCallback(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -848,6 +911,12 @@ export async function handleExtendedStudyCallback(
   return false;
 }
 
+/**
+ * Performs one parsed Study intent. Writes that need a module (tasks, resources)
+ * use only an explicit module reference or a reply to a module-specific bot prompt;
+ * otherwise the content is parked as a pending capture until the owner picks a
+ * module. The active module alone is not enough for these writes.
+ */
 async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, intent: StudyNaturalIntent): Promise<void> {
   switch (intent.kind) {
     case "menu":
@@ -1044,6 +1113,11 @@ async function executeStudyIntent(ctx: Context, workspace: StudyWorkspace, inten
   }
 }
 
+/**
+ * Searches campus places for a new origin and shows up to eight matches as
+ * buttons. The candidates are stored in the origin conversation so the button tap
+ * can save the exact place the owner chose.
+ */
 export async function showStudyOriginMatches(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1080,6 +1154,12 @@ export async function showStudyOriginMatches(
   ].join("\n"), { reply_markup: keyboard });
 }
 
+/**
+ * Routes an incoming photo or document. Images go to the durable image batch queue
+ * (so an album becomes one review card) and the batch processor is woken. Other
+ * files become a pending capture and are saved at once if the module is known,
+ * otherwise the module picker is shown.
+ */
 async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: StudyMedia): Promise<void> {
   const parsed = media.caption ? parseStudyNaturalLanguage(media.caption, workspace.timezone) : undefined;
   const moduleRef = parsed && "moduleReference" in parsed ? parsed.moduleReference : undefined;
@@ -1129,6 +1209,10 @@ async function handleStudyMedia(ctx: Context, workspace: StudyWorkspace, media: 
   await resolveCapture(ctx, workspace, pending.token, "file", module.id);
 }
 
+/**
+ * Saves replied-to media straight into a module as a resource. Reports "Already
+ * saved" when the same Telegram file was stored before.
+ */
 async function saveStudyMedia(ctx: Context, workspace: StudyWorkspace, module: StudyModule, media: StudyMedia, kind: StudyResourceKind): Promise<void> {
   const result = await createStudyResource(workspace, {
     moduleId: module.id,
@@ -1148,6 +1232,10 @@ async function saveStudyMedia(ctx: Context, workspace: StudyWorkspace, module: S
   await replyQuietAcknowledgementHtml(ctx, `${bold(result.duplicate ? "Already saved" : "Saved")} · ${code(result.resource.publicId)} · ${bold(module.code)}`, 3_500, { reply_markup: studyModeKeyboard() });
 }
 
+/**
+ * Downloads a pending image from Telegram (size-capped) and runs local OCR in the
+ * owner's configured languages. Only done when the owner asks for text extraction.
+ */
 async function extractPendingImageText(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1155,17 +1243,23 @@ async function extractPendingImageText(
 ) {
   if (!pending.telegramFileId) throw new StudyModeError("That image is no longer available.", "not_found");
   if (pending.fileSize && pending.fileSize > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
-  const file = await ctx.api.getFile(pending.telegramFileId);
-  if (!file.file_path) throw new StudyModeError("Telegram could not load that image. Try again.", "invalid");
-  const response = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram download failed (${response.status}).`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
+  let buffer: Buffer;
+  try {
+    ({ bytes: buffer } = await downloadTelegramFile(env.TELEGRAM_BOT_TOKEN, pending.telegramFileId, { maxBytes: MAX_IMAGE_BYTES }));
+  } catch (error) {
+    if (!(error instanceof TelegramFileError)) throw error;
+    if (error.reason === "too_large") throw new StudyModeError("That image is too large for text extraction.", "invalid");
+    throw new StudyModeError("Telegram could not load that image. Try again.", "invalid");
+  }
   const settings = await prisma.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
   const languages = ocrLanguagesForCaption(pending.sourceText ?? "", settings?.ocrLanguages ?? "eng");
   return extractTextFromImage(buffer, languages);
 }
 
+/**
+ * Saves the owner's caption reply onto a pending image or an image batch, then
+ * shows the review card again.
+ */
 export async function handleStudyCaptureCaptionMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1186,6 +1280,10 @@ export async function handleStudyCaptureCaptionMessage(
   await showImageCaptureActions(ctx, workspace, token, false);
 }
 
+/**
+ * Shows the review card for one pending image. When sending a new card it records
+ * the message id and deletes the previous card, so only one live review exists.
+ */
 async function showImageCaptureActions(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1217,6 +1315,10 @@ async function showImageCaptureActions(
   }
 }
 
+/**
+ * Shows the single review card for an image album. One decision applies to every
+ * image; older batch cards are deleted the same way as single image cards.
+ */
 async function showStudyCaptureBatchActions(ctx: Context, workspace: StudyWorkspace, token: string, edit: boolean): Promise<void> {
   const batch = await findStudyCaptureBatch(workspace.id, token);
   const text = [
@@ -1239,6 +1341,9 @@ async function showStudyCaptureBatchActions(ctx: Context, workspace: StudyWorksp
   }
 }
 
+/**
+ * Paged module picker for an image batch.
+ */
 async function chooseCaptureBatchModule(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1267,6 +1372,11 @@ async function chooseCaptureBatchModule(
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Saves every image in a batch to the chosen module. The batch is claimed first so
+ * a double tap cannot save it twice, and released again if saving fails so the owner
+ * can retry. Images already stored are counted as duplicates, not saved again.
+ */
 async function saveStudyCaptureBatch(ctx: Context, workspace: StudyWorkspace, token: string): Promise<void> {
   const batch = await beginStudyCaptureBatchProcessing(workspace.id, token);
   if (!batch.moduleId || !batch.module) {
@@ -1310,12 +1420,18 @@ async function saveStudyCaptureBatch(ctx: Context, workspace: StudyWorkspace, to
   });
 }
 
+/**
+ * Reads `message_id` from a Telegram send result without trusting its shape.
+ */
 function telegramMessageId(value: unknown): number | undefined {
   if (!value || typeof value !== "object" || !("message_id" in value)) return undefined;
   const messageId = (value as { message_id?: unknown }).message_id;
   return typeof messageId === "number" ? messageId : undefined;
 }
 
+/**
+ * Buttons for a single pending image: save, caption, extract text, module, cancel.
+ */
 export function imageCaptureKeyboard(token: string, hasOcr: boolean, hasCaption = false): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text("Save image", `study:cap:image:${token}`)
@@ -1327,6 +1443,10 @@ export function imageCaptureKeyboard(token: string, hasOcr: boolean, hasCaption 
     .text("Cancel", `study:cap:ignore:${token}`);
 }
 
+/**
+ * Parks unclear text as a pending capture and asks what to keep it as (task,
+ * reminder, note, question, resource). Nothing is saved until a button is chosen.
+ */
 async function showStudyCaptureChoice(ctx: Context, workspace: StudyWorkspace, sourceText: string, moduleReference?: string): Promise<void> {
   const explicitModule = await resolveExplicitCaptureModule(ctx, workspace, moduleReference).catch(() => undefined);
   const module = explicitModule ?? (await studyCaptureContext(workspace))?.module;
@@ -1342,11 +1462,18 @@ async function showStudyCaptureChoice(ctx: Context, workspace: StudyWorkspace, s
   ].join("\n"), { reply_markup: captureChoiceKeyboard(pending.token) });
 }
 
+/**
+ * Parks content whose type is known but whose module is not, then asks for the
+ * module.
+ */
 async function deferCaptureForModule(ctx: Context, workspace: StudyWorkspace, sourceText: string, action: string): Promise<void> {
   const pending = await createStudyPendingCapture(workspace, { sourceText, sourceMessageId: ctx.message?.message_id });
   await chooseCaptureModule(ctx, workspace, pending.token, action, false);
 }
 
+/**
+ * Sends or edits the module picker for a pending capture.
+ */
 async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, token: string, action: string, edit = true, requestedPage = 0): Promise<void> {
   const modules = await listStudyModules(workspace.id);
   const keyboard = studyCaptureModulePickerKeyboard(modules, token, action, requestedPage);
@@ -1355,6 +1482,10 @@ async function chooseCaptureModule(ctx: Context, workspace: StudyWorkspace, toke
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Paged two-column module picker for a pending capture. Buttons carry the module
+ * code rather than its id to stay under Telegram's 64-byte callback limit.
+ */
 export function studyCaptureModulePickerKeyboard(
   modules: Array<{ code: string }>,
   token: string,
@@ -1383,6 +1514,12 @@ export function studyCaptureModulePickerKeyboard(
   return keyboard;
 }
 
+/**
+ * Saves a pending capture into a module as the chosen type. It checks the module
+ * is active and that a reminder has a future time, then consumes the pending row
+ * before writing so a repeated tap cannot create two records. Replies with an
+ * Open/Undo card; Undo archives rather than deletes.
+ */
 async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: string, action: string, moduleId: string): Promise<void> {
   const module = await findStudyModule(workspace.id, moduleId);
   if (!module.active) throw new StudyModeError("That module is inactive. Choose a current module instead.", "invalid");
@@ -1443,6 +1580,10 @@ async function resolveCapture(ctx: Context, workspace: StudyWorkspace, token: st
   });
 }
 
+/**
+ * Ranked "needs attention" list from the attention scorer (deadlines, priority,
+ * mastery, backlog).
+ */
 async function showAttention(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const snapshot = await buildStudyAttentionSnapshot(workspace);
   const text = [
@@ -1461,6 +1602,9 @@ async function showAttention(ctx: Context, workspace: StudyWorkspace, edit = fal
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Dated work and planned minutes for the coming week, plus a suggested first item.
+ */
 async function showWeeklyPreview(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const preview = await buildStudyWeeklyPreview(workspace);
   const text = [
@@ -1476,6 +1620,11 @@ async function showWeeklyPreview(ctx: Context, workspace: StudyWorkspace, edit =
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Canvas sync status and count of missing assignments that need review. If the
+ * token is not configured it tells the owner to set it as a Render secret, never to
+ * paste it into Telegram.
+ */
 async function showCanvasStatus(ctx: Context, workspace: StudyWorkspace, edit = true): Promise<void> {
   const [status, missing] = await Promise.all([
     studyCanvasStatus(workspace.id),
@@ -1499,6 +1648,10 @@ async function showCanvasStatus(ctx: Context, workspace: StudyWorkspace, edit = 
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Module overview with open work and resource counts. Callers make the module the
+ * ten-minute capture target first, and the card says so.
+ */
 async function showModuleHub(ctx: Context, workspace: StudyWorkspace, module: StudyModule, edit = false): Promise<void> {
   const [open, resources] = await Promise.all([
     prisma.studyItem.count({ where: { workspaceId: workspace.id, moduleId: module.id, status: { in: ["OPEN", "IN_PROGRESS"] } } }),
@@ -1519,6 +1672,11 @@ async function showModuleHub(ctx: Context, workspace: StudyWorkspace, module: St
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Paged list of library resources, filtered by the active module and kind, or by a
+ * search query. Long search queries do not fit in callback data, so a multi-page
+ * search stores the query in a pending capture row and the buttons carry its token.
+ */
 async function showResources(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1553,6 +1711,11 @@ async function showResources(
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Shows one resource, split into Telegram-sized pages. Notes are converted from
+ * Markdown to a plain Telegram form. Saved images and files are re-sent as media
+ * with a caption; if the old card cannot be edited a new one is sent.
+ */
 async function showResource(ctx: Context, workspace: StudyWorkspace, reference: string, requestedPage = 0, edit = false): Promise<void> {
   const resource = await findStudyResource(workspace.id, reference);
   const sourceBody = resource.body || resource.caption || resource.ocrText || resource.url || resource.fileName || "No text.";
@@ -1619,6 +1782,10 @@ async function showResource(ctx: Context, workspace: StudyWorkspace, reference: 
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Lists saved travel origins with use, default, rename, and remove buttons. The
+ * workspace is re-read so the current temporary origin marker is fresh.
+ */
 async function showOrigins(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const origins = await listStudyOrigins(workspace.id);
   const fresh = await prisma.studyWorkspace.findUnique({ where: { id: workspace.id } });
@@ -1639,6 +1806,10 @@ async function showOrigins(ctx: Context, workspace: StudyWorkspace, edit = false
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Starts, or resumes, a note session for a module. Each following message becomes
+ * one paragraph until Save note or Cancel note.
+ */
 async function beginStudyNoteSession(ctx: Context, workspace: StudyWorkspace, module: StudyModule): Promise<void> {
   const result = await startStudyNoteCaptureSession(workspace, module.id);
   await replyQuietAcknowledgementHtml(ctx, result.resumed
@@ -1646,6 +1817,9 @@ async function beginStudyNoteSession(ctx: Context, workspace: StudyWorkspace, mo
     : `${bold(`${module.code} note started`)}\nEach message becomes one paragraph.`, 3_500, { reply_markup: studyNoteModeKeyboard() });
 }
 
+/**
+ * Joins the session's paragraphs into one saved note resource and confirms it.
+ */
 async function finishStudyNoteSession(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const result = await finalizeStudyNoteCaptureSession(workspace);
   const text = result?.resource
@@ -1655,6 +1829,9 @@ async function finishStudyNoteSession(ctx: Context, workspace: StudyWorkspace, e
   else await replyQuietAcknowledgementHtml(ctx, text, 3_500, { reply_markup: studyModeKeyboard() });
 }
 
+/**
+ * Discards the active note session and reports how many paragraphs were dropped.
+ */
 async function cancelStudyNoteSession(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const count = await cancelStudyNoteCaptureSession(workspace.id);
   const text = count ? `Canceled · ${count} unsaved paragraph${count === 1 ? "" : "s"} removed.` : "No Study note session is active.";
@@ -1666,6 +1843,11 @@ async function resolveIntentModule(workspace: StudyWorkspace, reference?: string
   return reference ? findStudyModule(workspace.id, reference) : undefined;
 }
 
+/**
+ * Finds a module only from explicit evidence: a module reference in the text, or a
+ * reply to a bot prompt that names exactly one module. Returns undefined otherwise,
+ * so callers ask instead of guessing.
+ */
 async function resolveExplicitCaptureModule(ctx: Context, workspace: StudyWorkspace, reference?: string): Promise<StudyModule | undefined> {
   if (reference) return findStudyModule(workspace.id, reference);
   const replied = ctx.message?.reply_to_message;
@@ -1675,6 +1857,11 @@ async function resolveExplicitCaptureModule(ctx: Context, workspace: StudyWorksp
   return matchExplicitStudyModuleReply(replyText, modules);
 }
 
+/**
+ * Matches a bot prompt of the form "Reply to this message to capture for <MODULE>"
+ * to a module. Returns a module only when exactly one code appears, so an ambiguous
+ * prompt never picks one.
+ */
 export function matchExplicitStudyModuleReply<T extends Pick<StudyModule, "id" | "code" | "active">>(
   replyText: string | undefined,
   modules: T[],
@@ -1693,6 +1880,9 @@ async function moduleOpenKeyboard(workspace: StudyWorkspace): Promise<InlineKeyb
   return modulePickerKeyboard(modules, "open", 0);
 }
 
+/**
+ * Paged module picker for opening a module or recording a mistake.
+ */
 function modulePickerKeyboard(
   modules: Array<{ id: string; code: string }>,
   purpose: "open" | "mistake",
@@ -1714,6 +1904,9 @@ function modulePickerKeyboard(
   return keyboard.text("Cancel", "study:cancel");
 }
 
+/**
+ * Same main keyboard as the Study home card, used by the natural-language menu.
+ */
 function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
@@ -1721,6 +1914,11 @@ function studyCaptureHomeKeyboard(workspaceId: string): InlineKeyboard {
     .url("Dashboard", groupDashboardUrl(workspaceId, "study-overview")).text("More", "study:more");
 }
 
+/**
+ * Travel overview: current origin, mute state, and the next class destinations.
+ * In a group with no origin it links to the private chat to share a location,
+ * because the location request only works there.
+ */
 async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const [fresh, origin, upcoming] = await Promise.all([
     prisma.studyWorkspace.findUniqueOrThrow({ where: { id: workspace.id } }),
@@ -1755,6 +1953,10 @@ async function showTravelHub(ctx: Context, workspace: StudyWorkspace, edit = fal
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Lists active timetable blocks so the owner can set or remove each class's travel
+ * destination.
+ */
 async function showTravelBlocks(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const blocks = await prisma.studyScheduleBlock.findMany({
     where: { workspaceId: workspace.id, active: true, OR: [{ moduleId: null }, { module: { active: true } }] },
@@ -1777,6 +1979,11 @@ async function showTravelBlocks(ctx: Context, workspace: StudyWorkspace): Promis
   await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Departure card for a class: leave-by time, bus services with live arrivals when
+ * available, and arrival time. Says so plainly when live data was unavailable and
+ * an estimate was used. `detailed` adds every leg and alternative routes.
+ */
 async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId: string, edit = false, force = false, detailed = false): Promise<void> {
   const plan = await buildStudyDeparturePlan(workspace, blockId, { force });
   const starts = DateTime.fromJSDate(plan.startsAt).setZone(workspace.timezone);
@@ -1821,6 +2028,9 @@ async function showTravelRoute(ctx: Context, workspace: StudyWorkspace, blockId:
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Type chooser for unclear text: task, reminder, note, question, resource, ignore.
+ */
 function captureChoiceKeyboard(token: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Task", `study:cap:task:${token}`).text("Reminder", `study:cap:reminder:${token}`).row()
@@ -1829,6 +2039,11 @@ function captureChoiceKeyboard(token: string): InlineKeyboard {
     .text("Ignore", `study:cap:ignore:${token}`);
 }
 
+/**
+ * Continues a reminder capture that is waiting for a time. Only a reply from the
+ * same sender, in the same chat, to the exact stored prompt counts; anything else is
+ * treated as ordinary text. Re-prompts until the time is in the future.
+ */
 export async function handleStudyCaptureReminderMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -1887,6 +2102,9 @@ function cancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Cancel", "study:cancel");
 }
 
+/**
+ * Maps the one-letter kind code used in callback data back to a resource kind.
+ */
 function resourceKindFromCode(value: string | undefined): StudyResourceKind | undefined {
   return value === "n" ? StudyResourceKind.NOTE
     : value === "q" ? StudyResourceKind.QUESTION
@@ -1896,6 +2114,9 @@ function resourceKindFromCode(value: string | undefined): StudyResourceKind | un
             : undefined;
 }
 
+/**
+ * One-letter kind code for callback data (`a` means all kinds).
+ */
 function resourceKindCode(value: StudyResourceKind | undefined): string {
   return value === StudyResourceKind.NOTE ? "n"
     : value === StudyResourceKind.QUESTION ? "q"
@@ -1913,6 +2134,9 @@ function captureAction(kind: StudyResourceKind): string {
           : "resource";
 }
 
+/**
+ * Guesses the study item type from keywords. Defaults to assignment.
+ */
 function inferStudyItemType(text: string): StudyItemType {
   if (/\b(?:tutorial|tut)\b/i.test(text)) return StudyItemType.TUTORIAL;
   if (/\blab(?:oratory)?\b/i.test(text)) return StudyItemType.LAB;
@@ -1923,12 +2147,18 @@ function inferStudyItemType(text: string): StudyItemType {
   return StudyItemType.ASSIGNMENT;
 }
 
+/**
+ * Priority from due date: within 24 hours is critical, within a week is high.
+ */
 function inferStudyPriority(dueAt?: Date): StudyPriority {
   if (!dueAt) return StudyPriority.NORMAL;
   const hours = (dueAt.getTime() - Date.now()) / 3_600_000;
   return hours <= 24 ? StudyPriority.CRITICAL : hours <= 7 * 24 ? StudyPriority.HIGH : StudyPriority.NORMAL;
 }
 
+/**
+ * Strips a leading `todo:` style prefix and squeezes whitespace for a short title.
+ */
 function cleanCaptureTitle(text: string): string {
   const cleaned = text
     .replace(/^(?:todo|task|note|question|resource)\s*[:\-]\s*/i, "")
@@ -1946,6 +2176,11 @@ function formatCanvasSummary(summary: Awaited<ReturnType<typeof syncStudyCanvas>
   ].join("\n");
 }
 
+/**
+ * Replaces the "Syncing Canvas" progress message with the result. Tries the
+ * per-user ephemeral message, then the normal message, and finally sends a new
+ * reply so a long sync never leaves a stale status behind.
+ */
 async function finishCanvasProgress(
   ctx: Context,
   progress: unknown,
@@ -1993,6 +2228,9 @@ async function finishCanvasProgress(
   await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Reads chat id and message id from an unknown send result, if both are present.
+ */
 function telegramMessageTarget(value: unknown): { chatId: number | string; messageId: number } | undefined {
   if (!value || typeof value !== "object") return undefined;
   const message = value as { message_id?: unknown; chat?: { id?: unknown } };
@@ -2002,6 +2240,9 @@ function telegramMessageTarget(value: unknown): { chatId: number | string; messa
   return { chatId, messageId: message.message_id };
 }
 
+/**
+ * Formats a full route answer for a "how do I get to" question.
+ */
 function formatJourney(journey: Awaited<ReturnType<typeof estimateStudyJourney>>): string {
   return [
     bold(`${journey.origin.name} → ${journey.destinationPlace?.displayName ?? journey.destinationStop.title}`),
@@ -2012,6 +2253,10 @@ function formatJourney(journey: Awaited<ReturnType<typeof estimateStudyJourney>>
   ].filter(Boolean).join("\n");
 }
 
+/**
+ * Builds walk, bus, transfer, and final-walk lines for a journey. The compact form
+ * skips the individual bus legs.
+ */
 function formatJourneySteps(journey: Awaited<ReturnType<typeof estimateStudyJourney>>, detailed: boolean): Array<string | undefined> {
   const legs = journey.legs ?? [];
   const steps: Array<string | undefined> = [
@@ -2060,6 +2305,9 @@ function relativeTime(value: Date): string {
   return DateTime.fromJSDate(value).toRelative() ?? "recently";
 }
 
+/**
+ * Removes HTML tags and basic entities for plain-text message edits.
+ */
 function stripHtml(value: string): string {
   return value.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }

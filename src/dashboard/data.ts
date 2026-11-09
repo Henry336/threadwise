@@ -1,3 +1,10 @@
+/**
+ * The dashboard's data layer for ordinary (non-Study) content: tasks, notes, ideas, images,
+ * frozen expenses, settings, search, integrations, data export and account deletion.
+ * route.ts calls these after the workspace is resolved; every query is scoped to the owner's
+ * user id. Writes reuse the Telegram-side services (tasks, reminders, undo, encryption, Calendar)
+ * so both surfaces follow the same rules. The view helpers also shape the snapshot.
+ */
 import {
   IdeaStatus,
   Prisma,
@@ -10,15 +17,17 @@ import {
 import { DateTime } from "luxon";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { prisma } from "../db/prisma";
-import { nextRecurringDueAt, recurrenceDayOfMonth } from "../utils/dates";
+import { recurrenceDayOfMonth } from "../utils/dates";
 import { normalizeClock } from "../utils/clock";
 import { createGoogleCalendarUrl } from "../services/calendar";
-import { calendarConnectionStatus, createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
-import { createExpenseWorkbook, createMicrosoftConnectUrl, excelConnectionStatus, syncExpenseToExcelIfEnabled } from "../services/excel";
+import { createCalendarConnectUrl, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskCalendarBestEffort, syncTaskToGoogleCalendar } from "../services/googleCalendar";
+import { createExpenseWorkbook, createMicrosoftConnectUrl, syncExpenseToExcelIfEnabled, syncUnsyncedExpenses } from "../services/excel";
 import { DASHBOARD_URL } from "../bot/links";
 import { nextPublicId } from "../services/publicIds";
+import { downloadTelegramFile, type TelegramFile } from "../services/telegramFiles";
 import { initialTaskReminderAt } from "../services/reminders";
-import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "../services/taskReminderSchedules";
+import { cancelTask, completeTask, restoreCompletedTask } from "../services/tasks";
+import { cancelPendingTaskReminderSchedules, normalizeCustomReminderTimes, replacePendingTaskReminderSchedules } from "../services/taskReminderSchedules";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause, type ContentModel } from "../security/contentEncryption";
 import {
   recordArchiveUndo,
@@ -27,8 +36,7 @@ import {
   recordImageCaptionUndo,
   recordPinUndo,
   recordRenameUndo,
-  recordRescheduleUndo,
-  recordTaskStateUndo
+  recordRescheduleUndo
 } from "../services/undo";
 import { DashboardUserNotFoundError } from "./snapshot";
 import { storedIdeaBrief } from "./ideaBrief";
@@ -48,13 +56,17 @@ import type {
 } from "./schemas";
 
 const MAX_TELEGRAM_FILE_BYTES = 20 * 1024 * 1024;
-const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const DASHBOARD_OWNER_ID = /^(?:[1-9]\d{0,19}|chat:-\d{1,20})$/;
 const PUBLIC_ID_CREATE_ATTEMPTS = 3;
 
 type PublicIdKind = "IDEA" | "TASK" | "NOTE" | "EXP";
 
+/**
+ * Creates a row with the next readable public id (TASK-12, NOTE-3 and so on) in a transaction.
+ * Two creates at once can pick the same id; on that unique-constraint clash it retries,
+ * up to three attempts in total.
+ */
 async function createWithPublicIdRetry<T>(
   database: PrismaClient,
   userId: string,
@@ -70,6 +82,7 @@ async function createWithPublicIdRetry<T>(
   }
 }
 
+/** True only for a Prisma unique violation (P2002) on the publicId column, so other errors are not retried. */
 function isPublicIdUniqueConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; meta?: { target?: unknown } };
@@ -77,11 +90,6 @@ function isPublicIdUniqueConflict(error: unknown): boolean {
   const target = candidate.meta?.target;
   if (Array.isArray(target)) return target.some((field) => field === "publicId");
   return typeof target === "string" && target.toLowerCase().includes("publicid");
-}
-
-async function syncUnsyncedExpensesForDashboard(userId: string, timezone: string): Promise<number> {
-  const { syncUnsyncedExpenses } = await import("../services/excel");
-  return syncUnsyncedExpenses(userId, timezone);
 }
 
 export class DashboardItemNotFoundError extends Error {
@@ -112,12 +120,21 @@ export class DashboardUnsupportedMediaError extends Error {
   }
 }
 
+/**
+ * Optimistic concurrency check: if the client sent the updatedAt it last saw and the row has
+ * changed since (for example edited in Telegram), refuse the edit with a 409 conflict.
+ */
 function assertExpectedRevision(expectedUpdatedAt: string | undefined, currentUpdatedAt: Date): void {
   if (expectedUpdatedAt && currentUpdatedAt.toISOString() !== expectedUpdatedAt) {
     throw new DashboardConflictError();
   }
 }
 
+/**
+ * The second half of the concurrency check. Updates also filter on the expected updatedAt,
+ * so a change that lands between the read and the write makes Prisma report "record not found"
+ * (P2025); this turns that into a conflict instead of a 500.
+ */
 function throwIfRevisionConflict(error: unknown, expectedUpdatedAt: string | undefined): void {
   if (!expectedUpdatedAt || !error || typeof error !== "object") return;
   if ((error as { code?: unknown }).code === "P2025") throw new DashboardConflictError();
@@ -253,6 +270,7 @@ function pageResult<T>(items: T[], page: number, limit: number, total: number): 
   return { items, page, limit, total, totalPages, hasMore: page * limit < total };
 }
 
+/** Resolves the owner (human id or synthetic "chat:" group owner) to the user row and settings every query is scoped by. */
 async function userContext(telegramId: string, database: PrismaClient = prisma): Promise<DashboardUserContext> {
   if (!DASHBOARD_OWNER_ID.test(telegramId)) throw new DashboardUserNotFoundError();
   const user = await database.user.findUnique({
@@ -263,16 +281,19 @@ async function userContext(telegramId: string, database: PrismaClient = prisma):
   return { id: user.id, telegramId: user.telegramId, settings: user.settings };
 }
 
+/** Lets a route accept either the internal UUID or the readable public id (such as TASK-4) for an item. */
 function itemReference(id: string): Array<{ id: string } | { publicId: string }> {
   return [{ id }, { publicId: id.toUpperCase() }];
 }
 
+/** One-line preview of a note body, at most 240 characters, stored as the note's summary. */
 function compactSummary(body: string): string {
   const normalized = body.replace(/\s+/g, " ").trim();
   return normalized.length <= 240 ? normalized : `${normalized.slice(0, 237)}...`;
 }
 
-function taskView(task: {
+/** Maps a task row to its dashboard shape. Shared by the item routes and the snapshot so the two cannot drift. */
+export function taskView(task: {
   id: string; publicId: string; title: string; description: string | null; dueAt: Date | null;
   plannedFor: Date | null; firstPlannedFor: Date | null; status: TaskStatus;
   recurrenceRule: unknown | null; pinnedAt: Date | null; reminderIntervalMinutes: number | null; nextReminderAt: Date | null;
@@ -324,7 +345,8 @@ function taskView(task: {
   };
 }
 
-function noteView(note: {
+/** Maps a note row to its dashboard shape, for item routes and the snapshot alike. */
+export function noteView(note: {
   id: string; publicId: string; title: string; body: string; summary: string; tags: string[]; pinnedAt: Date | null;
   createdAt: Date; updatedAt: Date;
 }): DashboardNote {
@@ -334,7 +356,8 @@ function noteView(note: {
   };
 }
 
-function ideaView(idea: {
+/** Maps an idea row (with its stored brief) to its dashboard shape, for item routes and the snapshot alike. */
+export function ideaView(idea: {
   id: string; publicId: string; title: string; concept: string; status: IdeaStatus; tags: string[]; pinnedAt: Date | null;
   scores?: Prisma.JsonValue | null;
   createdAt: Date; updatedAt: Date;
@@ -347,7 +370,8 @@ function ideaView(idea: {
   };
 }
 
-function expenseView(expense: {
+/** Maps an expense row to its dashboard shape, for item routes and the snapshot alike. */
+export function expenseView(expense: {
   id: string; publicId: string; merchant: string | null; description: string | null; total: Prisma.Decimal; currency: string;
   category: string | null; transactionAt: Date; paymentMethod: string | null; notes: string | null; excelSyncedAt: Date | null;
   createdAt: Date; updatedAt: Date;
@@ -369,6 +393,10 @@ function expenseView(expense: {
   };
 }
 
+/**
+ * Maps a stored image row to its dashboard shape. The bytes are not included: the browser
+ * fetches them separately through the protected image content route given in contentUrl.
+ */
 export function imageView(image: {
   id: string; publicId: string; mediaKind: string; mimeType: string | null; fileName: string | null;
   caption: string | null; ocrText: string | null; ocrConfidence: number | null; pinnedAt: Date | null;
@@ -390,6 +418,7 @@ export function imageView(image: {
   };
 }
 
+/** Maps a UserSettings row to the settings the dashboard can show and edit. */
 export function settingsView(settings: UserSettings): DashboardSettings {
   const quietHoursStart = normalizeClock(settings.quietHoursStart);
   const quietHoursEnd = normalizeClock(settings.quietHoursEnd);
@@ -414,10 +443,12 @@ export function settingsView(settings: UserSettings): DashboardSettings {
   };
 }
 
+/** First automatic reminder time for a task, computed by the shared reminder service so Telegram and dashboard agree. */
 function nextReminder(dueAt: Date | null, interval: number, dueNudgeMinutes: number, now = new Date()): Date | null {
   return initialTaskReminderAt({ now, dueAt, dueNudgeMinutes, intervalMinutes: interval });
 }
 
+/** Validates exact reminder times picked in the dashboard; an invalid list becomes a 400 with the service's message. */
 function dashboardReminderTimes(values: readonly string[]): Date[] {
   try {
     return normalizeCustomReminderTimes(values);
@@ -426,6 +457,11 @@ function dashboardReminderTimes(values: readonly string[]): Date[] {
   }
 }
 
+/**
+ * One page of the owner's tasks, optionally filtered by status or text. Text search matches
+ * plaintext columns and the blind-index tokens of encrypted ones, then re-checks the decrypted
+ * text so token matches that are not real matches are dropped.
+ */
 export async function listDashboardTasks(
   telegramId: string,
   options: { page: number; limit: number; q?: string; status?: TaskStatus },
@@ -446,6 +482,11 @@ export async function listDashboardTasks(
   return pageResult(visible.map(taskView), options.page, options.limit, total);
 }
 
+/**
+ * Creates a task from the dashboard: sets its first reminder and any exact reminder times,
+ * records an undo entry in the same transaction, then tries a Google Calendar sync. A Calendar
+ * failure does not fail the create.
+ */
 export async function createDashboardTask(telegramId: string, input: TaskCreateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
   const user = await userContext(telegramId, database);
   const dueAt = input.dueAt === null || input.dueAt === undefined ? null : new Date(input.dueAt);
@@ -475,15 +516,18 @@ export async function createDashboardTask(telegramId: string, input: TaskCreateI
     await recordCreateUndo(tx, user.id, { kind: "task", id: created.id, publicId: created.publicId, title: created.title });
     return created;
   });
-  if (database === prisma) {
-    const outcome = await syncTaskCalendarBestEffort(user.id, task);
-    if (outcome === "synced" || outcome === "removed") {
-      return taskView(await scopedTask(database, user.id, task.id));
-    }
+  const outcome = await syncTaskCalendarBestEffort(user.id, task);
+  if (outcome === "synced" || outcome === "removed") {
+    return taskView(await scopedTask(database, user.id, task.id));
   }
   return taskView(task);
 }
 
+/**
+ * Finds a non-archived task owned by this user, by UUID or public id. Every task read and write
+ * goes through this (and its note, idea, expense and image siblings), so one owner can never
+ * reach another's item; a miss is a plain 404.
+ */
 async function scopedTask(database: PrismaClient, userId: string, id: string) {
   const task = await database.task.findFirst({
     where: { userId, archivedAt: null, OR: itemReference(id) },
@@ -498,10 +542,18 @@ export async function getDashboardTask(telegramId: string, id: string, database:
   return taskView(await scopedTask(database, user.id, id));
 }
 
+/**
+ * Applies a dashboard PATCH to one task. Field edits (title, dates, reminders, pin, snooze)
+ * are written here; status changes are handed to the shared task services so that ticking a
+ * task in the dashboard follows exactly the same rules as tapping Done in Telegram.
+ */
 export async function updateDashboardTask(telegramId: string, id: string, input: TaskUpdateInput, database: PrismaClient = prisma): Promise<DashboardTask> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
   assertExpectedRevision(input.expectedUpdatedAt, task.updatedAt);
+  if (input.status !== undefined && input.status !== task.status) {
+    return changeDashboardTaskStatus(database, user.id, task, input);
+  }
   const data: Prisma.TaskUncheckedUpdateInput = {};
   const nextTitle = input.title ?? task.title;
   const nextDescription = "description" in input ? input.description ?? null : task.description;
@@ -512,7 +564,6 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   const interval = "reminderIntervalMinutes" in input
     ? input.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes
     : task.reminderIntervalMinutes ?? user.settings.reminderIntervalMinutes;
-  const statusChanged = input.status !== undefined && input.status !== task.status;
   const titleChanged = input.title !== undefined && input.title !== task.title;
   const descriptionChanged = "description" in input && nextDescription !== task.description;
   const dueChanged = "dueAt" in input && nextDueAt?.getTime() !== task.dueAt?.getTime();
@@ -527,7 +578,6 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   if (titleChanged) data.title = input.title;
   if (descriptionChanged) {
     data.description = input.description ?? null;
-    data.embedding = Prisma.JsonNull;
   }
   if (dueChanged) {
     data.dueAt = nextDueAt;
@@ -560,48 +610,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
       : null;
   }
 
-  if (statusChanged && input.status === TaskStatus.DONE) {
-    const completedAt = new Date();
-    if (task.recurrenceRule && nextDueAt) {
-      const monthlyDay = dueChanged
-        ? recurrenceDayOfMonth(nextDueAt, task.recurrenceRule, nextTimezone)
-        : task.recurrenceDayOfMonth;
-      const rolledDueAt = nextRecurringDueAt(
-        nextDueAt,
-        task.recurrenceRule,
-        nextTimezone,
-        completedAt,
-        monthlyDay
-      );
-      data.status = TaskStatus.OPEN;
-      data.completedAt = completedAt;
-      data.dueAt = rolledDueAt;
-      data.timezone = nextTimezone;
-      data.nextReminderAt = rolledDueAt;
-      data.snoozedUntil = null;
-      data.recurrenceDayOfMonth = monthlyDay ?? null;
-      data.calendarUrl = createGoogleCalendarUrl({
-        title: nextTitle,
-        details: nextDescription ?? task.sourceText,
-        dueAt: rolledDueAt,
-        timezone: nextTimezone
-      });
-    } else {
-      data.status = TaskStatus.DONE;
-      data.completedAt = completedAt;
-      data.nextReminderAt = null;
-      data.snoozedUntil = null;
-    }
-  } else if (statusChanged && input.status === TaskStatus.CANCELED) {
-    data.status = TaskStatus.CANCELED;
-    data.nextReminderAt = null;
-    data.snoozedUntil = null;
-  } else if (statusChanged && input.status === TaskStatus.OPEN) {
-    data.status = TaskStatus.OPEN;
-    data.completedAt = null;
-    data.snoozedUntil = null;
-    data.nextReminderAt = nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
-  } else if (task.status === TaskStatus.OPEN && (dueChanged || "reminderIntervalMinutes" in input)) {
+  if (task.status === TaskStatus.OPEN && (dueChanged || "reminderIntervalMinutes" in input)) {
     data.nextReminderAt = nextReminder(nextDueAt, interval, user.settings.dueNudgeMinutes);
   }
 
@@ -611,8 +620,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
   // Only the pre-existing reminder-relevant mutations restart the undated
   // cadence; planning alone leaves reminder state byte-for-byte unchanged.
   if (
-    statusChanged
-    || titleChanged
+    titleChanged
     || descriptionChanged
     || dueChanged
     || pinnedChanged
@@ -623,7 +631,7 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     data.undatedNudgeCount = 0;
   }
   if (titleChanged || descriptionChanged) Object.assign(data, completeSearchableContentUpdate("Task", task, data as Record<string, unknown>));
-  const needsUndo = statusChanged || titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
+  const needsUndo = titleChanged || descriptionChanged || dueChanged || pinnedChanged || snoozeChanged;
   const revisionWhere: Prisma.TaskWhereUniqueInput = {
     id: task.id,
     ...(input.expectedUpdatedAt ? { updatedAt: new Date(input.expectedUpdatedAt) } : {})
@@ -644,29 +652,12 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
             task.description
           );
         }
-        if ((dueChanged || snoozeChanged) && !statusChanged) await recordRescheduleUndo(tx, user.id, task);
+        if (dueChanged || snoozeChanged) await recordRescheduleUndo(tx, user.id, task);
         if (pinnedChanged) {
           await recordPinUndo(tx, user.id, { kind: "task", id: task.id, publicId: task.publicId, title: nextTitle, pinnedAt: task.pinnedAt });
         }
-        if (statusChanged) {
-          await recordTaskStateUndo(
-            tx,
-            user.id,
-            task,
-            input.status === TaskStatus.DONE
-              ? "complete-task"
-              : input.status === TaskStatus.CANCELED
-                ? "cancel-task"
-                : "restore-task"
-          );
-        }
         const next = await tx.task.update({ where: revisionWhere, data });
-        if (input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED) {
-          await cancelPendingTaskReminderSchedules(tx, task.id);
-        } else {
-          if (input.status === TaskStatus.OPEN) await restoreFutureTaskReminderSchedules(tx, task.id);
-          if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
-        }
+        if (reminderTimes) await replacePendingTaskReminderSchedules(tx, user.id, task.id, reminderTimes);
         return next;
         })
       : await database.$transaction(async (tx) => {
@@ -692,25 +683,55 @@ export async function updateDashboardTask(telegramId: string, id: string, input:
     throwIfRevisionConflict(error, input.expectedUpdatedAt);
     throw error;
   }
-  if (database === prisma && (titleChanged || descriptionChanged || dueChanged)) {
+  if (titleChanged || descriptionChanged || dueChanged) {
     const candidate = { ...updated, assignees: task.assignees ?? [] };
     const outcome = await syncTaskCalendarBestEffort(user.id, candidate);
     if (outcome === "synced" || outcome === "removed") {
       return taskView(await scopedTask(database, user.id, task.id));
     }
   }
-  const reminderSchedules = input.status === TaskStatus.DONE || input.status === TaskStatus.CANCELED
-    ? []
-    : reminderTimes
-      ? reminderTimes.map((scheduledAt) => ({ scheduledAt, status: "PENDING" }))
-      : task.reminderSchedules;
+  const reminderSchedules = reminderTimes
+    ? reminderTimes.map((scheduledAt) => ({ scheduledAt, status: "PENDING" }))
+    : task.reminderSchedules;
   return taskView({ ...updated, assignees: task.assignees ?? [], reminderSchedules });
 }
 
+/**
+ * Completes, cancels or reopens a task through the same services Telegram uses, so recurring
+ * rollover, reminder resets, schedule cleanup and undo entries cannot drift between the two.
+ * A status change must arrive on its own: the dashboard only ever sends it alone, and mixing it
+ * with field edits would split one request across two transactions.
+ */
+async function changeDashboardTaskStatus(
+  database: PrismaClient,
+  userId: string,
+  task: Awaited<ReturnType<typeof scopedTask>>,
+  input: TaskUpdateInput
+): Promise<DashboardTask> {
+  if (Object.keys(input).some((key) => key !== "status" && key !== "expectedUpdatedAt")) {
+    throw new DashboardValidationError("Change a task's status on its own, without other edits.");
+  }
+  if (input.status === TaskStatus.DONE) {
+    // Passing the due time the dashboard saw makes a stale or double tick a no-op.
+    await completeTask(userId, task.id, task.recurrenceRule && task.dueAt ? task.dueAt : undefined);
+  } else if (input.status === TaskStatus.CANCELED) {
+    await cancelTask(userId, task.id);
+  } else if (input.status === TaskStatus.OPEN) {
+    if (task.status !== TaskStatus.DONE) throw new DashboardValidationError("Only a completed task can be reopened.");
+    await restoreCompletedTask(userId, task.id);
+  }
+  return taskView(await scopedTask(database, userId, task.id));
+}
+
+/**
+ * Dashboard "delete" for a task. It is a soft archive, not a hard delete, so /undo can restore
+ * it and its public id is never reused. Also removes its Calendar event and cancels pending
+ * exact reminders, with the undo entry written in the same transaction.
+ */
 export async function archiveDashboardTask(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, id);
-  if (database === prisma && task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
+  if (task.calendarEventId) await removeTaskFromGoogleCalendar(user.id, task);
   await database.$transaction(async (tx) => {
     await recordArchiveUndo(tx, user.id, {
       kind: "task",
@@ -725,6 +746,7 @@ export async function archiveDashboardTask(telegramId: string, id: string, datab
   });
 }
 
+/** Creates a note with its public id, preview summary and an undo entry. */
 export async function createDashboardNote(telegramId: string, input: NoteCreateInput, database: PrismaClient = prisma): Promise<DashboardNote> {
   const user = await userContext(telegramId, database);
   const note = await createWithPublicIdRetry(database, user.id, "NOTE", async (tx, publicId) => {
@@ -776,6 +798,11 @@ export async function getDashboardNote(telegramId: string, id: string, database:
   return noteView(await scopedNote(database, user.id, id));
 }
 
+/**
+ * Applies a note edit. Only fields that really changed are written, each with its own undo entry,
+ * and an edit with no real change returns the note untouched. Uses the expectedUpdatedAt
+ * conflict check on both the read and the write.
+ */
 export async function updateDashboardNote(telegramId: string, id: string, input: NoteUpdateInput, database: PrismaClient = prisma): Promise<DashboardNote> {
   const user = await userContext(telegramId, database);
   const note = await scopedNote(database, user.id, id);
@@ -790,10 +817,10 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
     data.body = nextBody;
     data.summary = compactSummary(nextBody);
     data.sourceText = nextBody;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (pinnedChanged) data.pinnedAt = input.pinned ? new Date() : null;
+  // Send every searchable field, not just the changed one, so the encrypted search tokens are rebuilt for the whole record.
   if (titleChanged || bodyChanged) Object.assign(data, completeSearchableContentUpdate("Note", note, data as Record<string, unknown>));
   if (Object.keys(data).length === 0) return noteView(note);
   const revisionWhere: Prisma.NoteWhereUniqueInput = {
@@ -831,6 +858,7 @@ export async function updateDashboardNote(telegramId: string, id: string, input:
   return noteView(updated);
 }
 
+/** Soft-archives a note with an undo entry, so it can be restored rather than lost. */
 export async function archiveDashboardNote(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const note = await scopedNote(database, user.id, id);
@@ -900,6 +928,7 @@ export async function getDashboardIdea(telegramId: string, id: string, database:
   return ideaView(await scopedIdea(database, user.id, id));
 }
 
+/** Applies an idea edit with the same changed-fields-only, undo and conflict rules as updateDashboardNote. */
 export async function updateDashboardIdea(telegramId: string, id: string, input: IdeaUpdateInput, database: PrismaClient = prisma): Promise<DashboardIdea> {
   const user = await userContext(telegramId, database);
   const idea = await scopedIdea(database, user.id, id);
@@ -912,7 +941,6 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   if (conceptChanged) {
     data.concept = input.concept;
     data.sourceText = input.concept;
-    data.embedding = Prisma.JsonNull;
   }
   if (input.tags !== undefined) data.tags = input.tags;
   if (input.status !== undefined) data.status = input.status;
@@ -954,6 +982,10 @@ export async function updateDashboardIdea(telegramId: string, id: string, input:
   return ideaView(updated);
 }
 
+/**
+ * Asks the AI adapter to score an idea (buildability, usefulness and so on) and stores the brief
+ * on the idea. Only runs when the user presses Analyze; nothing else depends on it.
+ */
 export async function analyzeDashboardIdea(
   telegramId: string,
   id: string,
@@ -978,6 +1010,7 @@ export async function analyzeDashboardIdea(
   return { idea: ideaView(updated), brief };
 }
 
+/** Soft-archives an idea with an undo entry. */
 export async function archiveDashboardIdea(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const idea = await scopedIdea(database, user.id, id);
@@ -994,6 +1027,7 @@ export async function archiveDashboardIdea(telegramId: string, id: string, datab
   });
 }
 
+/** Creates a new task from an idea's title and concept through the normal task path. The idea itself is left as is. */
 export async function convertDashboardIdeaToTask(
   telegramId: string,
   id: string,
@@ -1010,6 +1044,7 @@ export async function convertDashboardIdeaToTask(
   }, database);
 }
 
+/** Expenses are a frozen feature. Creates one and mirrors it to Excel only if that sync is enabled. */
 export async function createDashboardExpense(
   telegramId: string,
   input: ExpenseCreateInput,
@@ -1032,11 +1067,8 @@ export async function createDashboardExpense(
       rawText: input.description ?? input.merchant ?? "Dashboard expense"
     }
   }));
-  if (database === prisma) {
-    await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
-    return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
-  }
-  return expenseView(expense);
+  await syncExpenseToExcelIfEnabled(user.id, expense.id, user.settings.timezone);
+  return expenseView(await database.expense.findUniqueOrThrow({ where: { id: expense.id } }));
 }
 
 export async function listDashboardExpenses(
@@ -1082,6 +1114,7 @@ export async function updateDashboardExpense(
   return expenseView(await database.expense.update({ where: { id: expense.id }, data }));
 }
 
+/** Hard-deletes one of the owner's expenses (expenses have no archive or undo). */
 export async function deleteDashboardExpense(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const expense = await scopedExpense(database, user.id, id);
@@ -1122,6 +1155,10 @@ export async function listDashboardImages(
   return pageResult(visible.map(imageView), options.page, options.limit, total);
 }
 
+/**
+ * Edits an image's caption and favourite flag. A caption change records an undo entry and
+ * refreshes the encrypted search tokens; the conflict check matches notes and ideas.
+ */
 export async function updateDashboardImage(
   telegramId: string,
   id: string,
@@ -1162,6 +1199,7 @@ export async function updateDashboardImage(
   return imageView(updated);
 }
 
+/** Hard-deletes the owner's stored image record. The file itself lives on Telegram's servers. */
 export async function deleteDashboardImage(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
@@ -1170,45 +1208,28 @@ export async function deleteDashboardImage(telegramId: string, id: string, datab
 
 export type DashboardImageContent = { bytes: Uint8Array; contentType: string };
 
+/**
+ * Loads the bytes of one of the signed-in owner's saved images from Telegram for the dashboard
+ * viewer, and only ever serves a safe raster type so an SVG or HTML file cannot run in the page.
+ */
 export async function loadDashboardImageContent(
   telegramId: string,
   id: string,
   botToken: string | undefined,
-  database: PrismaClient = prisma,
-  fetcher: typeof fetch = fetch
+  database: PrismaClient = prisma
 ): Promise<DashboardImageContent> {
   if (!botToken) throw new DashboardUpstreamError();
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
-  let metadataResponse: Response;
+  let file: TelegramFile;
   try {
-    metadataResponse = await fetcher(
-      `https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(image.telegramFileId)}`,
-      { signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS) }
-    );
+    file = await downloadTelegramFile(botToken, image.telegramFileId, { maxBytes: MAX_TELEGRAM_FILE_BYTES });
   } catch {
     throw new DashboardUpstreamError();
   }
-  if (!metadataResponse.ok) throw new DashboardUpstreamError();
-  const payload = await metadataResponse.json() as { ok?: boolean; result?: { file_path?: string } };
-  const filePath = payload.ok ? payload.result?.file_path : undefined;
-  if (!filePath || filePath.includes("..") || filePath.startsWith("/")) throw new DashboardUpstreamError();
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-  let fileResponse: Response;
-  try {
-    fileResponse = await fetcher(`https://api.telegram.org/file/bot${botToken}/${encodedPath}`, {
-      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS)
-    });
-  } catch {
-    throw new DashboardUpstreamError();
-  }
-  if (!fileResponse.ok) throw new DashboardUpstreamError();
-  const contentLength = Number(fileResponse.headers.get("content-length") ?? "0");
-  if (contentLength > MAX_TELEGRAM_FILE_BYTES) throw new DashboardUpstreamError();
-  const bytes = new Uint8Array(await fileResponse.arrayBuffer());
-  if (bytes.byteLength > MAX_TELEGRAM_FILE_BYTES) throw new DashboardUpstreamError();
+  const bytes = new Uint8Array(file.bytes);
   const storedType = image.mimeType?.toLowerCase().split(";")[0]?.trim();
-  const upstreamType = fileResponse.headers.get("content-type")?.toLowerCase().split(";")[0]?.trim();
+  const upstreamType = file.contentType?.toLowerCase().split(";")[0]?.trim();
   const contentType = storedType && SAFE_IMAGE_TYPES.has(storedType)
     ? storedType
     : upstreamType && SAFE_IMAGE_TYPES.has(upstreamType)
@@ -1225,6 +1246,11 @@ export async function getDashboardSettings(telegramId: string, database: PrismaC
   return settingsView((await userContext(telegramId, database)).settings);
 }
 
+/**
+ * Saves settings changes. Validates the timezone and requires quiet hours to change as a pair.
+ * When the timezone or reminder cadence changes, every open task's reminder schedule is
+ * recalculated in the same transaction so the new settings take effect immediately.
+ */
 export async function updateDashboardSettings(
   telegramId: string,
   input: SettingsUpdateInput,
@@ -1282,6 +1308,11 @@ export type DashboardSearchResult = {
   contentUrl?: string;
 };
 
+/**
+ * Global dashboard search across the chosen kinds (all when none given). Each kind is queried
+ * in parallel with the same encrypted-search approach as the list endpoints, then results are
+ * merged newest first and cut to the limit. Study content is never included here.
+ */
 export async function searchDashboard(
   telegramId: string,
   query: string,
@@ -1322,11 +1353,16 @@ export async function searchDashboard(
   ].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, limit);
 }
 
+/**
+ * Adds a blind-index token condition to a plaintext search, so rows whose content is stored
+ * encrypted can still match. Callers then confirm matches against the decrypted text.
+ */
 function withEncryptedSearch<T extends object>(model: ContentModel, query: string, conditions: T[]): T[] {
   const encrypted = encryptedSearchClause(model, query);
   return encrypted ? [...conditions, encrypted as T] : conditions;
 }
 
+/** Removes the Calendar or Excel connection (including any half-finished OAuth) and turns its auto-sync off, in one transaction. */
 export async function disconnectDashboardIntegration(
   telegramId: string,
   provider: "calendar" | "excel",
@@ -1349,6 +1385,7 @@ export async function disconnectDashboardIntegration(
   });
 }
 
+/** Builds the provider's OAuth URL. After consent the user returns to the dashboard Connections tab with auto-sync on. */
 export async function createDashboardIntegrationConnectUrl(
   telegramId: string,
   provider: "calendar" | "excel",
@@ -1356,7 +1393,6 @@ export async function createDashboardIntegrationConnectUrl(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar" | "excel"; url: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Connection links are available only from the live dashboard.");
   const returnTo = new URL("/dashboard?view=settings&tab=connections", DASHBOARD_URL).toString();
   const url = provider === "calendar"
     ? await createCalendarConnectUrl(user.id, user.telegramId, { enableAutoSync: true, returnTo, taskId: options.taskId })
@@ -1369,11 +1405,11 @@ export async function syncDashboardCalendarTasks(
   database: PrismaClient = prisma
 ): Promise<{ provider: "calendar"; synced: number; failed: number }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   const result = await syncEligibleTasksToGoogleCalendar(user.id);
   return { provider: "calendar", ...result };
 }
 
+/** Adds one task to, or removes it from, Google Calendar. Syncing needs a due date and a connected calendar. */
 export async function updateDashboardTaskCalendar(
   telegramId: string,
   taskId: string,
@@ -1382,7 +1418,6 @@ export async function updateDashboardTaskCalendar(
 ): Promise<{ task: DashboardTask; action: "synced" | "removed" }> {
   const user = await userContext(telegramId, database);
   const task = await scopedTask(database, user.id, taskId);
-  if (database !== prisma) throw new DashboardValidationError("Calendar sync is available only from the live dashboard.");
   if (action === "remove") {
     await removeTaskFromGoogleCalendar(user.id, task);
     return { task: taskView(await scopedTask(database, user.id, task.id)), action: "removed" };
@@ -1398,21 +1433,23 @@ export async function createDashboardExcelWorkbook(
   database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; name: string; url?: string }> {
   const user = await userContext(telegramId, database);
-  if (database !== prisma) throw new DashboardValidationError("Workbook setup is available only from the live dashboard.");
   const workbook = await createExpenseWorkbook(user.id, user.settings.timezone);
   return { provider: "excel", name: workbook.name ?? "Threadwise Expenses.xlsx", ...(workbook.webUrl ? { url: workbook.webUrl } : {}) };
 }
 
 export async function syncDashboardExcelExpenses(
   telegramId: string,
-  database: PrismaClient = prisma,
-  syncExpenses: (userId: string, timezone: string) => Promise<number> = syncUnsyncedExpensesForDashboard
+  database: PrismaClient = prisma
 ): Promise<{ provider: "excel"; synced: number }> {
   const user = await userContext(telegramId, database);
-  const synced = await syncExpenses(user.id, user.settings.timezone);
+  const synced = await syncUnsyncedExpenses(user.id, user.settings.timezone);
   return { provider: "excel", synced };
 }
 
+/**
+ * Builds the personal data export (a JSON download). It lists explicit fields per table, so
+ * internal ids, provider tokens and Telegram file ids are never included.
+ */
 export async function exportDashboardData(telegramId: string, database: PrismaClient = prisma) {
   const user = await userContext(telegramId, database);
   const [profile, tasks, notes, ideas, expenses, images, reflections, calendar, excel] = await Promise.all([
@@ -1444,6 +1481,11 @@ export async function exportDashboardData(telegramId: string, database: PrismaCl
   };
 }
 
+/**
+ * Permanently deletes the user. Database cascades remove their content and browser sessions;
+ * audit rows are deleted first because they can hold item titles. This is the one intentional
+ * hard delete of a whole account, guarded upstream by a typed confirmation phrase.
+ */
 export async function deleteDashboardAccount(telegramId: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   await database.$transaction(async (tx) => {

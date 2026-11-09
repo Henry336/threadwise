@@ -1,3 +1,9 @@
+/**
+ * Decides which data a dashboard request may touch. A request acts either in the caller's
+ * Personal space or in one Telegram group workspace (owned by a synthetic "chat:<id>" user),
+ * and a group is granted only after Telegram confirms live membership. It also marks the one
+ * group bound to Study Mode. Used by route.ts for every request and by collaboration.ts.
+ */
 import { Api } from "grammy";
 import { GroupMemberRole, GroupMemberStatus, type PrismaClient } from "@prisma/client";
 import { privateStudyConfig } from "../config/env";
@@ -16,6 +22,11 @@ export type DashboardWorkspace = {
   mode?: "STUDY";
 };
 
+/**
+ * The resolved scope for one request. principalTelegramId is the signed-in human;
+ * ownerTelegramId is whose data is read and written (the human for Personal, the group's
+ * synthetic owner for a group). Keep these two apart when checking who may do what.
+ */
 export type DashboardWorkspaceScope = {
   principalTelegramId: string;
   ownerTelegramId: string;
@@ -35,6 +46,7 @@ const membershipCache = new Map<string, { expiresAt: number; role: GroupMemberRo
 let cachedBotToken: string | undefined;
 let cachedApi: Api | undefined;
 
+/** Reuses one grammY Api client per bot token instead of building a new one per request. */
 function telegramApi(botToken: string): Api {
   if (!cachedApi || cachedBotToken !== botToken) {
     cachedBotToken = botToken;
@@ -43,6 +55,11 @@ function telegramApi(botToken: string): Api {
   return cachedApi;
 }
 
+/**
+ * Asks Telegram (getChatMember) whether the user is still in the group and returns their role.
+ * Results are cached for one minute to limit Telegram calls; forceRefresh skips the cache for
+ * sensitive actions. Left, kicked, or unverifiable members are rejected.
+ */
 export async function verifyTelegramGroupMembership(
   botToken: string,
   chatId: string,
@@ -73,6 +90,11 @@ export async function verifyTelegramGroupMembership(
   return role;
 }
 
+/**
+ * Lists the workspaces shown in the dashboard switcher: Personal plus every active group
+ * membership recorded in the database. The configured Study group is tagged mode "STUDY" only
+ * for the configured Study owner. This list does not call Telegram; access is re-checked on use.
+ */
 export async function listDashboardWorkspaces(
   telegramId: string,
   database: PrismaClient = prisma,
@@ -126,6 +148,13 @@ export async function listDashboardWorkspaces(
   return workspaces;
 }
 
+/**
+ * Resolves which workspace a signed dashboard request acts in. Personal is the default; a group
+ * workspace is granted only after a live Telegram membership check, which also refreshes the
+ * stored role when it changed.
+ * The workspace id comes from the X-Threadwise-Workspace header.
+ * The Study mode flag is set only when owner, bound chat and an active StudyWorkspace all match.
+ */
 export async function resolveDashboardWorkspace(
   principalTelegramId: string,
   requestedWorkspaceId: string | undefined,
@@ -148,7 +177,8 @@ export async function resolveDashboardWorkspace(
     where: { id: requestedWorkspaceId },
     include: {
       ownerUser: { select: { telegramId: true } },
-      _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } }
+      _count: { select: { members: { where: { status: GroupMemberStatus.ACTIVE } } } },
+      members: { where: { telegramId: principalTelegramId }, select: { role: true, status: true }, take: 1 }
     }
   });
   if (!workspace?.isActive || !botToken) throw new DashboardGroupAccessError();
@@ -165,7 +195,10 @@ export async function resolveDashboardWorkspace(
         select: { id: true },
       })
     : null;
-  await database.groupMembership.upsert({
+  // Write only when Telegram reports a different role or the member was inactive: this runs on
+  // every group request, and an unchanged upsert is a database write that records nothing new.
+  const membership = workspace.members[0];
+  if (membership?.role !== role || membership.status !== GroupMemberStatus.ACTIVE) await database.groupMembership.upsert({
     where: {
       workspaceId_telegramId: {
         workspaceId: workspace.id,
@@ -196,12 +229,18 @@ export async function resolveDashboardWorkspace(
   };
 }
 
+/** Blocks account-level features (integrations, export, deletion and similar) inside a shared group workspace. */
 export function assertPersonalWorkspace(scope: DashboardWorkspaceScope): void {
   if (scope.workspace.kind === "GROUP") {
     throw new DashboardGroupAccessError("Personal integrations and account controls are not available in a shared group workspace.");
   }
 }
 
+/**
+ * For group workspaces, requires the caller to be a Telegram owner or admin right now.
+ * It bypasses the membership cache so a just-demoted admin cannot keep managing the group.
+ * Personal workspaces pass, since the caller owns them.
+ */
 export async function assertWorkspaceManager(
   scope: DashboardWorkspaceScope,
   botToken: string | undefined,

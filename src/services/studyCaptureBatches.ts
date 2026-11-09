@@ -1,3 +1,9 @@
+/**
+ * Groups Study images sent to Telegram (one photo or a whole album) into one review card.
+ * Each image is stored as a pending capture inside a batch row that moves through
+ * COLLECTING, SENDING, REVIEW, PROCESSING and ends COMPLETED or EXPIRED. Called from the
+ * Study capture handlers in src/bot/studyCapture.ts; the loop is started in main.ts.
+ */
 import { randomBytes } from "node:crypto";
 import { StudyCaptureBatchStatus, type StudyWorkspace } from "@prisma/client";
 import type { Api, Bot } from "grammy";
@@ -5,7 +11,9 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { bold, h } from "../utils/html";
 import { StudyModeError } from "./study";
+import { startLoop, type StopLoop } from "../utils/loop";
 
+/** Wait for the rest of a Telegram album to arrive before posting one review card. */
 export const STUDY_CAPTURE_BATCH_SETTLE_MS = 1_800;
 export const STUDY_CAPTURE_BATCH_TTL_MS = 5 * 60_000;
 // New captures wake the processor directly. This interval only recovers work
@@ -31,6 +39,12 @@ export type StudyImageCaptureInput = {
   sourceSentAt?: Date;
 };
 
+/**
+ * Adds one incoming image to its batch (keyed by Telegram media group, or by message for a
+ * single photo) in one transaction. Telegram can redeliver updates, so an image already
+ * seen (same file unique id) or a batch already finished is returned as a duplicate
+ * instead of being added twice. While collecting, each new image pushes the ready time back.
+ */
 export async function registerStudyImageCapture(workspace: StudyWorkspace, input: StudyImageCaptureInput) {
   if (input.moduleId) {
     const belongs = await prisma.studyModule.count({ where: { id: input.moduleId, workspaceId: workspace.id, active: true } });
@@ -99,6 +113,7 @@ export async function registerStudyImageCapture(workspace: StudyWorkspace, input
   });
 }
 
+/** Loads a batch awaiting review by its button token, scoped to the workspace; throws if handled or expired. */
 export async function findStudyCaptureBatch(workspaceId: string, token: string) {
   const batch = await prisma.studyPendingCaptureBatch.findFirst({
     where: {
@@ -113,6 +128,7 @@ export async function findStudyCaptureBatch(workspaceId: string, token: string) 
   return batch;
 }
 
+/** Sets one shared caption on the batch and copies it to every image in it. */
 export async function updateStudyCaptureBatchCaption(workspaceId: string, token: string, caption: string) {
   const batch = await findStudyCaptureBatch(workspaceId, token);
   const sharedCaption = caption.trim().slice(0, 4_000) || null;
@@ -123,6 +139,10 @@ export async function updateStudyCaptureBatchCaption(workspaceId: string, token:
   });
 }
 
+/**
+ * Records which Telegram message now shows the review card and returns the previous one,
+ * so the caller can delete the old card and keep only one visible.
+ */
 export async function setStudyCaptureBatchReviewMessage(workspaceId: string, token: string, reviewMessageId: number) {
   const current = await prisma.studyPendingCaptureBatch.findFirst({
     where: { workspaceId, token },
@@ -135,6 +155,7 @@ export async function setStudyCaptureBatchReviewMessage(workspaceId: string, tok
   return current?.reviewMessageId ?? undefined;
 }
 
+/** Same as above, but found through a single image's capture token (single-photo cards). */
 export async function setStudyCaptureReviewMessageForItem(workspaceId: string, captureToken: string, reviewMessageId: number) {
   const capture = await prisma.studyPendingCapture.findFirst({
     where: { workspaceId, token: captureToken },
@@ -148,6 +169,7 @@ export async function setStudyCaptureReviewMessageForItem(workspaceId: string, c
   return capture.batch?.reviewMessageId ?? undefined;
 }
 
+/** Assigns the module for the whole batch after checking it is an active module of this workspace. */
 export async function setStudyCaptureBatchModule(workspaceId: string, token: string, moduleId: string) {
   const batch = await findStudyCaptureBatch(workspaceId, token);
   const module = await prisma.studyModule.findFirst({ where: { id: moduleId, workspaceId, active: true } });
@@ -159,6 +181,11 @@ export async function setStudyCaptureBatchModule(workspaceId: string, token: str
   return module;
 }
 
+/**
+ * Claims a batch for saving with a 30-second lease (REVIEW to PROCESSING). The conditional
+ * update means a double-tapped "Save all" saves once; a lease left by a crash can be
+ * reclaimed after it expires. Pair with completeStudyCaptureBatch or releaseStudyCaptureBatch.
+ */
 export async function beginStudyCaptureBatchProcessing(workspaceId: string, token: string) {
   const now = new Date();
   const batch = await prisma.studyPendingCaptureBatch.findFirst({
@@ -185,6 +212,7 @@ export async function beginStudyCaptureBatchProcessing(workspaceId: string, toke
   return batch;
 }
 
+/** After a successful save: deletes the pending image rows and marks the batch COMPLETED. */
 export async function completeStudyCaptureBatch(workspaceId: string, batchId: string) {
   return prisma.$transaction([
     prisma.studyPendingCapture.deleteMany({ where: { workspaceId, batchId } }),
@@ -195,6 +223,7 @@ export async function completeStudyCaptureBatch(workspaceId: string, batchId: st
   ]);
 }
 
+/** After a failed save: returns the batch to REVIEW so the owner can try again. */
 export async function releaseStudyCaptureBatch(workspaceId: string, batchId: string) {
   await prisma.studyPendingCaptureBatch.updateMany({
     where: { id: batchId, workspaceId, status: StudyCaptureBatchStatus.PROCESSING },
@@ -202,6 +231,7 @@ export async function releaseStudyCaptureBatch(workspaceId: string, batchId: str
   });
 }
 
+/** "Cancel batch": drops the pending images without saving anything. */
 export async function ignoreStudyCaptureBatch(workspaceId: string, token: string) {
   const batch = await findStudyCaptureBatch(workspaceId, token);
   await prisma.$transaction([
@@ -213,6 +243,7 @@ export async function ignoreStudyCaptureBatch(workspaceId: string, token: string
   ]);
 }
 
+/** Album review buttons; callbacks carry the batch token and are handled in src/bot/studyCapture.ts. */
 export function studyCaptureBatchKeyboard(token: string) {
   return {
     inline_keyboard: [
@@ -226,19 +257,22 @@ export function studyCaptureBatchKeyboard(token: string) {
   };
 }
 
-export function startStudyCaptureBatchLoop(bot: Bot, pollMs = STUDY_CAPTURE_BATCH_POLL_MS): NodeJS.Timeout {
-  void processStudyCaptureBatches(bot);
-  const timer = setInterval(() => void processStudyCaptureBatches(bot), pollMs);
-  timer.unref?.();
-  return timer;
+/** Restart-recovery sweep for Study capture albums; normal processing is triggered by each upload. */
+export function startStudyCaptureBatchLoop(bot: Bot, pollMs = STUDY_CAPTURE_BATCH_POLL_MS): StopLoop {
+  return startLoop("Study capture batch", pollMs, () => processStudyCaptureBatches(bot), { runImmediately: true });
 }
 
+/**
+ * Called after each upload: runs a pass just after the album settle window. This replaced
+ * the old one-second database polling that caused the September 2026 bandwidth bill.
+ */
 export function scheduleStudyCaptureBatchProcessing(api: Api, delayMs = STUDY_CAPTURE_BATCH_SETTLE_MS + 100): NodeJS.Timeout {
   const timer = setTimeout(() => void processStudyCaptureBatches({ api }), Math.max(0, delayMs));
   timer.unref?.();
   return timer;
 }
 
+/** Single-flight entry point: if a pass is already running, callers share it instead of starting another. */
 export function processStudyCaptureBatches(bot: TelegramApiClient, now = new Date()): Promise<void> {
   if (activeStudyCaptureBatchPass) return activeStudyCaptureBatchPass;
   const pass = processStudyCaptureBatchesOnce(bot, now).finally(() => {
@@ -248,6 +282,12 @@ export function processStudyCaptureBatches(bot: TelegramApiClient, now = new Dat
   return pass;
 }
 
+/**
+ * One pass: recover stale leases, expire old batches, then post a review card for each
+ * settled batch (claimed COLLECTING to SENDING first so it is posted once). It fails closed:
+ * if the Study chat does not have exactly two members, no card is sent and the batch waits.
+ * Send failures retry shortly. Finished batches older than a day are deleted.
+ */
 async function processStudyCaptureBatchesOnce(bot: TelegramApiClient, now: Date): Promise<void> {
   try {
     await recoverExpiredBatchLeases(now);
@@ -311,6 +351,7 @@ async function processStudyCaptureBatchesOnce(bot: TelegramApiClient, now: Date)
   }
 }
 
+/** Undoes claims whose lease ran out (for example after a crash) so the step can be retried. */
 async function recoverExpiredBatchLeases(now: Date) {
   await prisma.studyPendingCaptureBatch.updateMany({
     where: { status: StudyCaptureBatchStatus.SENDING, leaseExpiresAt: { lte: now }, expiresAt: { gt: now } },
@@ -326,6 +367,7 @@ async function recoverExpiredBatchLeases(now: Date) {
   });
 }
 
+/** Expires unfinished batches past their five-minute window and deletes their review card from the chat. */
 async function expireStudyCaptureBatches(bot: TelegramApiClient, now: Date) {
   const expired = await prisma.studyPendingCaptureBatch.findMany({
     where: {
@@ -350,6 +392,7 @@ async function expireStudyCaptureBatches(bot: TelegramApiClient, now: Date) {
   }
 }
 
+/** Deletes the batch's pending images and marks it EXPIRED, atomically. */
 async function markBatchExpired(batchId: string) {
   await prisma.$transaction([
     prisma.studyPendingCapture.deleteMany({ where: { batchId } }),
@@ -360,6 +403,7 @@ async function markBatchExpired(batchId: string) {
   ]);
 }
 
+/** A single photo gets per-image actions (including OCR) instead of the album buttons. */
 function singleImageCaptureKeyboard(token: string) {
   return {
     inline_keyboard: [

@@ -1,3 +1,7 @@
+/**
+ * Limits and cleanup for the personal Overview quote library kept in UserSettings.overviewQuotes.
+ * Used by schemas.ts (input limits), data.ts (settings) and snapshot.ts (Overview data).
+ */
 import type { Prisma } from "@prisma/client";
 
 export const OVERVIEW_QUOTE_LIMIT = 40;
@@ -14,6 +18,10 @@ function compact(value: unknown): string | undefined {
   return value.replace(/\s+/g, " ").trim() || undefined;
 }
 
+/**
+ * Turns stored JSON into a clean quote list: collapses whitespace, skips malformed or too-long
+ * entries, drops case-insensitive duplicates, and stops at 40 quotes. Never throws on bad data.
+ */
 export function normalizeOverviewQuotes(value: Prisma.JsonValue | unknown): DashboardOverviewQuote[] {
   if (!Array.isArray(value)) return [];
 

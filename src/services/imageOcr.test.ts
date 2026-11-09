@@ -7,7 +7,8 @@ describe("local image OCR helpers", () => {
   });
 
   it.each([
-    ["log this receipt as an expense", "expense"],
+    // Expenses are frozen, so receipt wording no longer opens an expense preview.
+    ["paid the electricity bill", "choose"],
     ["remind me about this tomorrow", "reminder"],
     ["turn this into a task", "task"],
     ["save this as a note", "note"],

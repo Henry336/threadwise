@@ -1,3 +1,9 @@
+/**
+ * Opt-in private morning brief and evening wrap-up for Today. A minute loop (started from main.ts
+ * for the Today owner only) checks each user's chosen times, builds the agenda from
+ * services/dailyAgenda.ts, and sends at most one brief per kind per local day, using the
+ * DailyBriefDelivery ledger as the once-only guard. Empty briefs are recorded as skipped, not sent.
+ */
 import { createHash } from "node:crypto";
 import { DailyBriefDeliveryStatus, DailyBriefKind, PlanningScope, type PrismaClient } from "@prisma/client";
 import { Bot, InlineKeyboard } from "grammy";
@@ -12,12 +18,15 @@ import {
   type AgendaEntry,
   type DailyAgenda,
 } from "../services/dailyAgenda";
+import { calendarDate } from "../services/taskPlanning";
 import { isWithinQuietHours } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { dashboardViewUrl } from "./links";
+import { startLoop, type StopLoop } from "../utils/loop";
 
 export const DAILY_BRIEF_POLL_MS = 60_000;
 const DELIVERY_WINDOW_MINUTES = 4 * 60;
+const BRIEF_SCOPE_KEY = "private-cross-mode";
 
 type BriefCandidate = {
   userId: string;
@@ -34,6 +43,12 @@ type BriefCandidate = {
 
 export type DailyBriefPassSummary = { checked: number; sent: number; skipped: number; failed: number };
 
+/**
+ * One poll of the Today briefings: for each opted-in owner whose morning or evening time falls
+ * in the delivery window, build and send that day's brief once. The poll runs every minute for
+ * the four-hour window, so a brief already recorded for the local day is skipped before the
+ * agenda is built; the unique claim stays as the guard against two overlapping passes.
+ */
 export async function runDailyBriefPass(
   bot: Bot,
   ownerTelegramId: string,
@@ -47,6 +62,7 @@ export async function runDailyBriefPass(
     },
     include: { user: { select: { id: true, telegramId: true } } },
   });
+  // Briefs are private: only users whose reminder chat is their own private chat qualify.
   const candidates: BriefCandidate[] = rows
     .filter((settings) => settings.reminderChatId === settings.user.telegramId)
     .map((settings) => ({
@@ -76,6 +92,21 @@ export async function runDailyBriefPass(
     for (const kind of dueKinds) {
       let deliveryId: string | undefined;
       try {
+        // The local calendar day as a @db.Date value. startOf("day").toUTC() would store the
+        // previous day for any timezone ahead of UTC, such as Asia/Singapore.
+        const localDate = calendarDate(now, candidate.timezone);
+        const existing = await database.dailyBriefDelivery.findUnique({
+          where: {
+            recipientTelegramId_localDate_kind_scopeKey: {
+              recipientTelegramId: candidate.telegramId,
+              localDate,
+              kind,
+              scopeKey: BRIEF_SCOPE_KEY,
+            },
+          },
+          select: { id: true },
+        });
+        if (existing) continue;
         const agenda = await getDailyAgenda({ principalTelegramId: candidate.telegramId, scope: PlanningScope.PERSONAL }, { localDate: local.toISODate() ?? undefined }, database);
         const completed = kind === DailyBriefKind.EVENING
           ? await countDailyAgendaCompletions(candidate.telegramId, candidate.timezone, agenda.localDate, database)
@@ -83,14 +114,13 @@ export async function runDailyBriefPass(
         const content = kind === DailyBriefKind.MORNING
           ? formatMorningBrief(agenda)
           : formatEveningDebrief(agenda, completed);
-        const localDate = local.startOf("day").toUTC().toJSDate();
         const claim = await claimDailyBriefDelivery({
           userId: candidate.userId,
           recipientTelegramId: candidate.telegramId,
           localDate,
           kind,
           scope: PlanningScope.PERSONAL,
-          scopeKey: "private-cross-mode",
+          scopeKey: BRIEF_SCOPE_KEY,
           contentHash: createHash("sha256").update(content ?? "empty").digest("hex"),
         }, database);
         if (!claim.claimed) continue;
@@ -120,25 +150,17 @@ export async function runDailyBriefPass(
   return summary;
 }
 
+/** Starts the minute loop, or nothing when no Today owner is configured (the feature is owner-gated). */
 export function startDailyBriefLoop(
   bot: Bot,
   ownerTelegramId: string | undefined,
   pollMs = DAILY_BRIEF_POLL_MS,
-): NodeJS.Timeout | undefined {
+): StopLoop | undefined {
   if (!ownerTelegramId) return undefined;
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try { await runDailyBriefPass(bot, ownerTelegramId); }
-    finally { running = false; }
-  };
-  void tick();
-  const timer = setInterval(() => void tick(), pollMs);
-  timer.unref?.();
-  return timer;
+  return startLoop("Daily brief", pollMs, () => runDailyBriefPass(bot, ownerTelegramId), { runImmediately: true });
 }
 
+/** Morning text: today's plan, carryover, and deadlines. Undefined when there is nothing to say. */
 export function formatMorningBrief(agenda: DailyAgenda): string | undefined {
   if (!agenda.today.length && !agenda.carryover.length && !agenda.dueSoon.length) return undefined;
   return [
@@ -155,6 +177,7 @@ export function formatMorningBrief(agenda: DailyAgenda): string | undefined {
   ].join("\n");
 }
 
+/** Evening text: completed count, what is still open, and deadlines. Undefined when there is nothing to say. */
 export function formatEveningDebrief(agenda: DailyAgenda, completed: number): string | undefined {
   if (!completed && !agenda.today.length && !agenda.carryover.length && !agenda.dueSoon.length) return undefined;
   const remaining = [...agenda.today, ...agenda.carryover];
@@ -171,6 +194,7 @@ export function formatEveningDebrief(agenda: DailyAgenda, completed: number): st
   ].join("\n");
 }
 
+/** One section with up to four rows and a "+N more" line; carryover rows show how many days they slipped. */
 function agendaSection(title: string, entries: AgendaEntry[], agenda: DailyAgenda, empty: string, carried = false): string {
   const rows = entries.slice(0, 4).map((entry) => {
     const context = entry.moduleCode ?? entry.workspaceName ?? modeLabel(entry.mode);
@@ -195,6 +219,10 @@ function briefKeyboard(agenda: DailyAgenda): InlineKeyboard {
   return keyboard.url("Open Today", dashboardViewUrl("today"));
 }
 
+/**
+ * True from the chosen local time until four hours after it. The window means a brief whose exact
+ * minute was missed (quiet hours, restart) can still go out later; the ledger prevents a repeat.
+ */
 function isDeliveryDue(local: DateTime, clock: string): boolean {
   const [hour, minute] = clock.split(":").map(Number);
   if (!Number.isInteger(hour) || !Number.isInteger(minute)) return false;

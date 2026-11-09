@@ -1,3 +1,12 @@
+/**
+ * Telegram entry point for private Study Mode.
+ * Registers the /study command family, `study:` callbacks, and the photo, document,
+ * location, text, and chat_member handlers for the one bound Study group. Guided
+ * multi-step flows (setup, add work, weekly review, mistakes) live here; capture,
+ * library, Canvas, and travel screens live in `studyCapture.ts`. Domain rules stay in
+ * `src/services/study*.ts`.
+ */
+
 import {
   Prisma,
   StudyItemType,
@@ -77,9 +86,20 @@ import {
 
 const LIST_PAGE_SIZE = 6;
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+/**
+ * How long a successful "this group still has at most two members" check is trusted.
+ * Caching it avoids one Telegram getChatMemberCount call per Study message.
+ */
 const SEALED_GROUP_CHECK_TTL_MS = 60_000;
 const sealedGroupChecks = new Map<string, number>();
 
+/**
+ * Wires every Study Mode handler onto the bot. It runs before the general command
+ * handlers in `index.ts`, so each handler calls `next()` when the update is not a
+ * Study update (wrong chat, disabled, or not bound) and normal Threadwise routing
+ * continues. The chat_member handler unbinds the workspace as soon as a third
+ * account joins, because Study Mode is only allowed in a private two-member group.
+ */
 export function registerStudyMode(bot: Bot): void {
   bot.command("start", async (ctx, next) => {
     const config = privateStudyConfig();
@@ -190,6 +210,13 @@ export function registerStudyMode(bot: Bot): void {
   });
 }
 
+/**
+ * Handles `/study <subcommand>` and the bare shortcut commands such as /attention.
+ * A first bare `/study` in an unbound but permitted group binds it and opens
+ * onboarding. Several subcommands just replay a natural-language phrase through
+ * `handleStudyAmbientText` so both paths share one implementation.
+ * "forbidden" errors are swallowed so unauthorized chats get no reply at all.
+ */
 async function handleStudyCommand(ctx: Context, forcedSubcommand?: string): Promise<void> {
   const body = forcedSubcommand ?? (ctx.message && "text" in ctx.message ? (ctx.message.text ?? "") : "").replace(/^\/study(?:@\w+)?\s*/i, "").trim();
   const [rawSubcommand, ...rest] = body.split(/\s+/);
@@ -329,6 +356,12 @@ async function handleStudyCommand(ctx: Context, forcedSubcommand?: string): Prom
   }
 }
 
+/**
+ * Routes every `study:` inline-button press. It re-checks the workspace binding and
+ * the two-member group seal on each tap, gives `studyCapture.ts` the first chance at
+ * the callback, then handles the guided-flow buttons defined in this file.
+ * Unknown or stale callback data ends in an "expired" alert instead of a silent no-op.
+ */
 async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
   try {
     const workspace = await requireStudyWorkspace(ctx);
@@ -444,7 +477,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       const conversation = await getStudyConversation(workspace.id);
       const payload = conversation?.kind === "session" ? studyConversationPayload(conversation.payload) : {};
       const itemId = typeof payload.itemId === "string" ? payload.itemId : undefined;
-      const session = await startStudySession(workspace, module.id, method, itemId);
+      await startStudySession(workspace, module.id, method, itemId);
       await acknowledgeStudyScheduleModuleOccurrence(workspace, module.id);
       await clearStudyConversation(workspace.id);
       await editOrReplyHtml(ctx, [bold(`${module.code} session started`), h(method), "Use /study stop when finished."].join("\n"), { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
@@ -502,6 +535,11 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
   }
 }
 
+/**
+ * Sends a text reply to whichever guided flow is in progress. The flow state is a
+ * durable StudyConversation row (kind, step, JSON payload), so a restart does not
+ * lose a half-finished flow. "cancel" or "stop" always ends the flow.
+ */
 async function handleStudyConversationMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -530,6 +568,11 @@ async function handleStudyConversationMessage(
   if (kind === "study_travel_block") return handleStudyTravelBlockMessage(ctx, workspace, payload, text);
 }
 
+/**
+ * Final step of setting class travel for a timetable block. Expects
+ * `Destination | Origin | Buffer` (buffer 0 to 90 minutes) or `off` to remove it.
+ * Saves the travel settings that drive departure reminders.
+ */
 async function handleStudyTravelBlockMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -561,6 +604,10 @@ async function handleStudyTravelBlockMessage(
   });
 }
 
+/**
+ * Parses `Name | venue or stop` and shows matching campus places. Nothing is saved
+ * until the owner picks one of the matches.
+ */
 async function handleStudyOriginAddMessage(ctx: Context, workspace: StudyWorkspace, text: string): Promise<void> {
   const [nameValue, ...venueParts] = text.split("|");
   const name = nameValue?.trim();
@@ -569,6 +616,9 @@ async function handleStudyOriginAddMessage(ctx: Context, workspace: StudyWorkspa
   await showStudyOriginMatches(ctx, workspace, name, venue);
 }
 
+/**
+ * Renames a saved travel origin, then shows the updated origin list.
+ */
 async function handleStudyOriginRenameMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -582,6 +632,11 @@ async function handleStudyOriginRenameMessage(
   await handleStudyAmbientText(ctx, workspace, "Show travel origins");
 }
 
+/**
+ * Three-step semester setup: name, the Monday that starts Week 1, then timezone.
+ * The start date must be a Monday because academic week numbers are counted from it.
+ * The last step writes the configuration to the workspace.
+ */
 async function handleSetupMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   if (step === "semester") {
     if (!text) throw new StudyModeError("Give the semester a name.", "invalid");
@@ -608,6 +663,9 @@ async function handleSetupMessage(ctx: Context, workspace: StudyWorkspace, step:
   await replyHtml(ctx, [bold("Study setup saved"), `${h(configured.semesterName)} · ${h(timezone)}`, "Modules and the preliminary editable schedule are ready."].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
+/**
+ * Adds a module, or edits one, from a `CODE | Module name` reply.
+ */
 async function handleModuleMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   const [codeValue, ...nameParts] = text.split("|");
   const name = nameParts.join("|").trim();
@@ -619,6 +677,10 @@ async function handleModuleMessage(ctx: Context, workspace: StudyWorkspace, step
   await replyHtml(ctx, `${bold(module.code)} · ${h(module.name)}`, { reply_markup: new InlineKeyboard().text("Modules", "study:modules") });
 }
 
+/**
+ * Starts the "add study item" flow. If a capture module is active (the ten-minute
+ * capture window), it skips the module picker and goes straight to the type choice.
+ */
 async function beginAddStudyItem(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const activeModuleValue = await activeStudyModule(workspace);
   if (activeModuleValue) {
@@ -633,6 +695,10 @@ async function beginAddStudyItem(ctx: Context, workspace: StudyWorkspace): Promi
   await replyHtml(ctx, [bold("Add study item"), "Choose a module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "add", 0) });
 }
 
+/**
+ * Button steps of the add-item flow: module, type, then priority. The priority tap
+ * is the last step and creates the StudyItem from the collected payload.
+ */
 async function handleAddCallback(ctx: Context, workspace: StudyWorkspace, parts: string[]): Promise<void> {
   const stage = parts[2];
   if (stage === "start") return beginAddStudyItem(ctx, workspace);
@@ -666,6 +732,10 @@ async function handleAddCallback(ctx: Context, workspace: StudyWorkspace, parts:
   }
 }
 
+/**
+ * Text steps of the add-item flow: title, optional due date, optional planned
+ * minutes. Each answer is merged into the stored conversation payload.
+ */
 async function handleAddMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   if (step === "title") {
     if (!text) throw new StudyModeError("Give the work a title.", "invalid");
@@ -688,6 +758,10 @@ async function handleAddMessage(ctx: Context, workspace: StudyWorkspace, step: s
   }
 }
 
+/**
+ * Two-step weekly plan: up to three outcomes, then an optional overload note.
+ * Saves them on the current StudyWeek.
+ */
 async function handlePlanMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   if (step === "priorities") {
     const priorities = splitAnswers(text).slice(0, 3);
@@ -701,6 +775,11 @@ async function handlePlanMessage(ctx: Context, workspace: StudyWorkspace, step: 
   await replyHtml(ctx, [bold(`Week ${updated.number} planned`), ...updated.topPriorities.map((priority, index) => `${index + 1}. ${h(priority)}`)].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
+/**
+ * `/study start [MODULE | method]`. With no arguments it shows the module picker;
+ * with a module only it asks for a method. Starting a session also acknowledges any
+ * open class reminder for that module, so the repeated alerts stop.
+ */
 async function handleStartCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
   if (!args) {
     const modules = await listStudyModules(workspace.id);
@@ -715,6 +794,10 @@ async function handleStartCommand(ctx: Context, workspace: StudyWorkspace, args:
   await replyHtml(ctx, [bold(`${module.code} session started`), h(session.method), "Use /study stop when finished."].join("\n"), { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
 }
 
+/**
+ * `/study stop [result]`. With a result it saves the session immediately; otherwise
+ * it asks for a short result in a follow-up message.
+ */
 async function handleStopCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
   if (args) {
     const input = parseSessionResult(args);
@@ -726,6 +809,9 @@ async function handleStopCommand(ctx: Context, workspace: StudyWorkspace, args: 
   await replyHtml(ctx, [bold("Finish session"), "Reply to this message with a short result, or send skip.", `Timed practice can include ${code("score 7/10; topics: MIPS, cache; without notes")}.`].join("\n"), { reply_markup: cancelKeyboard() });
 }
 
+/**
+ * Saves the open session with the owner's reply (or no result for `skip`).
+ */
 async function finishStoppedSession(ctx: Context, workspace: StudyWorkspace, text: string): Promise<void> {
   const input = /^skip$/i.test(text) ? {} : parseSessionResult(text);
   const session = await stopStudySession(workspace, input);
@@ -739,6 +825,11 @@ async function beginMistakeFlow(ctx: Context, workspace: StudyWorkspace): Promis
   await replyHtml(ctx, [bold("Record mistake"), "Choose the module."].join("\n"), { reply_markup: moduleSelectionKeyboard(modules, "mistake", 0) });
 }
 
+/**
+ * Text steps of the mistake log: source, cause, prevention, and an optional
+ * reattempt date. The last step creates the mistake record; a revisit date makes it
+ * come back as a due reattempt.
+ */
 async function handleMistakeMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   if (step === "source") {
     await advanceStudyConversation(workspace.id, "category", { ...payload, source: text } as Prisma.InputJsonObject);
@@ -771,6 +862,9 @@ async function handleMistakeMessage(ctx: Context, workspace: StudyWorkspace, ste
   }
 }
 
+/**
+ * Starts the weekly review, which walks through every active module in order.
+ */
 async function beginWeeklyReview(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const modules = await listStudyModules(workspace.id);
   if (!modules.length) throw new StudyModeError("Add at least one module first.", "invalid");
@@ -780,6 +874,13 @@ async function beginWeeklyReview(ctx: Context, workspace: StudyWorkspace, edit =
   else await replyHtml(ctx, message, { reply_markup: cancelKeyboard() });
 }
 
+/**
+ * Drives the weekly review conversation. For each module it asks processed,
+ * unclear, unfinished, practice, mistakes, a traffic-light status, and a next action;
+ * then it asks global questions (wins, lost time, next week's priorities, capacity,
+ * overflow block) and saves one weekly review. Mastery is never changed
+ * automatically by the review; the owner sets it explicitly.
+ */
 async function handleReviewMessage(ctx: Context, workspace: StudyWorkspace, step: string, payload: Record<string, unknown>, text: string): Promise<void> {
   const modules = await listStudyModules(workspace.id);
   const index = Number(payload.moduleIndex ?? 0);
@@ -842,6 +943,10 @@ async function handleReviewMessage(ctx: Context, workspace: StudyWorkspace, step
   }
 }
 
+/**
+ * Records the green/amber/red button for the current module in the weekly review.
+ * Rejects the tap if the review has already moved past that question.
+ */
 async function handleReviewStatus(ctx: Context, workspace: StudyWorkspace, statusValue: string): Promise<void> {
   const conversation = await requireConversation(workspace.id, "review");
   if (conversation.step !== "status") throw new StudyModeError("That review question has moved on.", "invalid");
@@ -852,6 +957,9 @@ async function handleReviewStatus(ctx: Context, workspace: StudyWorkspace, statu
   await editOrReplyHtml(ctx, [bold("Next concrete action"), "What is the next observable thing to do for this module?"].join("\n"), { reply_markup: cancelKeyboard() });
 }
 
+/**
+ * Records the yes/no capacity answer, then asks for a protected overflow block.
+ */
 async function handleReviewWorkload(ctx: Context, workspace: StudyWorkspace, compatible: boolean): Promise<void> {
   const conversation = await requireConversation(workspace.id, "review");
   if (conversation.step !== "workload") throw new StudyModeError("That review question has moved on.", "invalid");
@@ -860,6 +968,9 @@ async function handleReviewWorkload(ctx: Context, workspace: StudyWorkspace, com
   await editOrReplyHtml(ctx, [bold("Protected overflow block"), `Which block stays available for recovery? Reply briefly, or ${code("skip")}.`].join("\n"), { reply_markup: cancelKeyboard() });
 }
 
+/**
+ * `/study mastery <module or item> green|amber|red [reason]`. Sets mastery explicitly.
+ */
 async function handleMasteryCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
   const match = /^(\S+)\s+(green|amber|red)(?:\s+(.+))?$/i.exec(args);
   if (!match?.[1] || !match[2]) throw new StudyModeError("Use /study mastery CS2100 amber optional reason", "invalid");
@@ -869,6 +980,10 @@ async function handleMasteryCommand(ctx: Context, workspace: StudyWorkspace, arg
   await replyHtml(ctx, `${bold(label)} mastery: ${traffic(mastery)}${match[3] ? `\n${h(match[3])}` : ""}`, { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
+/**
+ * Marks a study item done, or "processed" (material understood), and confirms
+ * that mastery was left unchanged.
+ */
 async function finishStudyItem(ctx: Context, workspace: StudyWorkspace, reference: string, processed: boolean, edit = false): Promise<void> {
   const item = await completeStudyItem(workspace, reference, processed);
   const text = [bold(processed ? "Marked processed" : "Completed"), `${code(item.publicId)} · ${bold(item.module.code)}`, h(item.title), "Mastery was not changed."].join("\n");
@@ -877,6 +992,9 @@ async function finishStudyItem(ctx: Context, workspace: StudyWorkspace, referenc
   else await replyHtml(ctx, text, options);
 }
 
+/**
+ * Reads a natural-language date reply and moves the item's due date to it.
+ */
 async function handleRescheduleItemMessage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -893,6 +1011,10 @@ async function handleRescheduleItemMessage(
   ].join("\n"), { reply_markup: studyItemKeyboard(item.id) });
 }
 
+/**
+ * Sends or edits the Study home card: per-module status, next block, warnings, and
+ * the current capture target if one is active.
+ */
 async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
   const [dashboard, captureContext] = await Promise.all([
     buildStudyDashboard(workspace),
@@ -908,26 +1030,10 @@ async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit 
   else await replyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
 }
 
-async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
-  const allModules = await listStudyModules(workspace.id, true);
-  const modules = allModules.filter((module) => module.active);
-  const inactive = allModules.filter((module) => !module.active);
-  const text = [
-    bold("Modules"),
-    ...modules.map((module) => `${traffic(module.currentMastery)} ${bold(module.code)} · ${h(module.name)}`),
-    ...(inactive.length ? ["", bold("Inactive"), ...inactive.map((module) => `${bold(module.code)} · ${h(module.name)}`)] : []),
-  ].join("\n");
-  const keyboard = new InlineKeyboard();
-  for (const module of modules) {
-    keyboard.text(`Open ${module.code}`, `study:module:open:${module.id}`).row()
-      .text("Edit", `study:module:edit:${module.id}`).text("Archive", `study:module:archive:${module.id}`).row();
-  }
-  for (const module of inactive) keyboard.text(`Restore ${module.code}`, `study:module:restore:${module.id}`).row();
-  keyboard.text("Add module", "study:module:add").text("Home", "study:dashboard");
-  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
-  else await replyHtml(ctx, text, { reply_markup: keyboard });
-}
-
+/**
+ * Paged list of active or archived modules (five per page) with manage/restore
+ * buttons.
+ */
 async function showStudyModulesPage(
   ctx: Context,
   workspace: StudyWorkspace,
@@ -968,6 +1074,9 @@ async function showStudyModulesPage(
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Paged list of the current academic week's items. Inactive modules are excluded.
+ */
 async function showStudyWeek(ctx: Context, workspace: StudyWorkspace, requestedPage: number, edit = false): Promise<void> {
   const weekNumber = academicWeekNumber(workspace);
   const week = await ensureStudyWeek(workspace, weekNumber);
@@ -987,6 +1096,9 @@ async function showStudyWeek(ctx: Context, workspace: StudyWorkspace, requestedP
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Paged list of upcoming open study items with priority marks.
+ */
 async function showUpcoming(ctx: Context, workspace: StudyWorkspace, requestedPage: number, edit = false): Promise<void> {
   const all = await upcomingStudyItems(workspace.id);
   const pageCount = Math.max(1, Math.ceil(all.length / LIST_PAGE_SIZE));
@@ -1003,6 +1115,9 @@ async function showUpcoming(ctx: Context, workspace: StudyWorkspace, requestedPa
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Paged list of unresolved mistakes, with quick Resolve buttons for the first three.
+ */
 async function showStudyMistakes(ctx: Context, workspace: StudyWorkspace, requestedPage: number, edit = false): Promise<void> {
   const all = await listStudyMistakes(workspace.id);
   const pageCount = Math.max(1, Math.ceil(all.length / LIST_PAGE_SIZE));
@@ -1020,6 +1135,10 @@ async function showStudyMistakes(ctx: Context, workspace: StudyWorkspace, reques
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * Second step of starting a session from buttons: optionally link the session to
+ * one of the module's open items. Refuses inactive modules.
+ */
 async function showSessionItems(ctx: Context, workspace: StudyWorkspace, moduleId: string): Promise<void> {
   const module = await findStudyModule(workspace.id, moduleId);
   if (!module.active) throw new StudyModeError("That module is inactive. Restore it before starting a session.", "invalid");
@@ -1042,6 +1161,9 @@ async function showSessionItems(ctx: Context, workspace: StudyWorkspace, moduleI
   ].join("\n"), { reply_markup: keyboard });
 }
 
+/**
+ * Shows the study methods for a module (from STUDY_METHODS, or "Focused study").
+ */
 async function showSessionMethods(ctx: Context, workspace: StudyWorkspace, moduleId: string, edit = true): Promise<void> {
   const module = await findStudyModule(workspace.id, moduleId);
   const methods = STUDY_METHODS[module.code] ?? ["Focused study"];
@@ -1053,6 +1175,10 @@ async function showSessionMethods(ctx: Context, workspace: StudyWorkspace, modul
   else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
+/**
+ * `/study schedule [add ... | remove ID]`. Adds, archives, or lists weekly
+ * schedule blocks from plain text. The dashboard is the richer editor for these.
+ */
 async function handleScheduleCommand(ctx: Context, workspace: StudyWorkspace, args: string): Promise<void> {
   if (/^add\s+/i.test(args)) {
     const body = args.replace(/^add\s+/i, "");
@@ -1075,6 +1201,10 @@ async function handleScheduleCommand(ctx: Context, workspace: StudyWorkspace, ar
   await replyHtml(ctx, [bold("Editable schedule"), ...blocks.map((block) => `${DAY_NAMES[block.dayOfWeek - 1]} ${block.startTime}-${block.endTime} · ${block.module?.code ? `${block.module.code} · ` : ""}${h(block.label)}\n${code(block.id)}`), "", `Add: ${code("/study schedule add Monday | 14:00-16:00 | Label | CS2100")}`, `Remove: ${code("/study schedule remove BLOCK_ID")}`].join("\n"), { reply_markup: studyHomeKeyboard(workspace.id) });
 }
 
+/**
+ * Sends the Study CSV exports as Telegram documents. PostgreSQL stays the source
+ * of truth; the files are copies.
+ */
 async function sendStudyExports(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const files = await createStudyExports(workspace);
   await replyHtml(ctx, [bold("Study export"), "PostgreSQL remains the source of truth. Sending six master-sheet-ready CSV files."].join("\n"));
@@ -1083,6 +1213,9 @@ async function sendStudyExports(ctx: Context, workspace: StudyWorkspace): Promis
   }
 }
 
+/**
+ * Builds the HTML text for the Study home card from the dashboard aggregate.
+ */
 function formatStudyDashboard(dashboard: Awaited<ReturnType<typeof buildStudyDashboard>>): string {
   const weekLabel = dashboard.weekNumber > 0 ? `Week ${dashboard.weekNumber}` : "Before Week 1";
   const warnings = [
@@ -1123,6 +1256,10 @@ function formatStudyHelp(): string {
   ].join("\n");
 }
 
+/**
+ * The secondary "More" menu. Keeps the home card small by moving less common
+ * actions here.
+ */
 async function showStudyMore(ctx: Context, workspace: StudyWorkspace): Promise<void> {
   const running = Boolean((await buildStudyDashboard(workspace)).openSession);
   const keyboard = new InlineKeyboard()
@@ -1135,6 +1272,9 @@ async function showStudyMore(ctx: Context, workspace: StudyWorkspace): Promise<v
   await editOrReplyHtml(ctx, bold("More"), { reply_markup: keyboard });
 }
 
+/**
+ * Main Study keyboard: attention, upcoming, modules, plus dashboard deep links.
+ */
 function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Attention", "study:attention").text("Upcoming", "study:upcoming:0").row()
@@ -1142,11 +1282,19 @@ function studyHomeKeyboard(workspaceId: string): InlineKeyboard {
     .url("Dashboard", groupDashboardUrl(workspaceId, "study-overview")).text("More", "study:more");
 }
 
+/**
+ * Keyboard for the home card. `running` is currently unused; the session button
+ * was moved into the More menu.
+ */
 function studyDashboardKeyboard(running: boolean, workspaceId: string): InlineKeyboard {
   void running;
   return studyHomeKeyboard(workspaceId);
 }
 
+/**
+ * Paged module picker (five per page). `purpose` decides which callback each
+ * module button sends.
+ */
 function moduleSelectionKeyboard(
   modules: Array<{ id: string; code: string }>,
   purpose: "add" | "session" | "mistake" | "open",
@@ -1217,6 +1365,9 @@ function cancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("Cancel", "study:cancel");
 }
 
+/**
+ * Actions shown under a single study item: complete, processed, mastery, reschedule.
+ */
 function studyItemKeyboard(itemId: string): InlineKeyboard {
   return new InlineKeyboard().text("Complete", `study:item:done:${itemId}`).text("Processed", `study:item:processed:${itemId}`).row()
     .text("Green", `study:mastery:item:${itemId}:GREEN`).text("Amber", `study:mastery:item:${itemId}:AMBER`).text("Red", `study:mastery:item:${itemId}:RED`).row()
@@ -1224,6 +1375,9 @@ function studyItemKeyboard(itemId: string): InlineKeyboard {
     .text("Home", "study:dashboard");
 }
 
+/**
+ * Prev/page/next row for the paged lists. Empty when there is only one page.
+ */
 function paginationKeyboard(kind: "items" | "upcoming" | "mistakes", page: number, count: number): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (count > 1) {
@@ -1235,11 +1389,17 @@ function paginationKeyboard(kind: "items" | "upcoming" | "mistakes", page: numbe
   return keyboard;
 }
 
+/**
+ * Saves the current module's answers and asks the next review question.
+ */
 async function advanceReviewTextStep(ctx: Context, workspace: StudyWorkspace, payload: Record<string, unknown>, current: Record<string, unknown>, step: string, question: string): Promise<void> {
   await advanceStudyConversation(workspace.id, step, { ...payload, current } as Prisma.InputJsonObject);
   await replyHtml(ctx, question, { reply_markup: cancelKeyboard() });
 }
 
+/**
+ * Saves one of the global review answers as a list and asks the next question.
+ */
 async function advanceGlobalReview(ctx: Context, workspace: StudyWorkspace, payload: Record<string, unknown>, field: string, text: string, step: string, question: string): Promise<void> {
   const answers = /^skip$/i.test(text) ? [] : splitAnswers(text);
   await advanceStudyConversation(workspace.id, step, { ...payload, [field]: answers } as Prisma.InputJsonObject);
@@ -1250,6 +1410,11 @@ function reviewQuestion(module: { code: string }, position: number): string {
   return [bold(`${position}. ${module.code}`), "Is the current material processed? Reply yes, no, or partly."].join("\n");
 }
 
+/**
+ * Imports a NUSMods timetable share link as recurring class blocks. Posts a
+ * progress message and edits it with the result or a readable error. Venues that
+ * could not be matched to a campus place are counted so the owner can fix them.
+ */
 async function handleNusmodsImport(ctx: Context, workspace: StudyWorkspace, rawUrl: string): Promise<void> {
   const url = rawUrl.match(/https?:\/\/(?:www\.)?nusmods\.com\/timetable\/sem-[12]\/share\?\S+/i)?.[0];
   if (!url) {
@@ -1269,12 +1434,22 @@ async function handleNusmodsImport(ctx: Context, workspace: StudyWorkspace, rawU
   }
 }
 
+/**
+ * Loads the active guided flow and checks it is the expected kind. A mismatch
+ * means the button belongs to an old flow, so it fails with an "expired" message.
+ */
 async function requireConversation(workspaceId: string, kind: string) {
   const conversation = await getStudyConversation(workspaceId);
   if (!conversation || conversation.kind !== kind) throw new StudyModeError("That guided flow has expired. Start it again.", "invalid");
   return conversation;
 }
 
+/**
+ * Fails closed unless the chat has at most two members (the owner and the bot).
+ * If a larger group is found it also unbinds the workspace, so Study data is never
+ * shown to a third person. If Telegram cannot answer, the request is refused.
+ * Successful checks are cached for SEALED_GROUP_CHECK_TTL_MS.
+ */
 async function assertSealedStudyGroup(ctx: Context, workspace?: StudyWorkspace): Promise<void> {
   const chatId = String(ctx.chat?.id ?? "");
   const verifiedAt = sealedGroupChecks.get(chatId);
@@ -1294,11 +1469,19 @@ async function assertSealedStudyGroup(ctx: Context, workspace?: StudyWorkspace):
   throw new StudyModeError("Study Mode locked because this group contains another account. Remove it, then run /study bind again.", "forbidden");
 }
 
+/**
+ * Replies with the StudyModeError message, or a safe generic message for other
+ * errors so internal details are not shown.
+ */
 async function replyStudyError(ctx: Context, error: unknown): Promise<void> {
   const message = error instanceof StudyModeError ? error.message : userFacingError(error, "Study Mode couldn't complete that just now.");
   await ctx.reply(message);
 }
 
+/**
+ * Shows a callback error as a Telegram alert, falling back to a chat reply when the
+ * callback can no longer be answered.
+ */
 async function replyStudyCallbackError(ctx: Context, error: unknown): Promise<void> {
   const message = error instanceof StudyModeError ? error.message : userFacingError(error, "Study Mode couldn't complete that just now.");
   try {
@@ -1333,6 +1516,9 @@ function clampPage(value: number, pageCount: number): number {
   return Math.min(Math.max(0, Number.isFinite(value) ? Math.trunc(value) : 0), pageCount - 1);
 }
 
+/**
+ * Splits a reply into a list on new lines or semicolons and strips list markers.
+ */
 function splitAnswers(value: string): string[] {
   return value.split(/\r?\n|\s*;\s*/).map((answer) => answer.replace(/^[-*•\d.)\s]+/, "").trim()).filter(Boolean);
 }
@@ -1351,6 +1537,11 @@ function normalizeReviewAnswers(value: unknown): string[] {
   return typeof value === "string" ? splitAnswers(value) : [];
 }
 
+/**
+ * Pulls optional structured data out of a session result such as
+ * `score 7/10; topics: MIPS, cache; without notes`. The full text is kept as the
+ * result either way.
+ */
 function parseSessionResult(text: string): { result: string; topicsMixed?: string[]; attemptedScore?: number; maximumScore?: number; usedNotes?: boolean } {
   const score = /\bscore\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/i.exec(text);
   const topics = /\btopics?\s*:\s*([^;]+)/i.exec(text);

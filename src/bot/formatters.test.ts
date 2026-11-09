@@ -1,47 +1,268 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
-import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
-import type { TaskListItem } from "../services/tasks";
+import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemListKeyboard, noteMergePreviewKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskListKeyboard } from "./keyboards";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, formatTaskSavedAcknowledgement } from "../services/tasks";
-import { formatNoteDetail, formatNoteSavedAcknowledgement, formatRecentNotes } from "../services/notes";
-import { formatIdeaDetail, formatIdeaSavedAcknowledgement, formatRecentIdeas } from "../services/ideas";
+import { formatNoteDetail, formatNoteSavedAcknowledgement } from "../services/notes";
+import { formatIdeaDetail, formatIdeaSavedAcknowledgement } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
+import { task } from "../test/builders";
 
-describe("bot formatters", () => {
-  it("uses active list numbers without exposing internal task metadata", () => {
-    const message = formatOpenTasks(
-      [
-        task({
-          publicId: "TASK-999",
-          title: "Drink water",
-          dueAt: new Date("2026-07-06T01:29:00.000Z")
-        })
-      ],
-      "Asia/Singapore"
-    );
-
-    expect(message).toContain("<b>Drink water</b>");
-    expect(message).not.toContain("TASK-999");
-    expect(message).not.toContain("Reminders Sent");
-    expect(message).toContain("Tap a number");
+// Copy is pinned with one inline snapshot per card type, so a wording change is one
+// reviewable diff. The explicit assertions guard behaviour: escaping, timezones,
+// ordering, Telegram's 4,096-character limit and callback data.
+describe("bot formatter cards", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
   });
 
-  it("keeps due state visible without separate heading blocks", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("open task list", () => {
     const message = formatOpenTasks(
       [
+        task({ publicId: "TASK-999", title: "Drink water", dueAt: new Date("2026-07-06T01:29:00.000Z") }),
         task({ publicId: "TASK-1", title: "Overdue task", dueAt: new Date("2020-01-01T00:00:00.000Z") }),
-        task({ publicId: "TASK-2", title: "No-date task", dueAt: null })
+        task({ publicId: "TASK-2", title: "No-date task", dueAt: null }),
+        task({ publicId: "TASK-3", title: "Important task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") })
       ],
       "Asia/Singapore"
     );
 
-    expect(message).toContain("Overdue");
-    expect(message).toContain("No due date");
+    expect(message).not.toContain("TASK-999");
+    expect(message).toMatchInlineSnapshot(`
+      "<b>📋 Tasks</b>
+
+
+
+      1 · <b>Drink water</b>
+      Tomorrow · 9:29 AM
+
+      2 ⚠️ <b>Overdue task</b>
+      Overdue · 1 Jan, 8:00 AM
+
+      3 · <b>No-date task</b>
+      No due date
+
+      4 ⭐ <b>Important task</b>
+      No due date
+
+
+
+      <i>Tap a number to open it.</i>"
+    `);
   });
 
-  it("marks starred tasks inline without adding another section", () => {
+  it("task detail", () => {
+    expect(formatTaskDetail(task({ title: "Reply to bank", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }))).toMatchInlineSnapshot(`
+      "<b>📋 Task</b>
+
+      <b>Reply to bank</b>
+
+      ○ No due date
+      ⭐ Important"
+    `);
+  });
+
+  it("task created", () => {
+    expect(formatTaskCreated({
+      publicId: "TASK-9",
+      title: "Prepare a gift",
+      dueAt: new Date("2026-07-06T18:44:35.000Z"),
+      timezone: "Asia/Singapore",
+      assignedUsername: "henry_derek",
+      recurrenceRule: RecurrenceRule.DAILY
+    }, "Asia/Singapore")).toMatchInlineSnapshot(`
+      "<b>✅ Task saved</b>
+
+      Prepare a gift
+
+      <b>Due Date:</b> Jul 7, 2026, 2:44 AM GMT+8
+      <b>Assigned To:</b> @henry_derek
+      <b>Repeats:</b> Daily
+
+      I'll keep watch and bring this back at the right time.
+
+      Want private deadline nudges too? Each assignee can open Threadwise privately and send /settings dm on."
+    `);
+  });
+
+  it("recurring task completed", () => {
+    expect(formatTaskCompleted(task({
+      title: "Have dinner",
+      recurrenceRule: RecurrenceRule.DAILY,
+      recurrenceIntervalDays: 1,
+      dueAt: new Date("2026-07-06T11:00:00.000Z")
+    }), "Asia/Singapore")).toMatchInlineSnapshot(`
+      "<b>✅ This occurrence is done</b> Have dinner
+
+      <b>Next Occurrence:</b> Jul 6, 2026, 7:00 PM GMT+8
+      <b>Repeats:</b> Daily"
+    `);
+  });
+
+  it("saved acknowledgements", () => {
+    expect([
+      formatTaskSavedAcknowledgement({
+        title: "Prepare a gift",
+        dueAt: new Date("2026-07-06T18:44:35.000Z"),
+        timezone: "Asia/Singapore",
+        assignedUsername: "henry_derek",
+        recurrenceRule: RecurrenceRule.DAILY
+      }, "Asia/Singapore"),
+      formatNoteSavedAcknowledgement({ title: "Launch notes" }),
+      formatIdeaSavedAcknowledgement({ title: "Quiet capture" })
+    ]).toMatchInlineSnapshot(`
+      [
+        "<b>Saved</b> · Prepare a gift
+
+      <b>When:</b> Jul 7, 2026, 2:44 AM GMT+8
+      <b>Repeats:</b> Daily
+      <b>For:</b> @henry_derek",
+        "<b>Note saved</b> · Launch notes",
+        "<b>Idea saved</b> · Quiet capture",
+      ]
+    `);
+  });
+
+  it("already completed task", () => {
+    const completed = task({ status: TaskStatus.DONE, title: "Submit report" });
+
+    expect(formatTaskAlreadyCompleted(completed)).toMatchInlineSnapshot(`
+      "<b>Already complete</b> Submit report
+      Need it back on your list? You can restore it below."
+    `);
+    expect(restoreCompletedTaskKeyboard(completed.id).inline_keyboard[0]?.[0]).toMatchObject({
+      callback_data: `task:restore:${completed.id}`
+    });
+  });
+
+  it("idea brief", () => {
+    expect(formatIdeaScore("IDEA-7", {
+      buildability: 8,
+      usefulness: 9,
+      novelty: 6,
+      portfolioValue: 8,
+      monetization: 5,
+      difficulty: 4,
+      risk: 3,
+      summary: "A focused idea with a clear first user.",
+      marketNotes: "Validate willingness to switch from existing tools.",
+      dos: ["Test one workflow"],
+      donts: ["Build every integration first"]
+    })).toMatchInlineSnapshot(`
+      "<b>✨ Idea brief</b> · <code>IDEA-7</code>
+
+      A focused idea with a clear first user.
+
+      <b>Strength</b> usefulness 9/10 · buildability 8/10 · novelty 6/10
+      <b>Potential</b> portfolio 8/10 · monetization 5/10
+      <b>Trade-offs</b> difficulty 4/10 · risk 3/10
+
+      <b>Market read</b>
+      Validate willingness to switch from existing tools.
+
+      <b>Do next</b> Test one workflow
+      <b>Avoid</b> Build every integration first
+
+      AI assessment from the saved idea—not live market research."
+    `);
+  });
+
+  it("note detail", () => {
+    expect(formatNoteDetail({
+      publicId: "NOTE-9",
+      title: "OMG",
+      body: "OMG",
+      summary: "OMG",
+      tags: [],
+      createdAt: new Date("2026-07-06T18:44:35.000Z")
+    }, "Asia/Singapore")).toMatchInlineSnapshot(`
+      "<b>📝 Note</b>
+
+      <b>OMG</b>
+
+      OMG"
+    `);
+  });
+
+  it("idea detail", () => {
+    expect(formatIdeaDetail({
+      publicId: "IDEA-1",
+      title: "Inbox helper",
+      concept: "Capture useful thoughts quickly.",
+      tags: [],
+      createdAt: new Date("2026-07-06T18:44:35.000Z")
+    }, "Asia/Singapore")).toMatchInlineSnapshot(`
+      "<b>💡 Idea</b>
+
+      <b>Inbox helper</b>
+
+      Capture useful thoughts quickly."
+    `);
+  });
+
+  it("help topic", () => {
+    expect(formatHelpTopic("reminders")).toMatchInlineSnapshot(`
+      "<b>Help: ⏰ Reminders And Tasks</b>
+      Add tasks to Today, then view, move, finish, snooze, cancel, or remind yourself about them.
+
+      <b>Try saying</b>
+      <code>add pay invoice tomorrow at 9am</code>
+      <code>remind me to check the washer after 5 mins</code>
+      <code>could you remind me to call Mum day after tomorrow at noon?</code>
+      <code>remind me to have dinner at 7pm every day</code>
+      <code>remind me to take out the trash every Friday at 7pm</code>
+      <code>remind me to pay rent on the 1st of every month at 9am</code>
+      <code>remind me of Mum's birthday on 26 July every year</code>
+      <code>remind Dad and @alex to check the bot at 10pm</code>
+      <code>assign task 2 to @alex and @sam</code>
+      <code>remove @alex from task 2</code>
+      <code>send me assigned task reminders in private</code>
+      <code>show task 2</code>
+      <code>complete task 1</code>
+      <code>complete tasks 1, 2 and 3</code>
+      <code>mark task 1 as done</code>
+      <code>snooze task 1 for 1 hour</code>
+      <code>move task 2 to Friday</code>
+      <code>mark task 2 important</code>
+      <code>remove important from task 2</code>
+      <code>connect my Google Calendar</code>
+      <code>add task 2 to my calendar</code>
+      <code>cancel task 3</code>
+
+      <b>Slash equivalents</b>
+      <code>/todo buy groceries, prepare tutorial</code>
+      <code>/today</code>
+      <code>/add pay invoice tomorrow at 9am</code>
+      <code>/remind 7pm every day | have dinner</code>
+      <code>/remind every Friday at 7pm | take out the trash</code>
+      <code>/assign 2 @alex and @sam</code>
+      <code>/unassign 2 @alex</code>
+      <code>/settings dm on</code>
+      <code>/task 2</code>
+      <code>/done 1 2 3</code>
+      <code>/snooze 1 1h</code>
+      <code>/reschedule 2 Friday</code>
+      <code>/important 2</code>
+      <code>/calendar</code>
+      <code>/cancel 1 2 3</code>
+
+      More help: <code>/help</code> or <code>/commands</code>."
+    `);
+  });
+
+  it("start shortcut confirmation", () => {
+    expect(formatStartShortcutText()).toMatchInlineSnapshot(`"Menu and Dashboard stay within reach below."`);
+  });
+});
+
+describe("bot formatter behaviour", () => {
+  it("lists starred tasks before regular tasks", () => {
     const message = formatOpenTasks(
       [
         task({ publicId: "TASK-2", title: "Important task", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }),
@@ -50,19 +271,7 @@ describe("bot formatters", () => {
       "Asia/Singapore"
     );
 
-    expect(message).toContain("1 ⭐ <b>Important task</b>");
-    expect(message).not.toContain("starred task");
     expect(message.indexOf("Important task")).toBeLessThan(message.indexOf("Regular task"));
-  });
-
-  it("marks starred task details as important", () => {
-    const message = formatTaskDetail(task({ title: "Reply to bank", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
-
-    expect(message).toContain("<b>📋 Task</b>");
-    expect(message).toContain("⭐ Important");
-    expect(message).not.toContain("Task ID");
-    expect(message).not.toContain("Reminders Sent");
-    expect(message).not.toContain("Captured Text");
   });
 
   it("removes a repeated title from task details", () => {
@@ -71,7 +280,6 @@ describe("bot formatters", () => {
       description: "Plan the launch — confirm the venue and invite the team."
     }));
 
-    expect(message).toContain("<b>Plan the launch</b>");
     expect(message).toContain("confirm the venue and invite the team.");
     expect(message).not.toContain("Plan the launch — confirm");
   });
@@ -86,286 +294,11 @@ describe("bot formatters", () => {
     expect(message).toContain("including precautions, hidden gifts, and gallery changes.");
   });
 
-  it("formats newly created tasks without noisy calendar links", () => {
-    const message = formatTaskCreated({
-      publicId: "TASK-9",
-      title: "Prepare a gift",
-      dueAt: new Date("2026-07-06T18:44:35.000Z"),
-      timezone: "Asia/Singapore",
-      assignedUsername: "henry_derek",
-      recurrenceRule: RecurrenceRule.DAILY
-    }, "Asia/Singapore");
-
-    expect(message).toContain("Prepare a gift");
-    expect(message).toContain("<b>Due Date:</b>");
-    expect(message).toContain("<b>Assigned To:</b> @henry_derek");
-    expect(message).toContain("<b>Repeats:</b> Daily");
-    expect(message).not.toContain("Task ID");
-    expect(message).not.toContain("calendar.google.com");
-  });
-
-  it("formats recurring task completion as one occurrence", () => {
-    const message = formatTaskCompleted(task({
-      title: "Have dinner",
-      recurrenceRule: RecurrenceRule.DAILY,
-      recurrenceIntervalDays: 1,
-      dueAt: new Date("2026-07-06T11:00:00.000Z")
-    }), "Asia/Singapore");
-
-    expect(message).toContain("This occurrence is done");
-    expect(message).toContain("<b>Next Occurrence:</b>");
-    expect(message).toContain("<b>Repeats:</b> Daily");
-  });
-
-  it("keeps quiet acknowledgements short while preserving important interpretations", () => {
-    const taskMessage = formatTaskSavedAcknowledgement({
-      title: "Prepare a gift",
-      dueAt: new Date("2026-07-06T18:44:35.000Z"),
-      timezone: "Asia/Singapore",
-      assignedUsername: "henry_derek",
-      recurrenceRule: RecurrenceRule.DAILY
-    }, "Asia/Singapore");
-
-    expect(taskMessage).toContain("<b>Saved</b> · Prepare a gift");
-    expect(taskMessage).toContain("<b>When:</b>");
-    expect(taskMessage).toContain("<b>Repeats:</b> Daily");
-    expect(taskMessage).toContain("<b>For:</b> @henry_derek");
-    expect(taskMessage).not.toContain("Task ID");
-    expect(formatNoteSavedAcknowledgement({ title: "Launch notes" })).toBe("<b>Note saved</b> · Launch notes");
-    expect(formatIdeaSavedAcknowledgement({ title: "Quiet capture" })).toBe("<b>Idea saved</b> · Quiet capture");
-  });
-
-  it("formats an already-completed task as a restore prompt", () => {
-    const completed = task({ status: TaskStatus.DONE, title: "Submit report" });
-    const message = formatTaskAlreadyCompleted(completed);
-    const keyboard = restoreCompletedTaskKeyboard(completed.id);
-
-    expect(message).toContain("Already complete");
-    expect(message).toContain("restore it below");
-    expect(keyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "↩️ Restore task",
-      callback_data: `task:restore:${completed.id}`
-    });
-  });
-
   it("escapes user task text in HTML output", () => {
     const message = formatOpenTasks([task({ title: "Read <draft> & reply", dueAt: null })], "Asia/Singapore");
 
     expect(message).toContain("Read &lt;draft&gt; &amp; reply");
     expect(message).not.toContain("Read <draft> & reply");
-  });
-
-  it.skip("builds inline action buttons for numbered open tasks", () => {
-    const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })], 3, undefined, true);
-
-    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "1",
-      callback_data: "item:task:open:task-uuid-1:1"
-    });
-    expect(keyboard?.inline_keyboard).toHaveLength(2);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Tasks", callback_data: "menu:tasks" }
-    ]);
-  });
-
-  it("fits three list choices into one mobile-friendly button row", () => {
-    const keyboard = taskListKeyboard([
-      task({ id: "task-1" }), task({ id: "task-2" }), task({ id: "task-3" })
-    ], 3, undefined, true);
-
-    expect(keyboard?.inline_keyboard[0]?.map((button) => button.text)).toEqual(["1", "2", "3"]);
-    expect(keyboard?.inline_keyboard).toHaveLength(2);
-  });
-
-  it.skip("keeps global numbering and navigation on later task pages", () => {
-    const page = { page: 2, totalPages: 3, offset: 10 };
-    const item = task({ id: "task-uuid-11", title: "Later task" });
-    const message = formatOpenTasks([item], "Asia/Singapore", page);
-    const keyboard = taskListKeyboard([item], 10, { kind: "tasks", numberOffset: 10, page: 2, totalPages: 3 }, true);
-
-    expect(message).toContain("· 2/3");
-    expect(message).toContain("11 · <b>Later task</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("11");
-    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "←", callback_data: "list:tasks:1" },
-      { text: "2/3", callback_data: "list:tasks:2" },
-      { text: "→", callback_data: "list:tasks:3" }
-    ]);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Tasks", callback_data: "menu:tasks" }
-    ]);
-  });
-
-  it.skip("shows star or unstar on individual task action buttons", () => {
-    const unpinned = taskActionsKeyboard(task({ id: "task-uuid-1" }));
-    const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
-
-    const unpinnedButtons = unpinned.inline_keyboard.flat();
-    const pinnedButtons = pinned.inline_keyboard.flat();
-
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:pin:task-uuid-1")).toEqual({
-      text: "⭐ Star",
-      callback_data: "item:task:pin:task-uuid-1"
-    });
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:title:task-uuid-1")).toEqual({
-      text: "✏️ Title",
-      callback_data: "item:task:edit:title:task-uuid-1"
-    });
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:description:task-uuid-1")).toEqual({
-      text: "📝 Details",
-      callback_data: "item:task:edit:description:task-uuid-1"
-    });
-    expect(pinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:unpin:task-uuid-1")).toEqual({
-      text: "☆ Unstar",
-      callback_data: "item:task:unpin:task-uuid-1"
-    });
-  });
-
-  it.skip("shows star and edit controls for individual notes and ideas", () => {
-    const noteKeyboard = itemActionsKeyboard("note", { id: "note-uuid-1" });
-    const ideaKeyboard = itemActionsKeyboard("idea", { id: "idea-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") });
-
-    expect(noteKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "⭐ Star",
-      callback_data: "item:note:pin:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "✏️ Title",
-      callback_data: "item:note:edit:title:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[0]?.[2]).toEqual({
-      text: "📝 Body",
-      callback_data: "item:note:edit:body:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
-      text: "🗃 Archive",
-      callback_data: "item:note:archive:note-uuid-1"
-    });
-    expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "☆ Unstar",
-      callback_data: "item:idea:unpin:idea-uuid-1"
-    });
-    expect(ideaKeyboard.inline_keyboard[1]).toEqual([
-      { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" },
-      { text: "🧠 Develop", callback_data: "gemini-idea:develop:idea-uuid-1" }
-    ]);
-    expect(ideaKeyboard.inline_keyboard[2]).toEqual([
-      { text: "🥊 Challenge", callback_data: "gemini-idea:challenge:idea-uuid-1" },
-      { text: "➡️ Next steps", callback_data: "gemini-idea:next:idea-uuid-1" }
-    ]);
-    expect(ideaKeyboard.inline_keyboard[3]).toEqual([
-      { text: "☑️ Task plan", callback_data: "gemini-idea:tasks:idea-uuid-1" },
-      { text: "‹ Ideas", callback_data: "menu:ideas" }
-    ]);
-  });
-
-  it("makes settings and AI idea briefs discoverable through compact button flows", () => {
-    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "⏰ Reminders", callback_data: "setting:reminders" });
-    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Region & language", callback_data: "setting:region" });
-    expect(reminderSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🔁 Repeat interval", callback_data: "setting:pick:interval" });
-    expect(regionSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Timezone", callback_data: "setting:pick:timezone" });
-    expect(settingChoicesKeyboard("interval").inline_keyboard.flat()).toContainEqual({ text: "3 hours", callback_data: "setting:apply:interval:180" });
-    expect(ideasModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "✨ Idea brief", callback_data: "menu:ideas-brief" });
-  });
-
-  it("formats a useful AI idea brief instead of exposing a bare score dump", () => {
-    const message = formatIdeaScore("IDEA-7", {
-      buildability: 8,
-      usefulness: 9,
-      novelty: 6,
-      portfolioValue: 8,
-      monetization: 5,
-      difficulty: 4,
-      risk: 3,
-      summary: "A focused idea with a clear first user.",
-      marketNotes: "Validate willingness to switch from existing tools.",
-      dos: ["Test one workflow"],
-      donts: ["Build every integration first"]
-    });
-
-    expect(message).toContain("<b>✨ Idea brief</b> · <code>IDEA-7</code>");
-    expect(message).toContain("<b>Strength</b>");
-    expect(message).toContain("<b>Trade-offs</b>");
-    expect(message).toContain("not live market research");
-  });
-
-  it("keeps note and idea lists compact until an item is opened", () => {
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", publicId: "NOTE-1", pinnedAt: null }], 3, undefined, true);
-
-    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "1",
-      callback_data: "item:note:open:NOTE-1:1"
-    });
-  });
-
-  it.skip("shows a contextual Calendar action only for dated private tasks", () => {
-    const dated = taskActionsKeyboard(task({ id: "task-uuid-1", dueAt: new Date("2026-07-23T08:00:00.000Z") }));
-    const linked = taskActionsKeyboard(task({ id: "task-uuid-2", dueAt: new Date("2026-07-23T08:00:00.000Z"), calendarEventId: "event-1" }));
-    const shared = taskActionsKeyboard(task({ id: "task-uuid-3", dueAt: new Date("2026-07-23T08:00:00.000Z") }), true, true);
-
-    expect(dated.inline_keyboard.flat()).toContainEqual({ text: "📅 Calendar", callback_data: "task:calendar:task-uuid-1" });
-    expect(linked.inline_keyboard.flat()).toContainEqual({ text: "✓ Calendar", callback_data: "task:calendar:task-uuid-2" });
-    expect(shared.inline_keyboard.flat().some((button) => "callback_data" in button && button.callback_data.startsWith("task:calendar:"))).toBe(false);
-  });
-
-  it("falls back to a row UUID for already-generated item buttons", () => {
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }], 3, undefined, true);
-
-    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "1",
-      callback_data: "item:note:open:note-uuid-1:1"
-    });
-  });
-
-  it.skip("numbers notes and ideas globally across compact pages", () => {
-    const page = { page: 2, totalPages: 2, offset: 5 };
-    const noteMessage = formatRecentNotes([{ publicId: "NOTE-6", title: "Note six", summary: "Saved" }], page);
-    const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-6", title: "Idea six", concept: "Saved" }], page);
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6", publicId: "NOTE-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 }, true);
-
-    expect(noteMessage).toContain("6 · <b>Note six</b>");
-    expect(ideaMessage).toContain("6 · <b>Idea six</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("6");
-    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "←", callback_data: "list:notes:1" },
-      { text: "2/2", callback_data: "list:notes:2" }
-    ]);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Notes", callback_data: "menu:notes" }
-    ]);
-  });
-
-  it("keeps note details focused on the saved content", () => {
-    const message = formatNoteDetail({
-      publicId: "NOTE-9",
-      title: "OMG",
-      body: "OMG",
-      summary: "OMG",
-      tags: [],
-      createdAt: new Date("2026-07-06T18:44:35.000Z")
-    }, "Asia/Singapore");
-
-    expect(message).toContain("<b>📝 Note</b>");
-    expect(message).toContain("<b>OMG</b>");
-    expect(message).not.toContain("Saved Date");
-    expect(message).not.toContain("Note ID");
-    expect(message).not.toContain("<b>Summary</b>");
-    expect(message).not.toContain("<b>Tags</b>");
-  });
-
-  it("keeps idea details focused on the concept", () => {
-    const message = formatIdeaDetail({
-      publicId: "IDEA-1",
-      title: "Inbox helper",
-      concept: "Capture useful thoughts quickly.",
-      tags: [],
-      createdAt: new Date("2026-07-06T18:44:35.000Z")
-    }, "Asia/Singapore");
-
-    expect(message).toContain("<b>💡 Idea</b>");
-    expect(message).toContain("Capture useful thoughts quickly.");
-    expect(message).not.toContain("Saved Date");
-    expect(message).not.toContain("Idea ID");
   });
 
   it("formats archived item dates in the user's timezone", () => {
@@ -384,9 +317,72 @@ describe("bot formatters", () => {
       }]
     }, "Asia/Singapore");
 
-    expect(message).toContain("<b>Archived Date:</b>");
     expect(message).toContain("2:44");
     expect(message).not.toContain("6:44");
+  });
+
+  it("keeps the help page within Telegram's message limit and hides frozen surfaces", () => {
+    const message = formatHelpGuide();
+
+    expect(message).not.toContain("Expenses");
+    expect(message).not.toContain("Excel");
+    expect(message).not.toContain("Page 1/");
+    expect(message.length).toBeLessThan(4_096);
+  });
+
+  it("orders the command reference within Telegram's message limit", () => {
+    const message = formatCommandReference();
+
+    expect(message.indexOf("<code>/add</code>")).toBeLessThan(message.indexOf("<code>/archived</code>"));
+    expect(message.indexOf("<code>/archived</code>")).toBeLessThan(message.indexOf("<code>/brief</code>"));
+    expect(message).toContain("<code>/commands</code>");
+    expect(message.length).toBeLessThan(4_096);
+  });
+
+  it("routes focused help topics to their own section", () => {
+    expect(formatHelpTopic("reminders")).not.toBe(formatHelpTopic("notes"));
+    expect(formatHelpTopic("commands")).toBe(formatCommandReference());
+  });
+
+  it("includes important and version commands in help metadata", () => {
+    const commands = HELP_COMMANDS.map((item) => item.command);
+
+    expect(commands).toEqual(expect.arrayContaining(["/archive", "/googlecal", "/important", "/findtime", "/images", "/image", "/version"]));
+    expect(commands).not.toContain("/expense");
+    expect(commands).not.toContain("/expenses");
+    expect(commands).not.toContain("/excel");
+  });
+});
+
+describe("bot formatter keyboards", () => {
+  it("fits three list choices into one mobile-friendly button row", () => {
+    const keyboard = taskListKeyboard([
+      task({ id: "task-1" }), task({ id: "task-2" }), task({ id: "task-3" })
+    ], 3, undefined, true);
+
+    expect(keyboard?.inline_keyboard[0]?.map((button) => button.text)).toEqual(["1", "2", "3"]);
+    expect(keyboard?.inline_keyboard).toHaveLength(2);
+  });
+
+  it("makes settings and AI idea briefs discoverable through compact button flows", () => {
+    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "⏰ Reminders", callback_data: "setting:reminders" });
+    expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Region & language", callback_data: "setting:region" });
+    expect(reminderSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🔁 Repeat interval", callback_data: "setting:pick:interval" });
+    expect(regionSettingsKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🌍 Timezone", callback_data: "setting:pick:timezone" });
+    expect(settingChoicesKeyboard("interval").inline_keyboard.flat()).toContainEqual({ text: "3 hours", callback_data: "setting:apply:interval:180" });
+    expect(ideasModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "✨ Idea brief", callback_data: "menu:ideas-brief" });
+  });
+
+  it("opens list items by public id", () => {
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", publicId: "NOTE-1", pinnedAt: null }], 3, undefined, true);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({ text: "1", callback_data: "item:note:open:NOTE-1:1" });
+  });
+
+  it("falls back to a row UUID for already-generated item buttons", () => {
+    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }], 3, undefined, true);
+
+    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({ text: "1", callback_data: "item:note:open:note-uuid-1:1" });
   });
 
   it("builds search pagination controls", () => {
@@ -440,57 +436,6 @@ describe("bot formatters", () => {
     });
   });
 
-  it("shows natural-language capability help without pagination", () => {
-    const message = formatHelpPage(1);
-
-    expect(message).toContain("<b>Threadwise help</b>");
-    expect(message).toContain("<b>Capture</b>");
-    expect(message).toContain("<code>/todo Buy groceries, prepare tutorial</code>");
-    expect(message).toContain("<b>Coordinate</b>");
-    expect(message).toContain("<b>Recall</b>");
-    expect(message).toContain("things people can find, remember, and finish");
-    expect(message).not.toContain("Expenses");
-    expect(message).not.toContain("Excel");
-    expect(message).toContain("<code>/commands</code>");
-    expect(message).not.toContain("Page 1/");
-    expect(message.length).toBeLessThan(4_096);
-  });
-
-  it("keeps slash commands discoverable in the command reference", () => {
-    const message = formatCommandReference();
-
-    expect(message.indexOf("<code>/add</code>")).toBeLessThan(message.indexOf("<code>/archived</code>"));
-    expect(message.indexOf("<code>/archived</code>")).toBeLessThan(message.indexOf("<code>/brief</code>"));
-    expect(message).toContain("<code>/commands</code> - Show the full slash-command reference.");
-    expect(message.length).toBeLessThan(4_096);
-  });
-
-  it("formats focused help topics for natural questions", () => {
-    const reminders = formatHelpTopic("reminders");
-    const notes = formatHelpTopic("notes");
-    const commands = formatHelpTopic("commands");
-
-    expect(reminders).toContain("<b>Help: ⏰ Reminders And Tasks</b>");
-    expect(reminders).toContain("<code>remind me to check the washer after 5 mins</code>");
-    expect(reminders).not.toContain("<b>Help: 📝 Notes</b>");
-    expect(notes).toContain("<b>Help: 📝 Notes</b>");
-    expect(notes).toContain("<code>show note 3</code>");
-    expect(commands).toContain("<b>Threadwise commands</b>");
-  });
-
-  it("includes important and version commands in help metadata", () => {
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/archive");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/googlecal");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/important");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/findtime");
-    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expense");
-    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/expenses");
-    expect(HELP_COMMANDS.map((item) => item.command)).not.toContain("/excel");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/images");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/image");
-    expect(HELP_COMMANDS.map((item) => item.command)).toContain("/version");
-  });
-
   it("provides concise start navigation and image-choice buttons", () => {
     expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📋 Tasks", callback_data: "menu:tasks" });
     expect(startMenuKeyboard().inline_keyboard.flat()).toContainEqual({ text: "🖼️ Images", callback_data: "menu:images" });
@@ -513,53 +458,4 @@ describe("bot formatters", () => {
     expect(regionSettingsKeyboard().inline_keyboard.flat().some((button) => button.text.includes("Currency"))).toBe(false);
     expect(settingsModeKeyboard().inline_keyboard.flat()).toContainEqual({ text: "📅 Google Calendar", callback_data: "menu:calendar-settings" });
   });
-
-  it("provides a persistent private-chat menu beneath the composer", () => {
-    const menu = privateMenuKeyboard();
-    expect(menu.is_persistent).toBe(true);
-    expect(menu.resize_keyboard).toBe(true);
-    expect(menu.keyboard).toHaveLength(1);
-    expect(menu.keyboard.flat()).toContainEqual({ text: "☰ Menu" });
-    expect(menu.keyboard.flat()).toContainEqual({ text: "🌐 Dashboard" });
-  });
-
-  it("keeps the start shortcut confirmation compact", () => {
-    const message = formatStartShortcutText();
-
-    expect(message).toBe("Menu and Dashboard stay within reach below.");
-    expect(message).not.toContain("Welcome to Threadwise");
-    expect(message.length).toBeLessThan(80);
-  });
-
 });
-
-function task(overrides: Partial<TaskListItem>): TaskListItem {
-  return {
-    id: overrides.id ?? overrides.publicId ?? "task-id",
-    publicId: overrides.publicId ?? "TASK-1",
-    title: overrides.title ?? "Task",
-    description: overrides.description ?? null,
-    sourceText: overrides.sourceText ?? overrides.title ?? "Task",
-    status: overrides.status ?? TaskStatus.OPEN,
-    dueAt: overrides.dueAt ?? null,
-    timezone: overrides.timezone ?? "Asia/Singapore",
-    calendarUrl: overrides.calendarUrl ?? null,
-    calendarEventId: overrides.calendarEventId ?? null,
-    calendarEventUrl: overrides.calendarEventUrl ?? null,
-    calendarSyncedAt: overrides.calendarSyncedAt ?? null,
-    reminderIntervalMinutes: overrides.reminderIntervalMinutes ?? 180,
-    nextReminderAt: overrides.nextReminderAt ?? null,
-    snoozedUntil: overrides.snoozedUntil ?? null,
-    lastRemindedAt: overrides.lastRemindedAt ?? null,
-    reminderCount: overrides.reminderCount ?? 0,
-    assignedTelegramId: overrides.assignedTelegramId ?? null,
-    assignedUsername: overrides.assignedUsername ?? null,
-    assignedDisplayName: overrides.assignedDisplayName ?? null,
-    recurrenceRule: overrides.recurrenceRule ?? null,
-    recurrenceIntervalDays: overrides.recurrenceIntervalDays ?? null,
-    pinnedAt: overrides.pinnedAt ?? null,
-    archivedAt: overrides.archivedAt ?? null,
-    createdAt: overrides.createdAt ?? new Date("2026-07-05T00:00:00.000Z"),
-    updatedAt: overrides.updatedAt ?? new Date("2026-07-05T00:00:00.000Z")
-  };
-}

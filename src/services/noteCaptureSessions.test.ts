@@ -46,6 +46,7 @@ import {
   NOTE_CAPTURE_IDLE_MS,
   appendNoteCaptureParagraph,
   deriveCapturedNoteTitle,
+  finalizeExpiredNoteCaptureSessions,
   finalizeNoteCaptureSession,
   rememberNoteCaptureStatusMessage,
 } from "./noteCaptureSessions";
@@ -136,6 +137,24 @@ describe("durable note capture sessions", () => {
         title: "First paragraph, unchanged.",
       },
     });
+  });
+
+  it("leaves an expired-looking session alone when a new paragraph extended it, reading it once more only inside the save", async () => {
+    const loaded = {
+      id: "session-1",
+      userId: "user-1",
+      telegramChatId: "123",
+      telegramStatusMessageId: null,
+      expiresAt: new Date(Date.now() - 1_000),
+      segments: [{ text: "First paragraph." }],
+    };
+    mocks.sessionFindMany.mockResolvedValue([loaded]);
+    mocks.sessionFindUnique.mockResolvedValue({ ...loaded, expiresAt: new Date(Date.now() + NOTE_CAPTURE_IDLE_MS) });
+
+    await expect(finalizeExpiredNoteCaptureSessions()).resolves.toEqual([]);
+    expect(mocks.sessionFindUnique).toHaveBeenCalledTimes(1);
+    expect(mocks.noteCreate).not.toHaveBeenCalled();
+    expect(mocks.sessionDelete).not.toHaveBeenCalled();
   });
 
   it("derives a compact Unicode-safe title from the first meaningful sentence", () => {
