@@ -1,3 +1,9 @@
+/**
+ * Post-save correction for private captures, such as "save that as a note instead".
+ * Within ten minutes of saving, the newest undoable task/note/idea is recreated as the requested
+ * kind, the original is archived, and both create-undo entries collapse into one
+ * `undoable:reclassify` audit row so a single Undo reverses it. Called from src/bot/naturalLanguage.ts.
+ */
 import { Prisma, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
@@ -32,6 +38,7 @@ export type CaptureReclassificationResult = {
   requestedKind: CaptureCorrectionKind;
 };
 
+/** Tells the bot whether a correction target exists in the ten-minute window, and when it was saved. */
 export async function recentPersonalCaptureCreatedAt(userId: string, now = new Date()): Promise<Date | undefined> {
   return (await latestCreateTarget(userId, now))?.createdAt;
 }
@@ -40,6 +47,8 @@ export async function recentPersonalCaptureCreatedAt(userId: string, now = new D
  * Reclassifies only the user's most recent reversible creation. Callers must
  * enforce private-chat scope: shared workspaces need an actor-bound target,
  * which older create audit rows do not contain.
+ * The replacement is created first; the archive and audit rewrite then run in one transaction.
+ * If that transaction fails, the replacement is archived again so no duplicate is left active.
  */
 export async function reclassifyRecentPersonalCapture(
   userId: string,
@@ -114,6 +123,10 @@ export async function reclassifyRecentPersonalCapture(
   };
 }
 
+/**
+ * Walks the user's recent `undoable:create` audit rows, newest first, and returns the first one
+ * whose item is still active. Items already archived or undone are skipped.
+ */
 async function latestCreateTarget(
   userId: string,
   now: Date,
@@ -138,6 +151,7 @@ async function latestCreateTarget(
   return undefined;
 }
 
+/** Loads an unarchived item owned by the user. Task state is kept so Undo can restore it exactly. */
 async function loadActiveTarget(userId: string, kind: ReclassifiableKind, id: string): Promise<ReclassifiableTarget | undefined> {
   if (kind === "task") {
     const task = await prisma.task.findFirst({ where: { id, userId, archivedAt: null } });
@@ -163,6 +177,7 @@ async function loadActiveTarget(userId: string, kind: ReclassifiableKind, id: st
   return idea ? { kind, id: idea.id, publicId: idea.publicId, title: idea.title, sourceText: idea.sourceText } : undefined;
 }
 
+/** Archives the original inside the transaction; tasks are also canceled so they stop reminding. */
 async function archiveTarget(tx: Prisma.TransactionClient, userId: string, target: ReclassifiableTarget): Promise<boolean> {
   const result = await updateItemByKind(tx, target.kind, {
     where: { id: target.id, userId, archivedAt: null },
@@ -186,6 +201,7 @@ async function archiveReplacementBestEffort(userId: string, kind: Reclassifiable
   }
 }
 
+/** Snapshot of the original stored in the reclassify audit row, including task timing state for Undo. */
 function targetMetadata(target: ReclassifiableTarget): Prisma.InputJsonObject {
   return {
     targetKind: target.kind,

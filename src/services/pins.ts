@@ -1,3 +1,8 @@
+/**
+ * Starring ("pinning") tasks, notes, and ideas so they sort to the top of their lists.
+ * Starred tasks are shown as "important". Used by /pin, /unpin, /pinned, their natural-language
+ * forms, and star callbacks in src/bot. Each change records an undo entry.
+ */
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
@@ -19,6 +24,11 @@ type PinnableItem = {
   createdAt: Date;
 };
 
+/**
+ * Stars or unstars an item. Does nothing (changed: false) if it is already in that state, so no
+ * empty undo entry is written. Changing a task's star also resets its undated-reminder nudge count,
+ * which restarts the nudge interval for undated group tasks.
+ */
 export async function pinItem(userId: string, reference: string, shouldPin: boolean): Promise<PinnableItem & { changed: boolean }> {
   const target = await findPinnableItem(userId, reference);
   if (shouldPin && target.pinnedAt) {
@@ -44,6 +54,7 @@ export async function pinItem(userId: string, reference: string, shouldPin: bool
   return { ...target, pinnedAt, changed: true };
 }
 
+/** Up to 25 starred items of each kind (open tasks only), merged and sorted by most recent star. */
 export async function listPinnedItems(userId: string): Promise<PinnableItem[]> {
   const [tasks, notes, ideas] = await Promise.all([
     prisma.task.findMany({
@@ -140,6 +151,10 @@ export function formatPinnedItems(items: PinnableItem[]): string {
   ].join("\n\n");
 }
 
+/**
+ * Resolves a reference in this order: "note 2" style list numbers, a bare number (treated as a task),
+ * a database row id (from buttons), then a TASK-/NOTE-/IDEA- public ID. All lookups are owner-scoped.
+ */
 async function findPinnableItem(userId: string, reference: string): Promise<PinnableItem> {
   const normalized = reference.trim();
   if (!normalized) {

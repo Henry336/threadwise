@@ -1,3 +1,9 @@
+/**
+ * The /search command across ideas, tasks, and notes, with no AI call: each item is scored by a
+ * local word-hash vector similarity and a plain text match, and the higher score wins.
+ * Used by search commands, callbacks, and formatters in src/bot. Only the newest 100 active items
+ * of each kind are scanned, which keeps the cost bounded.
+ */
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { cosineSimilarity, deterministicEmbedding } from "../utils/vector";
@@ -32,6 +38,10 @@ const SEARCH_FILTERS: Record<string, SearchKind[]> = {
 
 const SEARCH_TTL_MS = 30 * 60_000;
 
+/**
+ * Reads an optional leading filter word: "tasks", "notes", "ideas", "all", or "done"/"completed"
+ * (done tasks only). The rest of the text is the query.
+ */
 export function parseSearchRequest(input: string): ParsedSearchRequest {
   const trimmed = input.trim();
   const [first = "", ...rest] = trimmed.split(/\s+/);
@@ -60,6 +70,7 @@ export function parseSearchRequest(input: string): ParsedSearchRequest {
   };
 }
 
+/** Scores the user's recent items against the query and returns matches, best first (default 50). */
 export async function semanticSearch(
   userId: string,
   query: string,
@@ -114,6 +125,10 @@ export async function semanticSearch(
     .slice(0, options.limit ?? 50);
 }
 
+/**
+ * Saves the search for 30 minutes so result page buttons can carry only a short id;
+ * findPendingSearch reloads it and the search is re-run for each page.
+ */
 export async function createPendingSearch(userId: string, parsed: ParsedSearchRequest) {
   return prisma.pendingSearch.create({
     data: {
@@ -157,6 +172,7 @@ function scoreResult(query: string, queryEmbedding: number[], publicId: string, 
   return Math.max(semantic, lexical);
 }
 
+/** Plain text match: 0.92 for the whole phrase, otherwise 0.35 to 0.85 based on the share of words found. */
 function lexicalScore(query: string, fields: string[]): number {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) {

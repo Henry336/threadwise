@@ -1,3 +1,10 @@
+/**
+ * The /undo system. Services call the record* helpers inside their own write transaction to add an
+ * AuditLog row with action "undoable:<type>" and a JSON snapshot of what to restore. /undo (and undo
+ * buttons) take the newest such row, reverse it, and rename it "undone:<type>" so it is used once.
+ * Undo restores or archives items; it never hard-deletes, so public IDs are never reused.
+ * Called from tasks/notes/ideas/pins/storedImages/noteMerges and other services, and from src/bot and src/dashboard.
+ */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma, TaskStatus, type PrismaClient } from "@prisma/client";
 import type { Context } from "grammy";
@@ -55,6 +62,7 @@ export function withUndoActor<T>(actorTelegramId: string | undefined, work: () =
   return actorTelegramId ? undoActor.run(actorTelegramId, work) : work();
 }
 
+/** Records that an item was just created; undoing it archives the item (tasks are also canceled). */
 export async function recordCreateUndo(tx: Prisma.TransactionClient, userId: string, target: UndoTarget): Promise<void> {
   await recordUndo(tx, userId, "create", {
     type: "create",
@@ -65,6 +73,7 @@ export async function recordCreateUndo(tx: Prisma.TransactionClient, userId: str
   });
 }
 
+/** Snapshots a task's status and timing before it is completed, canceled, or restored. */
 export async function recordTaskStateUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -94,6 +103,7 @@ export async function recordTaskStateUndo(
   });
 }
 
+/** Snapshots a task's reminder timing before a snooze. */
 export async function recordSnoozeUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -116,6 +126,7 @@ export async function recordSnoozeUndo(
   });
 }
 
+/** Stores the previous title before a rename. */
 export async function recordRenameUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -132,6 +143,7 @@ export async function recordRenameUndo(
   });
 }
 
+/** Stores the previous task description, note body, or idea concept before an edit. */
 export async function recordFieldEditUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -150,6 +162,7 @@ export async function recordFieldEditUndo(
   });
 }
 
+/** Stores a saved image's previous caption before it is changed. */
 export async function recordImageCaptionUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -164,6 +177,7 @@ export async function recordImageCaptionUndo(
   });
 }
 
+/** Snapshots a task's due date, timezone, calendar link, reminder timing, and recurrence before a reschedule. */
 export async function recordRescheduleUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -194,6 +208,7 @@ export async function recordRescheduleUndo(
   });
 }
 
+/** Stores the previous star time (or null) before a star or unstar. */
 export async function recordPinUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -209,6 +224,7 @@ export async function recordPinUndo(
   });
 }
 
+/** Stores the previous archive state before an item is archived. */
 export async function recordArchiveUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -228,6 +244,7 @@ export async function recordArchiveUndo(
   });
 }
 
+/** Records a merge: the new note plus each source note's previous archive state and merge link. */
 export async function recordNoteMergeUndo(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -272,6 +289,8 @@ export async function undoLastActionForContext(ctx: Context, userId: string): Pr
 /**
  * Reverses the newest undoable entry for `userId`. With `actorTelegramId`, only entries recorded
  * by that Telegram user are considered; older entries without an actor never match.
+ * Each type's reversal and the "undone:" rename happen in one transaction. Transient errors keep the
+ * entry for a retry; a malformed entry or a missing row retires it so it cannot block later undos.
  */
 export async function undoLastAction(userId: string, options: { actorTelegramId?: string } = {}): Promise<string> {
   const onlyActor = options.actorTelegramId !== undefined;
@@ -358,6 +377,10 @@ export async function undoLastAction(userId: string, options: { actorTelegramId?
   return "That undo type is no longer supported, so I left your data as-is.";
 }
 
+/**
+ * Reverses a capture reclassification: archives the replacement and brings back the original,
+ * including its saved task status and reminder times. Only an original still marked "reclassified" is restored.
+ */
 async function undoReclassify(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const original = targetFromPayload(asRecord(payload.original));
   const replacement = targetFromPayload(asRecord(payload.replacement));
@@ -385,6 +408,7 @@ async function undoReclassify(entryId: string, payload: Record<string, unknown>)
   return `${bold("Undone")} Restored ${code(original.publicId)} and removed ${code(replacement.publicId)} from active Threadwise.`;
 }
 
+/** Undoes a create by archiving the item with reason "undo" (tasks are also canceled and stop reminding). */
 async function undoCreate(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   await prisma.$transaction(async (tx) => {
@@ -444,6 +468,10 @@ async function undoSnooze(entryId: string, payload: Record<string, unknown>): Pr
   return `${bold("Undone")} Restored the reminder timing for ${code(target.publicId)}.`;
 }
 
+/**
+ * Restores the previous title. Writes go through completeSearchableContentUpdate so encrypted
+ * search tokens are rebuilt from the whole record. An item archived since then is left alone.
+ */
 async function undoRename(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   const previousTitle = stringValue(payload.previousTitle);
@@ -553,6 +581,7 @@ async function undoPin(entryId: string, payload: Record<string, unknown>): Promi
     : `${bold("Undone")} Unpinned ${code(target.publicId)}.`;
 }
 
+/** Puts back the previous archive state; a task that becomes active again is re-synced to Google Calendar. */
 async function undoArchive(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   const archivedAt = dateValue(payload.archivedAt);
@@ -572,6 +601,7 @@ async function undoArchive(entryId: string, payload: Record<string, unknown>): P
   return `${bold("Undone")} Restored ${code(target.publicId)} to active ${activeLabel(target.kind)}.`;
 }
 
+/** Archives the merged note and restores each source note's previous archive state and merge link. */
 async function undoNoteMerge(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   const sourceNotes = sourceNotesFromPayload(payload.sourceNotes);
@@ -605,6 +635,7 @@ async function undoNoteMerge(entryId: string, payload: Record<string, unknown>):
   return `${bold("Undone")} Restored ${sourceNotes.map((note) => code(note.publicId)).join(", ")} and archived ${code(target.publicId)}.`;
 }
 
+/** Writes the "undoable:<type>" audit row in the caller's transaction, adding the acting member when known. */
 async function recordUndo(tx: Prisma.TransactionClient, userId: string, type: string, metadata: UndoLogPayload): Promise<void> {
   const actorTelegramId = undoActor.getStore();
   await tx.auditLog.create({
@@ -628,6 +659,7 @@ function isPermanentUndoFailure(error: unknown): boolean {
     || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025");
 }
 
+/** Retires an entry outside a transaction (used when it cannot be applied). consumeUndo is the in-transaction twin. */
 async function markUndoConsumed(entryId: string, type: string): Promise<void> {
   await prisma.auditLog.update({
     where: { id: entryId },
@@ -642,6 +674,7 @@ async function consumeUndo(tx: Prisma.TransactionClient, entryId: string, type: 
   });
 }
 
+/** Reads the target item from a stored payload; a missing field is a permanent (non-retryable) error. */
 function targetFromPayload(payload: Record<string, unknown>): UndoTarget {
   const kind = targetKindValue(payload.targetKind);
   const id = stringValue(payload.targetId);

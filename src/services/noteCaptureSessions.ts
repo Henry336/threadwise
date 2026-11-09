@@ -1,3 +1,9 @@
+/**
+ * Private "note session" mode: while a session is open, each message the user sends is stored as a
+ * paragraph (NoteCaptureSegment), and Stop saves them all as one note exactly as written (no AI).
+ * A session closes itself after one idle hour; a one-minute loop started from src/main.ts auto-saves it.
+ * Driven by src/bot/noteSessions.ts. One session per user, kept in PostgreSQL so it survives restarts.
+ */
 import type { Bot } from "grammy";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
@@ -6,6 +12,7 @@ import { nextPublicId } from "./publicIds";
 import { recordCreateUndo } from "./undo";
 import { startLoop, type StopLoop } from "../utils/loop";
 
+/** Idle time before an open session auto-saves. Every new paragraph resets it. */
 export const NOTE_CAPTURE_IDLE_MS = 60 * 60_000;
 export const NOTE_CAPTURE_POLL_MS = 60_000;
 
@@ -30,6 +37,10 @@ export type CanceledNoteCapture = {
   paragraphCount: number;
 };
 
+/**
+ * Opens a session, or resumes the user's live one. A leftover expired session is saved first
+ * so its paragraphs are not lost.
+ */
 export async function startNoteCaptureSession(userId: string, telegramChatId: string) {
   const existing = await prisma.noteCaptureSession.findUnique({
     where: { userId },
@@ -62,6 +73,7 @@ export async function noteCaptureSessionForTelegramUser(telegramId: string) {
   });
 }
 
+/** Stores the id of the session's status card so its paragraph count can be edited in place later. */
 export async function rememberNoteCaptureStatusMessage(
   userId: string,
   telegramStatusMessageId: number,
@@ -73,6 +85,11 @@ export async function rememberNoteCaptureStatusMessage(
   });
 }
 
+/**
+ * Adds one message as a paragraph and pushes the idle expiry forward, in one transaction.
+ * A unique key on (session, Telegram message id) turns a redelivered message into "duplicate"
+ * instead of a second copy of the paragraph.
+ */
 export async function appendNoteCaptureParagraph(
   userId: string,
   telegramMessageId: number,
@@ -105,6 +122,7 @@ export async function appendNoteCaptureParagraph(
   }
 }
 
+/** Throws the session and its paragraphs away without saving a note. */
 export async function cancelNoteCaptureSession(userId: string): Promise<CanceledNoteCapture> {
   const session = await prisma.noteCaptureSession.findUnique({
     where: { userId },
@@ -119,6 +137,7 @@ export async function cancelNoteCaptureSession(userId: string): Promise<Canceled
   };
 }
 
+/** Saves the user's session now (the Stop action), with paragraphs in Telegram message order. */
 export async function finalizeNoteCaptureSession(userId: string): Promise<FinalizedNoteCapture | undefined> {
   const session = await prisma.noteCaptureSession.findUnique({
     where: { userId },
@@ -128,6 +147,7 @@ export async function finalizeNoteCaptureSession(userId: string): Promise<Finali
   return finalizeLoadedSession(session);
 }
 
+/** Saves up to 50 idle-expired sessions per pass; skips any that got a new paragraph meanwhile. */
 export async function finalizeExpiredNoteCaptureSessions(): Promise<FinalizedNoteCapture[]> {
   const expired = await prisma.noteCaptureSession.findMany({
     where: { expiresAt: { lte: new Date() } },
@@ -149,6 +169,7 @@ export function startNoteCaptureExpiryLoop(bot: Bot, pollMs = NOTE_CAPTURE_POLL_
   return startLoop("Note capture expiry", pollMs, () => autoSaveExpiredSessions(bot));
 }
 
+/** Uses the first sentence of the first non-empty paragraph as the title, capped at 84 characters. */
 export function deriveCapturedNoteTitle(paragraphs: string[]): string {
   const source = paragraphs.map((paragraph) => paragraph.trim()).find(Boolean) ?? "Untitled note";
   const singleLine = source.replace(/\s+/g, " ").trim();
@@ -214,6 +235,10 @@ async function finalizeLoadedSession(session: SessionWithSegments, expiredBy?: D
   };
 }
 
+/**
+ * Loop body: saves expired sessions and tells the user, preferably by editing the existing status
+ * card, falling back to a new message. Errors are logged so the loop keeps running.
+ */
 async function autoSaveExpiredSessions(bot: Bot): Promise<void> {
   try {
     const results = await finalizeExpiredNoteCaptureSessions();
@@ -241,6 +266,7 @@ function nextExpiry(): Date {
   return new Date(Date.now() + NOTE_CAPTURE_IDLE_MS);
 }
 
+/** Truncates by Unicode characters (not UTF-16 units) so emoji are never cut in half. */
 function clampText(value: string, maxLength: number): string {
   const characters = Array.from(value);
   if (characters.length <= maxLength) return value;
