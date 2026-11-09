@@ -678,21 +678,17 @@ function isPermanentUndoFailure(error: unknown): boolean {
 }
 
 /**
- * Whether anyone else recorded an undoable change to `targetId` after `since`. An entry with no
- * actor (a dashboard edit) counts as someone else; that is compared here rather than in SQL,
- * where a JSON NOT on a missing key is NULL and would silently skip it.
+ * Whether anyone else recorded an undoable change to `targetId` after `since`: all newer entries
+ * minus the member's own. Counting (not a JSON NOT, which is NULL on a missing key) makes an entry
+ * with no actor, such as a dashboard edit, count as someone else's, and moves no entry bodies.
  */
 async function newerUndoByOthers(userId: string, since: Date, targetId: string, actorTelegramId: string): Promise<boolean> {
-  const newer = await prisma.auditLog.findMany({
-    where: {
-      userId,
-      action: { startsWith: UNDO_PREFIX },
-      createdAt: { gt: since },
-      metadata: { path: ["targetId"], equals: targetId }
-    },
-    select: { metadata: true }
-  });
-  return newer.some((entry) => asRecord(entry.metadata).actorTelegramId !== actorTelegramId);
+  const newer = { userId, action: { startsWith: UNDO_PREFIX }, createdAt: { gt: since } };
+  const [all, own] = await Promise.all([
+    prisma.auditLog.count({ where: { ...newer, metadata: { path: ["targetId"], equals: targetId } } }),
+    prisma.auditLog.count({ where: { ...newer, AND: [{ metadata: { path: ["targetId"], equals: targetId } }, { metadata: { path: ["actorTelegramId"], equals: actorTelegramId } }] } })
+  ]);
+  return all > own;
 }
 
 /** Whether the entry was already retired; false if it cannot be read either, so the caller keeps it for a retry. */

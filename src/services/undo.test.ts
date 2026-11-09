@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
-  auditLog: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  auditLog: { findFirst: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   $transaction: vi.fn(),
 }));
 const groupWorkspaces = vi.hoisted(() => ({ isGroupManager: vi.fn() }));
@@ -52,13 +52,25 @@ describe("group undo ownership", () => {
     groupWorkspaces.isGroupManager.mockResolvedValue(false);
     db.auditLog.findFirst
       .mockResolvedValueOnce({ id: "mine", createdAt: new Date("2026-11-01T00:00:00Z"), metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "Plan", previousTitle: "Draft", actorTelegramId: "42" } });
-    // A newer dashboard edit carries no actor and must still count as someone else's.
-    db.auditLog.findMany.mockResolvedValueOnce([{ metadata: { type: "rename", targetId: "t1" } }]);
+    // One newer entry for the item, none of them the member's own (a dashboard edit has no actor).
+    db.auditLog.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
 
     const message = await undoLastActionForContext(groupContext(42), "chat:-100");
 
     expect(message).toContain("Someone changed that item after you");
     expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not block a member whose only newer change to the item is their own", async () => {
+    groupWorkspaces.isGroupManager.mockResolvedValue(false);
+    db.auditLog.findFirst.mockResolvedValueOnce({ id: "mine", createdAt: new Date("2026-11-01T00:00:00Z"), metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "Plan", previousTitle: "Draft", actorTelegramId: "42" } });
+    db.auditLog.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    db.$transaction.mockResolvedValueOnce(undefined);
+
+    const message = await undoLastActionForContext(groupContext(42), "chat:-100");
+
+    expect(message).not.toContain("Someone changed that item after you");
+    expect(db.$transaction).toHaveBeenCalled();
   });
 
   it("lets a group admin undo anyone's latest change", async () => {
