@@ -202,7 +202,7 @@ async function queueVoiceFromContext(
     `🎙️ Transcription started\nModel: ${settings.voiceTranscriptionModel}\nCleanup: ${settings.voiceCleanupMode === VoiceCleanupMode.VERBATIM ? "verbatim" : "light"}`
   );
   await saveVoiceAcknowledgement(queued.job.id, acknowledgement.message_id);
-  void processVoiceTranscription(queued.job.id, ctx.api, botToken, ai)
+  void processVoiceTranscription(queued.job.id, ctx.api, botToken)
     .catch((error) => logger.error("Immediate voice capture processing failed.", { jobId: queued.job.id, error: String(error) }));
 }
 

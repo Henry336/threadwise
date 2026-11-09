@@ -508,7 +508,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string, p
       await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
-    const task = await createTask(user.id, consumed.extractedText, ai);
+    const task = await createTask(user.id, consumed.extractedText);
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
@@ -899,7 +899,7 @@ async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string,
   try {
     const parsed = await findPendingSearch(user.id, pendingId);
     const pageSize = 5;
-    const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+    const results = await semanticSearch(user.id, parsed.query, parsed.kinds, {
       includeDone: parsed.includeDone,
       doneOnly: parsed.doneOnly
     });
@@ -932,7 +932,7 @@ async function handleNoteMergeCallback(ctx: Context, ai: AiProvider, action: str
       return;
     }
 
-    const result = await confirmNoteMerge(user.id, pendingId, ai);
+    const result = await confirmNoteMerge(user.id, pendingId);
     await ctx.answerCallbackQuery({ text: "Merged" });
     await editOrReplyHtml(ctx, formatNoteMergeConfirmed(result), { reply_markup: undoKeyboard() });
   } catch (error) {
@@ -1159,7 +1159,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
   await ctx.answerCallbackQuery({ text: "Saving" });
 
   if (action === "task") {
-    const task = await createTask(user.id, pending.sourceText, ai);
+    const task = await createTask(user.id, pending.sourceText);
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);

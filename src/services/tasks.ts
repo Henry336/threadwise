@@ -85,8 +85,7 @@ export type TaskCreationOptions = {
   titleOverride?: string;
 };
 
-// TODO(review #10): `ai` is unused, remove with bot call sites
-export async function createTask(userId: string, sourceText: string, ai: AiProvider, options: TaskCreationOptions = {}) {
+export async function createTask(userId: string, sourceText: string, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
   if (!settings) {
@@ -157,7 +156,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
  * first reminder time.
  */
 export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
-  return createTask(userId, sourceText, ai, { ...options, dueAt: scheduledAt });
+  return createTask(userId, sourceText, { ...options, dueAt: scheduledAt });
 }
 
 export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {

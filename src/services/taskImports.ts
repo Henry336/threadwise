@@ -339,7 +339,7 @@ export async function importReviewedTasks(
         });
         continue;
       }
-      const task = await createTask(initial.ownerUserId, item.sourceText, ai, {
+      const task = await createTask(initial.ownerUserId, item.sourceText, {
         titleOverride: item.title,
         dueAt: item.dueAt ?? undefined,
         importItemId: item.id,

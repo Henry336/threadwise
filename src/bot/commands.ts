@@ -303,7 +303,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 
   try {
-    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
+    const task = await createTask(user.id, text, taskCreationOptionsFromContext(ctx, text));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
@@ -796,7 +796,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
     return;
   }
 
-  const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+  const results = await semanticSearch(user.id, parsed.query, parsed.kinds, {
     includeDone: parsed.includeDone,
     doneOnly: parsed.doneOnly
   });

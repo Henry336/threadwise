@@ -24,7 +24,7 @@ describe("semantic search", () => {
       embedding: null
     }];
 
-    const [result] = await semanticSearch("user-1", "overrun railway", {} as never, ["note"]);
+    const [result] = await semanticSearch("user-1", "overrun railway", ["note"]);
 
     expect(result?.publicId).toBe("NOTE-1");
     // Lexical matching caps out-of-order terms at 0.85; only the vector reaches 1.

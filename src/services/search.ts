@@ -63,8 +63,7 @@ export function parseSearchRequest(input: string): ParsedSearchRequest {
 
 export async function semanticSearch(
   userId: string,
-  query: string,
-  ai: AiProvider, // TODO(review #10): unused, remove with bot call sites
+  query: string,
   kinds?: SearchKind[],
   options: { includeDone?: boolean; doneOnly?: boolean; limit?: number } = {}
 ): Promise<SearchResult[]> {

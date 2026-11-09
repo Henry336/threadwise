@@ -280,7 +280,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
       await ctx.reply("Add a query after the filter, like search notes deployment or search tasks invoice.");
       return true;
     }
-    const results = await semanticSearch(user.id, parsed.query, ai, parsed.kinds, {
+    const results = await semanticSearch(user.id, parsed.query, parsed.kinds, {
       includeDone: parsed.includeDone,
       doneOnly: parsed.doneOnly
     });
@@ -702,7 +702,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
 
   const taskBody = parseNaturalTaskBody(trimmed);
   if (taskBody) {
-    const task = await createTask(user.id, taskBody, ai, taskCreationOptionsFromContext(ctx, taskBody));
+    const task = await createTask(user.id, taskBody, taskCreationOptionsFromContext(ctx, taskBody));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);

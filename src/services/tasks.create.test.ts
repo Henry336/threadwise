@@ -35,7 +35,7 @@ describe("createScheduledReminder", () => {
     const options = { mentions: [{ offset: 31, length: 4, username: "sam" }] };
 
     await createScheduledReminder("user-1", text, scheduledAt, {} as never, options);
-    await createTask("user-1", text, {} as never, { ...options, dueAt: scheduledAt });
+    await createTask("user-1", text, { ...options, dueAt: scheduledAt });
 
     const [reminderRow, taskRow] = mocks.taskCreate.mock.calls.map((call) => call[0].data);
     // Assignee rows stamp respondedAt with the clock; fake timers keep both equal.

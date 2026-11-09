@@ -259,7 +259,7 @@ async function handleCaptureCorrection(
     return true;
   }
   if (correction.kind === "task") {
-    const task = await createTask(user.id, claimed.sourceText, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
+    const task = await createTask(user.id, claimed.sourceText, taskCreationOptionsFromContext(ctx, claimed.sourceText));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
   } else if (correction.kind === "note") {
@@ -341,7 +341,7 @@ async function handlePendingMenuInput(
   }
 
   if (action === "task") {
-    const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
+    const task = await createTask(user.id, text, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
     await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));

@@ -240,7 +240,7 @@ async function processImageOcr(
     }
 
     if (intent === "task") {
-      const task = await createTask(user.id, extracted.text, ai);
+      const task = await createTask(user.id, extracted.text);
       await recordGroupTaskCreatedFromContext(ctx, user.id, task);
       await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
       return;

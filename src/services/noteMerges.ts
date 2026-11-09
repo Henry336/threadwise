@@ -70,8 +70,7 @@ export async function retryNoteMergePreview(userId: string, pendingId: string, a
   };
 }
 
-// TODO(review #10): `ai` is unused, remove with bot call sites
-export async function confirmNoteMerge(userId: string, pendingId: string, ai: AiProvider) {
+export async function confirmNoteMerge(userId: string, pendingId: string) {
   const pending = await prisma.pendingNoteMerge.findFirstOrThrow({
     where: {
       id: pendingId,

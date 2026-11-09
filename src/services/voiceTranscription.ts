@@ -173,8 +173,7 @@ export function isVoiceLeaseClaimable(status: VoiceTranscriptionStatus, leaseExp
 export async function processVoiceTranscription(
   jobId: string,
   api: Api,
-  botToken: string,
-  ai: AiProvider, // TODO(review #10): unused, remove with bot call sites
+  botToken: string,
   providerFactory: () => VoiceProvider = () => new OpenAiVoiceProvider()
 ): Promise<void> {
   const processorId = `${hostname()}-${process.pid}`;
@@ -250,7 +249,7 @@ export async function processRecoverableVoiceTranscriptions(
     },
     orderBy: { createdAt: "asc" }
   });
-  if (job) await processVoiceTranscription(job.id, api, botToken, ai);
+  if (job) await processVoiceTranscription(job.id, api, botToken);
 }
 
 export async function prepareVoiceNoteText(
