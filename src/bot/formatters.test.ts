@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters";
-import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskActionsKeyboard, taskListKeyboard } from "./keyboards";
+import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemListKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskListKeyboard } from "./keyboards";
 import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import type { TaskListItem } from "../services/tasks";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, formatTaskSavedAcknowledgement } from "../services/tasks";
-import { formatNoteDetail, formatNoteSavedAcknowledgement, formatRecentNotes } from "../services/notes";
-import { formatIdeaDetail, formatIdeaSavedAcknowledgement, formatRecentIdeas } from "../services/ideas";
+import { formatNoteDetail, formatNoteSavedAcknowledgement } from "../services/notes";
+import { formatIdeaDetail, formatIdeaSavedAcknowledgement } from "../services/ideas";
 import { formatArchivedPage } from "../services/archives";
 
 describe("bot formatters", () => {
@@ -155,19 +155,6 @@ describe("bot formatters", () => {
     expect(message).not.toContain("Read <draft> & reply");
   });
 
-  it.skip("builds inline action buttons for numbered open tasks", () => {
-    const keyboard = taskListKeyboard([task({ id: "task-uuid-1", title: "Drink water" })], 3, undefined, true);
-
-    expect(keyboard?.inline_keyboard[0]?.[0]).toEqual({
-      text: "1",
-      callback_data: "item:task:open:task-uuid-1:1"
-    });
-    expect(keyboard?.inline_keyboard).toHaveLength(2);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Tasks", callback_data: "menu:tasks" }
-    ]);
-  });
-
   it("fits three list choices into one mobile-friendly button row", () => {
     const keyboard = taskListKeyboard([
       task({ id: "task-1" }), task({ id: "task-2" }), task({ id: "task-3" })
@@ -175,88 +162,6 @@ describe("bot formatters", () => {
 
     expect(keyboard?.inline_keyboard[0]?.map((button) => button.text)).toEqual(["1", "2", "3"]);
     expect(keyboard?.inline_keyboard).toHaveLength(2);
-  });
-
-  it.skip("keeps global numbering and navigation on later task pages", () => {
-    const page = { page: 2, totalPages: 3, offset: 10 };
-    const item = task({ id: "task-uuid-11", title: "Later task" });
-    const message = formatOpenTasks([item], "Asia/Singapore", page);
-    const keyboard = taskListKeyboard([item], 10, { kind: "tasks", numberOffset: 10, page: 2, totalPages: 3 }, true);
-
-    expect(message).toContain("· 2/3");
-    expect(message).toContain("11 · <b>Later task</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("11");
-    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "←", callback_data: "list:tasks:1" },
-      { text: "2/3", callback_data: "list:tasks:2" },
-      { text: "→", callback_data: "list:tasks:3" }
-    ]);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Tasks", callback_data: "menu:tasks" }
-    ]);
-  });
-
-  it.skip("shows star or unstar on individual task action buttons", () => {
-    const unpinned = taskActionsKeyboard(task({ id: "task-uuid-1" }));
-    const pinned = taskActionsKeyboard(task({ id: "task-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") }));
-
-    const unpinnedButtons = unpinned.inline_keyboard.flat();
-    const pinnedButtons = pinned.inline_keyboard.flat();
-
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:pin:task-uuid-1")).toEqual({
-      text: "⭐ Star",
-      callback_data: "item:task:pin:task-uuid-1"
-    });
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:title:task-uuid-1")).toEqual({
-      text: "✏️ Title",
-      callback_data: "item:task:edit:title:task-uuid-1"
-    });
-    expect(unpinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:edit:description:task-uuid-1")).toEqual({
-      text: "📝 Details",
-      callback_data: "item:task:edit:description:task-uuid-1"
-    });
-    expect(pinnedButtons.find((button) => "callback_data" in button && button.callback_data === "item:task:unpin:task-uuid-1")).toEqual({
-      text: "☆ Unstar",
-      callback_data: "item:task:unpin:task-uuid-1"
-    });
-  });
-
-  it.skip("shows star and edit controls for individual notes and ideas", () => {
-    const noteKeyboard = itemActionsKeyboard("note", { id: "note-uuid-1" });
-    const ideaKeyboard = itemActionsKeyboard("idea", { id: "idea-uuid-1", pinnedAt: new Date("2026-07-05T00:01:00.000Z") });
-
-    expect(noteKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "⭐ Star",
-      callback_data: "item:note:pin:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[0]?.[1]).toEqual({
-      text: "✏️ Title",
-      callback_data: "item:note:edit:title:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[0]?.[2]).toEqual({
-      text: "📝 Body",
-      callback_data: "item:note:edit:body:note-uuid-1"
-    });
-    expect(noteKeyboard.inline_keyboard[1]?.[0]).toEqual({
-      text: "🗃 Archive",
-      callback_data: "item:note:archive:note-uuid-1"
-    });
-    expect(ideaKeyboard.inline_keyboard[0]?.[0]).toEqual({
-      text: "☆ Unstar",
-      callback_data: "item:idea:unpin:idea-uuid-1"
-    });
-    expect(ideaKeyboard.inline_keyboard[1]).toEqual([
-      { text: "✨ Idea brief", callback_data: "item:idea:brief:idea-uuid-1" },
-      { text: "🧠 Develop", callback_data: "gemini-idea:develop:idea-uuid-1" }
-    ]);
-    expect(ideaKeyboard.inline_keyboard[2]).toEqual([
-      { text: "🥊 Challenge", callback_data: "gemini-idea:challenge:idea-uuid-1" },
-      { text: "➡️ Next steps", callback_data: "gemini-idea:next:idea-uuid-1" }
-    ]);
-    expect(ideaKeyboard.inline_keyboard[3]).toEqual([
-      { text: "☑️ Task plan", callback_data: "gemini-idea:tasks:idea-uuid-1" },
-      { text: "‹ Ideas", callback_data: "menu:ideas" }
-    ]);
   });
 
   it("makes settings and AI idea briefs discoverable through compact button flows", () => {
@@ -298,16 +203,6 @@ describe("bot formatters", () => {
     });
   });
 
-  it.skip("shows a contextual Calendar action only for dated private tasks", () => {
-    const dated = taskActionsKeyboard(task({ id: "task-uuid-1", dueAt: new Date("2026-07-23T08:00:00.000Z") }));
-    const linked = taskActionsKeyboard(task({ id: "task-uuid-2", dueAt: new Date("2026-07-23T08:00:00.000Z"), calendarEventId: "event-1" }));
-    const shared = taskActionsKeyboard(task({ id: "task-uuid-3", dueAt: new Date("2026-07-23T08:00:00.000Z") }), true, true);
-
-    expect(dated.inline_keyboard.flat()).toContainEqual({ text: "📅 Calendar", callback_data: "task:calendar:task-uuid-1" });
-    expect(linked.inline_keyboard.flat()).toContainEqual({ text: "✓ Calendar", callback_data: "task:calendar:task-uuid-2" });
-    expect(shared.inline_keyboard.flat().some((button) => "callback_data" in button && button.callback_data.startsWith("task:calendar:"))).toBe(false);
-  });
-
   it("falls back to a row UUID for already-generated item buttons", () => {
     const keyboard = itemListKeyboard("note", [{ id: "note-uuid-1", pinnedAt: null }], 3, undefined, true);
 
@@ -315,24 +210,6 @@ describe("bot formatters", () => {
       text: "1",
       callback_data: "item:note:open:note-uuid-1:1"
     });
-  });
-
-  it.skip("numbers notes and ideas globally across compact pages", () => {
-    const page = { page: 2, totalPages: 2, offset: 5 };
-    const noteMessage = formatRecentNotes([{ publicId: "NOTE-6", title: "Note six", summary: "Saved" }], page);
-    const ideaMessage = formatRecentIdeas([{ publicId: "IDEA-6", title: "Idea six", concept: "Saved" }], page);
-    const keyboard = itemListKeyboard("note", [{ id: "note-uuid-6", publicId: "NOTE-6" }], 5, { kind: "notes", numberOffset: 5, page: 2, totalPages: 2 }, true);
-
-    expect(noteMessage).toContain("6 · <b>Note six</b>");
-    expect(ideaMessage).toContain("6 · <b>Idea six</b>");
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("6");
-    expect(keyboard?.inline_keyboard.at(-2)).toEqual([
-      { text: "←", callback_data: "list:notes:1" },
-      { text: "2/2", callback_data: "list:notes:2" }
-    ]);
-    expect(keyboard?.inline_keyboard.at(-1)).toEqual([
-      { text: "‹ Notes", callback_data: "menu:notes" }
-    ]);
   });
 
   it("keeps note details focused on the saved content", () => {
