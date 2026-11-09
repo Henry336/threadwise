@@ -1,5 +1,5 @@
 import { InputFile, type Bot, type Context } from "grammy";
-import { GroupActivityType } from "@prisma/client";
+import { GroupActivityType, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
 import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createScheduledReminder, createTask } from "../services/tasks";
@@ -661,6 +661,12 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined, dueMs: s
     }
   }
   const completion = await completeTask(user.id, taskId, shownDueAt);
+  // A recurring task stays OPEN, so "already completed" here means this card is for an
+  // occurrence that has already moved on (stale card or double tap), not a finished task.
+  if (completion.alreadyCompleted && completion.task.status !== TaskStatus.DONE) {
+    await ctx.answerCallbackQuery({ text: "This card is out of date. Open the task to see when it's next due.", show_alert: true });
+    return;
+  }
   if (completion.alreadyCompleted) {
     await ctx.answerCallbackQuery({ text: "Already completed" });
     await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
