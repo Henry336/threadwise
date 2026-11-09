@@ -3,7 +3,9 @@
  * Used by image capture and Study capture in src/bot, the dashboard media proxies in src/dashboard,
  * voice transcription, and sideProjectRoutes. Errors are typed and never include the bot token.
  */
-const DEFAULT_TIMEOUT_MS = 10_000;
+const MIN_TIMEOUT_MS = 10_000;
+/** Slowest download rate we still wait for, so a 20 MB voice note gets 80 s instead of 10 s. */
+const MIN_BYTES_PER_SECOND = 250_000;
 
 /** Why a Telegram file could not be downloaded, so each caller can pick its own reply. */
 export type TelegramFileFailure = "unavailable" | "too_large" | "temporary";
@@ -32,7 +34,7 @@ export async function downloadTelegramFile(
   fileId: string,
   options: { maxBytes: number; timeoutMs?: number },
 ): Promise<TelegramFile> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? Math.max(MIN_TIMEOUT_MS, (options.maxBytes / MIN_BYTES_PER_SECOND) * 1000);
   try {
     return await downloadOnce(token, fileId, options.maxBytes, timeoutMs);
   } catch (error) {
