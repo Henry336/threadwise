@@ -55,7 +55,7 @@ export async function reclassifyRecentPersonalCapture(
   const replacement = requestedKind === "task"
     ? await createTask(userId, candidate.sourceText)
     : requestedKind === "reminder"
-      ? await createScheduledReminder(userId, candidate.sourceText, reminderAt!, ai)
+      ? await createScheduledReminder(userId, candidate.sourceText, reminderAt!)
       : requestedKind === "note"
         ? await createNote(userId, candidate.sourceText, ai)
         : await createIdea(userId, candidate.sourceText, ai);

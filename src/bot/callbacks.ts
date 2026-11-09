@@ -70,7 +70,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[2]!, "title"));
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1]!, ctx.match[2]!));
-  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
   bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
   bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
@@ -891,7 +891,7 @@ async function handleEditCancel(ctx: Context) {
   await editOrReplyText(ctx, canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.", { reply_markup: menuBackKeyboard() });
 }
 
-async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string, pageText: string) {
+async function handleSearchPage(ctx: Context, pendingId: string, pageText: string) {
   const page = Number(pageText);
   if (!Number.isInteger(page) || page < 1) return;
 
@@ -1142,7 +1142,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
       return;
     }
     await ctx.answerCallbackQuery({ text: "Saving reminder" });
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
+    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt);
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);

@@ -98,8 +98,8 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("note-analysis", async (ctx) => handleNoteAnalysis(ctx, ai));
   bot.command("merge", async (ctx) => handleMerge(ctx, ai));
   bot.command("review", async (ctx) => handleReview(ctx));
-  bot.command("add", async (ctx) => handleAdd(ctx, ai));
-  bot.command("remind", async (ctx) => handleRemind(ctx, ai));
+  bot.command("add", async (ctx) => handleAdd(ctx));
+  bot.command("remind", async (ctx) => handleRemind(ctx));
   bot.command("tasks", async (ctx) => handleTasks(ctx));
   bot.command("task", async (ctx) => handleTaskDetail(ctx));
   bot.command("done", async (ctx) => handleDone(ctx));
@@ -119,7 +119,7 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("restore", async (ctx) => handleRestore(ctx));
   bot.command(["cancel", "delete"], async (ctx) => handleCancel(ctx));
   bot.command("settings", async (ctx) => handleSettings(ctx));
-  bot.command("search", async (ctx) => handleSearch(ctx, ai));
+  bot.command("search", async (ctx) => handleSearch(ctx));
   bot.command("score", async (ctx) => handleScore(ctx, ai));
   bot.command("brief", async (ctx) => handleBrief(ctx));
   bot.command("calendar", async (ctx) => isGroupChat(ctx) ? explainPrivateIntegration(ctx, "Google Calendar") : handleCalendar(ctx, true));
@@ -294,7 +294,7 @@ async function handleReview(ctx: Context) {
   await replyHtml(ctx, review);
 }
 
-async function handleAdd(ctx: Context, ai: AiProvider) {
+async function handleAdd(ctx: Context) {
   const user = await ensureUser(ctx);
   const text = commandBody(ctx.message?.text ?? "", "add");
   if (!text) {
@@ -314,7 +314,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
   }
 }
 
-async function handleRemind(ctx: Context, ai: AiProvider) {
+async function handleRemind(ctx: Context) {
   const user = await ensureUser(ctx);
   const body = commandBody(ctx.message?.text ?? "", "remind");
   if (!body) {
@@ -348,7 +348,7 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 
   try {
     const taskText = carryRecurrenceToTaskText(parsed.taskText, parsed.whenText);
-    const task = await createScheduledReminder(user.id, taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, taskText));
+    const task = await createScheduledReminder(user.id, taskText, scheduledAt, taskCreationOptionsFromContext(ctx, taskText));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
@@ -775,7 +775,7 @@ async function handleSettings(ctx: Context) {
   await ctx.reply(result.message);
 }
 
-async function handleSearch(ctx: Context, ai: AiProvider) {
+async function handleSearch(ctx: Context) {
   const user = await ensureUser(ctx);
   const query = commandBody(ctx.message?.text ?? "", "search");
   if (!query) {

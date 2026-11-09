@@ -34,7 +34,7 @@ describe("createScheduledReminder", () => {
     const text = "water the plants every week with @sam";
     const options = { mentions: [{ offset: 31, length: 4, username: "sam" }] };
 
-    await createScheduledReminder("user-1", text, scheduledAt, {} as never, options);
+    await createScheduledReminder("user-1", text, scheduledAt, options);
     await createTask("user-1", text, { ...options, dueAt: scheduledAt });
 
     const [reminderRow, taskRow] = mocks.taskCreate.mock.calls.map((call) => call[0].data);

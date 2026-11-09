@@ -674,7 +674,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
       await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try: by 9pm, at 1.30pm, tomorrow morning, Friday at 3, or in 20 minutes.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, ai, taskCreationOptionsFromContext(ctx, parsed.taskText));
+    const task = await createScheduledReminder(user.id, parsed.taskText, scheduledAt, taskCreationOptionsFromContext(ctx, parsed.taskText));
     if (isGroupChat(ctx)) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);

@@ -64,7 +64,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       const user = await ensureUser(ctx);
 
-      if (await handlePendingCaptureReminderReply(ctx, ai, user, text)) return;
+      if (await handlePendingCaptureReminderReply(ctx, user, text)) return;
 
       const captionedImageBatch = await applyPendingImageUploadBatchCaption(user.id, text);
       if (captionedImageBatch) {
@@ -114,7 +114,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           await ctx.reply("I still need a future reminder time. Try: tomorrow at 9am, in 2 hours, or next Monday at noon. Send 'cancel image reminder' to stop.");
           return;
         }
-        const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
+        const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
         await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
@@ -247,7 +247,7 @@ async function handleCaptureCorrection(
       await replyHtml(ctx, "That review was already handled or expired. Send the content again if needed.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai, taskCreationOptionsFromContext(ctx, claimed.sourceText));
+    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, taskCreationOptionsFromContext(ctx, claimed.sourceText));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
     return true;
@@ -274,7 +274,6 @@ async function handleCaptureCorrection(
 
 async function handlePendingCaptureReminderReply(
   ctx: Context,
-  ai: AiProvider,
   user: Awaited<ReturnType<typeof ensureUser>>,
   text: string,
 ): Promise<boolean> {
@@ -317,7 +316,7 @@ async function handlePendingCaptureReminderReply(
     await replyHtml(ctx, "That capture was already handled or expired. Send it again if needed.");
     return true;
   }
-  const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
+  const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt);
   await recordGroupTaskCreatedFromContext(ctx, user.id, task);
   await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
   return true;
@@ -354,7 +353,7 @@ async function handlePendingMenuInput(
       await replyHtml(ctx, "I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
       return true;
     }
-    const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
+    const task = await createScheduledReminder(user.id, text, dueAt, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
     await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));

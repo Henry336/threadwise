@@ -249,7 +249,7 @@ async function processImageOcr(
     if (intent === "reminder") {
       const scheduledAt = parseDueDate(preparedCaption, user.settings.timezone);
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
-        const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
+        const task = await createScheduledReminder(user.id, extracted.text, scheduledAt);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
         await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
         return;
