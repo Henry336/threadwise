@@ -404,6 +404,22 @@ describe("dashboard API routes", () => {
     await server.close();
   });
 
+  it("rewords zod's default length errors instead of showing them raw", async () => {
+    const server = Fastify();
+    registerDashboardRoute(server, { publicKey: publicKeyPem });
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/v1/dashboard/tasks",
+      headers: { authorization: `Bearer ${await validToken()}` },
+      payload: { title: "x".repeat(501) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toBe("Title is too long or too large. Shorten it, then try again.");
+    await server.close();
+  });
+
   it("enforces the canonical 15-minute reminder floor for dashboard mutations", async () => {
     const server = Fastify();
     createTask.mockResolvedValue({ id: "task-1" } as never);
