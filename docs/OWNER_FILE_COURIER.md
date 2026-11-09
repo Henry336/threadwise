@@ -56,3 +56,29 @@ The standard hosted Telegram Bot API documents a 50 MB `sendDocument` limit. The
 - `CANCELED`
 
 Audit rows contain state and bounded diagnostic metadata, never file contents.
+
+## Using it
+
+Moved from the README on 2026-11-09.
+
+Separate roots with semicolons. Full-drive access is supported only when deliberately configured, such as `THREADWISE_FILE_ROOTS=C:\;D:\`. Windows Search is tried first; a bounded traversal covers roots that are not indexed. The worker advertises whether its roots are valid, so Telegram refuses requests rather than leaving them queued when file courier is unconfigured.
+
+Use:
+
+```text
+/files find curriculum PDF
+/files recent
+/files get "C:\Users\Henry\Documents\curriculum.pdf"
+Send me the latest curriculum PDF from my laptop.
+```
+
+Search and recent-file responses keep up to 100 validated metadata matches and
+show eight at a time. Use the inline Previous/Next controls to move through the
+same durable result set; page changes do not require the laptop worker to remain
+online. Send buttons retain the global result number on every page.
+
+Search and exact-path requests return filename, parent folder, size, modified time, and type. They do not transfer content. The owner must tap **Send** on one exact result, and may cancel a request before the worker claims it.
+
+`FILE_COURIER_MAX_BYTES` is the cloud-side cap and `THREADWISE_FILE_MAX_BYTES` is the laptop-side cap; the lower effective limit wins. The standard hosted Telegram Bot API currently accepts documents up to 50 MB (50,000,000 bytes), while a self-hosted Local Bot API server supports larger uploads. Threadwise uses the standard hosted API and therefore caps configuration at 50,000,000 bytes. See the official [Telegram Bot API `sendDocument` documentation](https://core.telegram.org/bots/api#senddocument).
+
+File jobs use renewable leases, recover after worker restarts or expired claims, and write audit events for queueing, claiming, completion, cancellation, upload start, delivery, and failure. A Telegram delivery error becomes a failed job and owner-visible report instead of retaining a server copy.

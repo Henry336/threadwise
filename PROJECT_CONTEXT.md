@@ -117,7 +117,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   `dep-daiiv1ss728c73ajo9i0` (2026-09-12 18:56:51 SGT); health returns HTTP 200, ok=true, v0.35.4,
   exact commit prefix. Dashboard v0.10.2 `5ecfe5fe6edc887505aaa6b5111d892180dba6bc` completed Vercel
   production deployment `GxYo33JapaJyzZuZxJp8GCKnUvym` at 18:59:34 SGT (GitHub deployment 6408863371).
-  See `docs/BANDWIDTH_REPAIR_2026-09-12.md`.
+  See `docs/archive/BANDWIDTH_REPAIR_2026-09-12.md`.
 - Calendar now claims and bulk-queues reconciliation atomically, preserves pending/backoff, guards
   in-flight completion against newer edits, coalesces process-local drains, and reports truthful
   pending/failed/exhausted states. No migration is required.
@@ -421,7 +421,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
 - Complete behavioural acceptance transcript and implementation invariants:
   [`docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md`](docs/TODAY_TASKS_AND_NOTE_SESSIONS_PRODUCT_SPEC.md).
 - Owner-facing morning update:
-  [`docs/PHASE1_3_TODAY_MORNING_UPDATE.md`](docs/PHASE1_3_TODAY_MORNING_UPDATE.md). Keep it short and
+  [`docs/archive/PHASE1_3_TODAY_MORNING_UPDATE.md`](docs/archive/PHASE1_3_TODAY_MORNING_UPDATE.md). Keep it short and
   update it if implementation, validation, merge, migration, gate, or deployment status changes.
 - Phase 1 implementation: additive `plannedFor`/`firstPlannedFor` calendar dates now exist on normal
   tasks and Study work without changing `dueAt`; durable actor/workspace-scoped task drafts support
@@ -660,7 +660,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   encrypted archive is retained under the ignored `backups/` directory by SHA-256 reference; all
   plaintext/decrypted dumps and temporary local databases were removed. The owner confirmed
   independent recovery of the exact production content-encryption key without exposing it.
-  Canonical non-secret evidence is in `docs/GATE3A_RECOVERY_EVIDENCE.md`. The backend and dashboard
+  Canonical non-secret evidence is in `docs/archive/GATE3A_RECOVERY_EVIDENCE.md`. The backend and dashboard
   PRs were then merged in that order. Render reports HTTP 200 at backend commit `0699835d8ffe`;
   the production database reports 60 completed migrations and the new privacy, replay-protection,
   and shared-rate-limit tables. Vercel completed deployment of dashboard merge `b00a3d15660a`, and
@@ -705,7 +705,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   before closing the viewer. The desktop sidebar choice is local UI preference only and never
   changes mobile drawer behavior. Coursemology remains research-only pending a supported read-only
   OAuth/export contract from the instance operator; do not collect credentials.
-- Durable research: `docs/COURSEMOLOGY_INTEGRATION_RESEARCH.md` records evidence, safe integration
+- Durable research: `docs/archive/COURSEMOLOGY_INTEGRATION_RESEARCH.md` records evidence, safe integration
   options, a provider-neutral connector shape, and the operator-confirmation gate.
 - Validation: dashboard focused regressions pass 10 tests; the full suite passes 121 tests;
   typecheck, lint, production build, tracked-secret scan, production/full dependency audits, and
@@ -727,7 +727,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   F-01 (Canvas cross-origin bearer forwarding), F-02 (dashboard JWT replay), and F-03 (no shared
   principal/route rate limit) remain unresolved; Phase 3/4 production activation remains blocked at
   Gate 3A; CSP enforcement and hosted synthetic staging remain incomplete. Canonical detail is in
-  `docs/POST_PHASE7_CODEBASE_AUDIT.md`.
+  `docs/archive/POST_PHASE7_CODEBASE_AUDIT.md`.
 - Audit safety: read local repositories and redacted reports only; do not inspect private production
   rows or secrets, run active production penetration tests, rotate credentials, provision staging,
   or silently remediate audit findings. The explicitly requested Work selector is the only approved
@@ -817,7 +817,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   production deployment is part of this phase.
 - Findings checkpoint: local synthetic assurance and the new CI gates pass. Phase 6 is
   stopped before remediation with three review items documented in
-  `docs/SECURITY_PHASE6_ASSURANCE.md`: Canvas pagination can forward its bearer token to a
+  `docs/archive/SECURITY_PHASE6_ASSURANCE.md`: Canvas pagination can forward its bearer token to a
   cross-origin next link (F-01, high); dashboard service JWT JTIs are not replay-consumed
   (F-02, medium); and the HTTP API has no principal/route rate-limit gate (F-03, medium
   availability/cost gap). Do not fix or dismiss these without the user's review.
@@ -1031,7 +1031,7 @@ the deeper product cause is unconfirmed. Next safe step: app restart/update and 
   entries). No production state or configuration changed.
 - The redacted evidence, measured storage, backup/PITR unknowns, restart-safe backfill design,
   retention proposal, rollback rules, and explicit Phase 3 gate are in
-  `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 and all production writes remain
+  `docs/archive/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 and all production writes remain
   unauthorized. First prerequisite if Phase 3 is later approved: verify a current provider backup,
   perform an isolated restore test, and confirm independent key recovery before any apply/delete.
 
@@ -2163,14 +2163,14 @@ and the next command/action. Never mark incomplete work complete.
 - Scope: read-only code/UI/UX/security/privacy/efficiency audit of backend `3869a4a`, dashboard
   `b81f57f`, and the live dashboard demo, followed by documentation-only reconciliation. No runtime
   finding, migration, credential, provider, database row, or production configuration was changed.
-- Canonical findings: `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`. No critical issue,
+- Canonical findings: `docs/archive/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`. No critical issue,
   confirmed cross-workspace leak, exposed secret, or release regression was found. Current priorities
   are large-module maintainability; report-only/non-enforcement-ready CSP; non-revocable seven-day
   browser sessions; mobile accessible names; Study filing focus isolation; abrupt-close autosave;
   large-note benchmarking; behavioral editor coverage; native-selector consistency; and explicit
   draft DTO/data minimization.
 - Historical correction: Gate 3A and Phase 6 F-01 through F-03 are complete in current released code.
-  `docs/POST_PHASE7_CODEBASE_AUDIT.md` is retained as a dated 2026-08-17 snapshot and now points to the
+  `docs/archive/POST_PHASE7_CODEBASE_AUDIT.md` is retained as a dated 2026-08-17 snapshot and now points to the
   current report. CSP enforcement, hosted synthetic authenticated staging, destructive historical
   privacy backfill, and retention deletion remain separately gated.
 - Validation: backend default parallel run had three timeouts but no assertion failures; both affected

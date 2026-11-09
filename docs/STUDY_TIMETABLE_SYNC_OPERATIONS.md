@@ -100,7 +100,7 @@ Do not delete mirrored Google events as part of rollback.
 - Pending/failed counts that do not clear after six retries: inspect only link status, attempt timestamps,
   and safe codes; do not dump event bodies or decrypted connection rows.
   Exhausted attempts require resolving authorization/provider issues and selecting Sync now. They are
-  not automatically reset by reconciliation. See `BANDWIDTH_REPAIR_2026-09-12.md` for incident evidence.
+  not automatically reset by reconciliation. See `archive/BANDWIDTH_REPAIR_2026-09-12.md` for incident evidence.
 - Reminder sequence stalled at one attempt: inspect sequence timestamps and its attempt-specific
   `StudyReminderDelivery`; never replay all reminders manually.
 
