@@ -172,7 +172,7 @@ async function handleNote(ctx: Context, ai: AiProvider) {
     try {
       const note = await findNoteReference(user.id, normalizePublicId(text));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-      const card = await buildItemCard(user.id, "note", note.publicId, user.settings?.timezone ?? "UTC", undefined, true, 1, workspace?.id);
+      const card = await buildItemCard(user.id, "note", note.publicId, user.settings.timezone, undefined, true, 1, workspace?.id);
       await replyControlCardHtml(ctx, card.text, { reply_markup: card.keyboard });
     } catch {
       try {
@@ -215,10 +215,10 @@ async function handleImages(ctx: Context) {
   const query = commandBody(ctx.message?.text ?? "", "images");
   if (query) {
     const scoped = query.match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
-    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? query, user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? query, user.settings.timezone, 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
     return;
   }
-  await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+  await replyStoredImageList(ctx, user.id, user.settings.timezone);
 }
 
 async function handleImage(ctx: Context) {
@@ -257,7 +257,7 @@ async function handleIdeas(ctx: Context) {
 
   try {
     const idea = await findIdeaReference(user.id, normalizePublicId(body));
-    await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
+    await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea) });
   } catch {
     await ctx.reply("I couldn't find that idea. /ideas will show the recent ones.");
   }
@@ -290,7 +290,7 @@ async function handleMerge(ctx: Context, ai: AiProvider) {
 
 async function handleReview(ctx: Context) {
   const user = await ensureUser(ctx);
-  const review = await buildReview(user.id, user.settings?.timezone ?? "UTC");
+  const review = await buildReview(user.id, user.settings.timezone);
   await replyHtml(ctx, review);
 }
 
@@ -308,7 +308,7 @@ async function handleAdd(ctx: Context, ai: AiProvider) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't add that task. Try again in a moment."));
   }
@@ -324,10 +324,6 @@ async function handleRemind(ctx: Context, ai: AiProvider) {
 
   const parsed = splitReminderText(body);
   const settings = user.settings;
-  if (!settings) {
-    await ctx.reply("Your reminder settings are missing. Try /start once, then send the reminder again.");
-    return;
-  }
 
   const scheduledAt = parseDueDate(parsed?.whenText ?? body, settings.timezone);
   if (!parsed || !scheduledAt) {
@@ -380,7 +376,7 @@ async function handleTaskDetail(ctx: Context) {
     const task = await findTaskReference(user.id, normalizePublicId(id));
     await replyControlCardHtml(
       ctx,
-      formatTaskDetail(task, user.settings?.timezone, user.settings
+      formatTaskDetail(task, user.settings.timezone, user.settings
         ? {
             reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
             maxRemindersPerDay: user.settings.maxRemindersPerDay,
@@ -424,7 +420,7 @@ async function handleDone(ctx: Context) {
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
     }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
   } catch (error) {
     await ctx.reply(taskLookupError(error));
   }
@@ -461,7 +457,7 @@ async function handleReschedule(ctx: Context) {
   try {
     await assertCommandGroupTaskAction(ctx, user.id, parsed.reference, "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(parsed.reference), parsed.whenText);
-    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
+    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings.timezone))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
   } catch (error) {
     await ctx.reply(userFacingError(error, taskLookupError(error)));
   }
@@ -526,7 +522,7 @@ async function handleMyGroupTasks(ctx: Context) {
     await ctx.reply("Nothing is assigned to you right now.");
     return;
   }
-  const text = formatOpenTasks(tasks, user.settings?.timezone ?? "UTC").replace(bold("📋 Tasks"), bold("My shared tasks"));
+  const text = formatOpenTasks(tasks, user.settings.timezone).replace(bold("📋 Tasks"), bold("My shared tasks"));
   await replyHtml(ctx, text, { reply_markup: taskListKeyboard(tasks, 3) });
 }
 
@@ -699,7 +695,7 @@ async function handleArchived(ctx: Context) {
 
   const page = Number(pageText ?? "1");
   const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
-  await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+  await replyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }
@@ -819,7 +815,7 @@ async function handleSearch(ctx: Context, ai: AiProvider) {
   const imageSearch = query.match(/^(?:images?|photos?|pictures?|screenshots?)\s+(.+)$/i);
   if (imageSearch?.[1]) {
     const scoped = imageSearch[1].match(/^(caption|captions|text|ocr)\s*[:\-]?\s*(.+)$/i);
-    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? imageSearch[1], user.settings?.timezone ?? "UTC", 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
+    await replyStoredImageSearch(ctx, user.id, scoped?.[2] ?? imageSearch[1], user.settings.timezone, 1, undefined, scoped?.[1]?.toLowerCase().startsWith("caption") ? "caption" : scoped ? "text" : "all");
     return;
   }
 
@@ -909,7 +905,7 @@ async function handleCalendar(ctx: Context, includeIcs: boolean) {
   await replyWithTaskCalendar(ctx, {
     userId: user.id,
     reference: id,
-    timezone: user.settings?.timezone,
+    timezone: user.settings.timezone,
     includeIcs
   });
 }
@@ -926,7 +922,7 @@ async function handleStart(ctx: Context) {
     await ctx.reply(result.message);
     return;
   }
-  const timezone = user.settings?.timezone ?? "Asia/Singapore";
+  const timezone = user.settings.timezone;
   if (!isGroupChat(ctx)) {
     await ctx.reply(formatStartShortcutText(), {
       reply_markup: privateMenuKeyboard()
@@ -938,7 +934,7 @@ async function handleStart(ctx: Context) {
 async function handleMenuCommand(ctx: Context) {
   const user = await ensureUser(ctx);
   if (!ctx.from) return;
-  await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
+  await showMainMenu(ctx, user.settings.timezone, user.id, ctx.from.id);
 }
 
 async function handleGroupCheck(ctx: Context) {

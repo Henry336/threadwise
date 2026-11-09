@@ -220,7 +220,7 @@ async function processImageOcr(
   user: Awaited<ReturnType<typeof ensureUser>>,
   storedImageId?: string
 ): Promise<void> {
-  const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings?.ocrLanguages ?? "eng");
+  const ocrLanguages = ocrLanguagesForCaption(preparedCaption, user.settings.ocrLanguages);
   const progressText = `Reading the image locally in ${formatOcrLanguages(ocrLanguages)}. The first scan can take a little longer.`;
   const progress = ctx.callbackQuery?.message
     ? undefined
@@ -240,16 +240,16 @@ async function processImageOcr(
     if (intent === "task") {
       const task = await createTask(user.id, extracted.text, ai);
       await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-      await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+      await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
       return;
     }
 
     if (intent === "reminder") {
-      const scheduledAt = parseDueDate(preparedCaption, user.settings?.timezone ?? "UTC");
+      const scheduledAt = parseDueDate(preparedCaption, user.settings.timezone);
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
         const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-        await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+        await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
         return;
       }
     }

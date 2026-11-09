@@ -91,7 +91,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (!isGroupChat(ctx)) {
         if (text === PRIVATE_MENU_LABELS.menu) {
-          await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
+          await showMainMenu(ctx, user.settings.timezone, user.id, ctx.from.id);
           return;
         }
         if (text === PRIVATE_MENU_LABELS.dashboard) {
@@ -109,7 +109,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           await ctx.reply("Image reminder canceled. I left it unsaved.");
           return;
         }
-        const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+        const dueAt = parseDueDate(text, user.settings.timezone);
         if (!dueAt || dueAt.getTime() <= Date.now()) {
           await ctx.reply("I still need a future reminder time. Try: tomorrow at 9am, in 2 hours, or next Monday at noon. Send 'cancel image reminder' to stop.");
           return;
@@ -117,7 +117,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         const task = await createScheduledReminder(user.id, pendingImageReminder.extractedText, dueAt, ai);
         await recordGroupTaskCreatedFromContext(ctx, user.id, task);
         await consumePendingImageCapture(user.id, pendingImageReminder.id);
-        await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+        await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
         return;
       }
 
@@ -140,7 +140,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
           editResult.ownerUserId,
           editResult.kind,
           editResult.publicId,
-          user.settings?.timezone ?? "UTC",
+          user.settings.timezone,
           "✅ Updated",
           false,
           1,
@@ -157,7 +157,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
         return;
       }
 
-      const deterministicClassification = classifyMessageDeterministically(text, user.settings?.timezone ?? "UTC");
+      const deterministicClassification = classifyMessageDeterministically(text, user.settings.timezone);
       const classification = deterministicClassification ?? {
         kind: "noise" as const,
         confidence: 0,
@@ -172,7 +172,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
       });
 
       const pending = await createPendingCapture(user.id, text, classification, ctx.from?.id, ctx.chat?.id);
-      const suggestedKind = suggestedCaptureKind(classification, text, user.settings?.timezone ?? "UTC");
+      const suggestedKind = suggestedCaptureKind(classification, text, user.settings.timezone);
       await replyControlCardHtml(ctx, formatCaptureReview(text, suggestedKind), {
         reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind)
       });
@@ -198,7 +198,7 @@ async function handleCaptureCorrection(
   const recentSavedAt = !isGroupChat(ctx) ? await recentPersonalCaptureCreatedAt(user.id) : undefined;
   if (recentSavedAt && (!pending || recentSavedAt > pending.createdAt)) {
     const reminderAt = correction.kind === "reminder" && correction.reminderTimeText
-      ? parseDueDate(correction.reminderTimeText, user.settings?.timezone ?? "UTC")
+      ? parseDueDate(correction.reminderTimeText, user.settings.timezone)
       : undefined;
     if (correction.kind === "reminder" && (!reminderAt || reminderAt.getTime() <= Date.now())) {
       await replyHtml(ctx, `${bold("Tell me when")}\nTry ${code("Make that a reminder for tomorrow at 5pm")}. Nothing was changed.`);
@@ -227,7 +227,7 @@ async function handleCaptureCorrection(
     return true;
   }
 
-  const timezone = user.settings?.timezone ?? "UTC";
+  const timezone = user.settings.timezone;
   if (correction.kind === "reminder") {
     const dueAt = parseDueDate(correction.reminderTimeText ?? pending.sourceText, timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
@@ -297,7 +297,7 @@ async function handlePendingCaptureReminderReply(
     return true;
   }
 
-  const timezone = user.settings?.timezone ?? "UTC";
+  const timezone = user.settings.timezone;
   const dueAt = parseDueDate(text, timezone);
   if (!dueAt || dueAt.getTime() <= Date.now()) {
     const prompt = await ctx.reply(formatReminderTimePrompt(pending.sourceText), {
@@ -344,12 +344,12 @@ async function handlePendingMenuInput(
     const task = await createTask(user.id, text, ai, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
     return true;
   }
 
   if (action === "reminder") {
-    const dueAt = parseDueDate(text, user.settings?.timezone ?? "UTC");
+    const dueAt = parseDueDate(text, user.settings.timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
       await replyHtml(ctx, "I still need a future time. Try: call Mum tomorrow at 9am, submit the form in 2 hours, or review notes Friday at noon.");
       return true;
@@ -357,7 +357,7 @@ async function handlePendingMenuInput(
     const task = await createScheduledReminder(user.id, text, dueAt, ai, taskCreationOptionsFromContext(ctx, text));
     await recordGroupTaskCreatedFromContext(ctx, user.id, task);
     clearMenuInput(user.id, actorId);
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
     return true;
   }
 

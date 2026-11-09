@@ -15,7 +15,7 @@ const ACTIVE_LIST_PAGE_SIZE = 3;
 
 export async function replyActiveList(
   ctx: Context,
-  user: { id: string; settings?: { timezone?: string | null } | null },
+  user: { id: string; settings: { timezone: string } },
   kind: ActiveListKind,
   requestedPage = 1,
   replaceCurrent = false,
@@ -27,7 +27,7 @@ export async function replyActiveList(
 
 export async function replyActiveListWithMessage(
   ctx: Context,
-  user: { id: string; settings?: { timezone?: string | null } | null },
+  user: { id: string; settings: { timezone: string } },
   kind: ActiveListKind,
   requestedPage = 1,
   replaceCurrent = false,
@@ -41,7 +41,7 @@ export async function replyActiveListWithMessage(
     const navigation = { kind, page: page.page, totalPages: page.totalPages, numberOffset: page.offset, workspaceId: workspace?.id };
     const keyboard = taskListKeyboard(page.items, ACTIVE_LIST_PAGE_SIZE, navigation, selecting) ?? modeBackKeyboard("tasks");
     if (extraAction) keyboard.row().text(extraAction.label, extraAction.callbackData);
-    const sent = await send(ctx, formatOpenTasks(page.items, user.settings?.timezone ?? "UTC", page), { reply_markup: keyboard });
+    const sent = await send(ctx, formatOpenTasks(page.items, user.settings.timezone, page), { reply_markup: keyboard });
     return { page: page.page, ...messageIdentity(sent, ctx.callbackQuery?.message?.message_id) };
   }
 

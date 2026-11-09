@@ -255,7 +255,7 @@ async function schedulingContext(ctx: Context): Promise<{ scope: SchedulingScope
       viewerTelegramId: String(ctx.from.id),
       viewerRole: role,
     },
-    timezone: user.settings?.timezone ?? "Asia/Singapore",
+    timezone: user.settings.timezone,
   };
 }
 

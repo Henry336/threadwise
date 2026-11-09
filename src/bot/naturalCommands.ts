@@ -99,7 +99,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (/^(?:start|get started|menu|show (?:me )?(?:the )?(?:menu|setup|onboarding)|open (?:the )?menu|take me through (?:the )?setup)$/.test(lower)) {
     if (!ctx.from) return true;
-    await showMainMenu(ctx, user.settings?.timezone ?? "Asia/Singapore", user.id, ctx.from.id);
+    await showMainMenu(ctx, user.settings.timezone, user.id, ctx.from.id);
     return true;
   }
 
@@ -126,7 +126,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:review|show (?:me )?(?:my )?review|give me (?:a )?review|what needs (?:my )?attention)$/.test(lower)) {
-    await replyHtml(ctx, await buildReview(user.id, user.settings?.timezone ?? "UTC"));
+    await replyHtml(ctx, await buildReview(user.id, user.settings.timezone));
     return true;
   }
 
@@ -136,13 +136,13 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       assignee.telegramId === actor.telegramId
       || Boolean(actor.username && assignee.username?.toLowerCase() === actor.username.toLowerCase())
     ));
-    await replyFilteredGroupTasks(ctx, tasks, user.settings?.timezone ?? "UTC", "My shared tasks");
+    await replyFilteredGroupTasks(ctx, tasks, user.settings.timezone, "My shared tasks");
     return true;
   }
 
   if (isGroupChat(ctx) && /^(?:show |list |open )?(?:unassigned tasks|tasks with no owner|tasks without an owner)$/.test(lower)) {
     const tasks = (await listOpenTasks(user.id)).filter((task) => !task.assignees?.length);
-    await replyFilteredGroupTasks(ctx, tasks, user.settings?.timezone ?? "UTC", "Unassigned tasks");
+    await replyFilteredGroupTasks(ctx, tasks, user.settings.timezone, "Unassigned tasks");
     return true;
   }
 
@@ -169,7 +169,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
 
   if (/^(?:(?:show|list|view|open|browse|pull up)(?:\s+me)?(?:\s+all)?(?:\s+my)?\s+)?(?:saved\s+)?(?:images|photos|pictures|screenshots)$/.test(lower)
     || /^(?:what|which)\s+(?:images|photos|pictures)\s+(?:have\s+i|did\s+i)\s+(?:save|store|keep)(?:d)?$/.test(lower)) {
-    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC");
+    await replyStoredImageList(ctx, user.id, user.settings.timezone);
     return true;
   }
 
@@ -235,7 +235,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (!kind) return false;
     const page = Number(archivedMatch[2] ?? "1");
     const archived = await listArchivedItems(user.id, kind, Number.isInteger(page) ? page : 1);
-    await replyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+    await replyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
       reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
     });
     return true;
@@ -269,7 +269,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     if (imageSearch?.[1]) {
       const captionOnly = /\b(?:captioned|named|called|with\s+(?:the\s+)?caption)\b/i.test(searchMatch[1]);
       const textOnly = /\b(?:ocr|with\s+(?:the\s+)?text|containing\s+text)\b/i.test(searchMatch[1]);
-      await replyStoredImageSearch(ctx, user.id, imageSearch[1], user.settings?.timezone ?? "UTC", 1, undefined, captionOnly ? "caption" : textOnly ? "text" : "all");
+      await replyStoredImageSearch(ctx, user.id, imageSearch[1], user.settings.timezone, 1, undefined, captionOnly ? "caption" : textOnly ? "text" : "all");
       return true;
     }
     const parsed = parseSearchRequest(searchMatch[1]);
@@ -306,7 +306,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
         user.id,
         "note",
         note.publicId,
-        user.settings?.timezone ?? "UTC",
+        user.settings.timezone,
         undefined,
         true,
         1,
@@ -331,7 +331,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(viewIdeaMatch[1]));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -351,7 +351,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     try {
       const idea = await findIdeaReference(user.id, normalizePublicId(ideaListMatch[1]));
       const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings?.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
+      await replyControlCardHtml(ctx, formatIdeaDetail(idea, user.settings.timezone), { reply_markup: itemActionsKeyboard("idea", idea, true, undefined, workspace?.id) });
     } catch {
       await ctx.reply("I couldn't find that idea. ideas will show the recent list.");
     }
@@ -363,7 +363,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (taskDetailMatch?.[1]) {
     try {
       const task = await findTaskReference(user.id, normalizePublicId(taskDetailMatch[1]));
-      await replyControlCardHtml(ctx, formatTaskDetail(task, user.settings?.timezone, user.settings
+      await replyControlCardHtml(ctx, formatTaskDetail(task, user.settings.timezone, user.settings
         ? {
             reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
             maxRemindersPerDay: user.settings.maxRemindersPerDay,
@@ -424,7 +424,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
     }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings?.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
+    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
     return true;
   }
 
@@ -444,7 +444,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   if (rescheduleMatch?.[1] && rescheduleMatch[2]) {
     await assertNaturalGroupTaskAction(ctx, user.id, rescheduleMatch[1], "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
-    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings?.timezone ?? task.timezone ?? "UTC"))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
+    await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings.timezone))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
     return true;
   }
 
@@ -675,7 +675,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
     await replyWithTaskCalendar(ctx, {
       userId: user.id,
       reference: calendarLinkMatch[1],
-      timezone: user.settings?.timezone,
+      timezone: user.settings.timezone,
       includeIcs: false
     });
     return true;
@@ -698,7 +698,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   const reminderBody = parseNaturalReminderBody(trimmed);
   if (reminderBody) {
     const parsed = splitReminderText(reminderBody);
-    const scheduledAt = parseDueDate(parsed?.whenText ?? reminderBody, user.settings?.timezone ?? "UTC");
+    const scheduledAt = parseDueDate(parsed?.whenText ?? reminderBody, user.settings.timezone);
     if (!parsed || !scheduledAt || scheduledAt.getTime() <= Date.now()) {
       await ctx.reply("I understood that as a reminder, but I couldn't find a future time. Try: by 9pm, at 1.30pm, tomorrow morning, Friday at 3, or in 20 minutes.");
       return true;
@@ -708,7 +708,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
     return true;
   }
 
@@ -736,7 +736,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await replyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
     return true;
   }
 

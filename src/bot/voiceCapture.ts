@@ -34,7 +34,7 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
 
   bot.on("message:audio", async (ctx, next) => {
     const user = await ensureUser(ctx);
-    if (!user.settings?.voiceAutoTranscribeAudio) {
+    if (!user.settings.voiceAutoTranscribeAudio) {
       await next();
       return;
     }
@@ -64,7 +64,7 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
       return;
     }
     const user = await ensureUser(ctx);
-    if (!user.settings?.voiceAutoTranscribeAudio) {
+    if (!user.settings.voiceAutoTranscribeAudio) {
       await next();
       return;
     }
@@ -187,7 +187,6 @@ async function queueVoiceFromContext(
   }
   const user = existingUser ?? await ensureUser(ctx);
   const settings = user.settings;
-  if (!settings) throw new Error("Voice settings are unavailable.");
   const queued = await queueVoiceTranscription({
     ...media,
     userId: user.id,

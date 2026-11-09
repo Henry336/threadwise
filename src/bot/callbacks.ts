@@ -87,22 +87,22 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   });
   bot.callbackQuery(/^stored-image:page:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true);
+    const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true);
     await ctx.answerCallbackQuery({ text: `Page ${page}` });
   });
   bot.callbackQuery(/^stored-image:search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1], "all", true);
     await ctx.answerCallbackQuery({ text: `Page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:choose:(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const page = await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", Number(ctx.match[1]), true, true);
+    const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${page}` });
   });
   bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
-    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings?.timezone ?? "UTC", Number(ctx.match[2]), ctx.match[1], "all", true, true);
+    const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1], "all", true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
   });
   bot.callbackQuery(/^stored-image:open:(.+)$/, async (ctx) => {
@@ -283,8 +283,8 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   rememberCallbackControlCard(ctx);
   if (action === "home") {
     await editOrReplyHtml(ctx, group
-      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone ?? "Asia/Singapore")
-      : formatMainMenuText(user.settings?.timezone ?? "Asia/Singapore"), {
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings.timezone)
+      : formatMainMenuText(user.settings.timezone), {
       reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard()
     });
     return;
@@ -329,8 +329,8 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   }
   if (action === "expenses") {
     await editOrReplyHtml(ctx, group
-      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings?.timezone)
-      : formatMainMenuText(user.settings?.timezone), { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
+      ? formatGroupMainMenuText(workspace?.title ?? "Shared workspace", user.settings.timezone)
+      : formatMainMenuText(user.settings.timezone), { reply_markup: group ? groupStartMenuKeyboard(workspace?.id) : startMenuKeyboard() });
     return;
   }
   if (action === "search") {
@@ -350,7 +350,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
     return;
   }
   if (action === "images-list") {
-    await replyStoredImageList(ctx, user.id, user.settings?.timezone ?? "UTC", 1, true);
+    await replyStoredImageList(ctx, user.id, user.settings.timezone, 1, true);
     return;
   }
   if (action === "preferences") {
@@ -402,7 +402,7 @@ async function handleMenu(ctx: Context, action: string | undefined) {
   const archivedKind = action.match(/^(tasks|notes|ideas)-archived$/)?.[1] as "tasks" | "notes" | "ideas" | undefined;
   if (archivedKind) {
     const archived = await listArchivedItems(user.id, archivedKind, 1);
-    await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+    await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
       reply_markup: archivedPageKeyboard(archivedKind, archived.page, archived.totalPages)
     });
     return;
@@ -512,7 +512,7 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string | 
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
@@ -537,7 +537,7 @@ async function handleLegacyTaskAssignmentAction(ctx: Context, taskId: string | u
       user.id,
       "task",
       task.publicId,
-      user.settings?.timezone ?? "UTC",
+      user.settings.timezone,
       "Assignments now take effect immediately. Use the current task controls below.",
       false,
     );
@@ -557,7 +557,7 @@ async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
     const task = await claimGroupTask(user.id, taskId, collaborationActorFromContext(ctx));
     const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
     await ctx.answerCallbackQuery({ text: "Task claimed" });
-    await editOrReplyHtml(ctx, formatTaskDetail(task, user.settings?.timezone ?? "UTC"), { reply_markup: keyboard });
+    await editOrReplyHtml(ctx, formatTaskDetail(task, user.settings.timezone), { reply_markup: keyboard });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: userFacingError(error, "I couldn't claim that task.").slice(0, 180), show_alert: true });
   }
@@ -614,13 +614,13 @@ async function handleTaskRestore(ctx: Context, taskId: string | undefined) {
   const result = await restoreCompletedTask(user.id, taskId);
   if (!result.restored) {
     await ctx.answerCallbackQuery({ text: "Task is already open" });
-    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "Task already open", false);
+    const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings.timezone, "Task already open", false);
     appendListOrigin(card.keyboard, user.id, "task");
     await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
     return;
   }
   await ctx.answerCallbackQuery({ text: "Restored" });
-  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings?.timezone ?? "UTC", "↩️ Task restored", false);
+  const card = await buildItemCard(user.id, "task", result.task.publicId, user.settings.timezone, "↩️ Task restored", false);
   appendListOrigin(card.keyboard, user.id, "task");
   if (user.id === interactionUser.id) card.keyboard.row().text("↩️ Undo restore", "undo:last");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
@@ -639,7 +639,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   }
   const task = await snoozeTask(user.id, taskId, "1h");
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
-  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "⏰ Snoozed for an hour", false);
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings.timezone, "⏰ Snoozed for an hour", false);
   const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
   if (!isGroupChat(ctx)) {
     appendListOrigin(keyboard, user.id, "task");
@@ -661,7 +661,7 @@ async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefine
   }
   const task = await dismissTaskReminders(user.id, taskId);
   await ctx.answerCallbackQuery({ text: "Reminders dismissed" });
-  const card = await buildItemCard(user.id, "task", task.publicId, user.settings?.timezone ?? "UTC", "Reminders dismissed for this task", false);
+  const card = await buildItemCard(user.id, "task", task.publicId, user.settings.timezone, "Reminders dismissed for this task", false);
   const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
   await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
 }
@@ -671,7 +671,7 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   try {
     const task = await findTaskReference(user.id, taskId);
-    const timezone = user.settings?.timezone ?? "UTC";
+    const timezone = user.settings.timezone;
     const includeCollaboration = isGroupChat(ctx);
 
     if (expanded) {
@@ -683,8 +683,7 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
       return;
     }
 
-    const reminderMode = user.settings?.reminderMode;
-    if (!reminderMode) throw new Error("Reminder settings are missing.");
+    const reminderMode = user.settings.reminderMode;
     await ctx.answerCallbackQuery({ text: "Reminder" });
     await editOrReplyHtml(ctx, formatReminderMessage(task, { timezone, reminderMode }), {
       reply_markup: includeCollaboration
@@ -861,7 +860,7 @@ async function handleTaskPin(ctx: Context, taskId: string | undefined, shouldPin
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
   const item = await pinItem(user.id, taskId, shouldPin);
   await ctx.answerCallbackQuery({ text: shouldPin ? "Marked important" : "No longer important" });
-  const card = await buildItemCard(user.id, "task", item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
+  const card = await buildItemCard(user.id, "task", item.publicId, user.settings.timezone, shouldPin ? "⭐ Marked important" : "☆ Removed from important", false);
   appendListOrigin(card.keyboard, user.id, "task");
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
@@ -879,7 +878,7 @@ async function handleItemPin(ctx: Context, kind: string | undefined, itemId: str
       ? shouldPin ? "Marked important" : "No longer important"
       : shouldPin ? "Starred" : "Unstarred"
   });
-  const card = await buildItemCard(user.id, kind, item.publicId, user.settings?.timezone ?? "UTC", shouldPin ? "⭐ Starred" : "☆ Unstarred", false);
+  const card = await buildItemCard(user.id, kind, item.publicId, user.settings.timezone, shouldPin ? "⭐ Starred" : "☆ Unstarred", false);
   appendListOrigin(card.keyboard, user.id, kind);
   await editOrReplyHtml(ctx, card.text, { reply_markup: card.keyboard });
 }
@@ -989,7 +988,7 @@ async function handleItemOpen(ctx: Context, kind: string | undefined, itemId: st
     ? (await taskCallbackUsers(ctx, itemId, interactionUser)).taskUser
     : interactionUser;
   const workspace = isGroupChat(ctx) ? await groupWorkspaceForContext(ctx) : undefined;
-  const card = await buildItemCard(user.id, kind, itemId, user.settings?.timezone ?? "UTC", undefined, false, 1, workspace?.id);
+  const card = await buildItemCard(user.id, kind, itemId, user.settings.timezone, undefined, false, 1, workspace?.id);
   const keyboard = kind === "task" && isGroupChat(ctx)
     ? await groupTaskKeyboardForContext(ctx, user.id, itemId, true)
     : card.keyboard;
@@ -1010,7 +1009,7 @@ async function handleNoteDetailPage(ctx: Context, itemId: string | undefined, pa
     user.id,
     "note",
     itemId,
-    user.settings?.timezone ?? "UTC",
+    user.settings.timezone,
     undefined,
     false,
     requestedPage,
@@ -1038,6 +1037,10 @@ function isEditableItemField(field: string | undefined): field is EditableItemFi
   return field === "title" || field === "description" || field === "body" || field === "concept" || field === "caption";
 }
 
+/**
+ * Resolves who tapped a task button and who owns the task. In groups the owner is the synthetic
+ * workspace user, so both carry settings and callers can format times without fallbacks.
+ */
 async function taskCallbackUsers(
   ctx: Context,
   taskId: string,
@@ -1053,7 +1056,9 @@ async function taskCallbackUsers(
     where: { id: ownerUserId },
     include: { settings: true },
   });
-  return { interactionUser, taskUser };
+  // Group owners are created through ensureUser, so a missing settings row is an invariant break.
+  if (!taskUser.settings) throw new Error(`Task owner ${taskUser.id} has no settings row.`);
+  return { interactionUser, taskUser: { ...taskUser, settings: taskUser.settings } };
 }
 
 async function groupTaskKeyboardForContext(
@@ -1115,7 +1120,7 @@ async function handleArchivedPage(ctx: Context, kindText: string | undefined, pa
   const user = await ensureUser(ctx);
   const archived = await listArchivedItems(user.id, kind, page);
   await ctx.answerCallbackQuery({ text: `Page ${archived.page}` });
-  await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings?.timezone), {
+  await editOrReplyHtml(ctx, formatArchivedPage(archived, user.settings.timezone), {
     reply_markup: archivedPageKeyboard(kind, archived.page, archived.totalPages)
   });
 }
@@ -1148,7 +1153,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       });
       return;
     }
-    const suggestedKind = suggestedPendingCaptureKind(pending, user.settings?.timezone ?? "UTC");
+    const suggestedKind = suggestedPendingCaptureKind(pending, user.settings.timezone);
     await editOrReplyHtml(ctx, formatCaptureReview(pending.sourceText, suggestedKind), {
       reply_markup: captureConfirmationKeyboard(pending.id, suggestedKind),
     });
@@ -1161,7 +1166,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       await ctx.answerCallbackQuery({ text: "That choice expired or belongs to someone else.", show_alert: true });
       return;
     }
-    const timezone = user.settings?.timezone ?? "UTC";
+    const timezone = user.settings.timezone;
     const dueAt = parseDueDate(pending.sourceText, timezone);
     if (!dueAt || dueAt.getTime() <= Date.now()) {
       if (!ctx.from || !ctx.chat) return;
@@ -1214,7 +1219,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string | unde
       const actor = collaborationActorFromContext(ctx);
       await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
     }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings?.timezone));
+    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
     return;
   }
 

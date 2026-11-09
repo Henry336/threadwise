@@ -1,10 +1,18 @@
 import type { Context } from "grammy";
+import type { User, UserSettings } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { defaultCurrencyForTimezone } from "../utils/currencies";
 import { recordGroupWorkspaceAccess } from "./groupWorkspaces";
 
-export async function ensureUser(ctx: Context) {
+/** A Telegram user whose settings row is guaranteed to exist, so callers never need fallbacks. */
+export type ThreadwiseUser = User & { settings: UserSettings };
+
+/**
+ * Resolves (and creates on first contact) the Threadwise owner for this update, with settings.
+ * Callers rely on settings being present; a missing row after the repair path is an invariant break.
+ */
+export async function ensureUser(ctx: Context): Promise<ThreadwiseUser> {
   const identity = threadwiseUserIdentity(ctx);
   const user = await prisma.user.upsert({
     where: { telegramId: identity.telegramId },
@@ -64,8 +72,10 @@ export async function ensureUser(ctx: Context) {
     });
   }
 
+  const { settings } = readyUser;
+  if (!settings) throw new Error(`User ${readyUser.id} has no settings row after ensureUser.`);
   if (identity.isGroup) await recordGroupWorkspaceAccess(ctx, readyUser.id);
-  return readyUser;
+  return { ...readyUser, settings };
 }
 
 type ThreadwiseUserIdentity = {

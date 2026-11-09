@@ -568,7 +568,7 @@ async function resolveScope(ctx: Context): Promise<BotTodayScope> {
         ownerUserId: user.id,
         principalTelegramId,
         scope: PlanningScope.GROUP,
-        timezone: user.settings?.timezone ?? env.DEFAULT_TIMEZONE,
+        timezone: user.settings.timezone,
         groupWorkspaceId: workspace.id,
       },
       dashboardWorkspace: { id: workspace.id, study: false },
@@ -580,7 +580,7 @@ async function resolveScope(ctx: Context): Promise<BotTodayScope> {
       ownerUserId: user.id,
       principalTelegramId,
       scope: PlanningScope.PERSONAL,
-      timezone: user.settings?.timezone ?? env.DEFAULT_TIMEZONE,
+      timezone: user.settings.timezone,
     },
     modules: [],
   };

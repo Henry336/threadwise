@@ -80,11 +80,11 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
       requestedByTelegramId: String(ctx.from.id),
       requestedByName: displayName(ctx),
       sourceText,
-      timezone: user.settings?.timezone ?? "UTC",
+      timezone: user.settings.timezone,
       mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
       telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
     });
-    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings?.timezone ?? "UTC", 0), {
+    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings.timezone, 0), {
       reply_markup: taskImportPreviewKeyboard(taskImport, 0),
     }) as { message_id?: number };
     if (message.message_id) {
