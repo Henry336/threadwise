@@ -173,7 +173,7 @@ export function isVoiceLeaseClaimable(status: VoiceTranscriptionStatus, leaseExp
 export async function processVoiceTranscription(
   jobId: string,
   api: Api,
-  botToken: string,
+  botToken: string,
   providerFactory: () => VoiceProvider = () => new OpenAiVoiceProvider()
 ): Promise<void> {
   const processorId = `${hostname()}-${process.pid}`;
