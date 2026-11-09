@@ -1,7 +1,6 @@
 import {
   Prisma,
   StudyItemStatus,
-  StudyItemType,
   StudyMistakeStatus,
   StudyPriority,
   StudyReminderKind,

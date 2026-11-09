@@ -83,7 +83,7 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
       mentions: taskCreationOptionsFromContext(ctx, sourceText).mentions,
       telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
     });
-    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings.timezone, 0), {
+    const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings.timezone), {
       reply_markup: taskImportPreviewKeyboard(taskImport, 0),
     }) as { message_id?: number };
     if (message.message_id) {
@@ -107,7 +107,7 @@ async function handleTaskImportPageCallback(ctx: Context, importId: string, requ
     }
     const page = clampTaskImportPage(taskImport, requestedPage);
     await ctx.answerCallbackQuery({ text: `Page ${page + 1} of ${taskImportPageCount(taskImport)}` });
-    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), page), {
+    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
       reply_markup: taskImportPreviewKeyboard(taskImport, page),
     });
   } catch (error) {
@@ -137,7 +137,7 @@ async function handleTaskImportCallback(
     if (action === "refresh") {
       if (!sender && !isManager) throw new TaskImportError("Only the sender or a group administrator can open this review.", "forbidden");
       await ctx.answerCallbackQuery({ text: "Review refreshed" });
-      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId), 0), {
+      await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
         reply_markup: taskImportPreviewKeyboard(taskImport, 0),
       });
       return;
@@ -173,7 +173,7 @@ async function handleTaskImportCallback(
   }
 }
 
-export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string, requestedPage = 0): string {
+export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezone: string): string {
   const included = includedTaskImportItems(taskImport);
   const completed = included.filter((item) => item.initialStatus === TaskStatus.DONE).length;
   const assigned = included.filter((item) => Array.isArray(item.assignees) && item.assignees.length > 0).length;

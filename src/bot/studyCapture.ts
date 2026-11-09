@@ -21,7 +21,6 @@ import {
   clearStudyConversation,
   completeStudyItem,
   createStudyItem,
-  findStudyItem,
   findStudyModule,
   getStudyConversation,
   listStudyModules,

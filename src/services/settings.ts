@@ -228,7 +228,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return { applied: false, message: "Pick a whole number of minutes for early warnings, or say: turn due nudge off." };
     }
 
-    const updatedTasks = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const settings = await tx.userSettings.update({ where: { userId }, data: { dueNudgeMinutes: minutes } });
       return rescheduleOpenTasksForSettings(tx, userId, settings);
     });

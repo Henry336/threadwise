@@ -2,7 +2,7 @@ import { RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@p
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, recurrenceDayOfMonth, stripRecurrenceText } from "../utils/dates";
-import { bold, code, h } from "../utils/html";
+import { bold, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
 import { removeTaskFromGoogleCalendar, syncTaskCalendarBestEffort } from "./googleCalendar";

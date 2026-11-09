@@ -44,7 +44,7 @@ function reviewWithItems(count: number): TaskImportReview {
 
 describe("Telegram task import progressive disclosure", () => {
   it("shows only the first three tasks plus a remainder count", () => {
-    const preview = formatTaskImportPreviewHtml(reviewWithItems(8), "Asia/Singapore", 0);
+    const preview = formatTaskImportPreviewHtml(reviewWithItems(8), "Asia/Singapore");
     expect(preview).toContain("1. Task 1");
     expect(preview).toContain("3. Task 3");
     expect(preview).toContain("+5 more");

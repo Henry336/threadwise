@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { dirname, parse, resolve, win32 } from "node:path";
+import { dirname, resolve, win32 } from "node:path";
 
 export function quotedWindowsPaths(prompt: string): string[] {
   const paths: string[] = [];

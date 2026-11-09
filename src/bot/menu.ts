@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { replyHtml } from "../utils/html";
 import { isGroupChat } from "./groupRouting";
 import { formatGroupMainMenuText, formatMainMenuText } from "./help";
-import { dashboardLinkKeyboard, groupDashboardLinkKeyboard, groupStartMenuKeyboard, privateMenuKeyboard, startMenuKeyboard } from "./keyboards";
+import { dashboardLinkKeyboard, groupDashboardLinkKeyboard, groupStartMenuKeyboard, startMenuKeyboard } from "./keyboards";
 import { rememberNewControlCard } from "./controlCards";
 import { DASHBOARD_URL } from "./links";
 import { cancelTransientInteractions } from "./interactions";

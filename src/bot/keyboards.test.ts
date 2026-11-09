@@ -9,7 +9,6 @@ import {
   groupSettingsModeKeyboard,
   groupStartMenuKeyboard,
   groupTaskActionsKeyboard,
-  helpTopicsKeyboard,
   itemListKeyboard,
   menuBackKeyboard,
   noteSessionKeyboard,

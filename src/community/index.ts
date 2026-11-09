@@ -44,7 +44,6 @@ import {
   expireCommunityEvidence,
   hasPermanentCommunityBan,
   isNewCommunityMemberPaused,
-  isTrustedCommunityMember,
   listOpenCommunityReports,
   listPendingCommunityTriggers,
   listCommunityTriggerLibrary,
@@ -84,7 +83,6 @@ import {
   triggerGroupById,
   triggerGroupByName,
   updateCommunityConversation,
-  updateCommunityGroupTitle,
   updateCommunityControlTriggerFilters,
   updateCommunityScoreThreshold,
   updateCommunitySeverityPoints,
@@ -93,7 +91,6 @@ import {
   upsertCommunityMember,
   type CommunityAccess,
   type ModeratorIdentityInput,
-  type ModeratorPermissionsInput
 } from "./store";
 import {
   findPolicyMatches,

@@ -1,7 +1,6 @@
 import {
   Prisma,
   StudyAnalysisMode,
-  StudyCanvasAssignmentStatus,
   StudyItemStatus,
   StudyItemType,
   StudyMistakeCategory,

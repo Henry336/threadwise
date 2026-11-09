@@ -383,13 +383,6 @@ function assigneeMatchesMember(
     || Boolean(member.username && assignee.username?.toLowerCase() === member.username.toLowerCase());
 }
 
-function assigneeIsActor(
-  assignee: { telegramId: string | null; username: string | null },
-  actor: { telegramId: string; username: string | null },
-): boolean {
-  return assigneeMatchesMember(assignee, actor);
-}
-
 function assignmentLabel(assignment: { displayName: string | null; username: string | null }): string {
   return assignment.displayName || (assignment.username ? `@${assignment.username}` : "an assignee");
 }

@@ -444,7 +444,7 @@ async function handleStudyCallback(ctx: Context, data: string): Promise<void> {
       const conversation = await getStudyConversation(workspace.id);
       const payload = conversation?.kind === "session" ? studyConversationPayload(conversation.payload) : {};
       const itemId = typeof payload.itemId === "string" ? payload.itemId : undefined;
-      const session = await startStudySession(workspace, module.id, method, itemId);
+      await startStudySession(workspace, module.id, method, itemId);
       await acknowledgeStudyScheduleModuleOccurrence(workspace, module.id);
       await clearStudyConversation(workspace.id);
       await editOrReplyHtml(ctx, [bold(`${module.code} session started`), h(method), "Use /study stop when finished."].join("\n"), { reply_markup: new InlineKeyboard().text("Stop", "study:session:stop") });
@@ -906,26 +906,6 @@ async function showStudyDashboard(ctx: Context, workspace: StudyWorkspace, edit 
   ].filter(Boolean).join("\n");
   if (edit) await editOrReplyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
   else await replyHtml(ctx, text, { reply_markup: studyDashboardKeyboard(Boolean(dashboard.openSession), workspace.id) });
-}
-
-async function showStudyModules(ctx: Context, workspace: StudyWorkspace, edit = false): Promise<void> {
-  const allModules = await listStudyModules(workspace.id, true);
-  const modules = allModules.filter((module) => module.active);
-  const inactive = allModules.filter((module) => !module.active);
-  const text = [
-    bold("Modules"),
-    ...modules.map((module) => `${traffic(module.currentMastery)} ${bold(module.code)} · ${h(module.name)}`),
-    ...(inactive.length ? ["", bold("Inactive"), ...inactive.map((module) => `${bold(module.code)} · ${h(module.name)}`)] : []),
-  ].join("\n");
-  const keyboard = new InlineKeyboard();
-  for (const module of modules) {
-    keyboard.text(`Open ${module.code}`, `study:module:open:${module.id}`).row()
-      .text("Edit", `study:module:edit:${module.id}`).text("Archive", `study:module:archive:${module.id}`).row();
-  }
-  for (const module of inactive) keyboard.text(`Restore ${module.code}`, `study:module:restore:${module.id}`).row();
-  keyboard.text("Add module", "study:module:add").text("Home", "study:dashboard");
-  if (edit) await editOrReplyHtml(ctx, text, { reply_markup: keyboard });
-  else await replyHtml(ctx, text, { reply_markup: keyboard });
 }
 
 async function showStudyModulesPage(

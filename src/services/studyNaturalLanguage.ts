@@ -43,7 +43,6 @@ export type StudyNaturalIntent =
 export function parseStudyNaturalLanguage(text: string, timezone: string): StudyNaturalIntent | undefined {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return undefined;
-  const lower = trimmed.toLowerCase();
 
   if (/^(?:(?:open|show|visit)\s+)?(?:the\s+)?(?:study\s+)?dashboard$/i.test(trimmed)) return { kind: "study_dashboard" };
   if (/^(?:(?:open|show|view)\s+)?(?:my\s+)?(?:study\s+)?(?:timetable|class schedule)$/i.test(trimmed)
