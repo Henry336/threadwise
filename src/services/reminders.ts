@@ -60,10 +60,13 @@ let reminderDiagnostics: ReminderDiagnostics = {
   studyRemindersFailed: 0,
   studyReminderUnsafeChat: false
 };
+type StudyReminderDiagnostics = Pick<ReminderDiagnostics, "studyRemindersSent" | "studyRemindersFailed" | "studyReminderUnsafeChat">;
+let studyDiagnostics: StudyReminderDiagnostics = { studyRemindersSent: 0, studyRemindersFailed: 0, studyReminderUnsafeChat: false };
 let activeReminderRun: Promise<ReminderDiagnostics> | undefined;
 
+/** The latest Personal reminder pass, with the latest Study pass's figures from its own loop. */
 export function getReminderDiagnostics(): ReminderDiagnostics {
-  return { ...reminderDiagnostics };
+  return { ...reminderDiagnostics, ...studyDiagnostics };
 }
 
 export async function runReminderPass(bot: Bot, source: ReminderRunSource = "manual"): Promise<ReminderDiagnostics> {
@@ -100,9 +103,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
     directNudgesSent: 0,
     directNudgesSkipped: 0,
     directNudgeFailures: 0,
-    studyRemindersSent: 0,
-    studyRemindersFailed: 0,
-    studyReminderUnsafeChat: false
+    ...studyDiagnostics
   };
 
   try {
@@ -193,20 +194,6 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
       });
     }
 
-    try {
-      const study = await runStudyReminderPass(bot, now);
-      run.studyRemindersSent = study.sent;
-      run.studyRemindersFailed = study.failed;
-      run.studyReminderUnsafeChat = study.unsafeChat;
-    } catch (error) {
-      run.studyRemindersFailed += 1;
-      logger.error("Study reminder pass failed without interrupting normal reminders.", { error: String(error) });
-    }
-    try {
-      await runPendingStudyCalendarSyncs(now);
-    } catch (error) {
-      logger.warn("Study Calendar retry pass failed without interrupting reminders.", { error: String(error) });
-    }
     run.lastFinishedAt = new Date().toISOString();
     reminderDiagnostics = run;
     return run;
@@ -891,6 +878,31 @@ export function nextReminderAfterSettingChange(task: {
   }
 
   return task.nextReminderAt;
+}
+
+/**
+ * One Study reminder pass followed by the Study Calendar retry queue. It runs in its own loop,
+ * apart from the Personal pass, so a Study failure or a slow Google call cannot delay ordinary
+ * reminders. Each half is isolated so one failing does not skip the other.
+ */
+export async function runStudyReminderLoopPass(bot: Bot, now = new Date()): Promise<void> {
+  try {
+    const study = await runStudyReminderPass(bot, now);
+    studyDiagnostics = { studyRemindersSent: study.sent, studyRemindersFailed: study.failed, studyReminderUnsafeChat: study.unsafeChat };
+  } catch (error) {
+    studyDiagnostics = { studyRemindersSent: 0, studyRemindersFailed: 1, studyReminderUnsafeChat: false };
+    logger.error("Study reminder pass failed.", { error: String(error) });
+  }
+  try {
+    await runPendingStudyCalendarSyncs(now);
+  } catch (error) {
+    logger.warn("Study Calendar retry pass failed.", { error: String(error) });
+  }
+}
+
+/** Runs the Study reminder pass every `pollMs`, starting at once like the Personal loop does. */
+export function startStudyReminderLoop(bot: Bot, pollMs: number): StopLoop {
+  return startLoop("Study reminder", pollMs, () => runStudyReminderLoopPass(bot), { runImmediately: true });
 }
 
 /** Sends due reminders every `pollMs`, after one labelled initial pass at startup. */

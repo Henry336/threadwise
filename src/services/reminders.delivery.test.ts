@@ -112,7 +112,7 @@ vi.mock("./studyReminders", () => ({ runStudyReminderPass: study.runStudyReminde
 vi.mock("./studyCalendar", () => ({ runPendingStudyCalendarSyncs: study.runPendingStudyCalendarSyncs }));
 
 import { reminderActionsKeyboard } from "../bot/keyboards";
-import { formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, runReminderPass } from "./reminders";
+import { formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, getReminderDiagnostics, runReminderPass, runStudyReminderLoopPass } from "./reminders";
 
 const DAY = new Date("2026-11-09T04:00:00.000Z"); // 12:00 in Singapore
 const NIGHT = new Date("2026-11-09T15:00:00.000Z"); // 23:00 in Singapore, inside 22:00-08:00
@@ -532,6 +532,36 @@ describe("undated group follow-ups", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(tasks.map((task) => task.nextReminderAt)).toEqual([minutes(DAY, 180), minutes(DAY, 24 * 60)]);
     expect(run.cappedByDailyLimit).toBe(2);
+  });
+});
+
+describe("Study reminder loop", () => {
+  it("is not part of the Personal reminder pass", async () => {
+    at(DAY);
+    await runReminderPass(fakeBot().bot, "manual");
+
+    expect(study.runStudyReminderPass).not.toHaveBeenCalled();
+    expect(study.runPendingStudyCalendarSyncs).not.toHaveBeenCalled();
+  });
+
+  it("still runs Calendar retries and reports the failure when the Study pass throws", async () => {
+    at(DAY);
+    study.runStudyReminderPass.mockRejectedValueOnce(new Error("Study database blip"));
+
+    await runStudyReminderLoopPass(fakeBot().bot, DAY);
+
+    expect(study.runPendingStudyCalendarSyncs).toHaveBeenCalledWith(DAY);
+    expect(getReminderDiagnostics()).toMatchObject({ studyRemindersSent: 0, studyRemindersFailed: 1 });
+  });
+
+  it("reports the latest Study figures alongside the Personal pass", async () => {
+    at(DAY);
+    study.runStudyReminderPass.mockResolvedValueOnce({ sent: 2, failed: 0, unsafeChat: false });
+
+    await runStudyReminderLoopPass(fakeBot().bot, DAY);
+    await runReminderPass(fakeBot().bot, "manual");
+
+    expect(getReminderDiagnostics()).toMatchObject({ studyRemindersSent: 2, studyRemindersFailed: 0, source: "manual" });
   });
 });
 

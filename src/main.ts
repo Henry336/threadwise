@@ -5,7 +5,7 @@ import { createThreadwiseBot } from "./bot";
 import { defaultDashboardPublicKey } from "./dashboard/publicKey";
 import { prisma } from "./db/prisma";
 import { logger } from "./logger";
-import { startReminderLoop } from "./services/reminders";
+import { startReminderLoop, startStudyReminderLoop } from "./services/reminders";
 import { startNoteCaptureExpiryLoop } from "./services/noteCaptureSessions";
 import { startServer } from "./server";
 import { startCodexDeliveryLoop } from "./bot/codex";
@@ -36,6 +36,7 @@ async function main() {
   const stopLoops = [
     beaconBot ? startBeaconCleanupLoop() : undefined,
     startReminderLoop(bot, env.REMINDER_POLL_MS),
+    startStudyReminderLoop(bot, env.REMINDER_POLL_MS),
     startNoteCaptureExpiryLoop(bot),
     startDailyBriefLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
     startTaskDraftExpiryLoop(bot, env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID),
