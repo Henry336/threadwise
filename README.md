@@ -4,9 +4,17 @@ Threadwise turns Telegram messages into things people can find, remember, and fi
 
 Its product hierarchy is **Capture, Coordinate, Recall**: save useful messages, move individual or shared work forward, and retrieve context without digging through chat.
 
-Current backend release: **v0.35.0**
+The product has three parts:
 
-Documentation verified against the backend and dashboard: **2026-09-03**
+- **Personal mode**: your private chat with the bot. Tasks, reminders, notes, ideas and images that only you see.
+- **Group mode**: a Telegram group that adds the bot. Shared tasks with clear owners, reminders sent to the group, and a shared dashboard.
+- **The dashboard**: a web view of the same data, in the separate `Henry336/threadwise-dashboard` repository.
+
+Study mode (the owner's private study tool) and a few side projects (Beacon, Telegram Codex mode, the
+file courier) reuse the same bot process. They are not part of the product; see
+[Study mode and side projects](#study-mode-and-side-projects).
+
+Current backend release: **v0.35.7**
 
 This repository contains the Telegram bot, domain services, PostgreSQL schema, integrations, and authenticated API. The Next.js dashboard is maintained in the separate `Henry336/threadwise-dashboard` repository.
 
@@ -22,50 +30,11 @@ Latest Today release summary: [docs/PHASE1_3_TODAY_MORNING_UPDATE.md](docs/PHASE
 
 New-developer map: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
 
-Current code/UI/security audit: [docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md](docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md)
+Current review and plan of work: [docs/REVIEW_2026-11-01.md](docs/REVIEW_2026-11-01.md)
 
-The complete intent-recovery release is live at runtime commit `c1a6aaeae765`. Phase 3 adds
-reversible natural capture corrections. The latest dashboard runtime remains `7bf90df1a75a`; this work required no dashboard
-change.
-
-Beacon, the separately branded community-moderation bot that can share this Render process: [docs/BEACON.md](docs/BEACON.md)
-
-Study Mode treats the selected module as navigation context, never as implicit permission to file
-new content. Text or media without one unambiguous, explicit module is held as a pending capture
-until the owner chooses a current module. Canvas synchronization likewise refreshes source metadata
-without undoing local archives; newly discovered courses wait for explicit activation.
-
-## Read The Repository
-
-If you are learning Threadwise from its own code, use this order:
-
-1. Read this README for behavior, setup, and boundaries.
-2. Read [CASE_STUDY.md](CASE_STUDY.md) for the product problem, decisions, and outcomes.
-3. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for request flow, data scoping, reminders, scheduling, and dashboard authentication.
-4. Read [prisma/schema.prisma](prisma/schema.prisma) to see the durable state.
-5. Start at `src/main.ts`, then `src/server.ts` and `src/bot/index.ts`.
-6. Follow a feature from its bot handler into `src/services/`; domain rules belong in services.
-7. Read adjacent `*.test.ts` files as executable examples.
-8. Use [CHANGELOG.md](CHANGELOG.md) for release history and [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md) for the reason behind changes.
-
-```text
-Telegram or dashboard request
-        ↓
-authentication, access, and group-addressing checks
-        ↓
-deterministic command/natural-language routing
-        ↓
-domain service
-        ↓
-Prisma + PostgreSQL
-        ↓
-small Telegram edit/reply or authenticated dashboard response
-```
-
-## What It Does
+## Personal mode: what it does
 
 - Captures ideas with `/idea <text>`.
-- Develops an individual idea through the official local Gemini CLI with owner-only Telegram buttons for Develop, Challenge, Next steps, and Task plan. Gemini runs read-only on the laptop worker; suggested tasks are not saved automatically.
 - Captures notes with `/note <text>` and structures simple notes locally; longer or explicitly synthetic cleanup can still use AI.
 - Transcribes Telegram voice messages into normal Notes with an exact preserved raw transcript, conservative light cleanup or verbatim mode, restart-safe processing, paginated raw-text viewing, and Open/Edit/Undo/Keep verbatim controls. Supported audio files can be enabled separately.
 - Starts a private Note session from Notes or `/note_session`: every following message is stored immediately as one exact paragraph while one persistent status card shows the count. Save & finish or Cancel ends the session, and inactivity auto-saves after one hour.
@@ -123,19 +92,208 @@ small Telegram edit/reply or authenticated dashboard response
 - Exposes protected admin reminder endpoints for cron or uptime fallback runs.
 - Supports configurable reminder repeat timing, early warnings, quiet hours, timezone, and a high daily safety limit through slash commands or natural language.
 - Makes a best-effort timezone guess for new users from Telegram language code when available, then accepts plain-language corrections such as `change timezone to Myanmar`.
+- Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
+- Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
+
+### Rich notes in the dashboard
+
+Personal Notes now reuse the same full-screen inline rich Markdown/Mermaid/UML writer, syntax help,
+selection-safe editing, Tab behavior, and `.md` portability. Unfinished Personal content autosaves for
+seven days to encrypted owner-scoped `PersonalNoteDraft` rows with optimistic conflict checks, then files
+back into the existing canonical `Note` after one title decision. It does not ask for a module or tags.
+Group note editing remains on its prior flow until shared draft ownership is designed explicitly.
+
+## Group mode
+
+A group that adds the bot becomes one shared workspace. Every member who can use the bot in that
+group sees the same group tasks, notes, ideas, settings and reminders. Group data belongs to the
+group, not to any one person (see [Privacy And Access](#privacy-and-access)).
+
+### Who a group task is for
+
+Each group task has an audience:
+
+- **Named people.** The task lists one or more assignees, matched by Telegram id or `@username`.
+  They can complete and snooze it.
+- **Everyone.** Every member counts as an assignee, so any member can complete or snooze it.
+  Older tasks are never turned into Everyone tasks automatically.
+- **Unassigned.** Nobody owns it yet. Its card shows **Claim** and **View**. Any active member can
+  claim it and becomes the named assignee. Claiming is race-safe: if two people claim at once, one
+  wins and the other is told it was just claimed.
+
+The dashboard can switch a task between Everyone and Unassigned.
+
+### Who can do what
+
+The rules live in `src/services/groupTaskPolicy.ts`.
+
+| Action | Who can do it |
+|---|---|
+| Complete or snooze | An assignee (any member, for an Everyone task), the task creator, or a current Telegram group owner/admin |
+| Claim | Any active member, only while the task is unassigned |
+| Assign, reassign or change the audience | The task creator, or a freshly verified Telegram group owner/admin |
+
+So a member who is not the creator or an admin claims an Unassigned task before completing it.
+
+### Group features
+
 - Supports group chats as shared workspaces with chat-scoped tasks, notes, ideas, images, settings, and reminders. The group keeps one public Threadwise anchor; pressing it opens a receiver-bound ephemeral menu visible only to that member, so simultaneous navigation does not collide. Shared work cards remain public. Addressed natural-language messages use the same full deterministic router as private chats. Telegram group privacy must be disabled through BotFather for ordinary `@mention sentence` updates to reach the bot; replies and slash commands work with privacy enabled.
-- Provides an owner-only private Study Mode in one separately configured two-member group. It combines deterministic natural-language capture, module-scoped work/notes/questions/images/files, silent note sessions, searchable local OCR, read-only Canvas sync, explainable attention ranking, weekly previews/reviews, complete campus route plans with live NextBus arrivals and walking legs, traffic-light mastery, sessions, mistake reattempts, timed practice, restrained reminders, and a dedicated live Study dashboard without requiring AI.
 - Imports a pasted group checklist when it begins with `TODO:` or `ACTION ITEMS:`. Threadwise parses bullets, numbered lines, and plain checked/unchecked rows; preserves done markers, dates, Telegram assignees, and team-owner labels; and leaves uncertain ownership for review instead of guessing. The sender or a group owner/admin can correct rows in the dashboard before committing them; imported rows immediately use the normal shared task and assignment flows.
 - Uses strict group activation boundaries: a plain use of the word “Threadwise” or a mention of another bot never triggers capture. Exact bot mentions, replies, slash commands, and the two explicit task-list headings remain intentional entry points.
 - Lets a verified group owner/admin create an optional dedicated Threadwise forum topic from group settings. This is an organizational aid, not a requirement; existing groups keep working in their current chat.
-- Shows one persistent `Menu` button and one direct `Dashboard` button beneath the Telegram reply box in private chats. Menu re-anchors a fresh compact control card at the bottom; groups keep message-attached inline navigation so the shared composer stays uncluttered.
-- Opens the live personal or group web workspace with `/dashboard` or natural requests such as `open the dashboard`, and explains the exact privacy boundary with `/privacy`. A group dashboard is selected through an opaque workspace id, then authorized against the signed-in person's recorded and current Telegram membership.
 - Supports several assignees on one group task, including `remind Dad and @alex to check the bot at 10pm`, `assign task 2 to @alex and @sam`, and `remove @alex from task 2`.
 - Applies group assignments immediately. Members may claim unassigned work; assignees can complete or snooze it; the task creator or a verified current Telegram group administrator can assign or reassign it. Accept, decline, block, and handoff inputs are retained only as graceful legacy explanations and do not mutate task state.
 - Uses progressive disclosure in Telegram: an ordinary card presents one immediate decision with at most three actions across two rows, then moves secondary management into an exact dashboard deep link. Group home always keeps a direct dashboard action, while TODO review links open the precise batch rather than a generic landing page.
 - Gives each group a distinct responsive dashboard with Overview, shared Work, People, Progress, Activity, and Resources views. Assignee workload and attention are visible without ranking people.
 - Lets a group agree on a meeting time with `/findtime`, `/schedule`, or natural requests such as `find a time for rehearsal next week for 90 minutes`. Members mark availability in a touch-friendly Mini App, one Telegram card updates with response progress and best overlaps, and a verified owner/admin finalizes the time.
 - Mentions every Telegram assignee in the group reminder and can also send opt-in private deadline nudges. Each assignee must first open Threadwise privately and send `/settings dm on`; Telegram does not let bots initiate a private chat with someone who has never opened the bot.
+
+Older `/accept`, `/decline`, `/block`, `/unblock`, and `/handoff` inputs are compatibility-only. Threadwise explains the current assignment model without changing state: assignment is immediate, an active member may claim unassigned work, and only the task creator or a freshly verified Telegram owner/admin may reassign existing work.
+
+In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the exact bot username or reply to one of its messages, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. A deliberate pasted list may instead begin with `TODO:` or `ACTION ITEMS:`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode. With BotFather privacy enabled, Telegram may not deliver unmentioned heading blocks to the bot; exact mentions and replies remain reliable.
+
+`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings, assignment/reassignment, and availability-poll management require a currently verified owner or administrator, except that any active member may claim an unassigned task and each member controls only their own availability. Assignees may complete or snooze their work; accepting, declining, blocking, and handing off are no longer active assignment states. Expenses, the frozen Excel surface, personal export, and account deletion remain personal-only. A finalized group meeting may be copied to each member's own connected Google Calendar without exposing that connection to the group.
+
+The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, assigned, unassigned, open, completed, and active availability state; **Work** includes confirmed meetings; **People** shows assignment load without ranking people; **Progress** derives the current work picture; **Activity** records meaningful movement; **Resources** collects shared notes, ideas, and visual references; and **Find a time** provides the full availability grid. Historical blocked or awaiting-reply records remain readable, but new assignments do not require those transitions. Web changes use the same database rows queried by the bot and update the compact Telegram card without adding chat clutter.
+
+Private assignee nudges are deliberately opt-in. Each person opens the bot privately once and sends `/settings dm on` (or starts the bot through its `start=dm` link). When a shared assigned task becomes due, Threadwise still posts the normal group reminder and separately DMs every opted-in assignee it can match. Someone who has not started the bot, has disabled DMs, or was entered only as a plain name is skipped without blocking anyone else's reminder. Send `/settings dm off` privately to stop the extra nudges.
+
+Telegram's privacy-enabled bots do not receive ordinary messages merely because the text contains their `@username`; they receive bot commands and replies instead. To enable Threadwise's natural addressed messages, open BotFather, run `/setprivacy`, select the Threadwise bot, and choose `Disable`. Threadwise has its own centralized address gate: unaddressed group text, photos, image documents, and captions are discarded before capture, OCR, editing, or natural-language handling. Slash commands, replies to Threadwise, and messages that mention Threadwise are allowed. If an existing group does not reflect the BotFather change immediately, remove and re-add the bot once.
+
+The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
+
+## Local Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Copy environment variables:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+3. Fill in:
+
+```text
+TELEGRAM_BOT_TOKEN=
+DATABASE_URL=
+OPENAI_API_KEY=
+```
+
+`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses deterministic local behavior plus heuristic fallbacks for synthesis features such as scoring and note analysis.
+
+`DASHBOARD_URL`, Google OAuth values, `ADMIN_STATUS_TOKEN`, and allowlist settings are optional unless you are testing those features. Never copy production secrets into documentation or commit `.env`.
+
+### API cost behavior
+
+The normal command path does not need OpenAI. Command intent, reminder dates, first-pass classification, settings, edits, lists, archives, calendar exports, embeddings, and search all run locally. Unclear input receives immediate capture buttons rather than an AI call on the response-critical path. If an OpenAI key is configured, chat calls are reserved for synthesis-heavy work such as richer task/note/idea structuring, note merging/analysis, and idea scoring. Remove `OPENAI_API_KEY` to run the bot in local/heuristic mode; every core command remains available.
+
+4. Generate Prisma client:
+
+```bash
+npm run db:generate
+```
+
+5. Run migrations:
+
+```bash
+npm run db:dev
+```
+
+6. Start in local long-polling mode:
+
+```bash
+npm run dev
+```
+
+Leave `WEBHOOK_URL` empty for local development.
+
+Run `npm run smoke:ocr` to verify that both bundled English and Burmese OCR data load and recognize a generated mixed-language receipt without an API key.
+
+## Render Deployment
+
+This repo includes `render.yaml` for a Render web service. PostgreSQL can be hosted separately; set the service's `DATABASE_URL` to the external provider's SSL-enabled connection string.
+
+Set these Render environment variables:
+
+```text
+TELEGRAM_BOT_TOKEN
+DATABASE_URL
+DATABASE_CONNECTION_LIMIT
+DATABASE_POOL_TIMEOUT_SECONDS
+SUPABASE_RUNTIME_POOL_MODE
+OPENAI_API_KEY
+OPENAI_MODEL
+OPENAI_MODEL_FALLBACKS
+STUDY_ANALYSIS_POLL_MS
+STUDY_ANALYSIS_TIMEOUT_MS
+STUDY_ANALYSIS_LEASE_SECONDS
+STUDY_ANALYSIS_MAX_OUTPUT_TOKENS
+ADMIN_STATUS_TOKEN
+WEBHOOK_URL
+WEBHOOK_SECRET_PATH
+BOT_ALLOWED_TELEGRAM_IDS
+STUDY_OWNER_TELEGRAM_ID
+STUDY_ALLOWED_CHAT_ID
+CODEX_OWNER_TELEGRAM_ID
+CODEX_TELEGRAM_CHAT_ID
+CODEX_WORKER_TOKEN
+CODEX_JOB_LEASE_SECONDS
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_CALENDAR_REDIRECT_URI
+GOOGLE_TOKEN_ENCRYPTION_KEY
+DASHBOARD_URL
+```
+
+The Microsoft variables remain in `render.yaml` only to preserve the frozen Excel implementation. They are not required for the active product. Gmail has no active runtime configuration.
+
+`DATABASE_URL` is a Render secret. Threadwise only requires PostgreSQL. The production database was migrated from Supabase Seoul to Singapore in July 2026; [docs/SUPABASE_REGION_MIGRATION.md](docs/SUPABASE_REGION_MIGRATION.md) is retained as the completed, reusable runbook. For an IPv4 Render service, use the appropriate Supavisor pooler connection rather than assuming the direct hostname is reachable.
+
+`WEBHOOK_URL` should be the public Render service URL, for example:
+
+```text
+https://threadwise-90du.onrender.com
+```
+
+Render should run:
+
+```bash
+npm start
+```
+
+`render.yaml` runs `npm run db:migrate` as a pre-deploy command and `npm start` as the start command. Use an always-on Render plan if you want reminders to be reliable. If the service sleeps, the database keeps tasks safe, but reminders will only be sent after the process wakes back up.
+
+## Read The Repository
+
+If you are learning Threadwise from its own code, use this order:
+
+1. Read this README for behavior, setup, and boundaries.
+2. Read [CASE_STUDY.md](CASE_STUDY.md) for the product problem, decisions, and outcomes.
+3. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for request flow, data scoping, reminders, scheduling, and dashboard authentication.
+4. Read [prisma/schema.prisma](prisma/schema.prisma) to see the durable state.
+5. Start at `src/main.ts`, then `src/server.ts` and `src/bot/index.ts`.
+6. Follow a feature from its bot handler into `src/services/`; domain rules belong in services.
+7. Read adjacent `*.test.ts` files as executable examples.
+8. Use [CHANGELOG.md](CHANGELOG.md) for release history and [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md) for the reason behind changes.
+
+```text
+Telegram or dashboard request
+        ↓
+authentication, access, and group-addressing checks
+        ↓
+deterministic command/natural-language routing
+        ↓
+domain service
+        ↓
+Prisma + PostgreSQL
+        ↓
+small Telegram edit/reply or authenticated dashboard response
+```
 
 ## Commands
 
@@ -238,21 +396,7 @@ small Telegram edit/reply or authenticated dashboard response
 
 `/start` installs the two persistent private-chat shortcuts and opens the compact button menu without a separate onboarding wall of text. `/help` shows a full capability guide with topic buttons, natural examples, and slash equivalents. Focused questions such as `how do I set reminders?`, `help me with notes`, and `how do I change my settings?` return the relevant help section. `/commands` shows the compact slash-command reference for users who prefer exact commands. Telegram's native slash menu is registered by chat, language, and role: Personal, Group, Study, Beacon owner/moderator, English, and Burmese surfaces show only their relevant commands. The immutable Beacon owner alone sees `/purge`.
 
-Older `/accept`, `/decline`, `/block`, `/unblock`, and `/handoff` inputs are compatibility-only. Threadwise explains the current assignment model without changing state: assignment is immediate, an active member may claim unassigned work, and only the task creator or a freshly verified Telegram owner/admin may reassign existing work.
-
 Normal Telegram messages are also supported. Threadwise checks deterministic command-like intent before any AI work. It understands broad variations including "what's on my plate?", "open my reminders", "keep this in mind: ...", "brainwave: ...", "put this on my list", "give me a heads-up at 1.30pm", "I finished task 2", "put off task 2", "task 2 is due Friday", "I don't need task 2 anymore", "where is the note about passports?", and the existing concise forms. Reminder dates also support numeric and word-based relative durations, dotted and spoken clocks, parts of day, day-after-tomorrow, noon/midnight, weekday shorthand, numeric day-first and named-month dates, EOD, next week, next month, and ordinals. If a message is not recognized confidently, Threadwise responds immediately with Task, Note, Idea, and Ignore choices; the selected action is actor-scoped in groups.
-
-In group chats, `/start`, `/menu`, `/help`, `/commands`, `/privacy`, and `/settings` use short group-specific panels instead of the private-chat onboarding wall. Natural-language requests should mention the exact bot username or reply to one of its messages, for example `@ThreadwiseBot remind @alex and @sam to bring snacks at 5pm`. A deliberate pasted list may instead begin with `TODO:` or `ACTION ITEMS:`. The saved task belongs to the group chat, stores every assignee, and sends reminders back to that group with clickable Telegram mentions. Plain names such as `Dad` are retained for display, but only a Telegram `@username` or Telegram text mention can be matched to a private account. Run `/groupcheck` inside the group to see the deployed version, exact bot username, group ID, allowlist state, and Telegram privacy mode. With BotFather privacy enabled, Telegram may not deliver unmentioned heading blocks to the bot; exact mentions and replies remain reliable.
-
-`/dashboard` inside a group opens that group's separate shared web workspace. The bot should be a group administrator before members use this link: Telegram only guarantees live `getChatMember` checks for other users when the bot is an administrator. If that verification is unavailable, Threadwise fails closed rather than exposing shared content. Group settings, assignment/reassignment, and availability-poll management require a currently verified owner or administrator, except that any active member may claim an unassigned task and each member controls only their own availability. Assignees may complete or snooze their work; accepting, declining, blocking, and handing off are no longer active assignment states. Expenses, the frozen Excel surface, personal export, and account deletion remain personal-only. A finalized group meeting may be copied to each member's own connected Google Calendar without exposing that connection to the group.
-
-The shared dashboard is deliberately practical rather than managerial theatre: **Overview** surfaces overdue, assigned, unassigned, open, completed, and active availability state; **Work** includes confirmed meetings; **People** shows assignment load without ranking people; **Progress** derives the current work picture; **Activity** records meaningful movement; **Resources** collects shared notes, ideas, and visual references; and **Find a time** provides the full availability grid. Historical blocked or awaiting-reply records remain readable, but new assignments do not require those transitions. Web changes use the same database rows queried by the bot and update the compact Telegram card without adding chat clutter.
-
-Private assignee nudges are deliberately opt-in. Each person opens the bot privately once and sends `/settings dm on` (or starts the bot through its `start=dm` link). When a shared assigned task becomes due, Threadwise still posts the normal group reminder and separately DMs every opted-in assignee it can match. Someone who has not started the bot, has disabled DMs, or was entered only as a plain name is skipped without blocking anyone else's reminder. Send `/settings dm off` privately to stop the extra nudges.
-
-Telegram's privacy-enabled bots do not receive ordinary messages merely because the text contains their `@username`; they receive bot commands and replies instead. To enable Threadwise's natural addressed messages, open BotFather, run `/setprivacy`, select the Threadwise bot, and choose `Disable`. Threadwise has its own centralized address gate: unaddressed group text, photos, image documents, and captions are discarded before capture, OCR, editing, or natural-language handling. Slash commands, replies to Threadwise, and messages that mention Threadwise are allowed. If an existing group does not reflect the BotFather change immediately, remove and re-add the bot once.
-
-The same natural-language coverage applies after the bot mention is removed, including notes, tasks, settings, search, and recurring reminders. For example: `@ThreadwiseBot remind us to take out the trash every Friday at 7pm`. Threadwise uses Telegram's mention entities as well as the bot username, so punctuation such as `(@ThreadwiseBot)` or `Hi,@ThreadwiseBot:` is handled correctly. Unaddressed ordinary group conversation remains ignored.
 
 For tasks, `/pin`, `/star`, and `/important` mark the task as important. Important task reminders use a clear "Important task" heading so they stand out from normal task reminders.
 
@@ -376,112 +520,6 @@ Threadwise stores:
 
 Most removals are soft archives. Search vectors are stored as JSON and scored app-side for personal/small-group scale. See the schema itself for field-level truth.
 
-## Local Setup
-
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Copy environment variables:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-3. Fill in:
-
-```text
-TELEGRAM_BOT_TOKEN=
-DATABASE_URL=
-OPENAI_API_KEY=
-```
-
-`OPENAI_API_KEY` is optional for local smoke testing. Without it, Threadwise uses deterministic local behavior plus heuristic fallbacks for synthesis features such as scoring and note analysis.
-
-`DASHBOARD_URL`, Google OAuth values, `ADMIN_STATUS_TOKEN`, and allowlist settings are optional unless you are testing those features. Never copy production secrets into documentation or commit `.env`.
-
-### API cost behavior
-
-The normal command path does not need OpenAI. Command intent, reminder dates, first-pass classification, settings, edits, lists, archives, calendar exports, embeddings, and search all run locally. Unclear input receives immediate capture buttons rather than an AI call on the response-critical path. If an OpenAI key is configured, chat calls are reserved for synthesis-heavy work such as richer task/note/idea structuring, note merging/analysis, and idea scoring. Remove `OPENAI_API_KEY` to run the bot in local/heuristic mode; every core command remains available.
-
-4. Generate Prisma client:
-
-```bash
-npm run db:generate
-```
-
-5. Run migrations:
-
-```bash
-npm run db:dev
-```
-
-6. Start in local long-polling mode:
-
-```bash
-npm run dev
-```
-
-Leave `WEBHOOK_URL` empty for local development.
-
-Run `npm run smoke:ocr` to verify that both bundled English and Burmese OCR data load and recognize a generated mixed-language receipt without an API key.
-
-## Render Deployment
-
-This repo includes `render.yaml` for a Render web service. PostgreSQL can be hosted separately; set the service's `DATABASE_URL` to the external provider's SSL-enabled connection string.
-
-Set these Render environment variables:
-
-```text
-TELEGRAM_BOT_TOKEN
-DATABASE_URL
-DATABASE_CONNECTION_LIMIT
-DATABASE_POOL_TIMEOUT_SECONDS
-SUPABASE_RUNTIME_POOL_MODE
-OPENAI_API_KEY
-OPENAI_MODEL
-OPENAI_MODEL_FALLBACKS
-STUDY_ANALYSIS_POLL_MS
-STUDY_ANALYSIS_TIMEOUT_MS
-STUDY_ANALYSIS_LEASE_SECONDS
-STUDY_ANALYSIS_MAX_OUTPUT_TOKENS
-ADMIN_STATUS_TOKEN
-WEBHOOK_URL
-WEBHOOK_SECRET_PATH
-BOT_ALLOWED_TELEGRAM_IDS
-STUDY_OWNER_TELEGRAM_ID
-STUDY_ALLOWED_CHAT_ID
-CODEX_OWNER_TELEGRAM_ID
-CODEX_TELEGRAM_CHAT_ID
-CODEX_WORKER_TOKEN
-CODEX_JOB_LEASE_SECONDS
-GOOGLE_CLIENT_ID
-GOOGLE_CLIENT_SECRET
-GOOGLE_CALENDAR_REDIRECT_URI
-GOOGLE_TOKEN_ENCRYPTION_KEY
-DASHBOARD_URL
-```
-
-The Microsoft variables remain in `render.yaml` only to preserve the frozen Excel implementation. They are not required for the active product. Gmail has no active runtime configuration.
-
-`DATABASE_URL` is a Render secret. Threadwise only requires PostgreSQL. The production database was migrated from Supabase Seoul to Singapore in July 2026; [docs/SUPABASE_REGION_MIGRATION.md](docs/SUPABASE_REGION_MIGRATION.md) is retained as the completed, reusable runbook. For an IPv4 Render service, use the appropriate Supavisor pooler connection rather than assuming the direct hostname is reachable.
-
-`WEBHOOK_URL` should be the public Render service URL, for example:
-
-```text
-https://threadwise-90du.onrender.com
-```
-
-Render should run:
-
-```bash
-npm start
-```
-
-`render.yaml` runs `npm run db:migrate` as a pre-deploy command and `npm start` as the start command. Use an always-on Render plan if you want reminders to be reliable. If the service sleeps, the database keeps tasks safe, but reminders will only be sent after the process wakes back up.
-
 ## Privacy And Access
 
 Threadwise stores private-chat data per Telegram user. A different Telegram user who messages the same bot gets their own ideas, notes, tasks, and settings. They do not see another user's saved data through normal bot commands.
@@ -499,383 +537,6 @@ BOT_ALLOWED_TELEGRAM_IDS=123456789,987654321
 You can also allow a whole group by adding its chat id, either as `-1001234567890` or `chat:-1001234567890`. If a group is allowlisted, any member of that group can use the shared group scope. If only individual Telegram ids are allowlisted, group messages from non-allowlisted people are ignored silently so the bot does not clutter the chat.
 
 Leave `BOT_ALLOWED_TELEGRAM_IDS` blank to allow any Telegram user who can find the bot to use their own isolated private scope and any group that adds the bot to use a shared group scope.
-
-## Private Study Mode
-
-Study Mode is a private academic operating system inside the existing Threadwise bot. It uses the same PostgreSQL database and reminder loop, but its records live in dedicated, workspace-scoped study tables and are excluded from ordinary Threadwise search.
-
-The authenticated web dashboard exposes Study Mode only while this exact group workspace is selected. Its dedicated navigation is **Overview, Timetable, Work, Deep Work, Modules, Library, Search, Review, and Settings**. Timetable combines recurring module blocks, planned study work, deadlines, and class-travel configuration; saved travel origins remain under Settings. Personal workspaces and every other group keep their existing interface and cannot discover the Study routes. Direct URLs and API calls return the same opaque not-found response unless the signed Telegram principal, configured owner, configured chat, current Telegram membership, and active database binding all agree.
-
-Telegram and the Study dashboard share the same records rather than synchronizing two copies. Captures and Canvas changes appear through server-sent event reconciliation; dashboard edits are immediately visible when the bot next queries the item. Module selection, mastery, work status, notes, pinned images, mistake records, weekly plans, sessions, Canvas review decisions, origins, and schedule blocks all use the same domain services.
-
-From Timetable, the owner may explicitly enable a one-way mirror into their primary Google Calendar.
-Threadwise remains authoritative: repeat synchronization patches the same deterministic event, weekly
-recurrence and exclusions are preserved, and Google-side edits/deletions are corrected on reconciliation.
-The consent screen states the data boundary before OAuth. Only title, module, time/recurrence, venue,
-and a Threadwise block reference leave the service; travel origins, coordinates, routes, buffers, and
-preparation notes do not. Stopping synchronization leaves existing Google events intact.
-
-Timetable reminders are occurrence sequences, distinct from casual reminders. With the existing master
-setting enabled, the first alert is at least 45 minutes early or earlier when the live journey requires
-it, followed by no more than three five-minute prompts until acknowledged. `Got it`, `I'm here`, the
-matching Study session, or a day mute closes the occurrence. One sequence consumes one daily Study
-reminder slot and never backfills after the block starts. See
-[`docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md`](docs/STUDY_TIMETABLE_SYNC_OPERATIONS.md) for API, privacy,
-failure, migration, and rollback details.
-
-Deep Work is a persistent Study companion rather than a route that hides the rest of the workspace. An active session keeps its timer and controls available while the owner opens Timetable, Work, Modules, Library, or Search. Sessions may record a focus structure, one or more techniques, a custom topic, linked notes/images/files, exact start and end times, and a written outcome. Completed records can be corrected or archived without deleting the underlying evidence. AI-generated study analysis is intentionally outside this phase and is not required for capture, timing, or recall.
-
-Study notes use portable Markdown in the existing canonical resource body. The dashboard supports GitHub-Flavored Markdown, strict Mermaid diagrams, Mermaid-native class/sequence/state UML with searchable syntax help, Tab-indented lists and diagram/code source, `[[wiki links]]`, backlinks, selection-safe encrypted cross-device draft recovery, bounded version history, and `.md` import/export. New Study drafts autosave to an owner/workspace-scoped `StudyNoteDraft` for seven days, use optimistic revisions to reject stale devices, and become ordinary searchable Library resources only after the learner files them with a title and module. Telegram shows a readable text fallback for the same saved note instead of executing formatting or diagram source. Threadwise does not execute imported HTML, scripts, PlantUML, Obsidian plugins, or vault automation. User-facing note and idea tags are retired across modes; historical tag columns remain dormant for backward compatibility rather than being destructively migrated.
-
-Personal Notes now reuse the same full-screen inline rich Markdown/Mermaid/UML writer, syntax help,
-selection-safe editing, Tab behavior, and `.md` portability. Unfinished Personal content autosaves for
-seven days to encrypted owner-scoped `PersonalNoteDraft` rows with optimistic conflict checks, then files
-back into the existing canonical `Note` after one title decision. It does not ask for a module or tags.
-Group note editing remains on its prior flow until shared draft ownership is designed explicitly.
-
-It is disabled unless both exact numeric identifiers are configured on Render:
-
-```text
-STUDY_OWNER_TELEGRAM_ID=YOUR_NUMERIC_TELEGRAM_USER_ID
-STUDY_ALLOWED_CHAT_ID=YOUR_PRIVATE_GROUP_CHAT_ID
-CANVAS_ACCESS_TOKEN=YOUR_CANVAS_ACCESS_TOKEN
-CANVAS_BASE_URL=https://canvas.nus.edu.sg/api/v1
-STUDY_CANVAS_SYNC_INTERVAL_MINUTES=30
-STUDY_TRANSIT_BASE_URL=https://improved-nextbus.vercel.app
-```
-
-Only the two Study identifiers are required to activate the private surface. Canvas remains unavailable until its token is configured; Threadwise uses that credential only for read operations. The transit integration uses the public Improved NextBus API and needs no key. Never paste the Canvas token into Telegram or commit it to this repository.
-
-If `BOT_ALLOWED_TELEGRAM_IDS` is in use, its existing rules must also allow the owner in that group. Study Mode then applies its stricter independent gate on every command, callback, guided reply, and proactive delivery:
-
-1. The actor must be the configured owner.
-2. The chat must be the configured group or supergroup.
-3. The database workspace must be actively bound to that exact chat.
-4. Telegram must report that the group contains only the owner and Threadwise.
-
-If another account joins, Study Mode unbinds when Telegram delivers the membership update. Every interactive request and reminder also rechecks the member count and fails closed if privacy cannot be verified. Keep Telegram history hidden from new members as an additional precaution because Telegram, not Threadwise, controls visibility of already-sent group messages.
-
-After the schema migration and environment configuration have been deployed, send `/study` in the exact configured group. Threadwise verifies the sealed group, binds it, and opens button-led onboarding. `/study bind` remains an explicit fallback.
-
-Study Mode is natural-language first. Examples include:
-
-```text
-todo: finish tutorial for CS2100 Friday 6pm
-CS2100 note: cache misses stall the pipeline
-question: why is sign extension needed? for CS2100
-open CS2102
-start note session
-what needs attention?
-what is coming up this week?
-sync my Canvas assignments
-add origin Home at Kent Ridge MRT
-when should I leave to COM3 from Home?
-```
-
-Reply to an existing Telegram text, link, photo, or document with `save this to CS2100`; add `as a task`, `as a note`, or `as a question` when the type is not obvious. If an ordinary message is ambiguous, Threadwise immediately offers Task, Note, Question, and Resource buttons rather than waiting for AI. Selecting a module creates a visible ten-minute capture context. Switching modules restarts the window, while saving content does not extend it; after expiry, Threadwise asks for a module unless the message or reply already identifies one.
-
-Photos enter a durable pending card instead of being OCR-processed automatically. Save the original image, add or edit its caption, optionally extract searchable text, choose another module, or cancel. Repeated or stale callbacks cannot create duplicate resources.
-
-A Study note session stores every message immediately as one durable paragraph and otherwise remains silent. Save note joins the exact paragraphs with blank lines. After roughly 30 minutes of inactivity, a non-empty session auto-saves and an empty session closes. Long notes are paginated at safe paragraph, sentence, or Unicode boundaries for Telegram; the stored body is not truncated.
-
-Canvas is a read-only mirror, not an LMS replacement. Automatic sync runs every `STUDY_CANVAS_SYNC_INTERVAL_MINUTES`; a manual sync is available in onboarding and through `sync Canvas`. Active, overdue, upcoming, and undated unsubmitted assignments are deduplicated. A Canvas submission closes the linked Study item, while local completion never submits. Local title and due-date overrides are preserved, and assignments that disappear are flagged for Keep local or Archive instead of being deleted.
-
-`What needs attention?` uses an explainable local score based on deadline proximity, overdue age, priority, explicit mastery, backlog age, planned effort, week position, and Canvas uncertainty. It does not call an AI service. Weekly review defaults to Saturday at 8:30 PM and the next-week preview to Sunday at 7:00 PM. Urgent deadlines take precedence over housekeeping when the separate Study daily cap is reached.
-
-`/study setup` asks for the semester name, the Monday that begins Week 1, and the IANA timezone. It seeds the current modules, preliminary timetable, and editable weekly study structure. Saved travel origins can be made default, renamed, or removed; a privately shared current location can temporarily override them for four hours and is deleted when it expires or when the owner presses **I'm here**. Threadwise does not continuously track location.
-
-Study routing resolves NUS venues and bus stops through one canonical catalogue shared by Telegram, timetable destinations, reminders, and dashboard autocomplete. It accepts aliases, asks the owner to choose when a name is ambiguous, and plans the complete trip: initial walk, boarding stop, live bus arrivals, service and transfer legs, alighting stop, final walk, total duration, arrival, and leave time. Provider failure produces a clearly labelled conservative fallback rather than invented live data. Natural examples include `Take me to COM3`, `Navigate to VCR Room`, and `How do I get from PGP to COM3?`.
-
-The main commands are:
-
-```text
-/study                  master-sheet dashboard
-/study help             concise command reference
-/study week             current academic week
-/study plan             guided weekly planning
-/study add              guided study-item creation
-/study done STUDY-1     complete an item without changing mastery
-/study processed STUDY-1
-/study mastery CS2100 amber optional reason
-/study start            start a module/item-linked session
-/study stop             stop the active session and record a result
-/study mistake          guided mistake record
-/study mistakes         unresolved and due reattempts
-/study review           guided weekly review
-/study upcoming         deadlines and open planned work
-/study modules          add, edit, or archive modules
-/study schedule         inspect or edit schedule blocks
-/study export           send six CSV files
-/study unbind           explicit inline-confirmed unbinding
-```
-
-Slash commands above are compatibility and precision fallbacks; the button interface and natural phrases are the primary interaction. Core behavior is deterministic and does not require `OPENAI_API_KEY`. Mastery changes only when the owner explicitly records it; completing an item never silently declares a topic mastered. Study reminders share the normal database-backed polling loop but use separate daily caps, quiet hours, durable dedupe rows, and conservative rules for reviews, reattempts, red modules, Canvas uncertainty, important deadlines, optional study blocks, and missing timed practice.
-
-`/study export` sends UTF-8 CSV files for the weekly dashboard, items, sessions, module mastery, mistakes, and weekly reviews. In Excel, use **Data → From Text/CSV**, choose UTF-8 if prompted, and load each file as its own worksheet. PostgreSQL remains the source of truth; re-import is not part of the MVP.
-
-## Beacon Community Moderator
-
-Beacon is an optional second Telegram bot identity running in the same Render process. It shares infrastructure with Threadwise but has a separate token, webhook, allowlist, update claims, commands, and `Community*` data. It has no dashboard and does not present itself as Threadwise.
-
-- Ordinary group members see only **Rules** and **How to report**.
-- The immutable owner manages Review queue, Members & offences, Policy, and More from Beacon's private chat.
-- Moderators receive only the private operational destinations and report actions granted to them; inaccessible controls are hidden and still rejected server-side if invoked through stale or crafted callbacks.
-- Initial report cards show bounded evidence and only **Dismiss**, **Take action**, and **Offence history**. Take action reveals only permitted warning, deletion, mute, score, or ban controls.
-- Trigger values, trigger search, severity policy, automatic actions, moderator management, and owner audit history remain owner-only. A permitted moderator can submit a proposed trigger only in private; it cannot enforce before owner approval.
-- Permanent bans and other destructive operations use short-lived confirmations bound to the actor, community, target, source report/offence, and topic where applicable.
-
-Use [docs/BEACON.md](docs/BEACON.md) for the complete operating model, BotFather setup, permissions, live-test checklist, failure behavior, and future additions.
-
-## Private Codex Mode
-
-Private Codex mode is a two-part integration:
-
-1. The Render service receives the owner's Telegram prompts, persists jobs, and delivers final reports.
-2. A local Windows worker uses the official `@openai/codex-sdk` package and the laptop's existing Codex authentication. Render never receives Codex credentials and never needs direct access to local project folders.
-
-The mode is disabled unless all of these Render values are configured:
-
-```text
-CODEX_OWNER_TELEGRAM_ID=YOUR_TELEGRAM_USER_ID
-CODEX_TELEGRAM_CHAT_ID=YOUR_TWO_MEMBER_GROUP_ID
-CODEX_WORKER_TOKEN=A_LONG_RANDOM_SHARED_SECRET
-CODEX_JOB_LEASE_SECONDS=3600
-```
-
-Private Codex mode does not require `BOT_ALLOWED_TELEGRAM_IDS`. Leave that global setting unchanged unless the entire Threadwise bot—not merely Codex mode—should be restricted. Codex has its own exact owner-and-chat gate.
-
-The handler checks both the exact user id and exact chat id on every prompt and callback. Unauthorized `/codex` attempts are ignored without a response. The command is intentionally absent from the public command/help menus. Before showing any Codex UI or report, Threadwise verifies that the configured owner is still an active member and that the group contains only that owner and the bot. If either check fails, group delivery fails closed and a completed report is sent to the owner's private bot chat instead. Telegram may expose older group history to someone added later, depending on the group's history setting, so keep the group private and hide history from new members if the reports must remain owner-only.
-
-After deploying the migration and Render configuration, create an ignored `.env.codex-worker` file on the Windows computer:
-
-```text
-THREADWISE_CODEX_URL=https://threadwise-90du.onrender.com
-THREADWISE_CODEX_WORKER_TOKEN=THE_SAME_LONG_RANDOM_SHARED_SECRET
-CODEX_WORKER_ID=my-laptop
-CODEX_WORKER_POLL_MS=3000
-CODEX_WORKER_SYNC_MS=300000
-CODEX_WORKER_HEARTBEAT_MS=30000
-CODEX_WORKER_NETWORK_ACCESS=false
-CODEX_WORKER_MAX_ATTACHMENT_BYTES=26214400
-THREADWISE_CODEX_ADDITIONAL_ROOTS=
-CODEX_WORKER_CREDENTIAL_ENV_ALLOWLIST=
-THREADWISE_DEPLOY_TARGETS=
-GEMINI_WORKER_MODEL=auto
-```
-
-If the worker is not inheriting the same Codex home as the desktop app, also set:
-
-```text
-CODEX_HOME=D:\CodexData\home
-```
-
-Start the worker from this repository:
-
-```powershell
-npm install
-npm run codex:worker
-```
-
-The same local process can handle the legacy owner-only Ideas Intelligence actions.
-For that optional feature, install the official Gemini CLI on the laptop:
-
-```powershell
-npm install -g @google/gemini-cli@latest
-```
-
-This CLI path is separate from Study module analysis. Study analysis runs on the
-deployed backend with the existing `OPENAI_API_KEY`, `OPENAI_MODEL`, and bounded
-OpenAI fallback chain; the secret never reaches Telegram or the dashboard browser.
-`STUDY_ANALYSIS_*` timeout, lease, poll, and output-token bounds are documented in
-`.env.example`. No laptop process or Gemini API key is required for Study analysis.
-
-Verify the local headless path before starting Threadwise:
-
-```powershell
-gemini --version
-gemini --model auto --approval-mode plan -e none --output-format json -p "Reply with READY only."
-```
-
-For Ideas Intelligence only, Threadwise invokes the official CLI in read-only plan
-mode and does not copy or upload its local credentials. After local authentication succeeds, the owner can
-open any saved idea in Telegram and tap
-**Develop**, **Challenge**, **Next steps**, or **Task plan** from the phone.
-There is intentionally no general `/gemini` command, and `/codex` remains exclusively
-for Codex projects, tasks, threads, prompts, and status. Sharing one local background
-process is an implementation detail and does not combine their Telegram interfaces.
-
-To keep the worker active whenever the laptop owner is signed in, persist
-`THREADWISE_CODEX_URL`, `THREADWISE_CODEX_WORKER_TOKEN`, and (when used)
-`CODEX_HOME` as Windows user environment variables, then run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-codex-worker-startup.ps1 -StartNow
-```
-
-The installer prefers a Scheduled Task that restarts the worker after failures
-and runs on battery power. If Windows does not permit Scheduled Task
-registration, it falls back to the current user's `Run` registry key. Both
-methods write the local worker log to `.local/logs/codex-worker.log` in the
-project folder and start at user sign-in rather than before sign-in, so the
-worker can access the owner's Codex and Gemini session stores. The runner also
-restarts a failed worker after 15 seconds, including when the Run-key fallback is used.
-
-After a worker release is merged, update the dedicated laptop checkout without
-resetting or discarding local files:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\update-codex-worker.ps1
-```
-
-The updater requires a clean dedicated checkout on `main`, fetches and
-fast-forwards only, runs `npm ci`, and restarts the startup task. The runner
-publishes a local PID file so updates stop its complete PowerShell/Node process
-tree before replacing dependencies; this prevents orphaned `tsx` or esbuild
-processes from locking `node_modules`. It stops on a dirty checkout, non-GitHub
-origin, divergent branch, dependency failure, or non-fast-forward update.
-
-For installations where the running worker token is intentionally unavailable to
-the startup environment, `npm run codex:task-sync` starts a separate,
-least-privilege catalog sidecar. Set `THREADWISE_CODEX_URL`,
-`CODEX_TASK_SYNC_PRIVATE_KEY_PATH`, `CODEX_WORKER_ID`, and optionally
-`CODEX_WORKER_SYNC_MS`. Its pinned Ed25519 key is accepted only by
-`POST /codex/worker/sync`; it cannot claim or complete jobs, download Telegram
-attachments, or access any other worker endpoint. Requests bind the method,
-path, worker id, and canonical body and expire after two minutes.
-
-On startup and every five minutes, the worker discovers project folders from Codex `session_meta` records and asks the local Codex app-server for the task names, ids, sources, and timestamps shown by Codex clients. It registers unique, existing Git repositories; excludes Codex-managed worktrees, missing folders, and non-Git directories; and syncs only the task metadata needed for Telegram selection. Codex credentials and session contents are never uploaded.
-
-Inside the configured Telegram group:
-
-```text
-/codex projects
-/codex tasks threadwise
-/codex use threadwise
-/codex use task "Add Telegram Codex mode"
-Fix the reminder bug
-in subscription-radar Review the renewal calculation
-in threadwise task "Add Telegram Codex mode": Continue the implementation
-new Start a separate Codex task
-continue a1b2c3d4 Add regression tests
-in threadwise --model gpt-5.6-sol --reasoning high -- Fix CI
-/codex status
-/codex doctor
-in threadwise --access internet -- verify the current API documentation
-in threadwise --access browser -- check the deployed UI
-in threadwise --access deploy -- implement, publish, merge, and verify the deployment
-```
-
-`/codex projects` shows the current laptop project aliases and paths in paginated cards. Tapping a project opens `/codex tasks <alias>`, which lists the same named Codex tasks stored for that folder. Tap a task to make that exact thread active; plain messages resume it. Tap **New task** to clear the selection and make the next prompt start separately. You can also target a task directly with `in <alias> task "<title>": <prompt>` or `/codex use task "<title>"`. Every queue acknowledgement and report identifies the project, Codex task title/id, and separate Threadwise request id. Replying to a report resumes that exact task even after changing report pages; `continue <request-id> <prompt>` resumes it without locating the report.
-
-Use `--model <model-id>` and `--reasoning minimal|low|medium|high|xhigh` anywhere before the prompt to override one task. Omitted controls inherit the resumed thread or local Codex defaults.
-
-Use `--access code|internet|publish|deploy|browser|files|full` for a single
-request. Code-only remains the default. Internet, browser, deploy, and extra-file
-access create a durable approval card in the exact owner-only Telegram group;
-the worker cannot claim the job until **Approve once** is tapped. If a code-only
-turn encounters a capability boundary, the job is paused with the same approval
-card and resumes from its saved Codex task after approval. `/codex doctor`
-reports the persistent Codex home, GitHub authentication, capability switches,
-credential broker names, deployment targets, and Git readiness for the selected
-project without printing secret values.
-
-On Windows, configured full-drive Codex roots authorize exact paths but are not
-passed directly as sandbox directories. Quote the absolute file or folder path in
-the approved prompt; Threadwise grants that path for the turn. Rapid prompts use a
-durable per-task dependency chain, so prompts sent before a new task has a thread
-ID stay queued in order and show their queue position.
-
-Long final responses are stored intact and shown as one Telegram report card with project, folder, Codex task title/id, request id, model, reasoning, and page indicators. Previous/Next buttons edit the same message, so replying from any displayed page still maps to the same Codex thread.
-
-Owner-only trusted publishing is requested naturally from the private Codex group:
-
-```text
-Implement this, verify it, publish it, and auto-merge when CI passes.
-```
-
-The sandboxed Codex turn edits a disposable Git worktree created from current
-`origin/main`; it never works in the owner's possibly dirty desktop checkout.
-The trusted laptop worker prepares locked dependencies, snapshots and reviews
-the task's new diff, runs the
-repository's detected npm/Prisma checks, rejects sensitive files or overlap with
-pre-existing changes, creates a new `agent/*` branch, commits only the task
-files, pushes without force, and opens a PR against `main`. Auto-merge is
-requested only after the local gate and GitHub PR checks pass. A changed
-`main`, failed check, conflict, unauthenticated `gh`, unsupported remote,
-sensitive diff, or mixed pre-existing file stops publishing and is reported in
-Telegram. The worker never pushes directly to `main`.
-
-Commit, push, PR, check, auto-merge, merge, and blocker events are written to
-the owner/chat-scoped `CodexPublishAudit` table as they occur. Completion
-reports include the branch, commit, PR URL, check outcome, merge commit, or
-exact blocker. GitHub CLI must be authenticated for the Windows user running
-the worker (`gh auth login`), and the repository must have a PR check; this
-repository supplies `.github/workflows/ci.yml`.
-
-Local validation and failing GitHub checks can be returned to the same Codex
-task for up to two bounded repair attempts. Each retry is revalidated, committed
-to the same `agent/*` PR branch without force-push, and separately audited. A
-sensitive repair diff, changed PR head, conflict, exhausted repair limit, or
-failing check remains blocked for manual review.
-
-Git-connected deployments use `THREADWISE_DEPLOY_TARGETS`. After an auto-merged
-PR, the trusted worker polls the configured HTTPS health endpoint until it
-reports the merged commit. Provider credentials are not given to the Codex
-subprocess. Commit, push, PR, checks, merge, deployment, and blocker events all
-use the host-side audit path.
-
-Photos and image documents are downloaded by the authenticated worker and passed to the SDK as native `local_image` inputs. Other Telegram documents are downloaded to a unique temporary directory, exposed to that Codex turn as an additional readable directory, and named explicitly in the prompt. Telegram media albums are collected into one Codex job in message order: the album caption becomes the prompt and all items are sent to the same turn. Albums support up to 10 items, with the existing 25 MB per-file limit and a 100 MB combined limit. The temporary files are deleted when the turn finishes. The laptop never receives the Telegram bot token; it downloads each attachment through a worker-authenticated Threadwise endpoint that only serves files belonging to its currently claimed job.
-
-The worker runs Codex with a workspace-write sandbox and no interactive desktop
-approval UI. `CODEX_WORKER_NETWORK_ACCESS=true` makes network access available,
-but a task still receives it only after its one-task Telegram approval. The SDK
-subprocess receives a sanitized environment: worker/database/Telegram/provider
-secrets are removed, Git credential helpers are disabled, and GitHub publishing
-remains in the host broker. Optional MCP/plugin credential variable names may be
-listed in `CODEX_WORKER_CREDENTIAL_ENV_ALLOWLIST`; Codex receives only those
-selected values and its shell environment policy excludes their names from
-model-run commands. Prompts and final reports are stored in PostgreSQL as part
-of the durable job queue. While Codex is running, lease heartbeats prevent a
-long task from being claimed twice. Terminal results retry with bounded
-exponential backoff until the server accepts them, and the server independently
-retries completed-but-undelivered Telegram reports. A completely empty
-project-discovery pass preserves the previous registry instead of erasing it.
-
-## Owner-only laptop file courier
-
-The private `/files` capability is a separate Telegram surface from `/codex` and Ideas Intelligence. It is enabled only for the exact `CODEX_OWNER_TELEGRAM_ID` inside the exact `CODEX_TELEGRAM_CHAT_ID`, and the same two-member Telegram check fails closed if anyone else joins that group. It never appears in public help or command menus.
-
-Configure explicit laptop roots in `.env.codex-worker`; no folder or drive is inferred:
-
-```text
-THREADWISE_FILE_ROOTS=C:\Users\Henry\Documents;C:\Users\Henry\OneDrive\Desktop
-THREADWISE_FILE_MAX_BYTES=50000000
-THREADWISE_FILE_SCAN_LIMIT=50000
-```
-
-Separate roots with semicolons. Full-drive access is supported only when deliberately configured, such as `THREADWISE_FILE_ROOTS=C:\;D:\`. Windows Search is tried first; a bounded traversal covers roots that are not indexed. The worker advertises whether its roots are valid, so Telegram refuses requests rather than leaving them queued when file courier is unconfigured.
-
-Use:
-
-```text
-/files find curriculum PDF
-/files recent
-/files get "C:\Users\Henry\Documents\curriculum.pdf"
-Send me the latest curriculum PDF from my laptop.
-```
-
-Search and recent-file responses keep up to 100 validated metadata matches and
-show eight at a time. Use the inline Previous/Next controls to move through the
-same durable result set; page changes do not require the laptop worker to remain
-online. Send buttons retain the global result number on every page.
-
-Search and exact-path requests return filename, parent folder, size, modified time, and type. They do not transfer content. The owner must tap **Send** on one exact result, and may cancel a request before the worker claims it.
-
-Immediately before sending, the laptop resolves the path beneath an explicit root, rejects directories, Windows device paths, symlinks and junction/reparse escapes, compares file identity/size/time with the selected result, and creates a private local transfer snapshot. The worker streams that snapshot through the web process directly into Telegram; PostgreSQL stores only job, file metadata, state, and audits, and Render never writes a temporary file. The laptop snapshot is deleted after success or failure.
-
-`FILE_COURIER_MAX_BYTES` is the cloud-side cap and `THREADWISE_FILE_MAX_BYTES` is the laptop-side cap; the lower effective limit wins. The standard hosted Telegram Bot API currently accepts documents up to 50 MB (50,000,000 bytes), while a self-hosted Local Bot API server supports larger uploads. Threadwise uses the standard hosted API and therefore caps configuration at 50,000,000 bytes. See the official [Telegram Bot API `sendDocument` documentation](https://core.telegram.org/bots/api#senddocument).
-
-File jobs use renewable leases, recover after worker restarts or expired claims, and write audit events for queueing, claiming, completion, cancellation, upload start, delivery, and failure. A Telegram delivery error becomes a failed job and owner-visible report instead of retaining a server copy.
 
 ## Authenticated Dashboard API
 
@@ -973,6 +634,26 @@ Latest complete backend gate, verified on 2026-08-10:
 - Isolated production TypeScript emit passed
 
 `npm audit` and live deployment health are environment/network checks; run them when preparing a release rather than assuming a historical result remains current.
+
+## Frozen: Expenses and Excel
+
+Expenses and the Microsoft Excel mirror are frozen experiments. Their services, schema, OAuth
+records and stored data stay in place so no data is destroyed, but the feature has no Telegram
+entry points and is not part of the product. Keep the Microsoft variables blank unless you are
+deliberately testing it. Gmail was removed from the active runtime in July 2026.
+
+## Study mode and side projects
+
+These reuse the same bot, process and database, but they are not part of the product.
+
+- **Study mode** is the owner's private study tool, sealed to one owner and one two-member group:
+  [docs/STUDY_MODE.md](docs/STUDY_MODE.md).
+- **Beacon** is a separately branded community-moderation bot that can share this Render process:
+  [docs/BEACON.md](docs/BEACON.md).
+- **Telegram Codex mode** lets the owner run the local Codex CLI on their laptop from a private
+  Telegram group: [docs/PRIVATE_CODEX_MODE.md](docs/PRIVATE_CODEX_MODE.md).
+- **The file courier** (`/files`) sends files from the owner's laptop to Telegram:
+  [docs/OWNER_FILE_COURIER.md](docs/OWNER_FILE_COURIER.md).
 
 ## Future Improvements
 

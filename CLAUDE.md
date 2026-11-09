@@ -101,14 +101,14 @@ bot process. None of it is part of the product.
 
 - **Study Mode** — owner-only sealed domain in one bound 2-member group. Fails closed on
   actor/chat/binding/member-count. Split across `src/bot/study*.ts` and
-  `src/services/study*.ts`. Has its own live dashboard.
+  `src/services/study*.ts`. Has its own live dashboard. See `docs/STUDY_MODE.md`.
 - **Beacon** — separately branded community-moderation bot that shares this Render process
   (second Telegram identity, gated by `BEACON_BOT_TOKEN`). It has no dashboard: ordinary members,
   owner, and moderators receive progressively disclosed Telegram homes, while every hidden or
   destructive callback is re-authorized server-side. See `docs/BEACON.md`.
 - **Codex worker** — a laptop-side worker (`src/codexWorker.ts`, `src/codexTaskSync.ts`,
   `scripts/*-codex-worker.ps1`) runs local Codex/Gemini read-only for `/idea` develop and
-  private code tasks. Setup: `docs/PRIVATE_CODEX_IMPLEMENTATION_NOTES.md`,
+  private code tasks. Setup: `docs/PRIVATE_CODEX_MODE.md`, `docs/PRIVATE_CODEX_IMPLEMENTATION_NOTES.md`,
   `docs/TELEGRAM_REMOTE_OPERATOR.md`, `docs/OWNER_FILE_COURIER.md`.
 - **Frozen surface** — Expenses/Excel/Microsoft services and tables are retained, but the
   feature has no Telegram entry points; keep those env vars blank unless deliberately testing.

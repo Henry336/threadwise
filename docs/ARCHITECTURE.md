@@ -421,6 +421,7 @@ Message formatting helpers are constant-time apart from escaping and truncating 
 
 Study mode is the owner's private tool, not part of the product other people use. It shares the bot,
 services, reminder loop and database, but every path is gated to one owner and one bound group.
+How the owner uses it (setup, commands, Canvas, travel) is in [`STUDY_MODE.md`](STUDY_MODE.md).
 
 Private Study Mode is a separate owner-only domain inside the same bot, service, reminder loop, and database. `STUDY_OWNER_TELEGRAM_ID` and `STUDY_ALLOWED_CHAT_ID` establish the maximum allowed scope; an active `StudyWorkspace.boundChatId` is the durable second factor. Because the configured group is a sealed, single-purpose workspace, every owner-authored text, photo, document, location, callback, and reply-keyboard control in that exact chat routes to Study Mode rather than requiring a mention. The first bare `/study` can bind the verified group and opens onboarding; slash commands remain compatibility fallbacks.
 
@@ -508,7 +509,7 @@ These reuse the same process and database but are not part of Threadwise the pro
 own document:
 
 - Beacon, a community-moderation bot: [`BEACON.md`](BEACON.md), and the section below.
-- Telegram Codex mode, the owner's remote coding tool:
+- Telegram Codex mode, the owner's remote coding tool: [`PRIVATE_CODEX_MODE.md`](PRIVATE_CODEX_MODE.md),
   [`PRIVATE_CODEX_IMPLEMENTATION_NOTES.md`](PRIVATE_CODEX_IMPLEMENTATION_NOTES.md) and
   [`TELEGRAM_REMOTE_OPERATOR.md`](TELEGRAM_REMOTE_OPERATOR.md).
 - The owner-only file courier: [`OWNER_FILE_COURIER.md`](OWNER_FILE_COURIER.md).
