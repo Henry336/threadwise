@@ -23,7 +23,7 @@ import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
 import { formatPinnedItems, formatPinResult, listPinnedItems, pinItem } from "../services/pins";
-import { undoLastAction } from "../services/undo";
+import { undoLastActionForContext } from "../services/undo";
 import { getReminderDiagnostics } from "../services/reminders";
 import { formatVersionStatus } from "../services/version";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
@@ -123,7 +123,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: s
   }
 
   if (/^(?:undo|undo that|take that back|reverse (?:the )?(?:last )?change|never mind that|revert (?:the )?(?:last )?(?:thing|change))$/.test(lower)) {
-    await replyHtml(ctx, await undoLastAction(user.id));
+    await replyHtml(ctx, await undoLastActionForContext(ctx, user.id));
     return true;
   }
 

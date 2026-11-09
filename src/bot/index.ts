@@ -24,6 +24,7 @@ import { shouldHandleStudyUpdate } from "../services/study";
 import { handleTelegramGroupMigrationUpdate } from "../services/telegramChatMigrations";
 import { hasOpenGroupImageUploadBatch } from "../services/imageUploadBatches";
 import { registerTodayInteractions } from "./today";
+import { withUndoActor } from "../services/undo";
 
 export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   const bot = new Bot(token);
@@ -94,6 +95,9 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
     }
     await next();
   });
+
+  // Undo entries recorded while handling this update remember which member made the change.
+  bot.use((ctx, next) => withUndoActor(ctx.from ? String(ctx.from.id) : undefined, next));
 
   registerTodayInteractions(bot);
   registerNoteSessions(bot);

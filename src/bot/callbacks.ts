@@ -12,7 +12,7 @@ import { formatArchivedPage, listArchivedItems, parseArchiveKind } from "../serv
 import { cancelNoteMerge, confirmNoteMerge, formatNoteMergeConfirmed, formatNoteMergePreview, retryNoteMergePreview } from "../services/noteMerges";
 import { beginPendingItemEdit, cancelPendingItemEdit, formatEditStarted, type EditableItemField, type EditableItemKind } from "../services/itemEdits";
 import { findPendingSearch, semanticSearch } from "../services/search";
-import { undoLastAction } from "../services/undo";
+import { undoLastActionForContext } from "../services/undo";
 import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { beginExpenseEdit, cancelPendingExpense, confirmPendingExpense, createPendingExpenseFromText, decodeExpenseFilter, encodeExpenseFilter, findPendingExpense, formatExpenseCreated, formatExpensePage, formatPendingExpense, listExpenses } from "../services/expenses";
@@ -1045,7 +1045,7 @@ async function handleNoteArchive(ctx: Context, noteId: string | undefined) {
 async function handleUndoLast(ctx: Context) {
   const user = await ensureUser(ctx);
   await ctx.answerCallbackQuery({ text: "Undoing" });
-  await editOrReplyHtml(ctx, await undoLastAction(user.id), { reply_markup: menuBackKeyboard() });
+  await editOrReplyHtml(ctx, await undoLastActionForContext(ctx, user.id), { reply_markup: menuBackKeyboard() });
 }
 
 async function handleEditCancel(ctx: Context) {

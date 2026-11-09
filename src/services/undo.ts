@@ -1,5 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma, TaskStatus } from "@prisma/client";
+import type { Context } from "grammy";
 import { prisma } from "../db/prisma";
+import { isGroupChat } from "../bot/groupRouting";
+import { isGroupManager } from "./groupWorkspaces";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import { bold, code, h } from "../utils/html";
 import { syncTaskCalendarBestEffort } from "./googleCalendar";
@@ -16,6 +20,19 @@ type UndoTarget = {
 };
 
 type UndoLogPayload = Prisma.InputJsonObject;
+
+// The Telegram user whose update is being handled. Group changes are all owned by the
+// synthetic `chat:<id>` user, so this is the only record of which member made them.
+const undoActor = new AsyncLocalStorage<string>();
+
+/**
+ * Runs `work` with `actorTelegramId` stamped on every undo entry it records, however deep in
+ * the services that happens. The bot wraps each Telegram update in this so group undo can tell
+ * members' changes apart without threading the actor through every service signature.
+ */
+export function withUndoActor<T>(actorTelegramId: string | undefined, work: () => T): T {
+  return actorTelegramId ? undoActor.run(actorTelegramId, work) : work();
+}
 
 export async function recordCreateUndo(tx: Prisma.TransactionClient, userId: string, target: UndoTarget): Promise<void> {
   await recordUndo(tx, userId, "create", {
@@ -220,17 +237,36 @@ export async function recordNoteMergeUndo(
   });
 }
 
-export async function undoLastAction(userId: string): Promise<string> {
+/**
+ * Undoes the newest change the person behind `ctx` may reverse. In a group every change belongs
+ * to the shared group owner, so a member may only undo their own changes; group admins may undo
+ * anyone's. Private chats keep the plain "undo my last change" behaviour.
+ */
+export async function undoLastActionForContext(ctx: Context, userId: string): Promise<string> {
+  if (!isGroupChat(ctx) || await isGroupManager(ctx)) return undoLastAction(userId);
+  // No sender means nobody to match, so nothing is undoable (fail closed).
+  return undoLastAction(userId, { actorTelegramId: ctx.from ? String(ctx.from.id) : "" });
+}
+
+/**
+ * Reverses the newest undoable entry for `userId`. With `actorTelegramId`, only entries recorded
+ * by that Telegram user are considered; older entries without an actor never match.
+ */
+export async function undoLastAction(userId: string, options: { actorTelegramId?: string } = {}): Promise<string> {
+  const onlyActor = options.actorTelegramId !== undefined;
   const entry = await prisma.auditLog.findFirst({
     where: {
       userId,
-      action: { startsWith: UNDO_PREFIX }
+      action: { startsWith: UNDO_PREFIX },
+      ...(onlyActor ? { metadata: { path: ["actorTelegramId"], equals: options.actorTelegramId } } : {})
     },
     orderBy: { createdAt: "desc" }
   });
 
   if (!entry) {
-    return "Nothing to undo right now. When a change can be reversed, I’ll keep that option close by.";
+    return onlyActor
+      ? "Nothing of yours to undo right now. A group admin can undo changes made by other members."
+      : "Nothing to undo right now. When a change can be reversed, I’ll keep that option close by.";
   }
 
   const payload = asRecord(entry.metadata);
@@ -590,11 +626,12 @@ async function undoNoteMerge(entryId: string, payload: Record<string, unknown>):
 }
 
 async function recordUndo(tx: Prisma.TransactionClient, userId: string, type: string, metadata: UndoLogPayload): Promise<void> {
+  const actorTelegramId = undoActor.getStore();
   await tx.auditLog.create({
     data: {
       userId,
       action: `${UNDO_PREFIX}${type}`,
-      metadata
+      metadata: actorTelegramId ? { ...metadata, actorTelegramId } : metadata
     }
   });
 }
