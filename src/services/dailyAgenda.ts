@@ -426,11 +426,12 @@ async function groupAgenda(
   });
   if (!workspace) throw new DailyAgendaError("That group workspace is unavailable.", "forbidden");
   const tasks = await database.task.findMany({ where: { userId: workspace.ownerUserId, status: TaskStatus.OPEN, archivedAt: null } });
-  const ownerSettings = workspace.timezone ? undefined : await database.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
+  // GroupWorkspace.timezone is never written, so the group's day follows the owner's settings.
+  const ownerSettings = await database.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
   return groupAgendaEntries(
     tasks.map((task) => taskEntry(task, "GROUP", workspace.id, workspace.title)),
     PlanningScope.GROUP,
-    workspace.timezone || ownerSettings?.timezone || "UTC",
+    ownerSettings?.timezone ?? "UTC",
     requestedDate,
     dueSoonDays,
   );
