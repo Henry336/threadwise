@@ -569,14 +569,14 @@ describe("failed deliveries", () => {
   const transient = () => new Error("socket hang up");
   const kicked = () => Object.assign(new Error("Call to 'sendMessage' failed! (403: Forbidden: bot was kicked from the group chat)"), { error_code: 403 });
 
-  it("backs a failing single reminder off and stops after the last attempt", async () => {
+  it("backs a failing single reminder off, then keeps retrying every six hours", async () => {
     at(DAY);
     const task = addTask(user("777"));
     const { bot, sendMessage } = fakeBot();
     sendMessage.mockRejectedValue(transient());
 
     const delays: (number | null)[] = [];
-    for (let attempt = 1; attempt <= 6; attempt += 1) {
+    for (let attempt = 1; attempt <= 7; attempt += 1) {
       const startedAt = new Date();
       const run = await runReminderPass(bot, "manual");
       expect(run.failedDeliveries).toBe(1);
@@ -584,8 +584,8 @@ describe("failed deliveries", () => {
       if (task.nextReminderAt) vi.setSystemTime(task.nextReminderAt);
     }
 
-    expect(delays).toEqual([2, 4, 8, 16, 32, null]);
-    expect(sendMessage).toHaveBeenCalledTimes(6);
+    expect(delays).toEqual([2, 4, 8, 16, 32, 360, 360]);
+    expect(sendMessage).toHaveBeenCalledTimes(7);
     expect(task.reminderCount).toBe(0);
   });
 
@@ -635,7 +635,7 @@ describe("failed deliveries", () => {
     expect(run.failedDeliveries).toBe(1);
   });
 
-  it("holds a failed custom reminder for the backoff, then cancels it after the last attempt", async () => {
+  it("holds a failed custom reminder for the backoff, then retries it every six hours", async () => {
     at(DAY);
     const task = addTask(user("777"), { nextReminderAt: null });
     const schedule = addSchedule(task);
@@ -650,7 +650,15 @@ describe("failed deliveries", () => {
     vi.setSystemTime(schedule.leaseExpiresAt!);
     await runReminderPass(bot, "manual");
 
-    expect(schedule).toMatchObject({ status: "CANCELED", leaseExpiresAt: null, attemptCount: 6 });
+    const sixth = new Date();
+    expect(schedule).toMatchObject({ status: "PROCESSING", leaseExpiresAt: minutes(sixth, 360), attemptCount: 6 });
+
+    vi.setSystemTime(schedule.leaseExpiresAt!);
+    sendMessage.mockReset();
+    sendMessage.mockResolvedValue({ message_id: 200, chat: { id: 777 }, date: 0, text: "" });
+    await runReminderPass(bot, "manual");
+
+    expect(schedule).toMatchObject({ status: "SENT", attemptCount: 7 });
   });
 
   it("cancels a custom reminder at once when the bot was removed", async () => {

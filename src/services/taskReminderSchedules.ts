@@ -3,15 +3,18 @@ import { prisma } from "../db/prisma";
 
 export const MAX_CUSTOM_REMINDERS_PER_TASK = 20;
 const REMINDER_LEASE_MINUTES = 5;
-/** Failed reminder sends stop after this many attempts; the same cap as the Study Calendar queue. */
+/** After this many failed sends (the Study Calendar cap) retries slow to the ceiling interval. */
 export const MAX_REMINDER_DELIVERY_ATTEMPTS = 6;
+/** Slow retry interval once the backoff is used up, so an outage never silences a reminder for good. */
+export const REMINDER_RETRY_CEILING_MINUTES = 6 * 60;
 
 /**
- * Minutes to wait after failed attempt number `attempt` (1-based): 2, 4, 8, 16, 32, capped at 60.
- * Mirrors the Study Calendar retry backoff so every Telegram retry queue behaves the same way.
+ * Minutes to wait after failed attempt number `attempt` (1-based): the Study Calendar backoff of
+ * 2, 4, 8, 16, 32, then every six hours. Transient failures never stop a reminder; only a
+ * permanent Telegram refusal does.
  */
 export function reminderRetryDelayMinutes(attempt: number): number {
-  return Math.min(60, 2 ** attempt);
+  return attempt >= MAX_REMINDER_DELIVERY_ATTEMPTS ? REMINDER_RETRY_CEILING_MINUTES : Math.min(60, 2 ** attempt);
 }
 
 type ReminderDatabase = PrismaClient | Prisma.TransactionClient;
@@ -152,8 +155,9 @@ export async function claimDueTaskReminderSchedules(now = new Date(), limit = 50
 
 /**
  * Hands a claimed schedule back after a failed delivery. It is held (still PROCESSING) until the
- * backoff lease expires and is then claimed again; after the last attempt, or at once for an error
- * no retry can fix, it is canceled so a chat that removed the bot is not retried forever.
+ * backoff lease expires and is then claimed again, slowing to every six hours once the backoff is
+ * used up. Only an error no retry can fix cancels it, so a chat that removed the bot is not
+ * retried forever while a Telegram outage cannot lose the reminder.
  */
 export async function releaseTaskReminderSchedule(
   schedule: { id: string; attemptCount: number },
@@ -161,10 +165,9 @@ export async function releaseTaskReminderSchedule(
   permanent = false,
 ): Promise<void> {
   const lastError = String(error).slice(0, 1_000);
-  const giveUp = permanent || schedule.attemptCount >= MAX_REMINDER_DELIVERY_ATTEMPTS;
   await prisma.taskReminderSchedule.update({
     where: { id: schedule.id },
-    data: giveUp
+    data: permanent
       ? { status: TaskReminderScheduleStatus.CANCELED, leaseExpiresAt: null, lastError }
       : {
         status: TaskReminderScheduleStatus.PROCESSING,
