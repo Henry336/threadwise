@@ -11,12 +11,13 @@ This is the shortest reliable path from a fresh clone to a safe change. Threadwi
 
 ## Read in this order
 
-1. `CLAUDE.md` for current operating rules and latest checkpoints.
+1. `CLAUDE.md` for current operating rules and the current state.
 2. `README.md` for product behavior, setup, commands, and deployment shape.
 3. This file for the code map and safe-change workflow.
 4. `docs/ARCHITECTURE.md` for detailed domain flows.
 5. `docs/CONTENT_ENCRYPTION.md` and `docs/PHASE3_PRIVACY_RUNBOOK.md` before touching protected data.
-6. `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` for current risks and priorities.
+6. `docs/REVIEW_2026-11-01.md` for current risks and priorities (the 2026-08-31 audit is in
+   `docs/archive/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`).
 7. Feature specs/runbooks only when working in that feature.
 
 `PROJECT_CONTEXT.md` is a chronological decision/checkpoint record, not a substitute for current code.

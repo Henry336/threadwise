@@ -67,6 +67,7 @@ Tests live next to code as `*.test.ts` and double as executable examples.
 4. `src/main.ts` → `src/server.ts` → `src/bot/index.ts`.
 5. Follow a feature from its `src/bot/` handler into `src/services/`; read the adjacent test.
 6. `CHANGELOG.md` for what changed; `docs/PRODUCT_JOURNAL.md` for *why*.
+7. `docs/README.md` indexes every doc by kind; finished reports are in `docs/archive/`.
 
 ## Architecture rules (do not break these)
 

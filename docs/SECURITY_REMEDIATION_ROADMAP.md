@@ -26,8 +26,8 @@ phase is validated or rolled back.
   gates passed; legacy cookies require one fresh sign-in.
 - Destructive historical content backfill and retention deletion remain separate, explicitly gated
   operations; their absence is not a failed ordinary deployment.
-- The 2026-08-17 state remains in `docs/POST_PHASE7_CODEBASE_AUDIT.md` as historical evidence. The
-  current reconciliation is `docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`.
+- The 2026-08-17 state remains in `docs/archive/POST_PHASE7_CODEBASE_AUDIT.md` as historical evidence. The
+  current reconciliation is `docs/archive/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md`.
 - Phase 1 execution baseline: backend `9856f0d3019caca4d0fe584ac3196f136357545d` and dashboard
   `bc949f19f8d85c26c66c5a9c9bbd322caa818609`, both clean on `main` at the start of work.
 - Backend baseline at audit: `d81536acd9e9762184f9fbdb67f7ce5b7755d42f`.
@@ -55,7 +55,7 @@ phase is validated or rolled back.
   all 91 tests, TypeScript, ESLint, clean production build, zero-production-finding audit, Vercel
   exact-commit success, and canonical route HTTP 200.
 - Rollback was not needed. Phase 2 was subsequently authorized and completed read-only; its result
-  is recorded below and in `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`.
+  is recorded below and in `docs/archive/SECURITY_PHASE2_PRIVACY_INSPECTION.md`.
 
 ## Established findings that drive the plan
 
@@ -191,7 +191,7 @@ Outcome: the guarded inspection verified a read-only transaction, found 190 encr
 926 plaintext protected field values, confirmed zero malformed envelopes and zero anomalies across
 26 cross-workspace relationship checks, measured unretained AI duplicates, and confirmed blind
 search-token accumulation. Backup/PITR/restore readiness remains a control-plane prerequisite.
-See `docs/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 was subsequently authorized for guarded implementation.
+See `docs/archive/SECURITY_PHASE2_PRIVACY_INSPECTION.md`. Phase 3 was subsequently authorized for guarded implementation.
 
 Recommended model: **GPT-5.6 Terra, medium reasoning** for bounded evidence
 collection; **GPT-5.6 Sol, high reasoning** for migration and threat analysis.
@@ -317,7 +317,7 @@ Completion record (2026-08-17 SGT):
 Status: **local synthetic assurance and CI infrastructure completed on
 `codex/phase6-security-assurance` (backend `be7d2ec`, dashboard `bf9c948`); three findings await
 review, the remote ephemeral database workflow awaits authenticated dispatch, and hosted staging is
-blocked on a proven isolated database/credential set**. See `docs/SECURITY_PHASE6_ASSURANCE.md`. No finding has
+blocked on a proven isolated database/credential set**. See `docs/archive/SECURITY_PHASE6_ASSURANCE.md`. No finding has
 been remediated silently, and production was not tested or changed.
 
 Begin only after the known critical boundary and plaintext duplication are
@@ -435,7 +435,7 @@ schema/runtime code, applying a public-Study migration, or beginning a cohort ro
 
 Phase 6 F-01 through F-03 and Gate 3A are no longer blockers; they were completed before/currently in
 the released stack. Current remediation candidates are listed in
-`docs/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` and still require owner prioritization before
+`docs/archive/POST_RELEASE_CODE_UI_SECURITY_AUDIT_2026-08-31.md` and still require owner prioritization before
 runtime fixes. Dedicated hosted synthetic authenticated staging and clean CSP enforcement evidence
 remain blockers before CSP enforcement or any public cohort. Do not provision staging, rotate
 credentials, run destructive privacy tooling, create/register a public Study bot, connect a real

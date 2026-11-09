@@ -33,7 +33,7 @@ checkpoint. Gate 3A subsequently passed using a fresh encrypted logical backup: 
 tables and 21,563 rows matched an isolated restore, all release migrations applied cleanly,
 temporary plaintext/restore
 state was removed, and the owner confirmed independent recovery of the exact production content
-key. See `docs/GATE3A_RECOVERY_EVIDENCE.md` for non-secret evidence. Historical Phase 6 evidence
+key. See `docs/archive/GATE3A_RECOVERY_EVIDENCE.md` for non-secret evidence. Historical Phase 6 evidence
 below is preserved to show what originally caused each finding. Production activation subsequently
 completed: backend merge `0699835d8ffe` is healthy on Render, the database reports all 60 migrations
 and the three new security tables, dashboard merge `b00a3d15660a` completed on Vercel, and the

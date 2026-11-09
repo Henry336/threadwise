@@ -26,7 +26,7 @@ Product voice and copy conventions: [docs/VOICE_AND_TONE.md](docs/VOICE_AND_TONE
 
 Product decisions, observed friction, and implementation rationale: [docs/PRODUCT_JOURNAL.md](docs/PRODUCT_JOURNAL.md)
 
-Latest Today release summary: [docs/PHASE1_3_TODAY_MORNING_UPDATE.md](docs/PHASE1_3_TODAY_MORNING_UPDATE.md)
+Docs index, grouped by kind: [docs/README.md](docs/README.md)
 
 New-developer map: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
 

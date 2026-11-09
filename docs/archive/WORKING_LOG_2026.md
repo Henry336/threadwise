@@ -6,6 +6,7 @@ One entry that appeared twice word for word (2026-08-25, Phase 1 reliability) is
 Convention: whoever does work (Claude, Codex or a person) adds a short entry at the top of
 "Working log": date, who, what changed, current state. Newest first.
 The release record of each version is in [`CHANGELOG.md`](../../CHANGELOG.md).
+Paths in old entries are as they were written; finished reports have since moved to `docs/archive/`.
 
 ## Working log
 

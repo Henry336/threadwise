@@ -477,7 +477,7 @@ Calendar reconciliation claims and bulk-queues stale enabled workspaces atomical
 pending/retry work. Local edits queue immediately; unchanged provider events are integrity-checked once
 per day rather than replayed every 15 minutes. Drains use stable cutoffs, local single-flight, and
 version-guarded completion.
-See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `BANDWIDTH_REPAIR_2026-09-12.md`.
+See `STUDY_TIMETABLE_SYNC_OPERATIONS.md` and `archive/BANDWIDTH_REPAIR_2026-09-12.md`.
 
 `studyReminders.ts` models timetable interruption as one `StudyScheduleReminderSequence` per occurrence.
 The first schedule is the earlier of start-minus-45-minutes and the live departure time. An admitted
