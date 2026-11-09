@@ -1,3 +1,9 @@
+/**
+ * Markdown features for Study notes: [[wiki link]] parsing, the backlink table, bounded revision
+ * history, and a plain-text rendering for Telegram. Called by studyResources, studyNoteEditSuggestions,
+ * src/bot/studyCapture.ts and the dashboard Study routes after a note is saved. Write helpers accept a
+ * transaction client so links and revisions commit together with the note itself.
+ */
 import { Prisma, StudyResourceKind, type PrismaClient, type StudyResource } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { normalizeStudyWikiTarget, STUDY_SCALE_BUDGETS } from "./studyScale";
@@ -13,6 +19,10 @@ export type StudyWikiLink = {
   label: string;
 };
 
+/**
+ * Extracts [[target]] and [[target|label]] links, deduplicated by normalized target.
+ * Links inside code fences or inline code are ignored, and an escaped \[[ is not a link.
+ */
 export function parseStudyWikiLinks(markdown: string): StudyWikiLink[] {
   const links = new Map<string, StudyWikiLink>();
   for (const match of wikiLinkSource(markdown).matchAll(WIKI_LINK)) {
@@ -27,6 +37,7 @@ export function parseStudyWikiLinks(markdown: string): StudyWikiLink[] {
   return [...links.values()];
 }
 
+/** Blanks out fenced code blocks and inline code spans so their contents cannot create wiki links. */
 function wikiLinkSource(markdown: string): string {
   let fence: "`" | "~" | undefined;
   return markdown.split("\n").map((line) => {
@@ -42,6 +53,11 @@ function wikiLinkSource(markdown: string): string {
   }).join("\n");
 }
 
+/**
+ * Turns note Markdown into readable plain text for Telegram, which cannot render GFM or Mermaid.
+ * Diagrams become a pointer to the dashboard, links show their URL, checkboxes become symbols,
+ * and emphasis markers are dropped. This is the "readable Telegram fallback" for rich notes.
+ */
 export function markdownForTelegram(markdown: string): string {
   return markdown
     .replace(/```mermaid\s*[\s\S]*?```/giu, "\n[Mermaid diagram — open this note in Threadwise to view it]\n")
@@ -66,6 +82,11 @@ export function markdownForTelegram(markdown: string): string {
     .trim();
 }
 
+/**
+ * Saves a revision snapshot of a note after it changes, keeping only the newest 20 per note.
+ * Skips the write when title, body and tags match the latest revision, so repeated saves do not
+ * fill the history. Bodies over the revision size budget throw instead of being cut silently.
+ */
 export async function recordStudyNoteRevision(
   resource: Pick<StudyResource, "id" | "workspaceId" | "kind" | "title" | "body" | "tags">,
   source: "TELEGRAM" | "DASHBOARD" | "AI_SUGGESTION" | "RESTORE" = "DASHBOARD",
@@ -100,6 +121,11 @@ export async function recordStudyNoteRevision(
   if (stale.length) await database.studyResourceRevision.deleteMany({ where: { id: { in: stale.map(({ id }) => id) } } });
 }
 
+/**
+ * Replaces the stored outgoing links of one note with the links currently in its body.
+ * Targets resolve by title or public id through the precomputed wikiLookupKeys column, only inside
+ * the same workspace and only to active notes. Self-links are dropped. This table powers backlinks.
+ */
 export async function rebuildStudyNoteLinks(
   workspaceId: string,
   sourceResourceId: string,
@@ -131,6 +157,10 @@ export async function rebuildStudyNoteLinks(
   });
 }
 
+/**
+ * Read-side companion for the dashboard note view: outgoing links (marked resolved or not),
+ * backlinks from other notes, and the stored revisions. Returns undefined for non-note resources.
+ */
 export async function studyNoteMetadata(
   resource: Pick<StudyResource, "id" | "workspaceId" | "kind" | "body">,
 ) {

@@ -1,3 +1,10 @@
+/**
+ * One-way mirror of the Study timetable into the owner's primary Google Calendar.
+ * Threadwise stays the source of truth: each schedule block has a durable link row that
+ * is queued (PENDING), sent to Google, and settled (SYNCED/FAILED/REMOVED). Timetable
+ * edits in study.ts and studyTransit.ts queue links; the Study reminder loop in
+ * reminders.ts retries them; the dashboard Study routes start, stop and report the sync.
+ */
 import crypto from "crypto";
 import type { StudyScheduleBlock, StudyWorkspace } from "@prisma/client";
 import { DateTime } from "luxon";
@@ -38,10 +45,15 @@ export type StudyCalendarSnapshot = {
   error?: string;
 };
 
+/**
+ * Google event id derived from the block id. Because it is stable, a retry after a crash
+ * or timeout updates the same event instead of creating a duplicate.
+ */
 export function deterministicStudyEventId(blockId: string): string {
   return `st${blockId.replace(/-/gu, "").toLowerCase()}`;
 }
 
+/** Connection state plus per-status link counts for the dashboard Calendar panel. Read-only. */
 export async function studyCalendarSnapshot(workspace: StudyWorkspace): Promise<StudyCalendarSnapshot> {
   const [connection, grouped] = await Promise.all([
     calendarConnectionStatus(workspace.ownerUserId),
@@ -70,6 +82,11 @@ export async function studyCalendarSnapshot(workspace: StudyWorkspace): Promise<
   };
 }
 
+/**
+ * Marks one block's link PENDING after a local edit (no-op when sync is off).
+ * It only writes the queue row and workspace status in one transaction; the Google call
+ * happens later in the retry pass. Retry counters reset because this is new work.
+ */
 export async function queueStudyCalendarBlockSync(
   workspace: Pick<StudyWorkspace, "id" | "calendarSyncEnabled">,
   blockId: string,
@@ -98,6 +115,7 @@ export async function queueStudyCalendarBlockSync(
   })]);
 }
 
+/** Turns the mirror off. Existing Google events are left in place; nothing is deleted. */
 export async function stopStudyCalendarSync(workspace: StudyWorkspace): Promise<void> {
   await prisma.studyWorkspace.update({
     where: { id: workspace.id },
@@ -105,6 +123,11 @@ export async function stopStudyCalendarSync(workspace: StudyWorkspace): Promise<
   });
 }
 
+/**
+ * The owner's explicit "Sync now" from the dashboard. Requires a connected Google account,
+ * enables sync, queues every block (active ones as UPSERT, inactive as DELETE), then
+ * drains a first small batch right away. The rest is finished by the background retry pass.
+ */
 export async function syncStudyTimetable(workspace: StudyWorkspace): Promise<StudyCalendarSnapshot> {
   const connection = await calendarConnectionStatus(workspace.ownerUserId);
   if (!connection.connected) {
@@ -144,6 +167,13 @@ export async function syncStudyTimetable(workspace: StudyWorkspace): Promise<Stu
   return studyCalendarSnapshot(refreshed);
 }
 
+/**
+ * Background pass, called from the Study reminder loop in reminders.ts. Three jobs:
+ * (1) requeue links synced under an older payload version once (the calendar-v2 weekday
+ * fix), (2) once a day requeue a SYNCED workspace to repair edits made in Google, and
+ * (3) drain due PENDING/FAILED links. Daily, not every 15 minutes, to cut idle bandwidth.
+ * Returns how many workspaces were processed.
+ */
 export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3): Promise<number> {
   const legacyLinks = await prisma.studyScheduleCalendarLink.findMany({
     where: {
@@ -237,6 +267,7 @@ export async function runPendingStudyCalendarSyncs(now = new Date(), limit = 3):
 // Coalesce manual sync and scheduler passes within this service instance. Durable
 // pending records survive restarts; deterministic provider IDs remain the retry key.
 const processingWorkspaces = new Map<string, Promise<void>>();
+/** Single-flight wrapper: a second caller for the same workspace waits on the running drain. */
 async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit: number, now = new Date()): Promise<void> {
   const existing = processingWorkspaces.get(workspaceId);
   if (existing) return existing;
@@ -245,6 +276,13 @@ async function processStudyCalendarQueueForWorkspace(workspaceId: string, limit:
   try { await running; } finally { processingWorkspaces.delete(workspaceId); }
 }
 
+/**
+ * Sends up to `limit` due links to Google: removes events for deleted or inactive blocks,
+ * upserts the rest. Each settle write matches on the link's updatedAt (optimistic
+ * concurrency), so an edit queued mid-request is not marked done. Failures back off
+ * exponentially (2, 4, 8... minutes, max 60) for up to six attempts, then the workspace
+ * status is recomputed from what is still pending.
+ */
 async function drainStudyCalendarQueue(workspaceId: string, limit: number, now: Date): Promise<void> {
   const workspace = await prisma.studyWorkspace.findUnique({ where: { id: workspaceId } });
   if (!workspace?.calendarSyncEnabled) return;
@@ -330,6 +368,11 @@ async function drainStudyCalendarQueue(workspaceId: string, limit: number, now: 
   });
 }
 
+/**
+ * Converts a timetable block into a Google event: first occurrence in the workspace
+ * timezone, a weekly RRULE until the end date, and EXDATEs for skipped dates and weeks.
+ * Pure function. Its JSON is hashed to form the link's syncHash.
+ */
 export function buildStudyCalendarEventInput(workspace: StudyWorkspace, block: CalendarBlock, eventId: string) {
   const startDate = recurrenceStart(workspace, block);
   const start = DateTime.fromISO(`${startDate.toISODate()}T${block.startTime}`, { zone: workspace.timezone });
@@ -366,6 +409,7 @@ export function buildStudyCalendarEventInput(workspace: StudyWorkspace, block: C
   };
 }
 
+/** First date of the block: its own start date, else its start week in the semester, else this week. */
 function recurrenceStart(workspace: StudyWorkspace, block: StudyScheduleBlock): DateTime {
   if (block.recurrenceStartDate) return alignToWeekday(DateTime.fromJSDate(block.recurrenceStartDate, { zone: "utc" }), block.dayOfWeek);
   if (workspace.semesterStartDate) {
@@ -375,6 +419,7 @@ function recurrenceStart(workspace: StudyWorkspace, block: StudyScheduleBlock): 
   return alignToWeekday(DateTime.now().setZone(workspace.timezone).startOf("day"), block.dayOfWeek);
 }
 
+/** Last date of the block, or undefined for an open-ended weekly series. */
 function recurrenceEnd(workspace: StudyWorkspace, block: StudyScheduleBlock): DateTime | undefined {
   if (block.recurrenceEndDate) return DateTime.fromJSDate(block.recurrenceEndDate, { zone: "utc" });
   if (!workspace.semesterStartDate || !block.endWeek) return undefined;
@@ -390,11 +435,13 @@ function calendarDateInZone(value: Date, timezone: string): DateTime {
   return DateTime.fromJSDate(value).setZone(timezone).startOf("day");
 }
 
+/** Moves a date forward (0-6 days) to the block's weekday, 1 = Monday. */
 function alignToWeekday(date: DateTime, dayOfWeek: number): DateTime {
   const delta = (dayOfWeek - date.weekday + 7) % 7;
   return date.plus({ days: delta }).startOf("day");
 }
 
+/** Reduces any sync error to one of three fixed codes, so the raw provider message is never stored. */
 function safeSyncError(error: unknown): string {
   if (error instanceof Error && /reconnect|authorization|denied/iu.test(error.message)) return "CALENDAR_AUTH_REQUIRED";
   if (error instanceof Error && /not configured/iu.test(error.message)) return "CALENDAR_NOT_CONFIGURED";

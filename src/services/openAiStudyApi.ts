@@ -1,3 +1,9 @@
+/**
+ * Thin OpenAI adapter for Study module review. Sends one JSON-mode chat request, tries
+ * fallback models in order, and turns provider errors into safe, user-readable messages.
+ * Called by studyAnalysisRunner.ts (the queue worker); geminiStudyAnalysis.ts only asks
+ * whether it is configured. The API key stays on the backend and is never logged.
+ */
 import OpenAI from "openai";
 import { env } from "../config/env";
 
@@ -7,6 +13,11 @@ type StudyOpenAiClient = Pick<OpenAI, "chat">;
 export type OpenAiStudyApiResult = { text: string; model: string };
 export type OpenAiStudyFailureMetadata = { status?: number; code?: string; type?: string };
 
+/**
+ * Error with a friendly message plus only the provider's status/code/type. It exists so
+ * failures can be told apart (bad key, quota, rate limit, outage) and logged safely,
+ * without keeping the raw provider error text.
+ */
 export class OpenAiStudyApiError extends Error {
   readonly status?: number;
   readonly code?: string;
@@ -21,6 +32,7 @@ export class OpenAiStudyApiError extends Error {
   }
 }
 
+/** Extracts the safe-to-log metadata from an OpenAiStudyApiError (empty for any other error). */
 export function openAiStudyFailureMetadata(error: unknown): OpenAiStudyFailureMetadata {
   return error instanceof OpenAiStudyApiError
     ? { status: error.status, code: error.code, type: error.providerType }
@@ -35,6 +47,7 @@ export function configuredOpenAiStudyModel(): string {
   return env.OPENAI_MODEL;
 }
 
+/** OPENAI_MODEL first, then the comma-separated OPENAI_MODEL_FALLBACKS, without duplicates. */
 export function configuredOpenAiStudyModels(): string[] {
   return [...new Set([
     env.OPENAI_MODEL,
@@ -42,6 +55,12 @@ export function configuredOpenAiStudyModels(): string[] {
   ])];
 }
 
+/**
+ * Calls OpenAI with the prepared Study prompt and returns the raw JSON text and model used.
+ * Each model attempt has its own timeout. A missing model, rate limit or 5xx moves on to
+ * the next model; quota/billing, auth and other errors stop at once. The response size is
+ * capped. Callers validate the JSON afterwards; this function does not parse it.
+ */
 export async function generateOpenAiStudyAnalysis(
   prompt: string,
   options: {
@@ -93,6 +112,10 @@ export async function generateOpenAiStudyAnalysis(
   throw new Error("No OpenAI Study model is configured.");
 }
 
+/**
+ * Maps a provider error to a fixed message by HTTP status, separating quota/billing 429s
+ * from plain rate limits. Added after a live 429 was hard to tell apart from a bad key.
+ */
 function safeOpenAiError(error: unknown): OpenAiStudyApiError {
   const metadata = providerErrorMetadata(error);
   const rawMessage = error instanceof Error ? error.message.toLowerCase() : "";
@@ -109,6 +132,7 @@ function safeOpenAiError(error: unknown): OpenAiStudyApiError {
   return new OpenAiStudyApiError(message, metadata);
 }
 
+/** Reads status/code/type defensively, since the SDK may put code/type on the error or a nested `error`. */
 function providerErrorMetadata(error: unknown): OpenAiStudyFailureMetadata {
   const value = error as { status?: unknown; code?: unknown; type?: unknown; error?: { code?: unknown; type?: unknown } };
   const code = typeof value.code === "string" ? value.code : typeof value.error?.code === "string" ? value.error.code : undefined;
@@ -120,6 +144,7 @@ function providerErrorMetadata(error: unknown): OpenAiStudyFailureMetadata {
   };
 }
 
+/** True when this model name is unknown or unsupported, so the next fallback model is worth trying. */
 function isModelAvailabilityError(error: unknown): boolean {
   const value = providerErrorMetadata(error);
   const message = error instanceof Error ? error.message.toLowerCase() : String((error as { message?: unknown }).message ?? "").toLowerCase();
@@ -129,6 +154,7 @@ function isModelAvailabilityError(error: unknown): boolean {
     && (message.includes("not found") || message.includes("does not exist") || message.includes("unsupported"));
 }
 
+/** Rate limits and 5xx may pass on another model; quota/billing failures never will, so they are excluded. */
 function isRetryableModelError(error: unknown): boolean {
   const value = providerErrorMetadata(error);
   if (value.status !== 429 && !(typeof value.status === "number" && value.status >= 500)) return false;

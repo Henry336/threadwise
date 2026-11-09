@@ -1,3 +1,10 @@
+/**
+ * Campus travel for Study Mode, built on the public Improved NextBus service (NUS shuttle buses).
+ * This is the single place boundary: venue and stop search, saved/default/temporary travel origins,
+ * per-block destinations, and journey plans with walking, waiting and riding legs. Callers include the
+ * Study bot handlers, dashboard Study routes, the NUSMods importer, and studyReminders (leave-by times).
+ * Live data is advisory: when the provider fails, a labelled 30-minute fallback is used, never an invented arrival.
+ */
 import type { StudyLocationOrigin, StudyScheduleBlock, StudyWorkspace } from "@prisma/client";
 import { DateTime } from "luxon";
 import { env } from "../config/env";
@@ -29,6 +36,10 @@ export type StudyOriginPlaceCandidate = {
   title: string;
   subtitle?: string;
 };
+/**
+ * A resolved campus place. id is canonical ("venue:X" or "stop:Y") and can be passed back to
+ * resolveStudyPlace; providerId is the raw Improved NextBus id. nearbyStops are ranked boarding options.
+ */
 export type StudyPlace = {
   id: string;
   providerId: string;
@@ -56,6 +67,7 @@ export type StudyJourneyAlternative = {
   finalWalkMinutes: number;
   totalMinutes: number;
 };
+// The types below mirror the Improved NextBus "directions" response shape.
 type JourneyLeg = {
   service: string;
   fromStop: TransitStop;
@@ -74,6 +86,7 @@ type JourneySearchResponse = {
   message: string;
 };
 
+/** A complete route plan from an origin to a destination, in the shape the bot and dashboard display. */
 export type StudyJourneyEstimate = {
   origin: StudyLocationOrigin;
   destinationStop: TransitStop;
@@ -111,9 +124,11 @@ export type StudyDeparturePlan = {
   fallbackReason?: string;
 };
 
+/** In-process cache of departure-plan routes for three minutes, so repeated reminder passes do not re-query the provider. Lost on restart, which is fine. */
 const routeCache = new Map<string, { expiresAt: number; value: StudyJourneyEstimate }>();
 const ROUTE_CACHE_TTL_MS = 3 * 60_000;
 const FALLBACK_JOURNEY_MINUTES = 30;
+/** Local nicknames the provider's search does not know, mapped to a query it does. */
 const STUDY_PLACE_ALIASES: Record<string, string> = {
   pgpr: "PGP",
   "prince georges park residence": "PGP",
@@ -123,6 +138,7 @@ const STUDY_PLACE_ALIASES: Record<string, string> = {
   krmrt: "Kent Ridge MRT",
 };
 
+/** Thrown when a place name matches several places; carries the candidates so the caller can show a picker. */
 export class StudyPlaceAmbiguityError extends StudyModeError {
   constructor(public readonly candidates: StudyPlace[]) {
     super("Choose the NUS place you meant.", "invalid");
@@ -146,6 +162,7 @@ export async function listStudyTransitStops(): Promise<TransitStop[]> {
   return result.stops ?? [];
 }
 
+/** Rewrites a known nickname (e.g. "pgpr") to its search term; otherwise just collapses whitespace. */
 export function normalizeStudyPlaceQuery(query: string): string {
   const clean = normalizePlaceText(query);
   return STUDY_PLACE_ALIASES[clean] ?? query.replace(/\s+/g, " ").trim();
@@ -160,6 +177,11 @@ export async function searchStudyOriginPlaces(query: string, limit = 8): Promise
   }));
 }
 
+/**
+ * Searches venues and bus stops together and ranks them by match quality (exact, prefix, all words,
+ * substring). Either provider call may fail on its own; an error is thrown only when both return
+ * nothing. Venue results are expanded with a detail call to get coordinates and nearby stops.
+ */
 export async function searchStudyPlaces(query: string, limit = 8): Promise<StudyPlace[]> {
   const original = query.replace(/\s+/g, " ").trim();
   if (!original) throw new StudyModeError("Give me a campus venue or NUS bus stop to search for.", "invalid");
@@ -232,6 +254,7 @@ export async function searchStudyPlaces(query: string, limit = 8): Promise<Study
   return Promise.all(candidates);
 }
 
+/** Resolves a place and returns it in venue-detail form; a bus stop becomes a venue whose only nearby stop is itself. */
 export async function resolveStudyVenue(query: string): Promise<TransitVenueDetail> {
   const place = await resolveStudyPlace(query);
   if (place.kind === "venue") return getStudyVenue(place.providerId);
@@ -245,6 +268,11 @@ export async function resolveStudyVenue(query: string): Promise<TransitVenueDeta
   };
 }
 
+/**
+ * Turns user text or a canonical "venue:"/"stop:" id into exactly one place. A canonical id is looked up
+ * directly. Free text resolves only on a single exact name or alias match; several matches throw
+ * StudyPlaceAmbiguityError so the user picks, instead of the bot guessing a destination.
+ */
 export async function resolveStudyPlace(reference: string): Promise<StudyPlace> {
   const value = reference.trim();
   const canonical = /^(venue|stop):(.+)$/.exec(value);
@@ -268,6 +296,7 @@ export async function resolveStudyPlace(reference: string): Promise<StudyPlace> 
   return candidates[0]!;
 }
 
+/** Saves a named origin from a picked venue or stop. A venue origin boards at its nearest stop. */
 export async function addStudyOriginFromCandidate(
   workspace: StudyWorkspace,
   name: string,
@@ -315,6 +344,11 @@ export async function addStudyOriginFromVenue(
   }, options);
 }
 
+/**
+ * Saves a temporary origin from a Telegram location share, snapped to the closest stop within 3 km.
+ * It is marked temporary so it is deleted when it expires or the owner taps "I'm here"; the bot does
+ * not keep tracking location.
+ */
 export async function addStudyOriginFromLocation(
   workspace: StudyWorkspace,
   name: string,
@@ -355,6 +389,7 @@ export async function renameStudyOrigin(workspace: StudyWorkspace, reference: st
   return updated;
 }
 
+/** Deactivates an origin and, in one transaction, detaches it from the workspace and from any timetable block. */
 export async function deleteStudyOrigin(workspace: StudyWorkspace, reference: string): Promise<void> {
   const origin = await findStudyOrigin(workspace.id, reference);
   await prisma.$transaction([
@@ -368,6 +403,7 @@ export async function deleteStudyOrigin(workspace: StudyWorkspace, reference: st
   await auditOrigin(workspace, "study.origin.removed", origin.id, { name: origin.name });
 }
 
+/** Makes an origin the current starting point for 1 to 24 hours (default 4), overriding the default. */
 export async function activateStudyOrigin(workspace: StudyWorkspace, reference: string, hours = 4) {
   const origin = await findStudyOrigin(workspace.id, reference);
   const safeHours = Math.min(24, Math.max(1, Math.round(hours)));
@@ -380,6 +416,7 @@ export async function activateStudyOrigin(workspace: StudyWorkspace, reference: 
   return { origin, until };
 }
 
+/** Sets the single default origin, clearing the flag on all others in the same transaction. */
 export async function setDefaultStudyOrigin(workspace: StudyWorkspace, reference: string) {
   const origin = await findStudyOrigin(workspace.id, reference);
   await prisma.$transaction([
@@ -390,6 +427,10 @@ export async function setDefaultStudyOrigin(workspace: StudyWorkspace, reference
   return { ...origin, isDefault: true };
 }
 
+/**
+ * Where the owner is starting from right now: an unexpired activated origin, else the default.
+ * An expired activation is cleared as a side effect, and an expired temporary location is deleted.
+ */
 export async function currentStudyOrigin(workspace: StudyWorkspace, now = new Date()): Promise<StudyLocationOrigin | undefined> {
   const current = await prisma.studyWorkspace.findUnique({
     where: { id: workspace.id },
@@ -411,6 +452,7 @@ export async function currentStudyOrigin(workspace: StudyWorkspace, now = new Da
   })) ?? undefined;
 }
 
+/** Clears the active origin and deletes it if it was a temporary shared location (used by "I'm here"). */
 export async function clearTemporaryStudyOrigin(workspace: StudyWorkspace): Promise<void> {
   const current = await prisma.studyWorkspace.findUnique({
     where: { id: workspace.id },
@@ -427,6 +469,7 @@ export async function clearTemporaryStudyOrigin(workspace: StudyWorkspace): Prom
   if (origin) await prisma.studyLocationOrigin.delete({ where: { id: origin.id } });
 }
 
+/** Route to a named destination from a given origin or the current one. Used for "how do I get to X". */
 export async function estimateStudyJourney(
   workspace: StudyWorkspace,
   destination: string,
@@ -440,6 +483,7 @@ export async function estimateStudyJourney(
   return estimateJourneyToPlace(origin, place);
 }
 
+/** Route to a known destination stop id, for blocks that have a stop but no resolved venue. */
 export async function estimateStudyJourneyByStops(
   workspace: StudyWorkspace,
   destinationStopId: string,
@@ -464,6 +508,11 @@ export async function estimateStudyJourneyByStops(
   return journeyEstimate(origin, destination, response, place);
 }
 
+/**
+ * Sets a timetable block's destination (resolved place plus its nearest stop), optional fixed origin,
+ * and extra buffer (0 to 90 minutes). This is what enables class-departure reminders for the block.
+ * Audited, and queues a Google Calendar mirror update since the event location changed.
+ */
 export async function configureStudyScheduleTravel(
   workspace: StudyWorkspace,
   blockId: string,
@@ -499,6 +548,10 @@ export async function configureStudyScheduleTravel(
   return requireTravelBlock(workspace.id, block.id);
 }
 
+/**
+ * Stores a free-text location label without a resolved place. The label stays visible but clears the
+ * destination stop, so an unrecognised place can never silently enable a travel reminder.
+ */
 export async function setStudyScheduleDestinationLabel(workspace: StudyWorkspace, blockId: string, label: string): Promise<StudyTravelBlock> {
   const block = await requireTravelBlock(workspace.id, blockId);
   const venueName = label.replace(/\s+/g, " ").trim().slice(0, 200);
@@ -518,6 +571,10 @@ export async function clearStudyScheduleTravel(workspace: StudyWorkspace, blockI
   return requireTravelBlock(workspace.id, block.id);
 }
 
+/**
+ * Next occurrences (up to 12, within the given days) of blocks that have a travel destination.
+ * Applies either calendar-date recurrence or academic-week limits and exclusions, matching the reminder logic.
+ */
 export async function listUpcomingStudyTravelBlocks(
   workspace: StudyWorkspace,
   now = new Date(),
@@ -560,6 +617,12 @@ export async function listUpcomingStudyTravelBlocks(
   return results.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()).slice(0, 12);
 }
 
+/**
+ * Works out when to leave for a block's next (or given) occurrence. Origin choice: a temporary shared
+ * location wins, then the block's own origin, then the current origin. Uses the 3-minute route cache
+ * unless force is set. If the live route fails, it falls back to a fixed 30-minute estimate and returns
+ * live=false with fallbackReason so the message can say the timing is not live.
+ */
 export async function buildStudyDeparturePlan(
   workspace: StudyWorkspace,
   blockId: string,
@@ -623,11 +686,13 @@ export async function buildStudyDeparturePlan(
   };
 }
 
+/** Leave time = start minus (journey minutes, or 30 if unknown) minus the block's buffer. */
 export function computeStudyLeaveAt(startsAt: Date, totalMinutes: number | undefined, travelBufferMinutes: number): Date {
   const travelMinutes = Math.max(1, totalMinutes ?? FALLBACK_JOURNEY_MINUTES) + Math.max(0, travelBufferMinutes);
   return new Date(startsAt.getTime() - travelMinutes * 60_000);
 }
 
+/** Mutes travel reminders until the end of the local day and marks today's pending travel states MUTED. */
 export async function muteStudyTravelForToday(workspace: StudyWorkspace, now = new Date()): Promise<Date> {
   const until = DateTime.fromJSDate(now).setZone(workspace.timezone).endOf("day").toUTC().toJSDate();
   const localDate = DateTime.fromJSDate(now).setZone(workspace.timezone).toISODate();
@@ -643,6 +708,7 @@ export async function muteStudyTravelForToday(workspace: StudyWorkspace, now = n
   return until;
 }
 
+/** Records arrival for today's occurrence of a block (upsert, so it works even before any reminder was sent). */
 export async function markStudyTravelArrived(workspace: StudyWorkspace, blockId: string, now = new Date()): Promise<void> {
   const localDate = DateTime.fromJSDate(now).setZone(workspace.timezone).toISODate();
   const occurrenceDate = localDate ? new Date(`${localDate}T00:00:00.000Z`) : now;
@@ -664,6 +730,10 @@ export function isStudyTravelMuted(workspace: StudyWorkspace, now = new Date()):
   return Boolean(mutedUntil && mutedUntil > now);
 }
 
+/**
+ * Creates or updates an origin by its name (names are unique per workspace), then optionally makes it
+ * the default or activates it. Re-saving a deleted name reactivates it. Audited.
+ */
 async function saveStudyOrigin(workspace: StudyWorkspace, input: {
   name: string;
   providerVenueId?: string;
@@ -715,6 +785,7 @@ async function saveStudyOrigin(workspace: StudyWorkspace, input: {
   return { ...origin, isDefault: input.makeDefault ? true : origin.isDefault };
 }
 
+/** Finds an active origin in this workspace by case-insensitive name or id. */
 async function findStudyOrigin(workspaceId: string, reference: string): Promise<StudyLocationOrigin> {
   const normalized = reference.trim();
   const origin = await prisma.studyLocationOrigin.findFirst({
@@ -740,6 +811,7 @@ async function requireTravelBlock(workspaceId: string, blockId: string): Promise
   return block;
 }
 
+/** Next future start of a weekly block within its start/end academic weeks, searching up to 52 weeks ahead. */
 function nextBlockOccurrence(workspace: StudyWorkspace, block: StudyScheduleBlock, now = new Date()): Date {
   const local = DateTime.fromJSDate(now).setZone(workspace.timezone);
   const clock = parseClock(block.startTime);
@@ -767,6 +839,11 @@ function parseClock(value: string): { hour: number; minute: number } | undefined
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? { hour, minute } : undefined;
 }
 
+/**
+ * Converts a provider directions response into a StudyJourneyEstimate. Prefers the first direct
+ * alternative, then a "walk to another stop" recommendation, then the plain journey. Adds walking time
+ * from the origin and to the final place. The result counts as live only when a real wait time exists.
+ */
 function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitStop, result: JourneySearchResponse, place?: StudyPlace): StudyJourneyEstimate {
   const originCoordinates = origin.latitude !== null && origin.longitude !== null
     ? { latitude: origin.latitude, longitude: origin.longitude }
@@ -836,10 +913,15 @@ function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitSt
   throw new StudyModeError(result.message || "Improved NextBus could not find a usable route.", "not_found");
 }
 
+/** Rough ride time when the provider gives none: about 3 minutes per stop, at least 5 minutes. */
 function estimatedRideMinutes(journey: Journey): number {
   return Math.max(5, journey.legs.reduce((sum, leg) => sum + Math.max(1, (leg.stops?.length ?? 2) - 1) * 3, 0));
 }
 
+/**
+ * The only HTTP call to Improved NextBus (GET under /api on STUDY_TRANSIT_BASE_URL). Enforces the
+ * configured timeout and converts every failure, including timeouts, into a user-facing StudyModeError.
+ */
 async function transitGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`/api/${path.replace(/^\//, "")}`, env.STUDY_TRANSIT_BASE_URL);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -875,6 +957,7 @@ function validateCoordinates(value: TransitCoordinates): void {
   }
 }
 
+/** Straight-line distance in metres (haversine formula). */
 function distanceMetres(a: TransitCoordinates, b: TransitCoordinates): number {
   const radians = (degrees: number) => degrees * Math.PI / 180;
   const lat1 = radians(a.latitude);
@@ -885,6 +968,10 @@ function distanceMetres(a: TransitCoordinates, b: TransitCoordinates): number {
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+/**
+ * Tries the three closest stops to a venue (one for a stop) in parallel and returns the fastest
+ * route. A failed stop is skipped; an error is thrown only when every attempt fails.
+ */
 async function estimateJourneyToPlace(origin: StudyLocationOrigin, place: StudyPlace): Promise<StudyJourneyEstimate> {
   if (!origin.providerStopId) throw new StudyModeError("Add a travel origin first, then try the route again.", "invalid");
   const candidates = place.nearbyStops
@@ -912,6 +999,7 @@ async function estimateJourneyToPlace(origin: StudyLocationOrigin, place: StudyP
   throw new StudyModeError("Improved NextBus could not find a usable route to that place.", "not_found");
 }
 
+/** Summarises a secondary route option with its own walking, waiting and riding totals. */
 function alternativeEstimate(origin: StudyLocationOrigin, place: StudyPlace | undefined, value: JourneyAlternative): StudyJourneyAlternative {
   const wait = value.liveWaitMinutes ?? undefined;
   const originCoordinates = origin.latitude !== null && origin.longitude !== null
@@ -931,10 +1019,12 @@ function alternativeEstimate(origin: StudyLocationOrigin, place: StudyPlace | un
   };
 }
 
+/** Walking time at about 75 metres per minute, rounded up. */
 function walkingMinutes(metres: number): number {
   return Math.max(0, Math.ceil(metres / 75));
 }
 
+/** Normalized names a place answers to, plus any local nickname that points at one of them. */
 function placeAliases(...values: Array<string | null | undefined>): string[] {
   const aliases = new Set(values.filter((value): value is string => Boolean(value)).map(normalizePlaceText));
   for (const [alias, target] of Object.entries(STUDY_PLACE_ALIASES)) {
@@ -973,6 +1063,7 @@ function normalizePlaceText(value: string): string {
   return value.toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+/** Lower is better: 0 exact, 1 prefix, 1.5 query starts with name, 2 all words present, 3 substring, 100 no match. */
 function placeMatchScore(query: string, values: Array<string | null | undefined>): number {
   const needle = normalizePlaceText(query);
   if (!needle) return 100;

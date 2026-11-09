@@ -1,3 +1,12 @@
+/**
+ * Proactive Study reminders. The main reminder loop (reminders.ts) calls runStudyReminderPass once per
+ * tick after normal task reminders. Each pass derives candidates from PostgreSQL (weekly preview and
+ * review, Canvas problems, mistake reattempts, red modules, near deadlines, timetable alerts, missing
+ * timed practice), then sends them to the bound Study group. There are no in-memory timers: dedupe
+ * rows and per-occurrence sequence rows make every pass restart-safe. The acknowledge and mute helpers
+ * at the bottom are called by Telegram buttons (src/bot/studyCapture.ts) and by session starts in the
+ * bot and dashboard.
+ */
 import {
   Prisma,
   StudyItemStatus,
@@ -19,6 +28,10 @@ import { buildStudyWeeklyPreview } from "./studyAttention";
 import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { buildStudyDeparturePlan, isStudyTravelMuted } from "./studyTransit";
 
+/**
+ * One message that could be sent this pass. entityKey names the thing it is about (item id, week,
+ * block occurrence plus attempt). Timetable candidates also carry their sequence id and attempt number.
+ */
 type Candidate = {
   kind: StudyReminderKind;
   entityKey: string;
@@ -40,6 +53,7 @@ export type StudyReminderRun = {
   failed: number;
 };
 
+/** Decides whether a Study reminder may go out now: blocked by workspace quiet hours, then by the daily cap. */
 export function studyReminderGate(
   workspace: Pick<StudyWorkspace, "timezone" | "quietHoursStart" | "quietHoursEnd" | "maxRemindersPerDay">,
   now: Date,
@@ -53,6 +67,14 @@ export function studyReminderGate(
   return sentToday >= workspace.maxRemindersPerDay ? "capped" : "send";
 }
 
+/**
+ * One full Study reminder pass. It first checks the bound group still has at most two members and
+ * fails closed (sends nothing) if that cannot be confirmed. During quiet hours only timetable alerts
+ * pass. Known dedupe keys are read in one query, then each new candidate is claimed by inserting a
+ * StudyReminderDelivery row before sending; a failed send deletes the claim so it can retry.
+ * Each timetable occurrence counts once against the daily cap, so its follow-ups are never capped.
+ * Ends by saving a health status (READY, QUIET_HOURS, UNSAFE_CHAT, DELIVERY_ERRORS) for the dashboard.
+ */
 export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<StudyReminderRun> {
   const result: StudyReminderRun = { candidates: 0, sent: 0, deduplicated: 0, capped: 0, quiet: false, unsafeChat: false, failed: 0 };
   const workspace = await activeStudyWorkspace();
@@ -138,6 +160,7 @@ export async function runStudyReminderPass(bot: Bot, now = new Date()): Promise<
   return result;
 }
 
+/** First timetable alert time: the travel departure time or 45 minutes before the class, whichever is earlier. */
 export function studyScheduleFirstAlertAt(startsAt: Date, leaveAt?: Date | null): Date {
   const minimum = DateTime.fromJSDate(startsAt).minus({ minutes: 45 });
   if (!leaveAt) return minimum.toJSDate();
@@ -145,14 +168,23 @@ export function studyScheduleFirstAlertAt(startsAt: Date, leaveAt?: Date | null)
   return (departure < minimum ? departure : minimum).toJSDate();
 }
 
+/** Follow-ups come five minutes apart; after four deliveries (first alert plus three follow-ups) there is none. */
 export function studyScheduleNextAlertAt(sentAt: Date, deliveredAttemptCount: number): Date | undefined {
   return deliveredAttemptCount >= 4 ? undefined : DateTime.fromJSDate(sentAt).plus({ minutes: 5 }).toJSDate();
 }
 
+/**
+ * A delivery claim older than two minutes that was never marked sent. This usually means the process
+ * stopped between claiming and sending, so the timetable sequence may move past that attempt.
+ */
 export function isAbandonedStudyReminderClaim(createdAt: Date, now: Date): boolean {
   return createdAt.getTime() <= now.getTime() - 2 * 60_000;
 }
 
+/**
+ * Query range for "today's" occurrence rows. Occurrence dates are stored as the local calendar date at
+ * UTC midnight, so the range is built from the local date key, not from a local-midnight instant.
+ */
 export function studyOccurrenceDateRange(now: Date, timezone: string): { gte: Date; lt: Date } {
   const key = DateTime.fromJSDate(now).setZone(timezone).toISODate() ?? now.toISOString().slice(0, 10);
   const gte = new Date(`${key}T00:00:00.000Z`);
@@ -163,6 +195,7 @@ function isTimetableCandidate(candidate: Candidate): boolean {
   return candidate.kind === StudyReminderKind.CLASS_DEPARTURE || candidate.kind === StudyReminderKind.STUDY_BLOCK;
 }
 
+/** Saves the pass status and counts on the workspace for dashboard diagnosis. Failure here is logged, never thrown. */
 async function recordReminderHealth(
   workspace: Pick<StudyWorkspace, "id">,
   status: "READY" | "QUIET_HOURS" | "UNSAFE_CHAT" | "DELIVERY_ERRORS",
@@ -181,6 +214,13 @@ async function recordReminderHealth(
   });
 }
 
+/**
+ * Builds every reminder that is due right now, sorted by urgency then time. Read-mostly, but the
+ * timetable part also writes: it upserts a travel state from a live route plan, creates or adjusts the
+ * per-occurrence reminder sequence, and stops sequences for classes that already started.
+ * Timetable alerts are only considered within four hours of the start. Untrusted Canvas deadlines are
+ * skipped. Timed-practice nudges are hardcoded to the owner's modules CS2100 and CS2102.
+ */
 export async function collectStudyReminderCandidates(workspace: StudyWorkspace, now = new Date()): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   const local = DateTime.fromJSDate(now).setZone(workspace.timezone);
@@ -474,6 +514,10 @@ export function studyReminderPriority(kind: StudyReminderKind): number {
   }
 }
 
+/**
+ * Dedupe key: workspace, kind, entity, and the local date of the scheduled time. One reminder per
+ * entity per local day; timetable attempts differ because the attempt number is in entityKey.
+ */
 export function buildStudyReminderDedupeKey(
   workspaceId: string,
   kind: StudyReminderKind,
@@ -509,6 +553,10 @@ export async function loadExistingStudyReminderDeliveries(
   return new Map(existing.map((delivery) => [delivery.dedupeKey, delivery]));
 }
 
+/**
+ * Inserts the delivery row that reserves this reminder. The unique dedupeKey makes this race-safe:
+ * if another pass already claimed it, Prisma error P2002 is caught and undefined is returned.
+ */
 async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, dedupeKey: string, now: Date) {
   try {
     return await prisma.studyReminderDelivery.create({
@@ -530,6 +578,10 @@ async function claimDelivery(workspace: StudyWorkspace, candidate: Candidate, de
   }
 }
 
+/**
+ * If a timetable attempt's claim was abandoned (never sent), advance the sequence to the next attempt
+ * so the follow-ups are not stuck behind it. The attemptCount condition makes the update apply once.
+ */
 async function recoverAbandonedScheduleClaim(
   candidate: Candidate,
   dedupeKey: string,
@@ -555,6 +607,11 @@ async function recoverAbandonedScheduleClaim(
   });
 }
 
+/**
+ * Records side effects after a successful send: advances the timetable sequence (guarded by the
+ * expected attempt count), marks travel state SENT, starts the 7-day cooldown for red-module warnings,
+ * and moves an open mistake to REATTEMPT_DUE.
+ */
 async function markCandidateDelivered(candidate: Candidate, now: Date): Promise<void> {
   if (candidate.sequenceId) {
     const nextAttempt = (candidate.sequenceAttempt ?? 0) + 1;
@@ -579,6 +636,10 @@ async function markCandidateDelivered(candidate: Candidate, now: Date): Promise<
   }
 }
 
+/**
+ * Gets or creates the reminder sequence for one block on one date. Before the first alert is sent,
+ * a changed first-alert time (for example a new live leave time) moves the schedule; after that it is fixed.
+ */
 async function ensureScheduleSequence(
   workspaceId: string,
   blockId: string,
@@ -603,6 +664,7 @@ async function ensureScheduleSequence(
   return existing;
 }
 
+/** Stops an unacknowledged sequence once the class has started, so no follow-up arrives late. */
 async function stopExpiredScheduleSequence(blockId: string, occurrenceDate: Date, now: Date): Promise<void> {
   await prisma.studyScheduleReminderSequence.updateMany({
     where: { blockId, occurrenceDate, acknowledgedAt: null, stoppedAt: null },
@@ -610,6 +672,7 @@ async function stopExpiredScheduleSequence(blockId: string, occurrenceDate: Date
   });
 }
 
+/** "Got it" button: closes one sequence. Returns false if it was already closed or not in this workspace. */
 export async function acknowledgeStudyScheduleReminder(
   workspaceId: string,
   sequenceId: string,
@@ -622,6 +685,7 @@ export async function acknowledgeStudyScheduleReminder(
   return result.count > 0;
 }
 
+/** Closes today's sequence for one block, e.g. when the owner taps "I'm here" on arrival. */
 export async function acknowledgeStudyScheduleBlockOccurrence(
   workspaceId: string,
   blockId: string,
@@ -635,6 +699,7 @@ export async function acknowledgeStudyScheduleBlockOccurrence(
   });
 }
 
+/** Closes today's sequences for every block of a module, used when a Study session starts for that module. */
 export async function acknowledgeStudyScheduleModuleOccurrence(
   workspace: Pick<StudyWorkspace, "id" | "timezone">,
   moduleId: string,
@@ -653,6 +718,7 @@ export async function acknowledgeStudyScheduleModuleOccurrence(
   });
 }
 
+/** "Mute timetable today": stops all of today's open sequences in this workspace. */
 export async function muteStudyScheduleRemindersForDay(
   workspace: Pick<StudyWorkspace, "id" | "timezone">,
   now = new Date(),
@@ -672,6 +738,7 @@ function parseClock(value: string): { hour: number; minute: number } | undefined
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? { hour, minute } : undefined;
 }
 
+/** The local calendar date stored as UTC midnight, matching how occurrenceDate columns are keyed. */
 function startsOnCalendarDate(value: DateTime): Date {
   const key = value.toISODate();
   return key ? new Date(`${key}T00:00:00.000Z`) : value.startOf("day").toUTC().toJSDate();
