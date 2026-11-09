@@ -10,7 +10,7 @@ import type { TaskAssigneeInfo } from "./tasks";
 import { runStudyReminderPass } from "./studyReminders";
 import { runPendingStudyCalendarSyncs } from "./studyCalendar";
 import { sendMessageWithChatMigrationRecovery } from "./telegramChatMigrations";
-import { claimDueTaskReminderSchedules, customReminderDeliveryKey, releaseTaskReminderSchedule } from "./taskReminderSchedules";
+import { claimDueTaskReminderSchedules, customReminderDeliveryKey, MAX_REMINDER_DELIVERY_ATTEMPTS, releaseTaskReminderSchedule, reminderRetryDelayMinutes } from "./taskReminderSchedules";
 import { startLoop, type StopLoop } from "../utils/loop";
 
 type ReminderTask = Prisma.TaskGetPayload<{
@@ -195,7 +195,7 @@ async function runReminderPassOnce(bot: Bot, source: ReminderRunSource): Promise
         },
         replacesPrevious: true,
         record: (sent) => automaticReminderWrites([task], settings, now, sent),
-        onFailure: () => retryTasksLater([task], now),
+        onFailure: (error) => retryTasksLater([task], now, error),
       });
     }
 
@@ -239,7 +239,7 @@ async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: Reminder
     const settings = task.user.settings;
     if (!settings) {
       run.skippedMissingSettings += 1;
-      await releaseTaskReminderSchedule(schedule.id, "Reminder settings are missing.");
+      await releaseTaskReminderSchedule(schedule, "Reminder settings are missing.");
       continue;
     }
 
@@ -294,7 +294,7 @@ async function sendDueCustomReminderSchedules(bot: Bot, now: Date, run: Reminder
           }),
         ];
       },
-      onFailure: (error) => releaseTaskReminderSchedule(schedule.id, error),
+      onFailure: (error) => releaseTaskReminderSchedule(schedule, error, isPermanentTelegramDeliveryError(error)),
     });
     if (delivered) {
       deliveredTaskIds.add(task.id);
@@ -330,7 +330,7 @@ async function sendReminderDigestBatch(
     limits: bypassLimits ? undefined : { countEachTask: false, retryCappedAt: () => nextIntervalReminderAt(now, 60) },
     replacesPrevious: false,
     record: (sent) => automaticReminderWrites(tasks, settings, now, sent),
-    onFailure: () => retryTasksLater(tasks, now),
+    onFailure: (error) => retryTasksLater(tasks, now, error),
   });
 }
 
@@ -386,7 +386,7 @@ async function sendGroupUndatedReminderBatch(
         })
       ];
     }),
-    onFailure: () => retryTasksLater(tasks, now),
+    onFailure: (error) => retryTasksLater(tasks, now, error),
   });
 }
 
@@ -470,6 +470,7 @@ async function deliverReminder(bot: Bot, run: ReminderDiagnostics, delivery: Rem
       sent = await sendMessageWithChatMigrationRecovery(bot, chatId, delivery.text, HTML_REPLY);
     }
     await prisma.$transaction(delivery.record({ chatId: sent.chatId, messageId: String(sent.message.message_id) }));
+    for (const id of taskIds) failedTaskAttempts.delete(id);
     run.remindersSent += 1;
 
     await deleteSupersededReminderMessages(
@@ -527,9 +528,31 @@ function automaticReminderWrites(
   ]);
 }
 
-/** Tries the tasks again in 15 minutes after a failed send. */
-async function retryTasksLater(tasks: ReminderTask[], now: Date): Promise<void> {
-  await prisma.task.updateMany({ where: { id: { in: tasks.map((task) => task.id) } }, data: { nextReminderAt: nextIntervalReminderAt(now, 15) } });
+// shortcut: consecutive failed sends per task live in memory, so a restart gives a failing task a
+// fresh set of attempts. Persist a counter on Task if restarts ever become frequent.
+const failedTaskAttempts = new Map<string, number>();
+
+/**
+ * Reschedules tasks after a failed send with the Study Calendar backoff. After the last attempt,
+ * or at once when Telegram will never accept the chat, the automatic cycle stops
+ * (nextReminderAt null) instead of retrying forever; editing or snoozing the task restarts it.
+ */
+async function retryTasksLater(tasks: ReminderTask[], now: Date, error: unknown): Promise<void> {
+  const permanent = isPermanentTelegramDeliveryError(error);
+  await Promise.all(tasks.map((task) => {
+    const attempt = (failedTaskAttempts.get(task.id) ?? 0) + 1;
+    const giveUp = permanent || attempt >= MAX_REMINDER_DELIVERY_ATTEMPTS;
+    if (giveUp) {
+      failedTaskAttempts.delete(task.id);
+      logger.warn("Stopped retrying a reminder that Telegram keeps refusing.", { taskId: task.id, attempt, permanent });
+    } else {
+      failedTaskAttempts.set(task.id, attempt);
+    }
+    return prisma.task.update({
+      where: { id: task.id },
+      data: { nextReminderAt: giveUp ? null : nextIntervalReminderAt(now, reminderRetryDelayMinutes(attempt)) },
+    });
+  }));
 }
 
 async function countReminderMessagesToday(userId: string, now: Date, timezone: string): Promise<number> {
@@ -925,6 +948,15 @@ export function nextReminderAfterSettingChange(task: {
 export function startReminderLoop(bot: Bot, pollMs: number): StopLoop {
   void runReminderPass(bot, "initial").catch((error) => logger.error("Initial reminder pass failed.", { error: String(error) }));
   return startLoop("Reminder", pollMs, () => runReminderPass(bot, "loop"));
+}
+
+/**
+ * True for Telegram refusals no retry can fix: the bot was removed or blocked (403 Forbidden),
+ * or the chat no longer exists. These stop a reminder at once instead of using up its retries.
+ */
+export function isPermanentTelegramDeliveryError(error: unknown): boolean {
+  if ((error as { error_code?: unknown } | null)?.error_code === 403) return true;
+  return /Forbidden|chat not found|PEER_ID_INVALID|chat was deactivated/i.test(String(error));
 }
 
 export function isInvalidReminderButtonError(error: unknown): boolean {

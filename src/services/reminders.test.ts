@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RecurrenceRule, ReminderMode, TaskAudience } from "@prisma/client";
-import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
+import { dueNudgeStartAt, dueReminderMilestones, escalatingReminderIntervalMinutes, formatDirectAssigneeNudge, formatGroupUndatedReminderDigest, formatReminderDigest, formatReminderMessage, initialTaskReminderAt, isInvalidReminderButtonError, isPermanentTelegramDeliveryError, nextReminderAfterSettingChange, nextReminderAtAfterDelivery, nextTaskScheduleAfterDelivery, nextUndatedGroupReminderInterval, shouldUseDueNudgePolicy } from "./reminders";
 
 describe("reminder policy", () => {
   it("starts scheduled due nudges before the due time", () => {
@@ -232,5 +232,13 @@ describe("reminder policy", () => {
   it("only falls back to text delivery for Telegram's invalid-button response", () => {
     expect(isInvalidReminderButtonError(new Error("400: Bad Request: BUTTON_TYPE_INVALID"))).toBe(true);
     expect(isInvalidReminderButtonError(new Error("429: Too Many Requests"))).toBe(false);
+  });
+
+  it("treats only unrecoverable Telegram refusals as permanent", () => {
+    expect(isPermanentTelegramDeliveryError(new Error("403: Forbidden: bot was kicked from the group chat"))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(new Error("400: Bad Request: chat not found"))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(Object.assign(new Error("blocked"), { error_code: 403 }))).toBe(true);
+    expect(isPermanentTelegramDeliveryError(new Error("429: Too Many Requests: retry after 5"))).toBe(false);
+    expect(isPermanentTelegramDeliveryError(new Error("socket hang up"))).toBe(false);
   });
 });

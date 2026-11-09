@@ -119,6 +119,7 @@ const NIGHT = new Date("2026-11-09T15:00:00.000Z"); // 23:00 in Singapore, insid
 const QUIET_END = new Date("2026-11-10T00:00:00.000Z"); // 08:00 the next morning in Singapore
 const minutes = (base: Date, amount: number) => new Date(base.getTime() + amount * 60_000);
 
+// Never reset: failed-send counts are module state keyed by task id, so ids stay unique per test.
 let taskNumber = 0;
 
 function settings(overrides: Record<string, unknown> = {}) {
@@ -221,7 +222,6 @@ function at(time: Date) {
 
 beforeEach(() => {
   db.reset();
-  taskNumber = 0;
   vi.clearAllMocks();
 });
 
@@ -433,8 +433,8 @@ describe("private reminder digests", () => {
     const [chatId, text, options] = sendMessage.mock.calls[0]!;
     expect(chatId).toBe("777");
     expect(text).toBe(formatReminderDigest(tasks, "Asia/Singapore"));
-    expect(callbacks(options)).toEqual(["task:view-full:task-1", "task:view-full:task-2"]);
-    expect(db.state.deliveries.map((delivery) => [delivery.taskId, delivery.messageId])).toEqual([["task-1", "100"], ["task-2", "100"]]);
+    expect(callbacks(options)).toEqual(tasks.map((task) => `task:view-full:${task.id}`));
+    expect(db.state.deliveries.map((delivery) => [delivery.taskId, delivery.messageId])).toEqual(tasks.map((task) => [task.id, "100"]));
     for (const task of tasks) {
       expect(task).toMatchObject({
         lastRemindedAt: DAY,
@@ -491,7 +491,7 @@ describe("undated group follow-ups", () => {
     const [chatId, text, options] = sendMessage.mock.calls[0]!;
     expect(chatId).toBe("-1001");
     expect(text).toBe(formatGroupUndatedReminderDigest(tasks));
-    expect(callbacks(options)).toEqual(["task:view-full:task-1", "task:view-full:task-2"]);
+    expect(callbacks(options)).toEqual(tasks.map((task) => `task:view-full:${task.id}`));
     for (const task of tasks) {
       expect(task).toMatchObject({
         lastRemindedAt: DAY,
@@ -536,56 +536,102 @@ describe("undated group follow-ups", () => {
 });
 
 describe("failed deliveries", () => {
-  it("retries a failed single reminder", async () => {
+  const transient = () => new Error("socket hang up");
+  const kicked = () => Object.assign(new Error("Call to 'sendMessage' failed! (403: Forbidden: bot was kicked from the group chat)"), { error_code: 403 });
+
+  it("backs a failing single reminder off and stops after the last attempt", async () => {
     at(DAY);
     const task = addTask(user("777"));
     const { bot, sendMessage } = fakeBot();
-    sendMessage.mockRejectedValueOnce(new Error("socket hang up"));
+    sendMessage.mockRejectedValue(transient());
+
+    const delays: (number | null)[] = [];
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      const startedAt = new Date();
+      const run = await runReminderPass(bot, "manual");
+      expect(run.failedDeliveries).toBe(1);
+      delays.push(task.nextReminderAt ? (+task.nextReminderAt - +startedAt) / 60_000 : null);
+      if (task.nextReminderAt) vi.setSystemTime(task.nextReminderAt);
+    }
+
+    expect(delays).toEqual([2, 4, 8, 16, 32, null]);
+    expect(sendMessage).toHaveBeenCalledTimes(6);
+    expect(task.reminderCount).toBe(0);
+  });
+
+  it("starts the backoff again once a send succeeds", async () => {
+    at(DAY);
+    const task = addTask(user("777"));
+    const { bot, sendMessage } = fakeBot();
+    sendMessage.mockRejectedValueOnce(transient());
+    await runReminderPass(bot, "manual");
+    vi.setSystemTime(task.nextReminderAt!);
+    await runReminderPass(bot, "manual");
+    expect(task.reminderCount).toBe(1);
+
+    task.nextReminderAt = minutes(new Date(), -1);
+    sendMessage.mockRejectedValueOnce(transient());
+    await runReminderPass(bot, "manual");
+
+    expect(task.nextReminderAt).toEqual(minutes(new Date(), 2));
+  });
+
+  it("stops at once when the bot was removed from the group", async () => {
+    at(DAY);
+    const group = user("chat:-1001");
+    const tasks = [addTask(group), addTask(group)];
+    const { bot, sendMessage } = fakeBot();
+    sendMessage.mockRejectedValueOnce(kicked());
 
     const run = await runReminderPass(bot, "manual");
 
-    expect(task.nextReminderAt).toEqual(minutes(DAY, 15));
-    expect(task.reminderCount).toBe(0);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(tasks.map((task) => task.nextReminderAt)).toEqual([null, null]);
+    expect(tasks.map((task) => task.undatedNudgeCount)).toEqual([0, 0]);
     expect(run.failedDeliveries).toBe(1);
   });
 
-  it("retries a failed digest", async () => {
+  it("backs a failing digest off per task", async () => {
     at(DAY);
     const owner = user("777", { reminderMode: "DIGEST" });
     const dueAt = minutes(DAY, 2 * 24 * 60);
     const tasks = [addTask(owner, { dueAt }), addTask(owner, { dueAt })];
     const { bot, sendMessage } = fakeBot();
-    sendMessage.mockRejectedValueOnce(new Error("socket hang up"));
+    sendMessage.mockRejectedValueOnce(transient());
 
     const run = await runReminderPass(bot, "manual");
 
-    expect(tasks.map((task) => task.nextReminderAt)).toEqual([minutes(DAY, 15), minutes(DAY, 15)]);
+    expect(tasks.map((task) => task.nextReminderAt)).toEqual([minutes(DAY, 2), minutes(DAY, 2)]);
     expect(run.failedDeliveries).toBe(1);
   });
 
-  it("retries a failed group follow-up", async () => {
+  it("holds a failed custom reminder for the backoff, then cancels it after the last attempt", async () => {
     at(DAY);
-    const group = user("chat:-1001");
-    const tasks = [addTask(group), addTask(group)];
+    const task = addTask(user("777"), { nextReminderAt: null });
+    const schedule = addSchedule(task);
     const { bot, sendMessage } = fakeBot();
-    sendMessage.mockRejectedValueOnce(new Error("socket hang up"));
+    sendMessage.mockRejectedValue(transient());
 
     const run = await runReminderPass(bot, "manual");
-
-    expect(tasks.map((task) => task.nextReminderAt)).toEqual([minutes(DAY, 15), minutes(DAY, 15)]);
-    expect(tasks.map((task) => task.undatedNudgeCount)).toEqual([0, 0]);
+    expect(schedule).toMatchObject({ status: "PROCESSING", leaseExpiresAt: minutes(DAY, 2), lastError: "Error: socket hang up", attemptCount: 1 });
     expect(run.failedDeliveries).toBe(1);
+
+    schedule.attemptCount = 5;
+    vi.setSystemTime(schedule.leaseExpiresAt!);
+    await runReminderPass(bot, "manual");
+
+    expect(schedule).toMatchObject({ status: "CANCELED", leaseExpiresAt: null, attemptCount: 6 });
   });
 
-  it("holds a failed custom reminder for another attempt", async () => {
+  it("cancels a custom reminder at once when the bot was removed", async () => {
     at(DAY);
-    const schedule = addSchedule(addTask(user("777"), { nextReminderAt: null }));
+    const schedule = addSchedule(addTask(user("chat:-1001"), { nextReminderAt: null }));
     const { bot, sendMessage } = fakeBot();
-    sendMessage.mockRejectedValueOnce(new Error("socket hang up"));
+    sendMessage.mockRejectedValueOnce(kicked());
 
-    const run = await runReminderPass(bot, "manual");
+    await runReminderPass(bot, "manual");
 
-    expect(schedule).toMatchObject({ status: "PROCESSING", leaseExpiresAt: minutes(DAY, 15), lastError: "Error: socket hang up", attemptCount: 1 });
-    expect(run.failedDeliveries).toBe(1);
+    expect(schedule).toMatchObject({ status: "CANCELED", attemptCount: 1 });
   });
 });
+
