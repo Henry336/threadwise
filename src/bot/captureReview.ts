@@ -1,3 +1,8 @@
+/**
+ * Copy and suggestion logic for the "Review before saving" card shown for ordinary prose.
+ * The classifier only suggests a type; nothing is saved until the sender taps Save or picks
+ * another type (see docs/ARCHITECTURE.md, natural-language handling).
+ */
 import { CaptureKind, type PendingCapture } from "@prisma/client";
 import type { Classification } from "../ai/types";
 import { parseDueDate } from "../utils/dates";
@@ -11,6 +16,10 @@ const CAPTURE_KIND_COPY: Record<CaptureSaveKind, string> = {
   idea: "an idea",
 };
 
+/**
+ * Picks the type to suggest from a fresh classification. Low-confidence or noise results get no
+ * suggestion, so the card asks the user to choose. A task with a future time becomes a reminder.
+ */
 export function suggestedCaptureKind(
   classification: Classification | undefined,
   sourceText: string,
@@ -25,6 +34,7 @@ export function suggestedCaptureKind(
   return classification.kind;
 }
 
+/** Same suggestion, rebuilt from a stored PendingCapture row (for example when the card is redrawn). */
 export function suggestedPendingCaptureKind(
   pending: Pick<PendingCapture, "kind" | "sourceText">,
   timezone: string,
@@ -39,6 +49,7 @@ export function suggestedPendingCaptureKind(
   return "note";
 }
 
+/** The review card text. It always says nothing is saved yet, so the user knows a tap is needed. */
 export function formatCaptureReview(sourceText: string, suggestedKind?: CaptureSaveKind): string {
   return [
     bold("Review before saving"),
@@ -64,6 +75,7 @@ export function formatCaptureTypeChoice(sourceText: string): string {
   ].join("\n");
 }
 
+/** Prompt shown when the user picks Reminder but the text had no future time to use. */
 export function formatReminderTimePrompt(sourceText: string): string {
   return [
     bold("When should I remind you?"),

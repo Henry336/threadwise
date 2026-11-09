@@ -1,3 +1,9 @@
+/**
+ * Builds every inline and reply keyboard the main Threadwise bot shows in Telegram.
+ * Commands, callbacks, and formatters call these builders so button labels and callback
+ * data strings live in one place. The callback strings here are parsed by `callbacks.ts`;
+ * Telegram caps callback data at 64 bytes, which is why ids and prefixes are kept short.
+ */
 import { InlineKeyboard, Keyboard } from "grammy";
 import type { TaskListItem } from "../services/tasks";
 import { DASHBOARD_URL, dashboardViewUrl, groupDashboardItemUrl, groupDashboardUrl } from "./links";
@@ -15,6 +21,7 @@ export type ActiveListNavigation = {
 
 export type GroupTaskAudience = "unassigned" | "everyone" | "assignee" | "manager" | "other";
 
+/** Main menu for a private chat: one button per Personal area plus the dashboard Mini App. */
 export function startMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("📋 Tasks", "menu:tasks").text("📝 Notes", "menu:notes").row()
@@ -23,6 +30,11 @@ export function startMenuKeyboard(): InlineKeyboard {
     .webApp("🌐 Dashboard", DASHBOARD_URL).text("❓ Help", "menu:help");
 }
 
+/**
+ * Main menu for a group chat. It uses a plain URL button for the dashboard because
+ * Telegram rejects Mini App (`web_app`) buttons outside private chats.
+ * The dashboard link only appears once the group workspace id is known.
+ */
 export function groupStartMenuKeyboard(workspaceId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text("Shared work", "menu:tasks").text("Capture & recall", "menu:group-library").row()
@@ -58,6 +70,11 @@ export const NOTE_SESSION_LABELS = {
   cancel: "Cancel"
 } as const;
 
+/**
+ * Persistent reply keyboard pinned under the private chat input box.
+ * Its button presses arrive as ordinary text, so handlers match them against
+ * `PRIVATE_MENU_LABELS` rather than callback data.
+ */
 export function privateMenuKeyboard(): Keyboard {
   return new Keyboard()
     .text(PRIVATE_MENU_LABELS.menu)
@@ -67,6 +84,10 @@ export function privateMenuKeyboard(): Keyboard {
     .placeholder("Tell Threadwise what you need…");
 }
 
+/**
+ * Reply keyboard shown while a private Note session is open. Its labels come back as
+ * text (`NOTE_SESSION_LABELS`) so the session can save or cancel without a callback.
+ */
 export function noteSessionKeyboard(): Keyboard {
   return new Keyboard()
     .text(NOTE_SESSION_LABELS.save)
@@ -76,6 +97,7 @@ export function noteSessionKeyboard(): Keyboard {
     .placeholder("Keep writing…");
 }
 
+/** Opens the dashboard as a Telegram Mini App. Private chats only; groups use `groupDashboardLinkKeyboard`. */
 export function dashboardLinkKeyboard(): InlineKeyboard {
   return new InlineKeyboard().webApp("Open Threadwise Dashboard", DASHBOARD_URL);
 }
@@ -182,6 +204,11 @@ export function regionSettingsKeyboard(): InlineKeyboard {
     .text("‹ Settings", "menu:settings");
 }
 
+/**
+ * Preset choices for one setting, each encoded as `setting:apply:<field>:<value>`, plus a
+ * Custom button that asks for typed input. The back button returns to the Region or
+ * Reminders submenu depending on which group the field belongs to.
+ */
 export function settingChoicesKeyboard(field: SettingChoiceField): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (field === "interval") {
@@ -228,6 +255,10 @@ export function integrationsSettingsKeyboard(): InlineKeyboard {
     .text("‹ Settings", "menu:settings");
 }
 
+/**
+ * Google Calendar settings. A disconnected user sees only the connect link (or reconnect
+ * when the stored token stopped working); a connected user sees sync, auto-sync, and disconnect.
+ */
 export function calendarSettingsKeyboard(status: { connected: boolean; autoSync: boolean; reconnectRequired?: boolean }, connectUrl?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (!status.connected && connectUrl) {
@@ -240,6 +271,10 @@ export function calendarSettingsKeyboard(status: { connected: boolean; autoSync:
   return keyboard.text("‹ Integrations", "menu:integrations");
 }
 
+/**
+ * Calendar actions for one task. A connect URL means the user has no Calendar link yet;
+ * otherwise the buttons depend on whether the task already has a mirrored event.
+ */
 export function calendarTaskKeyboard(task: Pick<TaskListItem, "id" | "calendarEventId" | "calendarEventUrl">, connectUrl?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (connectUrl) {
@@ -260,6 +295,7 @@ export function disconnectIntegrationKeyboard(provider: "calendar"): InlineKeybo
     .text("Keep connected", "menu:calendar-settings");
 }
 
+/** Asks whether cancelling a Calendar-linked task should also remove its Google event. */
 export function taskCancelCalendarKeyboard(taskId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Cancel + remove event", `task:cancel-confirm:remove:${taskId}`).row()
@@ -304,6 +340,7 @@ export function menuBackKeyboard(label = "‹ Main menu", callbackData = "menu:h
   return new InlineKeyboard().text(label, callbackData);
 }
 
+/** A single back button to one mode menu, labelled from the mode name unless a label is given. */
 export function modeBackKeyboard(mode: "tasks" | "notes" | "ideas" | "images" | "expenses" | "search", label?: string): InlineKeyboard {
   const fallback = mode[0]?.toUpperCase() + mode.slice(1);
   return new InlineKeyboard().text(label ?? `‹ ${fallback}`, `menu:${mode}`);
@@ -322,6 +359,10 @@ export function taskDoneCallbackData(task: TaskActionTarget): string {
   return task.dueAt ? `task:done:${task.id}:${task.dueAt.getTime()}` : `task:done:${task.id}`;
 }
 
+/**
+ * Buttons for a Personal task card. It follows the "one message, one decision" rule:
+ * Done and Snooze are immediate, and everything else is behind the dashboard link.
+ */
 export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   const keyboard = new InlineKeyboard()
@@ -333,6 +374,12 @@ export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true):
   return keyboard;
 }
 
+/**
+ * Buttons for a shared group task card, chosen by the viewer's relationship to the task.
+ * Unassigned work offers Claim; assignees, managers, and "everyone" tasks get Done/Snooze.
+ * The collapsed card shows View; the expanded card swaps it for a dashboard link and Back.
+ * These buttons are only hints: callback handlers re-check permission on every tap.
+ */
 export function groupTaskActionsKeyboard(
   task: TaskActionTarget,
   audience: GroupTaskAudience,
@@ -358,6 +405,7 @@ export function groupTaskActionsKeyboard(
   return keyboard;
 }
 
+/** Buttons attached to a delivered reminder: Done, Snooze, a dashboard link, and Dismiss reminders. */
 export function reminderActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   // Reminder destinations can be either a private chat or a group. Telegram
@@ -374,6 +422,11 @@ export function reminderActionsKeyboard(task: TaskActionTarget): InlineKeyboard 
     .text("Dismiss reminders", `task:dismiss-reminders:${taskId}`);
 }
 
+/**
+ * Buttons under a task list. By default it shows one "Choose an item" button instead of a
+ * button per row, to avoid a wall of buttons. After Choose (`selecting`), it shows numbered
+ * buttons that match the row numbers in the list text. Returns undefined for an empty list.
+ */
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation, selecting = false): InlineKeyboard | undefined {
   if (tasks.length === 0) {
     return undefined;
@@ -414,6 +467,11 @@ export function editCancelKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("✕ Cancel edit", "edit:cancel");
 }
 
+/**
+ * Buttons for a note, idea, or task detail card. Long notes get page arrows here because the
+ * stored note is split for display only. Editing happens on the dashboard, linked to the
+ * group workspace when one is given.
+ */
 export function itemActionsKeyboard(
   kind: ItemKind,
   item: ItemActionTarget,
@@ -438,6 +496,7 @@ export function itemActionsKeyboard(
   return keyboard;
 }
 
+/** Same Choose-then-number pattern as `taskListKeyboard`, for note and idea lists. */
 export function itemListKeyboard(kind: Exclude<ItemKind, "task">, items: ItemActionTarget[], maxButtons = 3, navigation?: ActiveListNavigation, selecting = false): InlineKeyboard | undefined {
   if (items.length === 0) {
     return undefined;
@@ -467,6 +526,7 @@ export function ideaBriefKeyboard(ideaReference: string): InlineKeyboard {
     .text("‹ Ideas", "menu:ideas");
 }
 
+/** Adds a prev / page-number / next row when an active list spans more than one page. */
 function appendActiveListNavigation(
   keyboard: InlineKeyboard,
   navigation?: ActiveListNavigation,
@@ -488,6 +548,11 @@ const CAPTURE_KIND_LABELS: Record<CaptureSaveKind, string> = {
   idea: "idea",
 };
 
+/**
+ * Review card for an ordinary message the bot is not sure about (a `PendingCapture`).
+ * It offers Save for the inferred type, Change type, and Ignore. Nothing is saved until the
+ * sender picks, because classifier output is only a suggestion.
+ */
 export function captureConfirmationKeyboard(
   pendingId: string,
   suggestedKind?: CaptureSaveKind,
@@ -501,6 +566,7 @@ export function captureConfirmationKeyboard(
     .text("Ignore", `capture:ignore:${pendingId}`);
 }
 
+/** The "Change type" step of the capture review: pick Task, Reminder, Note, or Idea. */
 export function captureTypeKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Task", `capture:task:${pendingId}`)
@@ -511,6 +577,7 @@ export function captureTypeKeyboard(pendingId: string): InlineKeyboard {
     .text("Ignore", `capture:ignore:${pendingId}`);
 }
 
+/** Preview-and-confirm controls for a note merge: merge, regenerate the preview, or cancel. */
 export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Merge", `merge:confirm:${pendingId}`)
@@ -519,6 +586,10 @@ export function noteMergePreviewKeyboard(pendingId: string): InlineKeyboard {
     .text("✕ Cancel", `merge:cancel:${pendingId}`);
 }
 
+/**
+ * Paging for search results. The query itself is stored in a `PendingSearch` row and the
+ * buttons carry only its id, because a long query would not fit in callback data.
+ */
 export function searchPageKeyboard(pendingId: string, page: number, totalPages: number): InlineKeyboard | undefined {
   const keyboard = new InlineKeyboard();
   if (totalPages > 1) {
@@ -558,12 +629,14 @@ export function archivedNoteDetailKeyboard(
   return keyboard.text("‹ Archived notes", "menu:notes-archived");
 }
 
+/** Confirm or cancel a previewed bulk action (for example bulk complete or delete). */
 export function bulkActionConfirmationKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Confirm", `bulk:confirm:${pendingId}`)
     .text("✕ Cancel", `bulk:cancel:${pendingId}`);
 }
 
+/** What to do with text extracted (OCR) from an image: save as note, task, or reminder, view, or discard. */
 export function imageTextActionsKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("📝 Save note", `image:note:${pendingId}`)
@@ -578,6 +651,10 @@ export function imageReminderTimeKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard().text("✕ Cancel reminder", `image:discard:${pendingId}`);
 }
 
+/**
+ * Choices for a newly received image. Saving and OCR are separate so the user decides
+ * whether to spend time on text extraction.
+ */
 export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("🖼️ Save image", `image-upload:save:${pendingId}`)
@@ -588,6 +665,10 @@ export function incomingImageKeyboard(pendingId: string): InlineKeyboard {
     .text("✕ Discard", `image-upload:discard:${pendingId}`);
 }
 
+/**
+ * Buttons under a page of saved images, either a plain listing or search results (`searchId`).
+ * Uses the same Choose-then-number pattern as task lists, plus paging and a gallery link.
+ */
 export function storedImageListKeyboard(
   images: Array<{ id: string }>,
   page: number,

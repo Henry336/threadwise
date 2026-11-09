@@ -1,6 +1,17 @@
+/**
+ * Pure text parsers for the explicit natural-language commands Threadwise understands without AI.
+ * Each parser either returns the extracted piece (a body, a list kind, a settings argument list) or
+ * undefined, so callers can try them in order. Used by `naturalCommands.ts`, `commands.ts` and the
+ * dashboard quick-capture preview. Nothing here touches the database or Telegram.
+ */
+
 export type ListKind = "tasks" | "notes" | "ideas";
 export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
+/**
+ * Recognises "show my tasks", "what's on my plate" and similar list requests.
+ * Reminders map to "tasks" because a reminder is stored as a task with a due time.
+ */
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
   const match = normalized.match(/^(?:(?:show|list|view|open|give|display|browse|pull up|bring up)\s+)?(?:me\s+)?(?:my\s+|the\s+)?(?:all\s+|recent\s+|open\s+|saved\s+|upcoming\s+)?(tasks?|to-?dos?|reminders?|notes?|ideas?)(?:\s+list)?$/)
@@ -18,6 +29,11 @@ export function parseListRequest(text: string): ListKind | undefined {
   return "ideas";
 }
 
+/**
+ * Extracts the reminder body from phrasings like "remind me to...", "ping me about..." or
+ * "don't let me forget to...". The result is rewritten to start with "me to/about ..." so it reads
+ * like the text after "remind" and can go through the same reminder parser as `/remind`.
+ */
 export function parseNaturalReminderBody(text: string): string | undefined {
   const normalized = text.trim();
   const directMatch = normalized.match(/^(?:please\s+)?remind\s+(.+)$/i)
@@ -55,6 +71,7 @@ export function parseNaturalReminderBody(text: string): string | undefined {
   return undefined;
 }
 
+/** Splits "assign task 3 to Alex" into the task reference and the assignee text. */
 export function parseNaturalTaskAssignment(text: string): [reference: string, assignee: string] | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^assign\s+(?:task\s+)?(\S+)\s+(?:to\s+)?(.+)$/i)
@@ -62,6 +79,7 @@ export function parseNaturalTaskAssignment(text: string): [reference: string, as
   return match?.[1] && match[2] ? [match[1], match[2]] : undefined;
 }
 
+/** Extracts the note text from explicit note phrasings such as "note: ...", "jot down ..." or "remember that ...". */
 export function parseNaturalNoteBody(text: string): string | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^(?:please\s+)?note\s+to\s+self\s*[:,-]?\s+(.+)$/i)
@@ -76,6 +94,7 @@ export function parseNaturalNoteBody(text: string): string | undefined {
   return match?.[1] ? stripTrailingPunctuation(match[1]).replace(/^that\s+/i, "") : undefined;
 }
 
+/** Extracts the idea text from explicit idea phrasings such as "idea: ..." or "I have an idea for ...". */
 export function parseNaturalIdeaBody(text: string): string | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^(?:please\s+)?idea\s*[:,-]?\s+(.+)$/i)
@@ -87,6 +106,11 @@ export function parseNaturalIdeaBody(text: string): string | undefined {
   return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 
+/**
+ * Extracts the task title from requests that name the operation, such as "add task ..." or
+ * "put ... on my list". Prose like "I need to ..." is deliberately not matched, because plain action
+ * prose must go through the review card instead of becoming a task directly.
+ */
 export function parseNaturalTaskBody(text: string): string | undefined {
   const normalized = text.trim();
   const match = normalized.match(/^(?:please\s+)?(?:add|create|make)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:task|todo|to-do)\s*(?:to|for|:|-)?\s+(.+)$/i)
@@ -97,6 +121,7 @@ export function parseNaturalTaskBody(text: string): string | undefined {
   return match?.[1] ? stripTrailingPunctuation(match[1]) : undefined;
 }
 
+/** Maps "help", "how do I set reminders?" and similar questions to a help topic, or undefined if it is not a help question. */
 export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefined {
   const normalized = normalize(text).replace(/[?.!]+$/g, "");
 
@@ -121,6 +146,11 @@ export function parseNaturalHelpRequest(text: string): NaturalHelpTopic | undefi
   return helpTopicFromText(topicText);
 }
 
+/**
+ * Turns plain-English settings requests ("set my timezone to Yangon", "quiet hours 22:00-07:00")
+ * into the same argument list the `/settings` command accepts, so both paths share `updateSetting`.
+ * Returns undefined when the text is not a settings change.
+ */
 export function parseNaturalSettingChange(text: string): string[] | undefined {
   if (/^(?:please\s+)?(?:send|give)\s+me\s+(?:my\s+)?(?:assigned\s+)?task\s+(?:reminders?|nudges?)\s+(?:in\s+private|privately|by\s+dm)$/i.test(text)
     || /^(?:please\s+)?(?:turn|switch|enable)\s+(?:my\s+)?(?:private|dm|direct)\s+(?:task\s+)?(?:reminders?|nudges?)\s+on$/i.test(text)) {
@@ -182,6 +212,7 @@ export function parseNaturalSettingChange(text: string): string[] | undefined {
   return undefined;
 }
 
+/** Picks the closest help topic from free text by keyword. Order matters: earlier topics win. */
 function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
   const normalized = normalize(text)
     .replace(/^(?:to|the|my|with|about)\s+/g, "")
@@ -231,6 +262,7 @@ function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
   return undefined;
 }
 
+/** Extracts the requested timezone text from "change my timezone to ...". The value is resolved later by the settings service. */
 export function parseNaturalTimezoneChange(text: string): string | undefined {
   const match = text.match(/^(?:please\s+)?(?:change|set|update|make)?\s*(?:my\s+)?(?:time\s*zone|timezone)\s*(?:to|as|is)?\s+(.+)$/i)
     ?? text.match(/^(?:please\s+)?(?:change|set|update|make)\s+(?:my\s+)?(?:time\s*zone|timezone)\s+(.+)$/i);
@@ -255,6 +287,7 @@ function parseNaturalQuietHoursChange(text: string): string[] | undefined {
   return ["quiet", match[1].replace(".", ":"), match[2].replace(".", ":")];
 }
 
+/** Shared parser for minute-based settings (due nudge, reminder interval). Accepts "off" or a duration like "30m" or "2 hours". */
 function parseNaturalMinutesSetting(text: string, pattern: RegExp, setting: string): string[] | undefined {
   const match = text.match(pattern);
   const value = match?.[1]?.trim();
@@ -270,6 +303,7 @@ function parseNaturalMinutesSetting(text: string, pattern: RegExp, setting: stri
   return minutes ? [setting, String(minutes)] : undefined;
 }
 
+/** Converts "45", "45m", "2h" or "1 day" into a number of minutes. */
 function parseMinutes(text: string): number | undefined {
   const trimmed = text.trim().toLowerCase();
   if (/^\d+$/.test(trimmed)) {
@@ -296,6 +330,10 @@ function stripTrailingPunctuation(text: string): string {
   return text.trim().replace(/[?.!]+$/g, "").trim();
 }
 
+/**
+ * Strips greetings, politeness ("could you please ...", "... thanks") and leading -ing forms
+ * ("showing" to "show") so the command parsers only have to match the core request.
+ */
 export function normalizeNaturalCommandText(text: string): string {
   return text
     .trim()

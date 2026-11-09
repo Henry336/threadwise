@@ -1,3 +1,10 @@
+/**
+ * Handles photos and image documents sent to the Personal/Group bot. An image is stored as a
+ * pending upload first and saved, captioned, OCR-read or discarded only after the sender chooses.
+ * Albums go to the durable batch flow in `services/imageUploadBatches.ts` so the whole album gets
+ * one review card. OCR runs locally (`services/imageOcr.ts`), not through an AI API.
+ */
+
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
@@ -29,6 +36,7 @@ import {
   saveImageUploadBatch,
 } from "../services/imageUploadBatches";
 
+/** Registers the photo/image-document handlers and the per-image and per-album button callbacks. Expired buttons get a short alert. */
 export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): void {
   bot.on("message:photo", async (ctx) => handleImageMessage(ctx, ai, token));
   bot.on("message:document", async (ctx, next) => {
@@ -56,6 +64,12 @@ export function registerImageMessages(bot: Bot, ai: AiProvider, token: string): 
   });
 }
 
+/**
+ * Entry point for one incoming image. In groups it only acts when the caption mentions the bot,
+ * or when the image belongs to an album that already has an open batch. Album images are recorded
+ * and processing is scheduled rather than replied to one by one. Single images follow the caption
+ * intent: save, save and extract, show the choice card, or go straight to OCR for task/note/reminder.
+ */
 async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): Promise<void> {
   const caption = ctx.message?.caption ?? "";
   const mediaGroupId = ctx.message?.media_group_id;
@@ -116,6 +130,7 @@ async function handleImageMessage(ctx: Context, ai: AiProvider, token: string): 
   await processImageOcr(ctx, ai, token, target, preparedCaption, intent, user);
 }
 
+/** Handles the album review buttons: set one shared caption, cancel the caption step, discard all, or save all images. */
 async function handleImageBatchAction(ctx: Context, action: string | undefined, token: string | undefined): Promise<void> {
   if (!action || !token) return;
   const user = await ensureUser(ctx);
@@ -147,6 +162,11 @@ async function handleImageBatchAction(ctx: Context, action: string | undefined, 
   await editOrReplyHtml(ctx, formatImageUploadBatchSaved(saved), { reply_markup: menuBackKeyboard() });
 }
 
+/**
+ * Handles the single-image choice card buttons. Discard and Save act on the pending upload.
+ * Caption saves the image first and then opens a restart-safe caption edit. Save + extract saves
+ * and then runs OCR on the same file; the remaining action extracts text without saving the image.
+ */
 async function handleIncomingImageAction(
   ctx: Context,
   ai: AiProvider,
@@ -212,6 +232,12 @@ async function handleIncomingImageAction(
   }, pending.caption ?? "", "extract", user);
 }
 
+/**
+ * Downloads the image, runs local OCR, and writes the text back to the stored image when one exists.
+ * The text then becomes a note, a task, a timed reminder, or a pending capture with action buttons.
+ * A reminder without a future time from the caption asks for a time. A temporary progress message
+ * is shown and deleted afterwards.
+ */
 async function processImageOcr(
   ctx: Context,
   ai: AiProvider,
@@ -295,6 +321,7 @@ type ImageTarget = {
   fileSize?: number;
 };
 
+/** Picks the file to read: the largest photo size Telegram sent, or an image document. */
 function imageTarget(ctx: Context): ImageTarget | undefined {
   const photo = ctx.message?.photo?.at(-1);
   if (photo) return { telegramFileId: photo.file_id, telegramUniqueId: photo.file_unique_id, mediaKind: "photo", mimeType: "image/jpeg", fileSize: photo.file_size };
@@ -315,6 +342,7 @@ async function downloadTelegramImage(token: string, fileId: string): Promise<Buf
   }
 }
 
+/** OCR result card with confidence. Long text is cut to about 1,400 characters for display only. */
 function formatImagePreview(text: string, confidence: number, saved = false): string {
   const preview = text.length > 1400 ? `${text.slice(0, 1397)}…` : text;
   return [

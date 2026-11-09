@@ -1,3 +1,10 @@
+/**
+ * Telegram surface for Today planning: `/today`, `/todo`, the task-draft review card, Carryover
+ * and quick "done"/"move" text actions, across Personal, Group and Study. Drafts, agenda and
+ * ordering rules live in `services/taskCaptureDrafts.ts` and `services/dailyAgenda.ts`.
+ * Everything here is gated to `TODAY_FOUNDATION_OWNER_TELEGRAM_ID` while the feature is owner-only.
+ */
+
 import { PlanningScope, StudyItemType, type StudyModule } from "@prisma/client";
 import { Bot, Context, InlineKeyboard } from "grammy";
 import { DateTime } from "luxon";
@@ -28,12 +35,20 @@ import { isGroupChat } from "./groupRouting";
 import { dashboardViewUrl, groupDashboardUrl, todayDraftDashboardUrl } from "./links";
 import { userFacingError } from "./errorResponses";
 
+/** Who the Today request belongs to (Personal, Group or Study scope), plus dashboard link target and Study modules for tagging. */
 type BotTodayScope = {
   capture: TaskCaptureScope;
   dashboardWorkspace?: { id: string; study: boolean };
   modules: StudyModule[];
 };
 
+/**
+ * Registers Today commands, `td:` callbacks and a text handler. The text handler only starts or
+ * extends a draft from `/todo`, a reply to the "Add tasks to Today" prompt, or a reply to the exact
+ * Add more prompt. Any other text goes to the next middleware, so a waiting draft never swallows
+ * ordinary messages. This replaced an earlier action-verb catch-all that turned normal prose into
+ * to-dos; do not reintroduce it.
+ */
 export function registerTodayInteractions(bot: Bot): void {
   bot.command("today", async (ctx) => handleToday(ctx));
   bot.command(["todo", "todos"], async (ctx) => {
@@ -209,6 +224,7 @@ The deadline is unchanged.`, new InlineKeyboard().text("View Today", "td:today")
   });
 }
 
+/** Shows the Today agenda (paged five tasks at a time), either as a new message or by editing the current one. */
 async function handleToday(ctx: Context, requestedPage = 0, edit = false): Promise<void> {
   if (!todayOwner(ctx)) return;
   try {
@@ -228,12 +244,17 @@ async function handleToday(ctx: Context, requestedPage = 0, edit = false): Promi
   }
 }
 
+/** Dashboard link for "Open Today" in the current workspace (Study overview, group Today, or personal Today). */
 function todayUrl(scope: BotTodayScope): string {
   return scope.dashboardWorkspace
     ? groupDashboardUrl(scope.dashboardWorkspace.id, scope.dashboardWorkspace.study ? "study-overview" : "today")
     : dashboardViewUrl("today");
 }
 
+/**
+ * Carryover card for a task planned on an earlier day. After three or more days it nudges the
+ * user to pick a fresh day instead of offering "today" again by default.
+ */
 export function formatCarryoverPrompt(entry: AgendaEntry, agenda: DailyAgenda): string {
   const firstPlan = entry.firstPlannedFor ?? entry.plannedFor;
   const carriedDays = firstPlan
@@ -249,6 +270,7 @@ export function formatCarryoverPrompt(entry: AgendaEntry, agenda: DailyAgenda): 
   ].join("\n");
 }
 
+/** Parses text into a new durable task draft (tagging a Study module if its code is mentioned) and posts the review card. */
 async function beginDraft(ctx: Context, text: string, resolved?: BotTodayScope): Promise<void> {
   if (!todayOwner(ctx)) return;
   const scope = resolved ?? await resolveScope(ctx);
@@ -261,11 +283,19 @@ async function beginDraft(ctx: Context, text: string, resolved?: BotTodayScope):
   await showDraftReview(ctx, draft, scope);
 }
 
+/**
+ * Posts the draft review card and stores its chat and message id on the draft, so replies and
+ * edits can be tied back to that exact card.
+ */
 async function showDraftReview(ctx: Context, draft: TaskCaptureDraftRecord, scope: BotTodayScope): Promise<void> {
   const message = await ctx.reply(formatDraftReview(draft, scope.modules), { parse_mode: "HTML", reply_markup: reviewKeyboard(draft) });
   if (ctx.chat) await rememberTaskCaptureDraftTelegramReview(draft.id, scope.capture.principalTelegramId, String(ctx.chat.id), message.message_id);
 }
 
+/**
+ * Review card buttons, kept to three actions. If any included row needs review (for example a
+ * missing Study module or an ambiguous date), Save is replaced by "Review details".
+ */
 export function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
   const included = draft.items.filter((item) => item.included);
   const needsReview = included.some((item) => item.status === "NEEDS_REVIEW" || item.warnings.length);
@@ -277,6 +307,7 @@ export function reviewKeyboard(draft: TaskCaptureDraftRecord): InlineKeyboard {
   return keyboard;
 }
 
+/** Review card text: up to 12 rows with plan date, deadline, module and warnings. States that nothing is saved yet. */
 export function formatDraftReview(draft: TaskCaptureDraftRecord, modules: StudyModule[]): string {
   const included = draft.items.filter((item) => item.included);
   const heading = included.length === 1 ? "Add this task?" : `Add ${included.length} tasks?`;
@@ -296,6 +327,7 @@ export function formatDraftReview(draft: TaskCaptureDraftRecord, modules: StudyM
 ${remaining} more task${remaining === 1 ? "" : "s"} are waiting in the detailed editor.` : undefined, "", "Nothing is saved until you approve the list."].filter(Boolean).join("\n");
 }
 
+/** Card text while a draft is collecting more rows from the Add more prompt. */
 export function formatCollectingDraft(draft: TaskCaptureDraftRecord): string {
   return [
     bold(`Adding to this list · ${draft.items.filter((item) => item.included).length} tasks waiting`),
@@ -305,6 +337,7 @@ export function formatCollectingDraft(draft: TaskCaptureDraftRecord): string {
   ].join("\n");
 }
 
+/** Force-reply prompt for Add more. Only a reply to this exact message is appended to the draft. */
 export function formatAddMoreCapturePrompt(): string {
   return [
     bold("Add more tasks"),
@@ -314,10 +347,12 @@ export function formatAddMoreCapturePrompt(): string {
   ].join("\n");
 }
 
+/** Help text for editing a draft by plain replies, with a link to the detailed dashboard editor. */
 function formatDraftEditHelp(draft: TaskCaptureDraftRecord): string {
   return [bold("What should I change?"), "", "Reply naturally, for example:", `• Move task 3 to Saturday`, `• Give task 2 a Friday deadline`, `• Remove task 4`, "", `The detailed editor also supports titles, exact dates, Study modules, and inclusion.`].join("\n");
 }
 
+/** Confirmation after saving a draft. It says no reminders were created, because Today capture never adds them implicitly. */
 export function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
   const included = draft.items.filter((item) => item.included);
   const today = DateTime.now().setZone(draft.timezone).toISODate();
@@ -329,6 +364,10 @@ export function formatSavedDraft(draft: TaskCaptureDraftRecord): string {
 
 const TODAY_PAGE_SIZE = 5;
 
+/**
+ * Today message text: today's tasks (one page), up to three Carryover items, deadlines in the next
+ * few days, and the count of unscheduled tasks. Longer lists point to the dashboard.
+ */
 export function formatAgenda(agenda: DailyAgenda, requestedPage = 0): string {
   const page = clampTodayPage(requestedPage, agenda.today.length);
   const start = page * TODAY_PAGE_SIZE;
@@ -358,6 +397,7 @@ ${agenda.unscheduledCount} unscheduled task${agenda.unscheduledCount === 1 ? "" 
   ].filter(Boolean).join("\n");
 }
 
+/** Buttons under Today: page controls when needed, Plan carryover for the first carried item, Add tasks and Open Today. */
 function todayKeyboard(agenda: DailyAgenda, scope: BotTodayScope, page: number): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const pages = Math.max(1, Math.ceil(agenda.today.length / TODAY_PAGE_SIZE));
@@ -371,11 +411,13 @@ function todayKeyboard(agenda: DailyAgenda, scope: BotTodayScope, page: number):
   return keyboard.text("＋ Add tasks", "td:capture").url("Open Today", todayUrl(scope));
 }
 
+/** Keeps a requested page number inside the valid range. */
 function clampTodayPage(requestedPage: number, itemCount: number): number {
   const last = Math.max(0, Math.ceil(itemCount / TODAY_PAGE_SIZE) - 1);
   return Math.min(Math.max(0, Number.isInteger(requestedPage) ? requestedPage : 0), last);
 }
 
+/** Parses "done TASK-1 TASK-4" into up to 12 unique upper-case references, or null if it is not a done command. */
 function quickCompletionReferences(text: string): string[] | null {
   const match = text.trim().match(/^(?:done|complete)\s+(.+)$/i);
   if (!match?.[1]) return null;
@@ -389,6 +431,7 @@ export type TodayMoveInstruction = {
   targetReference?: string;
 };
 
+/** Parses "prioritize TASK-5", "move TASK-4 to top/up/down" and "move X before/after Y". */
 export function parseTodayMoveInstruction(text: string): TodayMoveInstruction | null {
   const trimmed = text.trim();
   const prioritize = trimmed.match(/^prioritize\s+(\S+)$/i);
@@ -404,6 +447,11 @@ export function parseTodayMoveInstruction(text: string): TodayMoveInstruction | 
   return null;
 }
 
+/**
+ * Reorders Personal Today by sending the complete new order plus the observed revision, so a stale
+ * or concurrent reorder fails instead of overwriting newer ordering. Group and Study Today are not
+ * reorderable yet; ordering is being trialled in Personal first.
+ */
 async function reorderFromToday(ctx: Context, scope: BotTodayScope, move: TodayMoveInstruction): Promise<void> {
   if (scope.capture.scope !== PlanningScope.PERSONAL) {
     await ctx.reply("Manual ordering is being trialled in Personal Today first.");
@@ -447,12 +495,18 @@ async function reorderFromToday(ctx: Context, scope: BotTodayScope, move: TodayM
   await replyHtml(ctx, `${bold("Today reprioritized")}\n${code(entry.publicId)} ${h(entry.title)} is now ${bold(`#${position}`)}.\n\nOpen ${code("/today")} to see the updated order.`);
 }
 
+/** Finds exactly one entry by full public id or by its number suffix ("4" for "TASK-4"); ambiguous matches return undefined. */
 function uniqueAgendaReference(entries: AgendaEntry[], reference: string): AgendaEntry | undefined {
   const upper = reference.toUpperCase();
   const matches = entries.filter((entry) => entry.publicId.toUpperCase() === upper || entry.publicId.toUpperCase().endsWith(`-${upper}`));
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+/**
+ * Completes the referenced Today entries. All references must resolve to exactly one item before
+ * anything changes. Group tasks are permission-checked first (assignee, creator or admin), then
+ * completed one by one.
+ */
 async function completeFromToday(ctx: Context, scope: BotTodayScope, references: string[]): Promise<void> {
   const agendaScope = {
     principalTelegramId: scope.capture.principalTelegramId,
@@ -483,6 +537,7 @@ async function completeFromToday(ctx: Context, scope: BotTodayScope, references:
   await replyHtml(ctx, `${bold(`Completed ${completed.length} task${completed.length === 1 ? "" : "s"}`)}\n${completed.map((entry) => `✓ ${code(entry.publicId)} ${h(entry.title)}`).join("\n")}\n\nOpen ${code("/today")} to see what remains.`);
 }
 
+/** Force-reply prompt for "＋ Add tasks", explaining how lines, commas and labelled context are split. */
 export function formatTodayCapturePrompt(): string {
   return [
     bold("Add tasks to Today"),
@@ -496,11 +551,13 @@ export function formatTodayCapturePrompt(): string {
   ].join("\n");
 }
 
+/** True when the message replies to the "Add tasks to Today" prompt, detected by the prompt's heading text. */
 export function isTodayCaptureReply(ctx: Context): boolean {
   const replied = ctx.message?.reply_to_message;
   return Boolean(replied && "text" in replied && replied.text?.startsWith("Add tasks to Today"));
 }
 
+/** True when the message replies to the exact chat and message id stored on the draft. */
 export function isTaskCaptureDraftReply(ctx: Context, draft: TaskCaptureDraftRecord): boolean {
   const replied = ctx.message?.reply_to_message;
   return Boolean(
@@ -513,12 +570,20 @@ export function isTaskCaptureDraftReply(ctx: Context, draft: TaskCaptureDraftRec
 
 export type TaskCaptureMessageRoute = "append" | "start" | "none";
 
+/**
+ * Decides what a text message means for task capture: append to the collecting draft, start a
+ * new draft, or nothing (let normal routing handle it).
+ */
 export function taskCaptureMessageRoute(ctx: Context, active?: TaskCaptureDraftRecord): TaskCaptureMessageRoute {
   if (active?.status === "COLLECTING" && isTaskCaptureDraftReply(ctx, active)) return "append";
   if (!isTodayCaptureReply(ctx)) return "none";
   return active ? "append" : "start";
 }
 
+/**
+ * Applies a plain-language edit to a reviewing draft: "remove 3", "give 2 a Friday deadline" or
+ * "move 3 to Saturday". Returns false when the text is not a recognised edit or the date cannot be parsed.
+ */
 async function applyNaturalDraftEdit(draft: TaskCaptureDraftRecord, scope: BotTodayScope, text: string): Promise<boolean> {
   const remove = text.match(/^(?:remove|exclude|drop)\s+(?:task\s+)?(\d+)$/i);
   const deadline = text.match(/^(?:give|set|make)\s+(?:task\s+)?(\d+)\s+(?:a\s+)?(.+?)\s+(?:deadline|due(?:\s+date)?)$/i)
@@ -542,6 +607,10 @@ async function applyNaturalDraftEdit(draft: TaskCaptureDraftRecord, scope: BotTo
   return true;
 }
 
+/**
+ * Works out the Today scope for this chat: the sealed Study workspace, a group workspace, or the
+ * sender's personal workspace. The principal is always the human sender.
+ */
 async function resolveScope(ctx: Context): Promise<BotTodayScope> {
   if (!ctx.from) throw new Error("Telegram did not identify the sender.");
   const principalTelegramId = String(ctx.from.id);
@@ -586,11 +655,13 @@ async function resolveScope(ctx: Context): Promise<BotTodayScope> {
   };
 }
 
+/** Finds a Study module whose code appears in the text as a whole word. */
 function moduleForText(modules: StudyModule[], text: string): StudyModule | undefined {
   const upper = text.toUpperCase();
   return modules.find((module) => new RegExp(`(?:^|[^A-Z0-9])${escapeRegex(module.code.toUpperCase())}(?:[^A-Z0-9]|$)`).test(upper));
 }
 
+/** Turns draft warning codes into one short user-facing sentence. */
 function warningCopy(warnings: string[]): string {
   if (warnings.includes("STUDY_MODULE_REQUIRED")) return "Choose a Study module before saving.";
   if (warnings.includes("AMBIGUOUS_BARE_DATE")) return "Clarify whether the date is a plan or a deadline.";
@@ -598,10 +669,12 @@ function warningCopy(warnings: string[]): string {
   return "Review this task before saving.";
 }
 
+/** Owner gate for the whole Today feature. Unset config means nobody gets Today (fails closed). */
 function todayOwner(ctx: Context): boolean {
   return Boolean(env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID && String(ctx.from?.id ?? "") === env.TODAY_FOUNDATION_OWNER_TELEGRAM_ID);
 }
 
+/** Edits the pressed card when possible, and falls back to a new message if editing fails. */
 async function editDraftMessage(ctx: Context, text: string, replyMarkup: InlineKeyboard): Promise<void> {
   if (ctx.callbackQuery?.message) {
     await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: replyMarkup }).catch(async () => {

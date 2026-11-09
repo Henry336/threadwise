@@ -1,3 +1,9 @@
+/**
+ * Voice and audio notes become saved notes. Handlers queue a durable transcription job
+ * (services/voiceTranscription.ts) and start it right away; the job turns into a Note and a result
+ * message with Raw transcript, Undo, Edit, and Keep verbatim buttons. A minute-long recovery loop
+ * finishes jobs interrupted by a restart. See docs/VOICE_NOTE_CAPTURE.md.
+ */
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { VoiceCleanupMode, VoiceTranscriptionStatus } from "@prisma/client";
 import { logger } from "../logger";
@@ -19,6 +25,11 @@ import {
 } from "../services/voiceTranscription";
 import { startLoop, type StopLoop } from "../utils/loop";
 
+/**
+ * Registers voice, audio, and audio-document handlers plus the transcript buttons. Voice messages
+ * are always transcribed; audio files only when the user enabled voiceAutoTranscribeAudio, otherwise
+ * they pass to the next handler (for example file saving). Button lookups are scoped to user and chat.
+ */
 export function registerVoiceCapture(bot: Bot, botToken: string): void {
   bot.on("message:voice", async (ctx) => {
     await queueVoiceFromContext(ctx, botToken, {
@@ -131,6 +142,10 @@ export function startVoiceCaptureRecoveryLoop(bot: Bot, botToken: string): StopL
   }, { runImmediately: true });
 }
 
+/**
+ * Sends the result message for every finished job not yet delivered (success or failure) and marks
+ * it delivered. A send failure is logged and left for the next pass, so results are not lost.
+ */
 export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> {
   const jobs = await undeliveredVoiceJobs();
   for (const job of jobs) {
@@ -167,6 +182,11 @@ export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> 
   }
 }
 
+/**
+ * Validates format and size (Telegram's hosted Bot API downloads at most 20 MB), writes the job
+ * row, replies "Transcription started", then processes it in the background without blocking the
+ * update. A repeated Telegram update finds the existing job and does nothing.
+ */
 async function queueVoiceFromContext(
   ctx: Context,
   botToken: string,

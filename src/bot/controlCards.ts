@@ -1,8 +1,14 @@
+/**
+ * Keeps one live "control card" (a list or menu with buttons) per private chat. When a new
+ * card is sent, the buttons on the previous one are removed, so old cards cannot be tapped
+ * with stale state. Tracking is in-memory only; after a restart the next card simply starts fresh.
+ */
 import type { Context } from "grammy";
 import { replyHtml } from "../utils/html";
 
 const activeCards = new Map<string, number>();
 
+/** Marks the card whose button was just tapped as the chat's current control card. */
 export function rememberCallbackControlCard(ctx: Context): void {
   const message = ctx.callbackQuery?.message;
   const chatId = ctx.chat?.id;
@@ -10,6 +16,10 @@ export function rememberCallbackControlCard(ctx: Context): void {
   activeCards.set(String(chatId), message.message_id);
 }
 
+/**
+ * Records a newly sent card and strips the inline keyboard from the previous one.
+ * Private chats only: in groups, other members may still be using an older card.
+ */
 export async function rememberNewControlCard(ctx: Context, message: unknown): Promise<void> {
   if (ctx.chat?.type !== "private") return;
   const chatId = ctx.chat?.id;
@@ -30,6 +40,7 @@ export async function rememberNewControlCard(ctx: Context, message: unknown): Pr
   }
 }
 
+/** Sends an HTML reply and registers it as the chat's current control card. */
 export async function replyControlCardHtml(
   ctx: Context,
   content: string,

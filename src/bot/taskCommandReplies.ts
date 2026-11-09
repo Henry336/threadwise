@@ -1,3 +1,8 @@
+/**
+ * Telegram reply copy for task commands (complete, snooze, cancel, assign, unassign).
+ * The command itself runs in services/taskCommands.ts; this file only turns its result into
+ * a message with the matching Undo button.
+ */
 import type { Context } from "grammy";
 import { formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted } from "../services/tasks";
 import type { TaskCommandResult } from "../services/taskCommands";

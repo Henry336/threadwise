@@ -1,3 +1,9 @@
+/**
+ * Help, menu and privacy copy for Telegram. Holds the slash-command catalogue and the per-topic
+ * help sections, plus separate group versions that describe the shared workspace.
+ * Called by `commands.ts` and the help callbacks; returns HTML strings and sends nothing itself.
+ */
+
 import { bold, code } from "../utils/html";
 import { DASHBOARD_URL } from "./links";
 
@@ -17,6 +23,7 @@ type HelpSection = {
 
 export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
+/** The slash-command reference shown by `/commands`. Each entry pairs a description with a runnable example. */
 export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
   { command: "/commands", description: "Show the full slash-command reference.", example: "/commands" },
@@ -67,6 +74,7 @@ export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/privacy", description: "See exactly how Threadwise protects and processes your data.", example: "/privacy" }
 ];
 
+/** Topic pages for `/help`: natural phrasings to try first, then the slash equivalents. */
 const HELP_SECTIONS: HelpSection[] = [
   {
     topic: "general",
@@ -212,10 +220,12 @@ const HELP_SECTIONS: HelpSection[] = [
   }
 ];
 
+/** Short text shown with the reply keyboard that `/start` installs in private chats. */
 export function formatStartShortcutText(): string {
   return "Menu and Dashboard stay within reach below.";
 }
 
+/** Header text for the private main menu card. */
 export function formatMainMenuText(timezone = "Asia/Singapore"): string {
   return [
     bold("Threadwise"),
@@ -226,6 +236,7 @@ export function formatMainMenuText(timezone = "Asia/Singapore"): string {
   ].join("\n");
 }
 
+/** Header text for the shared group menu card. It reminds members to mention or reply to the bot. */
 export function formatGroupMainMenuText(groupName: string, timezone = "Asia/Singapore"): string {
   return [
     bold(`Threadwise · ${groupName}`),
@@ -234,6 +245,10 @@ export function formatGroupMainMenuText(groupName: string, timezone = "Asia/Sing
   ].join("\n");
 }
 
+/**
+ * Group help overview. Examples use the real bot username when known, because ordinary group
+ * text is ignored unless it mentions the bot.
+ */
 export function formatGroupHelpGuide(botUsername?: string): string {
   const mention = botUsername ? `@${botUsername.replace(/^@/, "")}` : "@ThreadwiseBot";
   return [
@@ -255,6 +270,10 @@ export function formatGroupHelpGuide(botUsername?: string): string {
   ].join("\n");
 }
 
+/**
+ * Group version of a help topic. Shared topics get copy that explains items belong to the group;
+ * any topic without a group variant falls back to the personal help text.
+ */
 export function formatGroupHelpTopic(topic: HelpTopic, botUsername?: string): string {
   if (topic === "general") return formatGroupHelpGuide(botUsername);
   if (topic === "commands") return formatGroupCommandReference();
@@ -315,6 +334,7 @@ export function formatGroupCommandReference(): string {
   ].join("\n");
 }
 
+/** Group privacy summary: one shared workspace, admins control settings, not end-to-end encrypted. */
 export function formatGroupPrivacyText(): string {
   return [
     bold("🔐 Group data & privacy"),
@@ -325,6 +345,7 @@ export function formatGroupPrivacyText(): string {
   ].join("\n");
 }
 
+/** Personal privacy summary. It states plainly that content is not end-to-end encrypted. */
 export function formatPrivacyText(): string {
   return [
     bold("🔐 Data & privacy"),
@@ -363,6 +384,7 @@ export function formatHelpGuide(): string {
   ].join("\n");
 }
 
+/** Renders one personal help topic page. Unknown topics fall back to the overview. */
 export function formatHelpTopic(topic: HelpTopic): string {
   if (topic === "commands") {
     return formatCommandReference();
@@ -395,6 +417,7 @@ export function formatHelpTopic(topic: HelpTopic): string {
   ].join("\n");
 }
 
+/** Alphabetical slash-command reference built from `HELP_COMMANDS`. */
 export function formatCommandReference(): string {
   return [
     bold("Threadwise commands"),

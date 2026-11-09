@@ -1,3 +1,8 @@
+/**
+ * Telegram replies that put a task on a calendar. It syncs to the user's connected Google Calendar
+ * when possible, and otherwise falls back to a no-login Google Calendar template link plus an
+ * .ics file, so the user can always add the event even without connecting an account.
+ */
 import type { Context } from "grammy";
 import { InputFile } from "grammy";
 import { createGoogleCalendarUrl, createIcs } from "../services/calendar";
@@ -27,6 +32,11 @@ export async function calendarTaskConnectCard(userId: string, chatId: string, ta
   };
 }
 
+/**
+ * Replies with calendar options for one task (it needs a due date). With includeIcs it first tries
+ * a real Google Calendar sync, which writes the event and its id to the task; on failure it explains
+ * and sends the template link and .ics file instead. Without includeIcs it sends only the link.
+ */
 export async function replyWithTaskCalendar(
   ctx: Context,
   input: {

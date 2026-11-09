@@ -1,3 +1,9 @@
+/**
+ * Opt-in private morning brief and evening wrap-up for Today. A minute loop (started from main.ts
+ * for the Today owner only) checks each user's chosen times, builds the agenda from
+ * services/dailyAgenda.ts, and sends at most one brief per kind per local day, using the
+ * DailyBriefDelivery ledger as the once-only guard. Empty briefs are recorded as skipped, not sent.
+ */
 import { createHash } from "node:crypto";
 import { DailyBriefDeliveryStatus, DailyBriefKind, PlanningScope, type PrismaClient } from "@prisma/client";
 import { Bot, InlineKeyboard } from "grammy";
@@ -56,6 +62,7 @@ export async function runDailyBriefPass(
     },
     include: { user: { select: { id: true, telegramId: true } } },
   });
+  // Briefs are private: only users whose reminder chat is their own private chat qualify.
   const candidates: BriefCandidate[] = rows
     .filter((settings) => settings.reminderChatId === settings.user.telegramId)
     .map((settings) => ({
@@ -143,6 +150,7 @@ export async function runDailyBriefPass(
   return summary;
 }
 
+/** Starts the minute loop, or nothing when no Today owner is configured (the feature is owner-gated). */
 export function startDailyBriefLoop(
   bot: Bot,
   ownerTelegramId: string | undefined,
@@ -152,6 +160,7 @@ export function startDailyBriefLoop(
   return startLoop("Daily brief", pollMs, () => runDailyBriefPass(bot, ownerTelegramId), { runImmediately: true });
 }
 
+/** Morning text: today's plan, carryover, and deadlines. Undefined when there is nothing to say. */
 export function formatMorningBrief(agenda: DailyAgenda): string | undefined {
   if (!agenda.today.length && !agenda.carryover.length && !agenda.dueSoon.length) return undefined;
   return [
@@ -168,6 +177,7 @@ export function formatMorningBrief(agenda: DailyAgenda): string | undefined {
   ].join("\n");
 }
 
+/** Evening text: completed count, what is still open, and deadlines. Undefined when there is nothing to say. */
 export function formatEveningDebrief(agenda: DailyAgenda, completed: number): string | undefined {
   if (!completed && !agenda.today.length && !agenda.carryover.length && !agenda.dueSoon.length) return undefined;
   const remaining = [...agenda.today, ...agenda.carryover];
@@ -184,6 +194,7 @@ export function formatEveningDebrief(agenda: DailyAgenda, completed: number): st
   ].join("\n");
 }
 
+/** One section with up to four rows and a "+N more" line; carryover rows show how many days they slipped. */
 function agendaSection(title: string, entries: AgendaEntry[], agenda: DailyAgenda, empty: string, carried = false): string {
   const rows = entries.slice(0, 4).map((entry) => {
     const context = entry.moduleCode ?? entry.workspaceName ?? modeLabel(entry.mode);
@@ -208,6 +219,10 @@ function briefKeyboard(agenda: DailyAgenda): InlineKeyboard {
   return keyboard.url("Open Today", dashboardViewUrl("today"));
 }
 
+/**
+ * True from the chosen local time until four hours after it. The window means a brief whose exact
+ * minute was missed (quiet hours, restart) can still go out later; the ledger prevents a repeat.
+ */
 function isDeliveryDue(local: DateTime, clock: string): boolean {
   const [hour, minute] = clock.split(":").map(Number);
   if (!Number.isInteger(hour) || !Number.isInteger(minute)) return false;

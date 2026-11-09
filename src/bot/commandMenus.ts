@@ -1,3 +1,9 @@
+/**
+ * Registers the "/" command lists Telegram shows in its menu, scoped per audience with
+ * setMyCommands: Personal (private chats), Group, the one Study chat, and Beacon (English and
+ * Burmese, with /purge only for its owner). Called at startup. This only helps discovery;
+ * routing and permissions are still enforced by the handlers.
+ */
 import type { Bot } from "grammy";
 import type { BotCommand, BotCommandScope, LanguageCode } from "@grammyjs/types";
 import type { BeaconConfig } from "../config/env";
@@ -61,6 +67,7 @@ async function setCommands(bot: Bot, commands: BotCommand[], scope: BotCommandSc
   });
 }
 
+/** Sets the Threadwise command menus. Failures are logged, not thrown, so startup is never blocked. */
 export async function registerThreadwiseCommandMenus(bot: Bot): Promise<void> {
   try {
     await setCommands(bot, personalCommands, { type: "all_private_chats" });
@@ -73,6 +80,10 @@ export async function registerThreadwiseCommandMenus(bot: Bot): Promise<void> {
   }
 }
 
+/**
+ * Sets the Beacon command menus. Moderators get the member list in each enabled group, and only the
+ * owner sees /purge, so owner-only controls are not advertised to other people. Reads CommunityGroup rows.
+ */
 export async function registerBeaconCommandMenus(bot: Bot, config: BeaconConfig): Promise<void> {
   try {
     await setCommands(bot, beaconMemberCommands, { type: "all_private_chats" });

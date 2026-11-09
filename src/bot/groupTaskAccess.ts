@@ -1,3 +1,8 @@
+/**
+ * Bridges a Telegram update to the group task permission rules in services/groupTaskPolicy.ts.
+ * It builds the acting member from the update and only asks Telegram whether they are an admin
+ * when the cheaper creator/assignee checks are not enough.
+ */
 import type { Context } from "grammy";
 import { collaborationActorFromContext } from "../services/groupCollaboration";
 import { getGroupTaskAccess, type GroupTaskAccess, type GroupTaskAction } from "../services/groupTaskPolicy";

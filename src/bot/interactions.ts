@@ -1,3 +1,8 @@
+/**
+ * One helper that switches off every "your next message is input for X" mode at once.
+ * Used when the user cancels or starts something new, so a stale prompt (menu input,
+ * item edit, expense edit, image reminder time) does not swallow their next message.
+ */
 import { cancelPendingExpenseEdits } from "../services/expenses";
 import { cancelPendingImageReminders } from "../services/imageOcr";
 import { cancelPendingItemEdit } from "../services/itemEdits";

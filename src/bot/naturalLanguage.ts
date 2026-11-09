@@ -1,3 +1,11 @@
+/**
+ * Last-stop text handler for Personal and Group chats: any non-command text that earlier
+ * middleware did not claim ends up here. It first resumes open conversations (reminder-time
+ * replies, album captions, menu prompts, pending edits, corrections), then explicit natural
+ * commands, and only then the deterministic classifier. Classified prose is never saved directly:
+ * it becomes a short-lived, actor-bound `PendingCapture` shown on a review card.
+ */
+
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { classifyMessageDeterministically } from "../ai/deterministic";
@@ -44,6 +52,11 @@ import {
 import { formatCaptureReview, formatReminderTimePrompt, suggestedCaptureKind } from "./captureReview";
 import { parseCaptureCorrection } from "./captureCorrections";
 
+/**
+ * Registers the natural-language text handler. The order of checks is the routing priority:
+ * an open follow-up always wins over a fresh interpretation of the same text. In groups, only
+ * messages that mention or reply to the bot get this far (see `prepareNaturalLanguageText`).
+ */
 export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   bot.on("message:text", async (ctx, next) => {
     const rawText = ctx.message.text;
@@ -180,6 +193,13 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
   });
 }
 
+/**
+ * Handles "save that as a note instead" style corrections. In private chats, a reversible item
+ * saved within the last ten minutes is replaced (the original is archived and Undo restores it),
+ * unless a newer review card is waiting. Otherwise the correction applies to the sender's latest
+ * unexpired review card in this chat. Groups never correct saved items, because older creation
+ * audit rows do not record which member created them.
+ */
 async function handleCaptureCorrection(
   ctx: Context,
   ai: AiProvider,
@@ -266,6 +286,11 @@ async function handleCaptureCorrection(
   return true;
 }
 
+/**
+ * Handles a reply to the "when should I remind you?" force-reply prompt. The prompt is bound to
+ * the exact actor, chat and message id, so other members' replies or other messages are ignored.
+ * Without a usable future time it asks again with a new prompt; "cancel" drops the capture.
+ */
 async function handlePendingCaptureReminderReply(
   ctx: Context,
   user: Awaited<ReturnType<typeof ensureUser>>,
@@ -314,6 +339,12 @@ async function handlePendingCaptureReminderReply(
   return true;
 }
 
+/**
+ * Completes a menu button that asked for text input ("Add task", "Set timezone", "Search notes").
+ * The waiting action is kept per owner and actor by `menuInputs.ts`. Settings inputs reuse the
+ * `/settings` code path and then redraw the settings panel. Search inputs are turned into a
+ * natural search command.
+ */
 async function handlePendingMenuInput(
   ctx: Context,
   ai: AiProvider,

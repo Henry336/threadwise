@@ -1,3 +1,8 @@
+/**
+ * The main menu, the dashboard link reply, and hiding the reply keyboard. Called from /start,
+ * /menu, /dashboard and their button equivalents. Private and group chats get different menus
+ * because group data lives in a separate shared workspace.
+ */
 import type { Context } from "grammy";
 import { replyHtml } from "../utils/html";
 import { isGroupChat } from "./groupRouting";
@@ -8,6 +13,11 @@ import { DASHBOARD_URL } from "./links";
 import { cancelTransientInteractions } from "./interactions";
 import { groupWorkspaceForContext, recordGroupWorkspaceAccess } from "../services/groupWorkspaces";
 
+/**
+ * Shows the main menu. Opening the menu first cancels any pending "type your input" prompt so the
+ * next message is not silently consumed. In groups it also records workspace access, which keeps
+ * the group's dashboard workspace up to date.
+ */
 export async function showMainMenu(
   ctx: Context,
   timezone = "Asia/Singapore",
@@ -29,6 +39,10 @@ export async function showMainMenu(
   if (!group) await rememberNewControlCard(ctx, message);
 }
 
+/**
+ * Replies with the dashboard link. In groups it checks whether the bot is an admin, because the
+ * dashboard verifies each visitor's live group membership through the bot and warns when it may not be able to.
+ */
 export async function showDashboardLink(ctx: Context): Promise<void> {
   if (isGroupChat(ctx)) {
     const workspace = await groupWorkspaceForContext(ctx);
@@ -62,6 +76,7 @@ export async function showDashboardLink(ctx: Context): Promise<void> {
   ].join("\n"), { reply_markup: dashboardLinkKeyboard() });
 }
 
+/** Removes the private reply keyboard. Groups never get one, so they get an explanation instead. */
 export async function hidePrivateMenu(ctx: Context): Promise<void> {
   if (isGroupChat(ctx)) {
     await ctx.reply("In groups, Threadwise buttons stay attached to my messages instead of sitting beneath everyone’s reply box.");

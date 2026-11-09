@@ -1,3 +1,9 @@
+/**
+ * Private Note sessions (/note_session): every text message becomes one exact paragraph of a single
+ * note until Save or Cancel. Session state is durable in PostgreSQL (services/noteCaptureSessions.ts),
+ * so a restart does not lose captured paragraphs; this file owns the Telegram handlers and the one
+ * edited status card. Registered early in index.ts so it sees text before normal classification.
+ */
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import {
   appendNoteCaptureParagraph,
@@ -16,6 +22,11 @@ import {
 } from "./keyboards";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 
+/**
+ * Registers the Save/Cancel buttons and the private text handler. While a session is active, text
+ * is appended silently and other slash commands are refused until the note is finished. With no
+ * active session, text passes to the next handler. An expired session is auto-saved first.
+ */
 export function registerNoteSessions(bot: Bot): void {
   bot.callbackQuery("note-session:save", async (ctx) => {
     if (!ctx.from || isGroupChat(ctx)) return ctx.answerCallbackQuery({ text: "Note sessions are private.", show_alert: true });
@@ -110,6 +121,10 @@ export function registerNoteSessions(bot: Bot): void {
   });
 }
 
+/**
+ * Starts or resumes a session and shows its status card. If a status card already exists it is edited
+ * in place so the chat keeps a single card; otherwise a new one is sent and its id saved.
+ */
 export async function beginNoteSession(ctx: Context, userId: string): Promise<void> {
   if (isGroupChat(ctx)) {
     await ctx.reply("Note sessions are private. Open Threadwise directly to start one.");
@@ -131,6 +146,7 @@ export async function beginNoteSession(ctx: Context, userId: string): Promise<vo
   if (typeof message?.message_id === "number") await rememberNoteCaptureStatusMessage(userId, message.message_id);
 }
 
+/** Saves the session as one note (writes the Note row) and updates the status card. */
 async function saveNoteSession(ctx: Context, userId: string): Promise<void> {
   const result = await finalizeNoteCaptureSession(userId);
   if (!result?.note) {
@@ -140,6 +156,7 @@ async function saveNoteSession(ctx: Context, userId: string): Promise<void> {
   }
 }
 
+/** Discards the session and its paragraphs, then says how many were removed. */
 async function cancelNoteSession(ctx: Context, userId: string): Promise<void> {
   const result = await cancelNoteCaptureSession(userId);
   const text = result.paragraphCount > 0
@@ -148,6 +165,7 @@ async function cancelNoteSession(ctx: Context, userId: string): Promise<void> {
   await replaceOrReplyStatus(ctx, result.chatId, result.statusMessageId, text);
 }
 
+/** Re-reads the paragraph count and edits the status card, instead of replying to every message. */
 async function refreshNoteSessionStatus(ctx: Context, userId: string): Promise<void> {
   const session = await noteCaptureSessionForTelegramUser(String(ctx.from!.id));
   if (!session || session.userId !== userId || !session.telegramStatusMessageId) return;
@@ -157,6 +175,7 @@ async function refreshNoteSessionStatus(ctx: Context, userId: string): Promise<v
   }).catch(() => undefined);
 }
 
+/** Final status text after a manual or automatic save, with an Open note button when a note was created. */
 async function finishNoteSessionStatus(
   ctx: Context,
   result: NonNullable<Awaited<ReturnType<typeof finalizeNoteCaptureSession>>>,
@@ -169,6 +188,7 @@ async function finishNoteSessionStatus(
   await replaceOrReplyStatus(ctx, result.chatId, result.statusMessageId, text, keyboard);
 }
 
+/** Edits the stored status card, or sends a new message if that card can no longer be edited. */
 async function replaceOrReplyStatus(
   ctx: Context,
   chatId: string | undefined,
@@ -199,6 +219,7 @@ function noteSessionControls(): InlineKeyboard {
   return new InlineKeyboard().text("Save & finish", "note-session:save").text("Cancel session", "note-session:cancel");
 }
 
+/** Matches the reply-keyboard Save label or /save_note. */
 function isSaveCommand(text: string): boolean {
   return text === NOTE_SESSION_LABELS.save || /^\/save_note(?:@\w+)?$/i.test(text);
 }

@@ -1,3 +1,8 @@
+/**
+ * Shared "save a task from Telegram" step used by commands, callbacks, and natural-language
+ * routing. It calls the task service, records group activity, and sends the quiet acknowledgement
+ * so every entry point saves and answers the same way.
+ */
 import type { Context } from "grammy";
 import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { createTask, formatTaskSavedAcknowledgement, type TaskCreationOptions, type TaskListItem } from "../services/tasks";

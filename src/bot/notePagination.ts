@@ -1,7 +1,16 @@
+/**
+ * Splits a long note body into Telegram-sized pages for display. The stored note is never changed.
+ * The budget sits below Telegram's 4096-character message limit to leave room for the card heading,
+ * and it is measured after HTML escaping because escaping makes text longer.
+ */
 import { h } from "../utils/html";
 
 export const NOTE_PAGE_BODY_BUDGET = 3_050;
 
+/**
+ * Packs whole paragraphs into pages. A paragraph that is too big on its own is split by sentence,
+ * then by word, then by character, so a page break never lands mid-word unless there is no choice.
+ */
 export function paginateNoteBody(body: string, budget = NOTE_PAGE_BODY_BUDGET): string[] {
   const normalized = body.replace(/\r\n?/g, "\n").trim();
   if (!normalized) return [""];
@@ -25,11 +34,13 @@ export function paginateNoteBody(body: string, budget = NOTE_PAGE_BODY_BUDGET): 
   return pages;
 }
 
+/** Clamps a requested page (for example from a stale button) into 1..totalPages. */
 export function boundedNotePage(requestedPage: number, totalPages: number): number {
   if (!Number.isFinite(requestedPage)) return 1;
   return Math.min(Math.max(1, Math.trunc(requestedPage)), Math.max(1, totalPages));
 }
 
+/** Breaks one oversized paragraph into budget-sized chunks, trying sentences, then words, then characters. */
 function splitOversizedUnit(value: string, budget: number): string[] {
   if (escapedLength(value) <= budget) return [value];
 
@@ -44,6 +55,7 @@ function splitOversizedUnit(value: string, budget: number): string[] {
   return packUnits(graphemes(value), budget, "");
 }
 
+/** Greedily joins units into chunks under the budget; a single unit that is still too big is split by character. */
 function packUnits(units: string[], budget: number, separator: string): string[] {
   const chunks: string[] = [];
   let chunk = "";
@@ -73,6 +85,7 @@ function packUnits(units: string[], budget: number, separator: string): string[]
   return chunks;
 }
 
+/** Splits into user-visible characters so emoji and combined letters are never cut in half. */
 function graphemes(value: string): string[] {
   if (typeof Intl.Segmenter === "function") {
     const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });

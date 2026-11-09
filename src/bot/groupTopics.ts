@@ -1,3 +1,8 @@
+/**
+ * Optional dedicated "Threadwise" forum topic for a group. An admin creates it once with
+ * /threadwise_topic or a button; its id is stored on GroupWorkspace. It is only an organizing
+ * convention: group features work the same with or without it.
+ */
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { prisma } from "../db/prisma";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
@@ -6,13 +11,20 @@ import { bold, editOrReplyHtml, replyHtml } from "../utils/html";
 import { userFacingError } from "./errorResponses";
 import { isGroupChat } from "./groupRouting";
 
+// In-process guard so a double tap does not create two topics at the same time.
 const topicCreations = new Set<string>();
 
+/** Registers the /threadwise_topic command and its matching button callback. */
 export function registerGroupTopics(bot: Bot): void {
   bot.command("threadwise_topic", async (ctx) => createThreadwiseTopic(ctx, false));
   bot.callbackQuery("group:topic:create", async (ctx) => createThreadwiseTopic(ctx, true));
 }
 
+/**
+ * Creates the topic after checking: group chat, admin sender, no topic stored yet, and a forum
+ * supergroup. On success it saves the topic id to GroupWorkspace and posts a welcome message there.
+ * Answers through the callback toast or a reply depending on how it was triggered.
+ */
 async function createThreadwiseTopic(ctx: Context, fromCallback: boolean): Promise<void> {
   if (!isGroupChat(ctx) || !ctx.chat) {
     if (fromCallback) await ctx.answerCallbackQuery({ text: "This is available in Telegram groups." });
@@ -86,6 +98,7 @@ async function createThreadwiseTopic(ctx: Context, fromCallback: boolean): Promi
   }
 }
 
+/** "Open topic" link. t.me/c/ links use the supergroup id without its -100 prefix. */
 function topicLinkKeyboard(chatId: number, messageThreadId: number): InlineKeyboard {
   const internalId = String(chatId).replace(/^-100/, "");
   return new InlineKeyboard().url("Open topic", `https://t.me/c/${internalId}/${messageThreadId}`);

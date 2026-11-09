@@ -1,3 +1,11 @@
+/**
+ * The first deterministic layer for plain-text messages: an ordered list of rules for requests that
+ * name their operation ("add task ...", "show note 3", "done 2", "undo", "set my timezone ...").
+ * `naturalLanguage.ts` calls `handleNaturalCommand` before the classifier; a match runs the same
+ * services as the slash commands. Action prose like "I need to ..." is deliberately not a rule, so
+ * it reaches the review card instead of being saved as a task.
+ */
+
 import type { Context } from "grammy";
 import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
@@ -681,6 +689,10 @@ async function replyNaturalIdeaDetail({ ctx, user }: NaturalInput, reference: st
   return true;
 }
 
+/**
+ * True when a reference looks like a task ("3", "TASK-3", "task 3"). Rules that accept any item
+ * type use it so group task permission checks run only when the target is a task.
+ */
 function looksLikeTaskReference(reference: string): boolean {
   const normalized = reference.trim();
   return /^\d+$/.test(normalized)
@@ -688,6 +700,7 @@ function looksLikeTaskReference(reference: string): boolean {
     || /^task\s+/i.test(normalized);
 }
 
+/** In groups, checks the actor may perform this action on the task (assignee, creator or admin). Does nothing in private chats. */
 async function assertNaturalGroupTaskAction(
   ctx: Context,
   ownerUserId: string,
@@ -708,11 +721,16 @@ async function runNaturalTaskCommand(ctx: Context, user: ThreadwiseUser, command
   return true;
 }
 
+/** Builds the group task card buttons for the current actor's relation to the task (assignee, other member, or admin). */
 async function groupTaskKeyboardForNaturalCommand(ctx: Context, ownerUserId: string, taskReference: string) {
   const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
+/**
+ * Puts one dated task on Google Calendar. If Calendar is not connected it replies with a connect
+ * card instead. Undated tasks are refused because a Calendar event needs a time.
+ */
 async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId: string, reference: string) {
   try {
     let task = await findTaskReference(userId, normalizePublicId(reference));
@@ -736,6 +754,10 @@ async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId
   }
 }
 
+/**
+ * Splits "rename task 3 title New name" style text into the item reference, an optional field
+ * (title, description, body, concept) and the new text. Accepts "task 3" or a bare reference.
+ */
 function parseReferenceAndTitle(body: string): { reference: string; title: string; field?: "title" | "description" | "body" | "concept" } | undefined {
   const parts = body.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
@@ -770,6 +792,7 @@ function editableField(value?: string): "title" | "description" | "body" | "conc
   return undefined;
 }
 
+/** Replies with up to three open group tasks under a custom heading ("My shared tasks", "Unassigned tasks"). */
 async function replyFilteredGroupTasks(
   ctx: Context,
   tasks: Awaited<ReturnType<typeof listOpenTasks>>,
