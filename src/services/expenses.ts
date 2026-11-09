@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { detectCurrency, normalizeCurrency } from "../utils/currencies";
 
 export const EXPENSE_PAGE_SIZE = 10;
@@ -171,10 +171,9 @@ export async function confirmPendingExpense(userId: string, pendingId: string) {
   const contentHash = pending.sourceType === "receipt"
     ? crypto.createHash("sha256").update(`${pending.receiptFileUniqueId ?? ""}\n${normalizeHashText(pending.sourceText)}`).digest("hex")
     : undefined;
-  const publicId = await nextPublicId(userId, "EXP");
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await createWithPublicId(userId, "EXP", async (tx, publicId) => {
       const expense = await tx.expense.create({
         data: {
           userId,

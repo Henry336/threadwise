@@ -138,12 +138,8 @@ export async function finalizeExpiredNoteCaptureSessions(): Promise<FinalizedNot
 
   const results: FinalizedNoteCapture[] = [];
   for (const session of expired) {
-    const current = await prisma.noteCaptureSession.findUnique({
-      where: { id: session.id },
-      include: { segments: { orderBy: { telegramMessageId: "asc" } } }
-    });
-    if (!current || current.expiresAt > new Date()) continue;
-    results.push(await finalizeLoadedSession(current));
+    const result = await finalizeLoadedSession(session, new Date());
+    if (result) results.push(result);
   }
   return results;
 }
@@ -160,14 +156,22 @@ export function deriveCapturedNoteTitle(paragraphs: string[]): string {
   return clampText(sentence, 84);
 }
 
-async function finalizeLoadedSession(session: SessionWithSegments): Promise<FinalizedNoteCapture> {
+/**
+ * Saves a loaded session as one note and deletes the session. With `expiredBy`, the expiry loop
+ * asks to finalize only a session that is still expired at that time: a paragraph added since the
+ * session was loaded extends its expiry, so the in-transaction check skips it (returns undefined)
+ * instead of saving stale segments.
+ */
+async function finalizeLoadedSession(session: SessionWithSegments, expiredBy?: Date): Promise<FinalizedNoteCapture | undefined> {
+  const stillExpired = expiredBy ? { expiresAt: { lte: expiredBy } } : {};
   const paragraphs = session.segments
     .map((segment) => segment.text)
     .filter((text) => text.trim().length > 0);
   const paragraphCount = paragraphs.length;
 
   if (paragraphCount === 0) {
-    await prisma.noteCaptureSession.deleteMany({ where: { id: session.id } });
+    const removed = await prisma.noteCaptureSession.deleteMany({ where: { id: session.id, ...stillExpired } });
+    if (expiredBy && removed.count === 0) return undefined;
     return { chatId: session.telegramChatId, paragraphCount };
   }
 
@@ -178,6 +182,7 @@ async function finalizeLoadedSession(session: SessionWithSegments): Promise<Fina
   const note = await prisma.$transaction(async (tx) => {
     const stillExists = await tx.noteCaptureSession.findUnique({ where: { id: session.id } });
     if (!stillExists) return undefined;
+    if (expiredBy && stillExists.expiresAt > expiredBy) return "extended" as const;
     const publicId = await nextPublicId(session.userId, "NOTE", tx);
     const created = await tx.note.create({
       data: {
@@ -187,8 +192,7 @@ async function finalizeLoadedSession(session: SessionWithSegments): Promise<Fina
         body,
         summary,
         sourceText: body,
-        tags: [],
-        embedding: Prisma.JsonNull
+        tags: []
       }
     });
     await recordCreateUndo(tx, session.userId, {
@@ -200,6 +204,7 @@ async function finalizeLoadedSession(session: SessionWithSegments): Promise<Fina
     await tx.noteCaptureSession.delete({ where: { id: session.id } });
     return created;
   });
+  if (note === "extended") return undefined;
 
   return {
     chatId: session.telegramChatId,

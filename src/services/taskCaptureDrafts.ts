@@ -21,6 +21,8 @@ import {
   splitTaskDraftText,
   taskContinuationDescription,
 } from "./taskPlanning";
+import { assigneeKey } from "./tasks";
+import { highestPublicNumber } from "./publicIds";
 
 const activeStatuses = [TaskCaptureDraftStatus.COLLECTING, TaskCaptureDraftStatus.REVIEWING] as const;
 const draftInclude = { items: { orderBy: { position: "asc" as const } } };
@@ -429,8 +431,9 @@ function normalizeAssignees(input: DraftAssignee[]): DraftAssignee[] {
       ...(candidate.username?.trim() ? { username: candidate.username.trim().replace(/^@/, "") } : {}),
       ...(candidate.displayName?.trim() ? { displayName: candidate.displayName.trim().slice(0, 120) } : {}),
     };
+    if (!assignee.telegramId && !assignee.username && !assignee.displayName) continue;
     const key = assigneeKey(assignee);
-    if (!key || keys.has(key)) continue;
+    if (keys.has(key)) continue;
     keys.add(key);
     result.push(assignee);
   }
@@ -443,22 +446,12 @@ function readAssignees(value: Prisma.JsonValue): DraftAssignee[] {
     : [];
 }
 
-function assigneeKey(assignee: DraftAssignee): string {
-  if (assignee.telegramId) return `id:${assignee.telegramId}`;
-  if (assignee.username) return `username:${assignee.username.toLowerCase()}`;
-  if (assignee.displayName) return `name:${assignee.displayName.toLowerCase()}`;
-  return "";
-}
-
-async function nextTaskNumber(tx: Prisma.TransactionClient, userId: string): Promise<number> {
-  const rows = await tx.task.findMany({ where: { userId, publicId: { startsWith: "TASK-" } }, select: { publicId: true } });
-  return rows.reduce((highest, row) => Math.max(highest, Number(row.publicId.match(/^TASK-(\d+)$/)?.[1] ?? 0)), 0) + 1;
-}
-
 async function commitTasks(tx: Prisma.TransactionClient, draft: TaskCaptureDraftRecord, items: TaskCaptureDraftRecord["items"]): Promise<void> {
   const settings = await tx.userSettings.findUnique({ where: { userId: draft.ownerUserId } });
   if (!settings) throw new TaskCaptureDraftError("Workspace settings are missing.", "conflict");
-  let sequence = await nextTaskNumber(tx, draft.ownerUserId);
+  // One read for the whole batch, inside the commit transaction; ids then count up from it.
+  const existing = await tx.task.findMany({ where: { userId: draft.ownerUserId, publicId: { startsWith: "TASK-" } }, select: { publicId: true } });
+  let sequence = highestPublicNumber(existing, "TASK") + 1;
   for (const item of items) {
     if (item.linkedStudyItemId) throw new TaskCaptureDraftError("A general task cannot link to Study work.", "invalid");
     if (item.linkedTaskId) {
@@ -518,7 +511,7 @@ async function commitStudyItems(tx: Prisma.TransactionClient, draft: TaskCapture
   const workspace = await tx.studyWorkspace.findFirst({ where: { id: draft.studyWorkspaceId, ownerUserId: draft.ownerUserId, active: true } });
   if (!workspace) throw new TaskCaptureDraftError("That Study workspace is no longer available.", "conflict");
   const rows = await tx.studyItem.findMany({ where: { workspaceId: workspace.id }, select: { publicId: true } });
-  let sequence = rows.reduce((highest, row) => Math.max(highest, Number(row.publicId.match(/^STUDY-(\d+)$/)?.[1] ?? 0)), 0) + 1;
+  let sequence = highestPublicNumber(rows, "STUDY") + 1;
   for (const item of items) {
     if (item.linkedTaskId) throw new TaskCaptureDraftError("Study work cannot link to a general task.", "invalid");
     if (item.linkedStudyItemId) {

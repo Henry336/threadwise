@@ -4,6 +4,7 @@ import {
   DashboardStudyAccessError,
   loadDashboardStudyResourceContent,
   requireDashboardStudyWorkspace,
+  studyItemCreateSchema,
   studyModuleCreateSchema,
   studyModuleUpdateSchema,
   studyNoteDraftQuerySchema,
@@ -76,6 +77,12 @@ describe("private Study dashboard authorization", () => {
 });
 
 describe("Study dashboard input contracts", () => {
+  it("rejects an impossible planned date as invalid input instead of passing it on", () => {
+    const item = { moduleId: "3f0c5a9e-8d1b-4c2a-9e7f-1a2b3c4d5e6f", type: "REVISION", title: "Revise" };
+    expect(studyItemCreateSchema.safeParse({ ...item, plannedFor: "2026-02-31" }).success).toBe(false);
+    expect(studyItemCreateSchema.safeParse({ ...item, plannedFor: "2026-02-28" }).success).toBe(true);
+  });
+
   it("keeps list and snapshot resource queries on bounded excerpt fields", () => {
     expect(studyResourcePreviewSelect).toMatchObject({ analysisExcerpt: true, analysisExcerptTruncated: true });
     expect(studyResourcePreviewSelect).not.toHaveProperty("body");

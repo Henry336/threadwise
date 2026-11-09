@@ -67,13 +67,13 @@ import {
   setDefaultStudyOrigin,
 } from "../services/studyTransit";
 import type { DashboardWorkspaceScope } from "./workspaces";
+import { dateOnly } from "./schemas";
 
 const MAX_STUDY_FILE_BYTES = 20_000_000;
 const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const SAFE_INLINE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, "Choose a valid calendar date.");
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
 const id = z.string().uuid();
 const isoDate = z.string().datetime({ offset: true });

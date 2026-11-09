@@ -1,4 +1,4 @@
-import { Prisma, RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
+import { RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
@@ -7,7 +7,7 @@ import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
 import { removeTaskFromGoogleCalendar, syncTaskCalendarBestEffort } from "./googleCalendar";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { initialTaskReminderAt } from "./reminders";
 import { cancelPendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "./taskReminderSchedules";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
@@ -85,6 +85,7 @@ export type TaskCreationOptions = {
   titleOverride?: string;
 };
 
+// TODO(review #10): `ai` is unused, remove with bot call sites
 export async function createTask(userId: string, sourceText: string, ai: AiProvider, options: TaskCreationOptions = {}) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
   const settings = user.settings;
@@ -102,8 +103,6 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
     ?? parseDueDate(recurrenceCleanedText, settings.timezone);
   const title = options.titleOverride?.trim() || structured.title;
   const initialStatus = options.initialStatus ?? TaskStatus.OPEN;
-  const embedding = await ai.embed(`${title}\n${structured.description ?? ""}\n${sourceText}`);
-  const publicId = await nextPublicId(userId, "TASK");
   const now = new Date();
   const nextReminderAt = initialStatus === TaskStatus.OPEN
     ? initialTaskReminderAt({ now, dueAt, dueNudgeMinutes: settings.dueNudgeMinutes, intervalMinutes: settings.reminderIntervalMinutes })
@@ -117,7 +116,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
       })
     : undefined;
 
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await createWithPublicId(userId, "TASK", async (tx, publicId) => {
     const task = await tx.task.create({
       data: {
         userId,
@@ -132,7 +131,6 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
         reminderIntervalMinutes: settings.reminderIntervalMinutes,
         nextReminderAt,
         completedAt: initialStatus === TaskStatus.DONE ? now : null,
-        embedding,
         calendarUrl,
         assignedTelegramId: primaryAssignee?.telegramId,
         assignedUsername: primaryAssignee?.username,
@@ -153,61 +151,13 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
   return refreshCalendarState(userId, created);
 }
 
+/**
+ * A reminder is a task with a fixed due time. It delegates to createTask so the
+ * two cannot drift: same parsing, assignees, recurrence, calendar link and
+ * first reminder time.
+ */
 export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { settings: true } });
-  const settings = user.settings;
-  if (!settings) {
-    throw new Error("User settings are missing.");
-  }
-
-  const prepared = prepareTaskInput(sourceText, options);
-  const primaryAssignee = prepared.assignees[0];
-  const recurrence = parseRecurrencePattern(prepared.text);
-  const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
-  const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.description ?? ""}\n${sourceText}`);
-  const publicId = await nextPublicId(userId, "TASK");
-  const calendarUrl = createGoogleCalendarUrl({
-    title: structured.title,
-    details: structured.description ?? sourceText,
-    dueAt: scheduledAt,
-    timezone: settings.timezone
-  });
-
-  const created = await prisma.$transaction(async (tx) => {
-    const task = await tx.task.create({
-      data: {
-        userId,
-        publicId,
-        title: structured.title,
-        description: structured.description,
-        sourceText,
-        dueAt: scheduledAt,
-        timezone: settings.timezone,
-        reminderIntervalMinutes: settings.reminderIntervalMinutes,
-        nextReminderAt: initialTaskReminderAt({
-          now: new Date(),
-          dueAt: scheduledAt,
-          dueNudgeMinutes: settings.dueNudgeMinutes,
-          intervalMinutes: settings.reminderIntervalMinutes,
-        }),
-        audience: prepared.assignees.length ? TaskAudience.ASSIGNEES : TaskAudience.UNASSIGNED,
-        embedding,
-        calendarUrl,
-        assignedTelegramId: primaryAssignee?.telegramId,
-        assignedUsername: primaryAssignee?.username,
-        assignedDisplayName: primaryAssignee?.displayName,
-        assignees: prepared.assignees.length ? { create: prepared.assignees.map(assigneeCreateData) } : undefined,
-        recurrenceRule: recurrence?.rule,
-        recurrenceIntervalDays: recurrence?.intervalDays,
-        recurrenceDayOfMonth: recurrenceDayOfMonth(scheduledAt, recurrence?.rule, settings.timezone)
-      },
-      include: { assignees: true }
-    });
-    await recordCreateUndo(tx, userId, { kind: "task", id: task.id, publicId: task.publicId, title: task.title });
-    return task;
-  });
-  return refreshCalendarState(userId, created);
+  return createTask(userId, sourceText, ai, { ...options, dueAt: scheduledAt });
 }
 
 export async function listOpenTasks(userId: string, take?: number): Promise<TaskListItem[]> {
@@ -410,7 +360,6 @@ export async function updateTaskDescription(userId: string, reference: string, d
       data: completeSearchableContentUpdate("Task", task as unknown as Record<string, unknown>, {
         description: nextDescription,
         calendarUrl,
-        embedding: Prisma.JsonNull,
         undatedNudgeCount: 0
       })
     });
@@ -781,7 +730,12 @@ function assigneeCreateData(assignee: ParsedAssignee) {
   };
 }
 
-function assigneeKey(assignee: ParsedAssignee): string {
+/**
+ * The one rule for TaskAssignee.normalizedKey, which the (taskId,
+ * normalizedKey) unique index and every assignee match compare against:
+ * Telegram id first, then lower-cased username, then lower-cased name.
+ */
+export function assigneeKey(assignee: TaskCreationAssignee): string {
   if (assignee.telegramId) return `id:${assignee.telegramId}`;
   if (assignee.username) return `username:${assignee.username.toLowerCase()}`;
   return `name:${(assignee.displayName ?? "unknown").toLowerCase()}`;

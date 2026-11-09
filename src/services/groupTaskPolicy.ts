@@ -2,6 +2,7 @@ import { GroupActivityType, TaskAssigneeStatus, TaskAudience, type PrismaClient 
 import { prisma } from "../db/prisma";
 import { normalizePublicId } from "../utils/text";
 import type { CollaborationActor, CollaborationTask } from "./groupCollaboration";
+import { assigneeKey } from "./tasks";
 
 export type GroupTaskAudience = "unassigned" | "everyone" | "assignee" | "manager" | "other";
 export type GroupTaskAction = "complete" | "snooze" | "manage";
@@ -131,7 +132,7 @@ export async function claimGroupTask(
     await tx.taskAssignee.create({
       data: {
         taskId: current.id,
-        normalizedKey: `id:${actor.telegramId}`,
+        normalizedKey: assigneeKey(actor),
         telegramId: actor.telegramId,
         username: actor.username,
         displayName: actor.displayName,

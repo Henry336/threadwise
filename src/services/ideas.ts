@@ -1,20 +1,18 @@
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
-  const embedding = await ai.embed(`${structured.title}\n${structured.concept}\n${sourceText}`);
-  const publicId = await nextPublicId(userId, "IDEA");
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "IDEA", async (tx, publicId) => {
     const idea = await tx.idea.create({
       data: {
         userId,
@@ -25,8 +23,7 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
         targetUser: structured.targetUser,
         type: structured.type,
         tags: structured.tags,
-        sourceText,
-        embedding
+        sourceText
       }
     });
     await recordCreateUndo(tx, userId, { kind: "idea", id: idea.id, publicId: idea.publicId, title: idea.title });
@@ -34,14 +31,16 @@ export async function createIdea(userId: string, sourceText: string, ai: AiProvi
   });
 }
 
+// Starred items first (newest star first), then the rest newest first. Sorting in the
+// query keeps an old starred item from falling off a list cut short by `take`.
+const PINNED_FIRST = [{ pinnedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }] satisfies Prisma.IdeaOrderByWithRelationInput[];
+
 export async function listRecentIdeas(userId: string, take?: number) {
-  const ideas = await prisma.idea.findMany({
+  return prisma.idea.findMany({
     where: { userId, archivedAt: null },
-    orderBy: { createdAt: "desc" },
+    orderBy: PINNED_FIRST,
     take
   });
-
-  return sortPinnedFirst(ideas);
 }
 
 export async function findIdea(userId: string, publicOrUuid: string) {
@@ -58,8 +57,12 @@ export async function findIdeaReference(userId: string, reference: string) {
   const normalized = reference.trim();
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
-    const ideas = await listRecentIdeas(userId);
-    const idea = ideas[activeIndex - 1];
+    // Fetch only the row at that position of the /ideas list, not the whole list.
+    const idea = await prisma.idea.findFirst({
+      where: { userId, archivedAt: null },
+      orderBy: PINNED_FIRST,
+      skip: activeIndex - 1
+    });
     if (!idea) {
       throw new Error(`No recent idea numbered ${activeIndex}. Run /ideas to see the current list.`);
     }
@@ -117,8 +120,7 @@ export async function updateIdeaConcept(userId: string, publicOrUuid: string, co
       where: { id: idea.id },
       data: completeSearchableContentUpdate("Idea", idea, {
         concept: nextConcept,
-        sourceText: nextConcept,
-        embedding: Prisma.JsonNull
+        sourceText: nextConcept
       })
     });
   });
@@ -272,17 +274,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   }
 
   return value as Record<string, unknown>;
-}
-
-function sortPinnedFirst<T extends { pinnedAt?: Date | null; createdAt: Date }>(items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    if (a.pinnedAt && b.pinnedAt) {
-      return b.pinnedAt.getTime() - a.pinnedAt.getTime();
-    }
-
-    if (a.pinnedAt && !b.pinnedAt) return -1;
-    if (!a.pinnedAt && b.pinnedAt) return 1;
-
-    return b.createdAt.getTime() - a.createdAt.getTime();
-  });
 }

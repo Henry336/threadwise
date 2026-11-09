@@ -12,6 +12,7 @@ import { StudyModeError, findStudyModule } from "./study";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 import { rebuildStudyNoteLinks, recordStudyNoteRevision } from "./studyMarkdown";
 import { deriveStudyResourceAnalysis, studyResourceWikiLookupKeys } from "./studyScale";
+import { highestPublicNumber } from "./publicIds";
 import { startLoop, type StopLoop } from "../utils/loop";
 
 export const STUDY_NOTE_IDLE_MS = 30 * 60_000;
@@ -607,13 +608,7 @@ async function nextStudyResourcePublicId(workspaceId: string, kind: StudyResourc
   };
   const root = prefix[kind];
   const rows = await prisma.studyResource.findMany({ where: { workspaceId, publicId: { startsWith: `${root}-` } }, select: { publicId: true } });
-  const pattern = new RegExp(`^${root}-(\\d+)$`);
-  let highest = 0;
-  for (const row of rows) {
-    const suffix = Number(row.publicId.match(pattern)?.[1]);
-    if (Number.isSafeInteger(suffix) && suffix > highest) highest = suffix;
-  }
-  return `${root}-${highest + 1}`;
+  return `${root}-${highestPublicNumber(rows, root) + 1}`;
 }
 
 async function autoSaveStudyNotes(bot: Bot): Promise<void> {

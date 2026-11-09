@@ -85,7 +85,6 @@ export type AiProviderStatus = {
   apiKeyConfigured: boolean;
   chatModels: string[];
   activeChatModel?: string;
-  embeddingModel?: string;
   lastSuccessfulChatAt?: string;
   lastRateLimit?: {
     model: string;
@@ -116,5 +115,4 @@ export interface AiProvider {
   mergeNotes(notes: NoteForMerge[], previousPreview?: MergedNotePreview, attempt?: number): Promise<MergedNotePreview>;
   analyzeNotes(notes: NoteForAnalysis[]): Promise<NoteAnalysis>;
   scoreIdea(input: StructuredIdea & { sourceText: string }): Promise<IdeaScore>;
-  embed(text: string): Promise<number[]>;
 }

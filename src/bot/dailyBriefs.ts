@@ -12,6 +12,7 @@ import {
   type AgendaEntry,
   type DailyAgenda,
 } from "../services/dailyAgenda";
+import { calendarDate } from "../services/taskPlanning";
 import { isWithinQuietHours } from "../utils/dates";
 import { bold, code, h } from "../utils/html";
 import { dashboardViewUrl } from "./links";
@@ -19,6 +20,7 @@ import { startLoop, type StopLoop } from "../utils/loop";
 
 export const DAILY_BRIEF_POLL_MS = 60_000;
 const DELIVERY_WINDOW_MINUTES = 4 * 60;
+const BRIEF_SCOPE_KEY = "private-cross-mode";
 
 type BriefCandidate = {
   userId: string;
@@ -35,6 +37,12 @@ type BriefCandidate = {
 
 export type DailyBriefPassSummary = { checked: number; sent: number; skipped: number; failed: number };
 
+/**
+ * One poll of the Today briefings: for each opted-in owner whose morning or evening time falls
+ * in the delivery window, build and send that day's brief once. The poll runs every minute for
+ * the four-hour window, so a brief already recorded for the local day is skipped before the
+ * agenda is built; the unique claim stays as the guard against two overlapping passes.
+ */
 export async function runDailyBriefPass(
   bot: Bot,
   ownerTelegramId: string,
@@ -77,6 +85,21 @@ export async function runDailyBriefPass(
     for (const kind of dueKinds) {
       let deliveryId: string | undefined;
       try {
+        // The local calendar day as a @db.Date value. startOf("day").toUTC() would store the
+        // previous day for any timezone ahead of UTC, such as Asia/Singapore.
+        const localDate = calendarDate(now, candidate.timezone);
+        const existing = await database.dailyBriefDelivery.findUnique({
+          where: {
+            recipientTelegramId_localDate_kind_scopeKey: {
+              recipientTelegramId: candidate.telegramId,
+              localDate,
+              kind,
+              scopeKey: BRIEF_SCOPE_KEY,
+            },
+          },
+          select: { id: true },
+        });
+        if (existing) continue;
         const agenda = await getDailyAgenda({ principalTelegramId: candidate.telegramId, scope: PlanningScope.PERSONAL }, { localDate: local.toISODate() ?? undefined }, database);
         const completed = kind === DailyBriefKind.EVENING
           ? await countDailyAgendaCompletions(candidate.telegramId, candidate.timezone, agenda.localDate, database)
@@ -84,14 +107,13 @@ export async function runDailyBriefPass(
         const content = kind === DailyBriefKind.MORNING
           ? formatMorningBrief(agenda)
           : formatEveningDebrief(agenda, completed);
-        const localDate = local.startOf("day").toUTC().toJSDate();
         const claim = await claimDailyBriefDelivery({
           userId: candidate.userId,
           recipientTelegramId: candidate.telegramId,
           localDate,
           kind,
           scope: PlanningScope.PERSONAL,
-          scopeKey: "private-cross-mode",
+          scopeKey: BRIEF_SCOPE_KEY,
           contentHash: createHash("sha256").update(content ?? "empty").digest("hex"),
         }, database);
         if (!claim.claimed) continue;

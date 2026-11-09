@@ -17,6 +17,7 @@ import { prisma } from "../db/prisma";
 import { normalizeClock } from "../utils/clock";
 import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { queueStudyCalendarBlockSync } from "./studyCalendar";
+import { highestPublicNumber } from "./publicIds";
 
 const DEFAULT_MODULES = [
   { code: "CS2100", name: "Computer Organisation", color: "#2C7A7B" },
@@ -1373,13 +1374,7 @@ export async function nextStudyPublicId(workspaceId: string, prefix: "STUDY" | "
   const rows = prefix === "STUDY"
     ? await prisma.studyItem.findMany({ where: { workspaceId }, select: { publicId: true } })
     : await prisma.studyMistake.findMany({ where: { workspaceId }, select: { publicId: true } });
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
-  let highest = 0;
-  for (const row of rows) {
-    const suffix = Number(row.publicId.match(pattern)?.[1]);
-    if (Number.isSafeInteger(suffix) && suffix > highest) highest = suffix;
-  }
-  return `${prefix}-${highest + 1}`;
+  return `${prefix}-${highestPublicNumber(rows, prefix) + 1}`;
 }
 
 function normalizeStudyReference(value: string, prefix: "STUDY" | "MISTAKE"): string {

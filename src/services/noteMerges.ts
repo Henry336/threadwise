@@ -2,7 +2,7 @@ import type { Note } from "@prisma/client";
 import type { AiProvider, MergedNotePreview, NoteForMerge } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { findNoteReference } from "./notes";
 import { recordNoteMergeUndo } from "./undo";
 
@@ -70,6 +70,7 @@ export async function retryNoteMergePreview(userId: string, pendingId: string, a
   };
 }
 
+// TODO(review #10): `ai` is unused, remove with bot call sites
 export async function confirmNoteMerge(userId: string, pendingId: string, ai: AiProvider) {
   const pending = await prisma.pendingNoteMerge.findFirstOrThrow({
     where: {
@@ -80,11 +81,9 @@ export async function confirmNoteMerge(userId: string, pendingId: string, ai: Ai
   });
   const preview = asMergedNotePreview(pending.preview);
   const sourceNotes = await notesByIds(userId, pending.sourceNoteIds);
-  const publicId = await nextPublicId(userId, "NOTE");
-  const embedding = await ai.embed(`${preview.title}\n${preview.summary}\n${preview.body}`);
   const archivedAt = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "NOTE", async (tx, publicId) => {
     const mergedNote = await tx.note.create({
       data: {
         userId,
@@ -93,8 +92,7 @@ export async function confirmNoteMerge(userId: string, pendingId: string, ai: Ai
         body: preview.body,
         summary: preview.summary,
         sourceText: sourceNotes.map((note) => `${note.publicId}: ${note.sourceText}`).join("\n\n"),
-        tags: preview.tags,
-        embedding
+        tags: preview.tags
       }
     });
 

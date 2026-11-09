@@ -1,7 +1,7 @@
 import { TaskStatus } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
-import { cosineSimilarity } from "../utils/vector";
+import { cosineSimilarity, deterministicEmbedding } from "../utils/vector";
 
 export type SearchResult = {
   kind: "idea" | "task" | "note";
@@ -64,11 +64,11 @@ export function parseSearchRequest(input: string): ParsedSearchRequest {
 export async function semanticSearch(
   userId: string,
   query: string,
-  ai: AiProvider,
+  ai: AiProvider, // TODO(review #10): unused, remove with bot call sites
   kinds?: SearchKind[],
   options: { includeDone?: boolean; doneOnly?: boolean; limit?: number } = {}
 ): Promise<SearchResult[]> {
-  const queryEmbedding = await ai.embed(query);
+  const queryEmbedding = deterministicEmbedding(query);
   const shouldSearch = (kind: SearchKind) => !kinds || kinds.includes(kind);
   const [ideas, tasks, notes] = await Promise.all([
     shouldSearch("idea") ? prisma.idea.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "desc" }, take: 100 }) : [],
@@ -92,21 +92,21 @@ export async function semanticSearch(
       publicId: idea.publicId,
       title: idea.title,
       summary: idea.concept,
-      score: scoreResult(query, queryEmbedding, asVector(idea.embedding), [idea.publicId, idea.title, idea.concept, idea.sourceText])
+      score: scoreResult(query, queryEmbedding, idea.publicId, [idea.title, idea.concept, idea.sourceText])
     })),
     ...tasks.map((task) => ({
       kind: "task" as const,
       publicId: task.publicId,
       title: task.title,
       summary: task.description ?? task.sourceText,
-      score: scoreResult(query, queryEmbedding, asVector(task.embedding), [task.publicId, task.title, task.description ?? "", task.sourceText])
+      score: scoreResult(query, queryEmbedding, task.publicId, [task.title, task.description ?? "", task.sourceText])
     })),
     ...notes.map((note) => ({
       kind: "note" as const,
       publicId: note.publicId,
       title: note.title,
       summary: note.summary,
-      score: scoreResult(query, queryEmbedding, asVector(note.embedding), [note.publicId, note.title, note.summary, note.body, note.sourceText])
+      score: scoreResult(query, queryEmbedding, note.publicId, [note.title, note.summary, note.body, note.sourceText])
     }))
   ];
 
@@ -148,17 +148,14 @@ export async function findPendingSearch(userId: string, pendingId: string): Prom
   };
 }
 
-function asVector(value: unknown): number[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is number => typeof item === "number");
-}
-
-function scoreResult(query: string, queryEmbedding: number[], embedding: number[], fields: string[]): number {
-  const semantic = cosineSimilarity(queryEmbedding, embedding);
-  const lexical = lexicalScore(query, fields);
+/**
+ * Scores one item against the query. The word-hash vector is rebuilt from the
+ * item text on every search (it is cheap), so edits never leave an item with a
+ * stale or missing stored vector.
+ */
+function scoreResult(query: string, queryEmbedding: number[], publicId: string, textFields: string[]): number {
+  const semantic = cosineSimilarity(queryEmbedding, deterministicEmbedding(textFields.join("\n")));
+  const lexical = lexicalScore(query, [publicId, ...textFields]);
   return Math.max(semantic, lexical);
 }
 
