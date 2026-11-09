@@ -177,7 +177,7 @@ export async function cancelDashboardTaskCaptureDraft(
 
 /**
  * Translates a dashboard workspace into the planning scope the services expect: Study uses
- * the sealed Study workspace, Group the shared group (with its timezone), otherwise Personal.
+ * the sealed Study workspace, Group the shared group (on the owner's timezone), otherwise Personal.
  */
 async function resolveTaskCaptureScope(
   scope: DashboardWorkspaceScope,
@@ -207,7 +207,7 @@ async function resolveTaskCaptureScope(
       ownerUserId: owner.id,
       principalTelegramId: scope.principalTelegramId,
       scope: PlanningScope.GROUP,
-      timezone: workspace.timezone || owner.settings.timezone,
+      timezone: owner.settings.timezone, // GroupWorkspace.timezone is never written; same rule as the bot agenda
       groupWorkspaceId: workspace.id,
     };
   }
