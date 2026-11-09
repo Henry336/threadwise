@@ -45,7 +45,8 @@ export async function downloadTelegramFile(
 
 /** One getFile plus download attempt; `downloadTelegramFile` decides whether to retry it. */
 async function downloadOnce(token: string, fileId: string, maxBytes: number, timeoutMs: number): Promise<TelegramFile> {
-  const metadata = await fetchWithTimeout(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`, timeoutMs);
+  // getFile is a tiny JSON call, so it keeps the short timeout whatever the file size.
+  const metadata = await fetchWithTimeout(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`, Math.min(timeoutMs, MIN_TIMEOUT_MS));
   if (metadata.status === 400 || metadata.status === 404) throw unavailable();
   if (!metadata.ok) throw temporary();
   const payload = await metadata.json() as { ok?: boolean; result?: { file_path?: string } };

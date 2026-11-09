@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
-  auditLog: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  auditLog: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   $transaction: vi.fn(),
 }));
 const groupWorkspaces = vi.hoisted(() => ({ isGroupManager: vi.fn() }));
@@ -51,8 +51,9 @@ describe("group undo ownership", () => {
   it("refuses a member's undo when another member changed the same item afterwards", async () => {
     groupWorkspaces.isGroupManager.mockResolvedValue(false);
     db.auditLog.findFirst
-      .mockResolvedValueOnce({ id: "mine", createdAt: new Date("2026-11-01T00:00:00Z"), metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "Plan", previousTitle: "Draft", actorTelegramId: "42" } })
-      .mockResolvedValueOnce({ id: "theirs" });
+      .mockResolvedValueOnce({ id: "mine", createdAt: new Date("2026-11-01T00:00:00Z"), metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "Plan", previousTitle: "Draft", actorTelegramId: "42" } });
+    // A newer dashboard edit carries no actor and must still count as someone else's.
+    db.auditLog.findMany.mockResolvedValueOnce([{ metadata: { type: "rename", targetId: "t1" } }]);
 
     const message = await undoLastActionForContext(groupContext(42), "chat:-100");
 

@@ -997,7 +997,7 @@ export function startReminderLoop(bot: Bot, pollMs: number): StopLoop {
 
 /**
  * True for Telegram refusals no retry can fix: the bot was removed or blocked (403 Forbidden),
- * or the chat no longer exists. These stop a reminder at once instead of using up its retries.
+ * or the chat no longer exists. These skip the short backoff and go straight to the six-hour retry.
  */
 export function isPermanentTelegramDeliveryError(error: unknown): boolean {
   if ((error as { error_code?: unknown } | null)?.error_code === 403) return true;

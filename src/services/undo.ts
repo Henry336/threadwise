@@ -677,21 +677,22 @@ function isPermanentUndoFailure(error: unknown): boolean {
     || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025");
 }
 
-/** Whether another member recorded an undoable change to `targetId` after `since`. */
+/**
+ * Whether anyone else recorded an undoable change to `targetId` after `since`. An entry with no
+ * actor (a dashboard edit) counts as someone else; that is compared here rather than in SQL,
+ * where a JSON NOT on a missing key is NULL and would silently skip it.
+ */
 async function newerUndoByOthers(userId: string, since: Date, targetId: string, actorTelegramId: string): Promise<boolean> {
-  const newer = await prisma.auditLog.findFirst({
+  const newer = await prisma.auditLog.findMany({
     where: {
       userId,
       action: { startsWith: UNDO_PREFIX },
       createdAt: { gt: since },
-      AND: [
-        { metadata: { path: ["targetId"], equals: targetId } },
-        { NOT: { metadata: { path: ["actorTelegramId"], equals: actorTelegramId } } }
-      ]
+      metadata: { path: ["targetId"], equals: targetId }
     },
-    select: { id: true }
+    select: { metadata: true }
   });
-  return Boolean(newer);
+  return newer.some((entry) => asRecord(entry.metadata).actorTelegramId !== actorTelegramId);
 }
 
 /** Whether the entry was already retired; false if it cannot be read either, so the caller keeps it for a retry. */
