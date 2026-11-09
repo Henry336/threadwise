@@ -1,10 +1,15 @@
 import type { Context } from "grammy";
 import { createStoredImageSearch, findStoredImageById, findStoredImageReference, findStoredImageSearch, formatStoredImageList, listStoredImages, searchStoredImages, type StoredImageSearchScope } from "../services/storedImages";
-import { bold, code, editOrReplyHtml, HTML_REPLY } from "../utils/html";
+import { bold, code, editOrReplyHtml, h, HTML_REPLY } from "../utils/html";
 import { menuBackKeyboard, storedImageActionsKeyboard, storedImageListKeyboard } from "./keyboards";
 import { rememberNewControlCard, replyControlCardHtml } from "./controlCards";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext } from "../services/groupWorkspaces";
+
+/** The confirmation text shown before deleting a saved image, the same from a button, /image or text. */
+export function formatStoredImageDeletePrompt(image: { publicId: string; caption?: string | null; fileName?: string | null }): string {
+  return `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`;
+}
 
 export async function replyStoredImageList(ctx: Context, userId: string, timezone = "UTC", requestedPage = 1, replaceCurrent = false, selecting = false): Promise<number> {
   const page = await listStoredImages(userId, requestedPage);

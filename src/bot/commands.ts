@@ -15,21 +15,13 @@ import {
   updateIdeaConcept
 } from "../services/ideas";
 import {
-  assignTask,
-  cancelTask,
   createScheduledReminder,
   createTask,
-  completeTask,
   findTaskReference,
-  formatAssignee,
-  formatTaskAlreadyCompleted,
-  formatTaskCompleted,
   formatTaskSavedAcknowledgement,
   listOpenTasks,
   renameTaskTitle,
   rescheduleTask,
-  snoozeTask,
-  unassignTask,
   updateTaskDescription
 } from "../services/tasks";
 import {
@@ -56,27 +48,28 @@ import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl,
 import { getReminderDiagnostics } from "../services/reminders";
 import { appVersion, formatVersionStatus } from "../services/version";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
-import { bold, code, h, replyHtml } from "../utils/html";
+import { bold, code, h, replyHtml, replyInChunks } from "../utils/html";
 import { archivedPageKeyboard, calendarSettingsKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, menuBackKeyboard, noteMergePreviewKeyboard, privateMenuKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
 import { carryRecurrenceToTaskText, formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { replyWithTaskCalendar } from "./calendarReplies";
 import { parseNaturalHelpRequest } from "./naturalCommandParsing";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { microsoftExcelConfigured } from "../services/excel";
-import { restoreCompletedTaskKeyboard } from "./keyboards";
 import { allowedTelegramIds } from "../config/env";
 import { isGroupChat, isTelegramContextAllowed, telegramGroupPrivacyEnabled } from "./groupRouting";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest, parseBulkReferences, type BulkActionRequest } from "../services/bulkActions";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { formatStoredImageDeletePrompt, replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
 import { claimGroupTask } from "../services/groupTaskPolicy";
-import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
+import { executeTaskCommand, type TaskCommandInput } from "../services/taskCommands";
+import { replyTaskCommandResult } from "./taskCommandReplies";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
@@ -238,7 +231,7 @@ async function handleImage(ctx: Context) {
     const deleteMatch = reference.match(/^(?:delete|remove|forget)\s+(\d+|IMG-\d+)$/i);
     if (deleteMatch?.[1]) {
       const image = await findStoredImageReference(user.id, normalizePublicId(deleteMatch[1]));
-      await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
+      await replyHtml(ctx, formatStoredImageDeletePrompt(image), { reply_markup: storedImageDeleteKeyboard(image.id) });
       return;
     }
     await replyStoredImage(ctx, user.id, normalizePublicId(reference));
@@ -402,21 +395,7 @@ async function handleDone(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "complete");
-    const completion = await completeTask(user.id, normalizePublicId(id));
-    if (completion.alreadyCompleted) {
-      await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
-      return;
-    }
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
-    }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "complete", ref: id });
 }
 
 async function handleSnooze(ctx: Context) {
@@ -428,13 +407,7 @@ async function handleSnooze(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "snooze");
-    const task = await snoozeTask(user.id, normalizePublicId(id), durationParts.join(" "));
-    await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "snooze", ref: id, duration: durationParts.join(" ") });
 }
 
 async function handleReschedule(ctx: Context) {
@@ -465,17 +438,7 @@ async function handleAssign(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
-    const task = await assignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2]));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_ASSIGNED, task, `${actor.displayName} assigned ${task.publicId} to ${formatAssignee(task)}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${assigneeDmSetupLine(ctx)}`);
-  } catch (error) {
-    await ctx.reply(userFacingError(error, taskLookupError(error)));
-  }
+  await runTaskCommand(ctx, user, { action: "assign", ref: match[1], assignees: match[2], options: taskCreationOptionsFromContext(ctx, match[2]) });
 }
 
 async function handleUnassign(ctx: Context) {
@@ -487,17 +450,7 @@ async function handleUnassign(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, match[1], "manage");
-    const task = await unassignTask(user.id, normalizePublicId(match[1]), match[2], taskCreationOptionsFromContext(ctx, match[2] ?? ""));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_UNASSIGNED, task, `${actor.displayName} updated the assignees on ${task.publicId}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "unassign", ref: match[1], assignee: match[2], options: taskCreationOptionsFromContext(ctx, match[2] ?? "") });
 }
 
 async function handleMyGroupTasks(ctx: Context) {
@@ -553,9 +506,17 @@ async function groupTaskKeyboardForCommand(ctx: Context, ownerUserId: string, ta
   return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 
-function assigneeDmSetupLine(ctx: Context): string {
-  if (!isGroupChat(ctx) || !ctx.me.username) return "";
-  return `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm`;
+/**
+ * Runs one parsed slash-command task action through the shared executor and replies with the
+ * shared copy. Any failure, including a group policy refusal, becomes a reply in the chat.
+ */
+async function runTaskCommand(ctx: Context, user: Awaited<ReturnType<typeof ensureUser>>, command: TaskCommandInput): Promise<void> {
+  try {
+    const result = await executeTaskCommand({ ...command, userId: user.id, actor: taskCommandActorFromContext(ctx), source: "command" });
+    await replyTaskCommandResult(ctx, result, user.settings.timezone);
+  } catch (error) {
+    await ctx.reply(userFacingError(error, taskLookupError(error)));
+  }
 }
 
 async function handleUndo(ctx: Context) {
@@ -735,13 +696,7 @@ async function handleCancel(ctx: Context) {
     return;
   }
 
-  try {
-    await assertCommandGroupTaskAction(ctx, user.id, id, "manage");
-    const task = await cancelTask(user.id, normalizePublicId(id));
-  await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
-  } catch (error) {
-    await ctx.reply(taskLookupError(error));
-  }
+  await runTaskCommand(ctx, user, { action: "cancel", ref: id });
 }
 
 function looksLikeTaskReference(reference: string): boolean {
@@ -952,13 +907,6 @@ async function replyBulkActionPreview(ctx: Context, userId: string, request: Bul
     });
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't prepare that bulk action."));
-  }
-}
-
-async function replyInChunks(ctx: Context, text: string) {
-  const maxLength = 3800;
-  for (let start = 0; start < text.length; start += maxLength) {
-    await ctx.reply(text.slice(start, start + maxLength));
   }
 }
 

@@ -15,10 +15,12 @@ import {
 } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteSavedAcknowledgement, formatRecentNotes, renameNoteTitle, searchNotes, analyzeNoteStyle } from "../services/notes";
 import { findNoteReference, updateNoteBody } from "../services/notes";
-import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
+import { createScheduledReminder, createTask, findTaskReference, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, updateTaskDescription } from "../services/tasks";
 import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
 import { claimGroupTask } from "../services/groupTaskPolicy";
-import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
+import { executeTaskCommand, type TaskCommandInput } from "../services/taskCommands";
+import { replyTaskCommandResult } from "./taskCommandReplies";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -31,19 +33,18 @@ import { formatArchivedPage, listArchivedItems, parseArchiveKind, restoreArchive
 import { createNoteMergePreview, formatNoteMergePreview } from "../services/noteMerges";
 import { formatIdeaScore, formatOpenTasks, formatSearchResultsPage, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, dashboardLinkKeyboard, groupHelpTopicsKeyboard, groupSettingsModeKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, itemActionsKeyboard, itemListKeyboard, noteMergePreviewKeyboard, searchPageKeyboard, settingsModeKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskListKeyboard, undoKeyboard } from "./keyboards";
-import { bold, code, h, replyHtml } from "../utils/html";
+import { bold, code, h, replyHtml, replyInChunks } from "../utils/html";
 import { normalizePublicId } from "../utils/text";
 import { formatDateTimeForUser, parseDueDate, splitReminderText } from "../utils/dates";
 import { normalizeNaturalCommandText, parseListRequest, parseNaturalHelpRequest, parseNaturalIdeaBody, parseNaturalNoteBody, parseNaturalReminderBody, parseNaturalSettingChange, parseNaturalTaskAssignment, parseNaturalTaskBody } from "./naturalCommandParsing";
-import { replyWithTaskCalendar } from "./calendarReplies";
+import { calendarTaskConnectCard, replyWithTaskCalendar } from "./calendarReplies";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 import { microsoftExcelConfigured } from "../services/excel";
-import { restoreCompletedTaskKeyboard } from "./keyboards";
 import { bulkActionConfirmationKeyboard } from "./keyboards";
 import { createBulkActionPreview, formatBulkActionPreview, parseBulkActionRequest } from "../services/bulkActions";
 import { isGroupChat } from "./groupRouting";
 import { replyActiveList } from "./activeLists";
-import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { formatStoredImageDeletePrompt, replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { findStoredImageReference, updateStoredImageCaption } from "../services/storedImages";
 import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
@@ -200,7 +201,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
   if (imageDeleteMatch?.[1]) {
     try {
       const image = await findStoredImageReference(user.id, normalizePublicId(imageDeleteMatch[1]));
-      await replyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, { reply_markup: storedImageDeleteKeyboard(image.id) });
+      await replyHtml(ctx, formatStoredImageDeletePrompt(image), { reply_markup: storedImageDeleteKeyboard(image.id) });
     } catch (error) {
       if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that saved image. Say 'show my images' to browse them.");
@@ -390,29 +391,11 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
     ?? trimmed.match(/^(?:mark|set)\s+(?:task\s+)?(\S+)\s+(?:as\s+)?(?:done|complete|completed|finished)$/i)
     ?? trimmed.match(/^(?:task\s+)?(\S+)\s+is\s+(?:done|complete|completed|finished)$/i)
     ?? trimmed.match(/^i(?:'ve|\s+have)?\s+(?:done|completed|finished|checked\s+off)\s+(?:task\s+)?(\S+)$/i);
-  if (doneMatch?.[1]) {
-    await assertNaturalGroupTaskAction(ctx, user.id, doneMatch[1], "complete");
-    const completion = await completeTask(user.id, normalizePublicId(doneMatch[1]));
-    if (completion.alreadyCompleted) {
-      await replyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
-      return true;
-    }
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
-    }
-    await replyHtml(ctx, `${formatTaskCompleted(completion.task, user.settings.timezone)}\n${code("/undo")} if that was too quick.`, { reply_markup: undoKeyboard("↩️ Undo complete") });
-    return true;
-  }
+  if (doneMatch?.[1]) return runNaturalTaskCommand(ctx, user, { action: "complete", ref: doneMatch[1] });
 
   const snoozeMatch = trimmed.match(/^(?:snooze|delay|pause|put\s+off)\s+(?:task\s+)?(\S+)(?:\s+(?:for|by|until)?\s*(.+))?$/i)
     ?? trimmed.match(/^(?:remind|nudge)\s+me\s+(?:about\s+)?(?:task\s+)?(\S+)\s+(?:again\s+)?(?:in|after)\s+(.+)$/i);
-  if (snoozeMatch?.[1]) {
-    await assertNaturalGroupTaskAction(ctx, user.id, snoozeMatch[1], "snooze");
-    const task = await snoozeTask(user.id, normalizePublicId(snoozeMatch[1]), snoozeMatch[2] ?? "1h");
-    await replyHtml(ctx, `${bold("⏰ Snoozed")} ${code(task.publicId)} ${h(task.title)}\nI’ll bring it back later. ${code("/undo")} restores the previous reminder time.`, { reply_markup: undoKeyboard("↩️ Undo snooze") });
-    return true;
-  }
+  if (snoozeMatch?.[1]) return runNaturalTaskCommand(ctx, user, { action: "snooze", ref: snoozeMatch[1], duration: snoozeMatch[2] ?? "1h" });
 
   const rescheduleMatch = trimmed.match(/^(?:reschedule|move|postpone|push|shift|change\s+the\s+time\s+of)\s+(?:task\s+)?(\S+)\s+(?:to|until|for|by)?\s*(.+)$/i)
     ?? trimmed.match(/^(?:change|set|update)\s+(?:the\s+)?(?:due\s+date|deadline|time)\s+(?:of|for)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i)
@@ -428,48 +411,19 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
   const assignment = parseNaturalTaskAssignment(trimmed);
   if (assignment) {
     const [reference, assignee] = assignment;
-    await assertNaturalGroupTaskAction(ctx, user.id, reference, "manage");
-    const task = await assignTask(user.id, normalizePublicId(reference), assignee, taskCreationOptionsFromContext(ctx, assignee));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_ASSIGNED, task, `${actor.displayName} assigned ${task.publicId} to ${formatAssignee(task)}.`);
-    }
-    const dmSetup = isGroupChat(ctx) && ctx.me.username ? `\nPrivate nudges are opt-in: https://t.me/${ctx.me.username}?start=dm` : "";
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)}\nNow with ${h(formatAssignee(task))}.${dmSetup}`);
-    return true;
+    return runNaturalTaskCommand(ctx, user, { action: "assign", ref: reference, assignees: assignee, options: taskCreationOptionsFromContext(ctx, assignee) });
   }
 
   const removeOneAssignee = trimmed.match(/^(?:unassign|remove)\s+(.+?)\s+from\s+(?:task\s+)?(\S+)$/i);
   const unassignMatch = trimmed.match(/^(?:unassign|remove (?:the )?assignees? (?:from|on))\s+(?:task\s+)?(\S+)$/i);
   if (removeOneAssignee?.[1] && removeOneAssignee[2]) {
-    await assertNaturalGroupTaskAction(ctx, user.id, removeOneAssignee[2], "manage");
-    const task = await unassignTask(user.id, normalizePublicId(removeOneAssignee[2]), removeOneAssignee[1], taskCreationOptionsFromContext(ctx, removeOneAssignee[1]));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_UNASSIGNED, task, `${actor.displayName} updated the assignees on ${task.publicId}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
-    return true;
+    return runNaturalTaskCommand(ctx, user, { action: "unassign", ref: removeOneAssignee[2], assignee: removeOneAssignee[1], options: taskCreationOptionsFromContext(ctx, removeOneAssignee[1]) });
   }
-  if (unassignMatch?.[1]) {
-    await assertNaturalGroupTaskAction(ctx, user.id, unassignMatch[1], "manage");
-    const task = await unassignTask(user.id, normalizePublicId(unassignMatch[1]));
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_UNASSIGNED, task, `${actor.displayName} cleared the assignees on ${task.publicId}.`);
-    }
-    await replyHtml(ctx, `${bold("👥 Assignees updated")} ${code(task.publicId)} ${h(formatAssignee(task))}`);
-    return true;
-  }
+  if (unassignMatch?.[1]) return runNaturalTaskCommand(ctx, user, { action: "unassign", ref: unassignMatch[1] });
 
   const cancelMatch = trimmed.match(/^(?:cancel|delete|drop|remove|get rid of|archive)\s+(?:task\s+)?(\S+)$/i)
     ?? trimmed.match(/^i\s+(?:don't|do\s+not)\s+need\s+(?:task\s+)?(\S+)\s+anymore$/i);
-  if (cancelMatch?.[1]) {
-    await assertNaturalGroupTaskAction(ctx, user.id, cancelMatch[1], "manage");
-    const task = await cancelTask(user.id, normalizePublicId(cancelMatch[1]));
-    await replyHtml(ctx, `${bold("🗑️ Task canceled")} ${code(task.publicId)} ${h(task.title)}\n${code("/undo")} brings it back if you still need it.`, { reply_markup: undoKeyboard("↩️ Undo cancel") });
-    return true;
-  }
+  if (cancelMatch?.[1]) return runNaturalTaskCommand(ctx, user, { action: "cancel", ref: cancelMatch[1] });
 
   const removeImportantMatch = trimmed.match(/^(?:remove|clear)\s+(?:the\s+)?important(?:\s+mark)?\s+from\s+(?:task\s+)?(.+)$/i)
     ?? trimmed.match(/^mark\s+(?:task\s+)?(.+)\s+as\s+not\s+important$/i);
@@ -738,6 +692,16 @@ async function assertNaturalGroupTaskAction(
   await assertGroupTaskActionForContext(ctx, ownerUserId, reference, action);
 }
 
+/**
+ * Runs one natural-text task action through the shared executor and replies with the shared
+ * copy. Errors, including group policy refusals, propagate to the message handler's reply.
+ */
+async function runNaturalTaskCommand(ctx: Context, user: ThreadwiseUser, command: TaskCommandInput): Promise<true> {
+  const result = await executeTaskCommand({ ...command, userId: user.id, actor: taskCommandActorFromContext(ctx), source: "text" });
+  await replyTaskCommandResult(ctx, result, user.settings.timezone);
+  return true;
+}
+
 async function groupTaskKeyboardForNaturalCommand(ctx: Context, ownerUserId: string, taskReference: string) {
   const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
@@ -750,14 +714,9 @@ async function replyNaturalCalendarTask(ctx: Context, userId: string, telegramId
       await ctx.reply(`${task.publicId} needs a due date before it can go on a calendar.`);
       return;
     }
-    const status = await calendarConnectionStatus(userId);
-    if (!status.connected) {
-      if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
-      const chatId = ctx.chat ? String(ctx.chat.id) : telegramId;
-      const url = await createCalendarConnectUrl(userId, chatId, { taskId: task.id });
-      await replyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`, {
-        reply_markup: calendarTaskKeyboard(task, url)
-      });
+    const connect = await calendarTaskConnectCard(userId, ctx.chat ? String(ctx.chat.id) : telegramId, task);
+    if (connect) {
+      await replyHtml(ctx, connect.text, { reply_markup: connect.keyboard });
       return;
     }
     const synced = await syncTaskToGoogleCalendar(userId, task);
@@ -803,13 +762,6 @@ function editableField(value?: string): "title" | "description" | "body" | "conc
   if (lower === "body") return "body";
   if (lower === "concept") return "concept";
   return undefined;
-}
-
-async function replyInChunks(ctx: Context, text: string) {
-  const maxLength = 3800;
-  for (let start = 0; start < text.length; start += maxLength) {
-    await ctx.reply(text.slice(start, start + maxLength));
-  }
 }
 
 async function replyFilteredGroupTasks(

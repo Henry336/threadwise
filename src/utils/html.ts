@@ -28,6 +28,14 @@ export async function replyHtml(ctx: Context, text: string, options: Record<stri
   return ctx.reply(text, { ...options, ...HTML_REPLY });
 }
 
+/** Sends long plain text as several messages, since Telegram rejects messages over 4096 characters. */
+export async function replyInChunks(ctx: Context, text: string): Promise<void> {
+  const maxLength = 3800;
+  for (let start = 0; start < text.length; start += maxLength) {
+    await ctx.reply(text.slice(start, start + maxLength));
+  }
+}
+
 export async function editOrReplyHtml(ctx: Context, text: string, options: Record<string, unknown> = {}): Promise<unknown> {
   return editCallbackMessageOrReply(ctx, text, options, true);
 }

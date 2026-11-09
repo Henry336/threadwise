@@ -1,13 +1,9 @@
 import type { Context } from "grammy";
 import { collaborationActorFromContext } from "../services/groupCollaboration";
-import {
-  assertGroupTaskAction,
-  getGroupTaskAccess,
-  GroupTaskPermissionError,
-  type GroupTaskAccess,
-  type GroupTaskAction,
-} from "../services/groupTaskPolicy";
+import { getGroupTaskAccess, type GroupTaskAccess, type GroupTaskAction } from "../services/groupTaskPolicy";
 import { isGroupManager } from "../services/groupWorkspaces";
+import { assertGroupTaskActionLazily, type TaskCommandActor } from "../services/taskCommands";
+import { isGroupChat } from "./groupRouting";
 
 /**
  * Group task access for the keyboard, asking Telegram for admin status only when it matters.
@@ -31,11 +27,11 @@ export async function assertGroupTaskActionForContext(
   reference: string,
   action: GroupTaskAction,
 ): Promise<GroupTaskAccess> {
-  const actor = collaborationActorFromContext(ctx);
-  try {
-    return await assertGroupTaskAction(ownerUserId, reference, actor, false, action);
-  } catch (error) {
-    if (!(error instanceof GroupTaskPermissionError) || !(await isGroupManager(ctx))) throw error;
-    return assertGroupTaskAction(ownerUserId, reference, actor, true, action);
-  }
+  return assertGroupTaskActionLazily(ownerUserId, reference, collaborationActorFromContext(ctx), () => isGroupManager(ctx), action);
+}
+
+/** The task-command actor for this update: a group member with a lazy admin check, or the private-chat owner. */
+export function taskCommandActorFromContext(ctx: Context): TaskCommandActor {
+  if (!isGroupChat(ctx)) return { inGroup: false };
+  return { inGroup: true, member: collaborationActorFromContext(ctx), isManager: () => isGroupManager(ctx) };
 }
