@@ -2,7 +2,7 @@
  * Fixed-window request limits for the HTTP server, the Telegram webhooks and the dashboard API.
  * src/server.ts applies the ingress and webhook limits and src/dashboard/route.ts applies the
  * dashboard limit per signed-in user. Added for finding F-03 (no route rate limits) in
- * docs/SECURITY_PHASE6_ASSURANCE.md.
+ * docs/archive/SECURITY_PHASE6_ASSURANCE.md.
  */
 import type { DashboardPrincipal } from "../dashboard/auth";
 

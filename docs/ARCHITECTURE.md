@@ -271,7 +271,7 @@ Shared group control panels use Telegram Bot API receiver-bound ephemeral delive
 
 This avoids in-memory timers. If Render restarts, the database remains the source of truth.
 
-Scheduled reminders use a separate early-warning cadence. If `dueNudgeMinutes` is 5, a dated task starts warning 5 minutes before the due time, then repeats every 5 minutes until it is done, snoozed, canceled, or rescheduled. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
+Dated tasks use fixed early-warning milestones instead: 7 days, 3 days, 1 day, 6 hours, 2 hours and 30 minutes before the deadline, at the deadline, plus the owner's `dueNudgeMinutes` offset, within a per-task automatic reminder budget. They stop once the deadline has passed. Early-warning deliveries bypass quiet hours and daily safety limits because they represent an explicit dated reminder window; undated recurring reminders still respect quiet hours and the safety limit.
 
 Daily and weekly recurring reminders store `recurrenceRule` plus `recurrenceIntervalDays` on the task row. After each recurring delivery, the reminder pass advances `dueAt` and `nextReminderAt` to the next future occurrence instead of creating another task row. This keeps recurring reminders O(1) per delivery and avoids duplicate task buildup.
 
@@ -316,7 +316,7 @@ every server render or BFF request; expired, revoked, malformed, missing, and cr
 closed. `DELETE` marks the exact session revoked and account deletion cascade-removes every session.
 
 The session routes derive ownership only from the signed service-token subject, accept bounded schemas,
-use the shared ingress rate limit and mutation-replay guard, return `no-store`, and never accept a user id
+use the dashboard request rate limit (`limitDashboardRequest`) and mutation-replay guard, return `no-store`, and never accept a user id
 in the body. The additive table stores no Telegram profile, cookie signature, provider token, or user
 content. Rows more than 30 days beyond expiry/revocation are opportunistically purged. Deploy this
 backend migration and API before a dashboard version that requires the registry; legacy cookies are
@@ -354,12 +354,11 @@ The `AiProvider` interface supports:
 - Idea structuring
 - Task extraction
 - Idea scoring
-- Embeddings
 - Provider status and a small live health check for the private admin endpoint
 
-`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, integration intent, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Embeddings are deterministic local vectors by default, which keeps capture and search from consuming OpenAI quota.
+`OpenAiProvider` is the production provider. `HeuristicAiProvider` keeps local development and tests usable without an API key. Common task/reminder extraction, natural settings/list/detail requests, simple note structuring, integration intent, and clear message classification are handled before the provider so the bot remains useful when API quota is exhausted. Search vectors are deterministic local word hashes computed at query time, so capture and search never consume OpenAI quota.
 
-The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are wrapped by a bounded in-memory cache keyed by content hash; lookups are O(1), duplicate concurrent calls share a promise, and the oldest entries are evicted when the cache exceeds its cap.
+The deterministic classifier uses fixed weighted signals over small rule tables, so runtime is linear in message length with a small constant factor. It records the winning reason in structured logs. Synthesis calls are not cached: each one is an explicit user action.
 
 OpenAI chat completions use a configurable model chain. The current model is tried first; if OpenAI returns a rate-limit or model availability error, Threadwise records the event and tries the next configured model from `OPENAI_MODEL_FALLBACKS`. This is reactive rather than predictive: the app can detect and recover after a failed request, but it cannot know a model is rate-limited before a request is attempted. AI is reserved for synthesis-heavy work such as complex note/idea structuring, note merges, note analysis, and idea scoring.
 
@@ -403,9 +402,9 @@ Approximate per-request work:
 - Simple note capture: `O(L) + DB create + Telegram reply`
 - Search: `O(Q + N * D + N * F)`, where `Q` is query length, `N` is the bounded recent-item window currently loaded per type, `D` is the fixed local embedding dimension, and `F` is text checked for lexical matches. The current implementation caps each item type at 100 rows.
 - Calendar auto-sync: one best-effort provider request after the corresponding Threadwise write, with the saved Threadwise record retained if the provider is unavailable.
-- Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: local cache lookup is `O(1)`; cache misses pay OpenAI latency and provider rate limits.
+- Synthesis features such as note merge, note analysis, idea scoring, and complex note cleanup: each call pays OpenAI latency and provider rate limits.
 
-Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` identical synthesis requests arrive at the same time, the cache stores the in-flight promise so they share one OpenAI call; if they are all different synthesis requests, OpenAI becomes the bottleneck.
+Concurrent deterministic updates scale mostly with Node.js async I/O and the database connection pool. If `R` clear reminders arrive at the same time, local CPU work is roughly `O(R * L)` and the database sees roughly `R` small create transactions. If `R` synthesis requests arrive at the same time, OpenAI becomes the bottleneck.
 
 Group routing adds only constant-time checks per Telegram update: a few id lookups for the allowlist, a chat-type check, and at most one short bot-mention regex over the incoming message. Once routed, group commands have the same order of growth as private commands because the group chat is just another scoped owner id.
 

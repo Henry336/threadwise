@@ -152,7 +152,7 @@ Phase 3 established two backend composition seams:
   registration. `src/community/index.ts` retains Beacon moderation conversations and domain behavior,
   injected into registration through `BeaconRegistrationHandlers`.
 
-Characterization tests in `src/maintainabilityBoundaries.test.ts` protect route/event inventory and
+Inventory tests in `src/dashboard/route.test.ts` and `src/bot/callbackRoutes.test.ts` protect route/button coverage and
 keep these responsibilities from silently collapsing back together. Prefer further incremental
 extraction when touching the remaining hotspots:
 

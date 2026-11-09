@@ -518,7 +518,7 @@ Threadwise stores:
 - Private Codex project registry, active-project state, jobs, thread ids, and report-message routing
 - Frozen Expense/Excel records and inert legacy Gmail records retained for data safety
 
-Most removals are soft archives. Search vectors are stored as JSON and scored app-side for personal/small-group scale. See the schema itself for field-level truth.
+Most removals are soft archives. Search vectors are computed locally at query time and scored app-side for personal/small-group scale. See the schema itself for field-level truth.
 
 ## Privacy And Access
 
@@ -600,7 +600,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Set that generated value in Render, then pass the same value when calling the endpoint.
 
-`/admin/ai/status` reports whether Threadwise is using the OpenAI provider or heuristic fallback, the configured chat model chain, the active chat model, embedding model, last successful chat call, and the last recorded rate-limit event. `?check=1` performs a tiny live OpenAI chat check, so use it intentionally.
+`/admin/ai/status` reports whether Threadwise is using the OpenAI provider or heuristic fallback, the configured chat model chain, the active chat model, last successful chat call, and the last recorded rate-limit event. `?check=1` performs a tiny live OpenAI chat check, so use it intentionally.
 
 `/admin/reminders/status` returns the latest in-memory reminder diagnostics. `/admin/reminders/run` performs one immediate due-reminder pass and returns due tasks found, reminders sent, quiet-hour deferrals, daily-cap skips, and delivery failures.
 

@@ -1,6 +1,6 @@
 /**
  * Durable custom reminder times for a task (TaskReminderSchedule rows).
- * tasks.ts and the dashboard write the schedule; the reminder loop in reminders.ts
+ * The dashboard (src/dashboard/data.ts) writes the schedule and tasks.ts cancels or restores it; the reminder loop in reminders.ts
  * claims due rows with a short lease and delivers them, so a restart or a second
  * process cannot lose or double-send a reminder.
  */

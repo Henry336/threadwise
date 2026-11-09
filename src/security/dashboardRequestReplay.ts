@@ -2,7 +2,7 @@
  * Stops a captured dashboard service token from being replayed to repeat a write.
  * Called by src/dashboard/route.ts for every POST, PUT, PATCH or DELETE after the token is
  * verified. Each token id (jti) may be used for one mutation; reads are not limited. This closed
- * the JWT replay finding F-02 in docs/SECURITY_PHASE6_ASSURANCE.md.
+ * the JWT replay finding F-02 in docs/archive/SECURITY_PHASE6_ASSURANCE.md.
  */
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";

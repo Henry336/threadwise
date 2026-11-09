@@ -514,9 +514,9 @@ async function handleBulkAction(ctx: Context, action: string, pendingId: string)
 }
 
 /**
- * Buttons on an image's extracted-text preview. Discard, view full text, and "set reminder"
- * (which waits for a typed time) keep the pending capture; Save as note or task consumes it so
- * a second tap cannot save twice.
+ * Buttons on an image's extracted-text preview. View full text and "set reminder" (which waits
+ * for a typed time) keep the pending capture; Discard deletes it, and Save as note or task
+ * consumes it so a second tap cannot save twice.
  */
 async function handleImageAction(ctx: Context, ai: AiProvider, action: string, pendingId: string) {
   const user = await ensureUser(ctx);
@@ -599,7 +599,7 @@ async function handleTaskDone(ctx: Context, taskId: string, dueMs: string | unde
   await convergeTaskControlSurface(ctx, user.id, controlSurface.messageId);
 }
 
-/** Restore button on a completed task: reopens it. Undo is only offered to the owner, not to other group members. */
+/** Restore button on a completed task: reopens it. Undo is offered when the tapper resolves to the task's owner (every member, for group tasks owned by the chat). */
 async function handleTaskRestore(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
