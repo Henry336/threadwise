@@ -400,8 +400,7 @@ async function handlePendingMenuInput(
     const panel = settingInput.parent === "region"
       ? await formatRegionSettings(user.id)
       : await formatReminderSettings(user.id);
-    const invalid = /^(?:I don't|Choose|Pick|Send it|Try:)/i.test(result.message);
-    await replyControlCardHtml(ctx, invalid ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
+    await replyControlCardHtml(ctx, !result.applied ? `${panel}\n\n${bold("Could not apply that")}\n${h(result.message)}` : panel, {
       reply_markup: settingInput.parent === "region" ? regionSettingsKeyboard() : reminderSettingsKeyboard()
     });
     return true;
