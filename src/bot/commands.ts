@@ -75,7 +75,8 @@ import { showDashboardLink, showMainMenu } from "./menu";
 import { replyControlCardHtml } from "./controlCards";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
+import { claimGroupTask } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
 import { userFacingError } from "./errorResponses";
 import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
@@ -563,22 +564,11 @@ async function assertCommandGroupTaskAction(
   action: "complete" | "snooze" | "manage",
 ): Promise<void> {
   if (!isGroupChat(ctx)) return;
-  await assertGroupTaskAction(
-    ownerUserId,
-    reference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-    action,
-  );
+  await assertGroupTaskActionForContext(ctx, ownerUserId, reference, action);
 }
 
 async function groupTaskKeyboardForCommand(ctx: Context, ownerUserId: string, taskReference: string) {
-  const access = await getGroupTaskAccess(
-    ownerUserId,
-    taskReference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-  );
+  const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 

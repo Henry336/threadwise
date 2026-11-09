@@ -33,7 +33,8 @@ import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
 import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
+import { claimGroupTask } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { convergeTaskControlSurface } from "../services/taskControlSurfaces";
@@ -573,7 +574,7 @@ async function handleTaskDone(ctx: Context, taskId: string | undefined, dueMs: s
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "complete");
+      await assertGroupTaskActionForContext(ctx, user.id, taskId, "complete");
     } catch (error) {
       await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot complete that task.").slice(0, 180), show_alert: true });
       return;
@@ -631,7 +632,7 @@ async function handleTaskSnooze(ctx: Context, taskId: string | undefined) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
+      await assertGroupTaskActionForContext(ctx, user.id, taskId, "snooze");
     } catch (error) {
       await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot snooze that task.").slice(0, 180), show_alert: true });
       return;
@@ -653,7 +654,7 @@ async function handleTaskReminderDismiss(ctx: Context, taskId: string | undefine
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
   if (isGroupChat(ctx)) {
     try {
-      await getGroupTaskAccessForAction(ctx, user.id, taskId, "snooze");
+      await assertGroupTaskActionForContext(ctx, user.id, taskId, "snooze");
     } catch (error) {
       await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot dismiss reminders for that task.").slice(0, 180), show_alert: true });
       return;
@@ -1068,29 +1069,13 @@ async function groupTaskKeyboardForContext(
   expanded: boolean,
   backCallback = "menu:tasks",
 ) {
-  const actor = collaborationActorFromContext(ctx);
-  const access = await getGroupTaskAccess(ownerUserId, taskReference, actor, await isGroupManager(ctx));
+  const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(
     access.task,
     access.audience as GroupTaskAudience,
     access.workspaceId,
     expanded,
     backCallback,
-  );
-}
-
-async function getGroupTaskAccessForAction(
-  ctx: Context,
-  ownerUserId: string,
-  taskReference: string,
-  action: "complete" | "snooze" | "manage",
-) {
-  return assertGroupTaskAction(
-    ownerUserId,
-    taskReference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-    action,
   );
 }
 
@@ -1101,7 +1086,7 @@ async function allowGroupTaskAction(
   action: "complete" | "snooze" | "manage",
 ): Promise<boolean> {
   try {
-    await getGroupTaskAccessForAction(ctx, ownerUserId, taskReference, action);
+    await assertGroupTaskActionForContext(ctx, ownerUserId, taskReference, action);
     return true;
   } catch (error) {
     await ctx.answerCallbackQuery({

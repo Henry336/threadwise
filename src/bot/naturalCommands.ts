@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
 import { GroupActivityType } from "@prisma/client";
 import type { AiProvider } from "../ai/types";
-import { ensureUser } from "../services/users";
+import type { ThreadwiseUser } from "../services/users";
 import { formatCommandReference, formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatPrivacyText } from "./help";
 import {
   createIdea,
@@ -17,7 +17,8 @@ import { archiveNote, createNote, findAnyNote, formatNoteAnalysis, formatNoteSav
 import { findNoteReference, updateNoteBody } from "../services/notes";
 import { assignTask, cancelTask, completeTask, createScheduledReminder, createTask, findTaskReference, formatAssignee, formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskSavedAcknowledgement, listOpenTasks, renameTaskTitle, rescheduleTask, snoozeTask, unassignTask, updateTaskDescription } from "../services/tasks";
 import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { assertGroupTaskAction, claimGroupTask, getGroupTaskAccess } from "../services/groupTaskPolicy";
+import { claimGroupTask } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
 import { buildReview } from "../services/review";
 import { formatSettings, updateSetting } from "../services/settings";
 import { createPendingSearch, parseSearchRequest, semanticSearch } from "../services/search";
@@ -52,10 +53,14 @@ import { replyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { prisma } from "../db/prisma";
 import { buildArchivedNoteCard, buildItemCard } from "./itemCards";
 
-export async function handleNaturalCommand(ctx: Context, ai: AiProvider, text: string): Promise<boolean> {
+/**
+ * Runs the deterministic natural-language commands for one message; false means "not a command".
+ * The caller passes the user it already resolved, so a message costs one ensureUser (and, in
+ * groups, one set of workspace/membership writes) instead of one per handler.
+ */
+export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: ThreadwiseUser, text: string): Promise<boolean> {
   const trimmed = normalizeNaturalCommandText(text);
   const lower = trimmed.toLowerCase();
-  const user = await ensureUser(ctx);
 
   const bulkRequest = parseBulkActionRequest(trimmed);
   if (bulkRequest) {
@@ -764,22 +769,11 @@ async function assertNaturalGroupTaskAction(
   action: "complete" | "snooze" | "manage",
 ): Promise<void> {
   if (!isGroupChat(ctx)) return;
-  await assertGroupTaskAction(
-    ownerUserId,
-    reference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-    action,
-  );
+  await assertGroupTaskActionForContext(ctx, ownerUserId, reference, action);
 }
 
 async function groupTaskKeyboardForNaturalCommand(ctx: Context, ownerUserId: string, taskReference: string) {
-  const access = await getGroupTaskAccess(
-    ownerUserId,
-    taskReference,
-    collaborationActorFromContext(ctx),
-    await isGroupManager(ctx),
-  );
+  const access = await groupTaskKeyboardAccess(ctx, ownerUserId, taskReference);
   return groupTaskActionsKeyboard(access.task, access.audience, access.workspaceId, true, "menu:tasks");
 }
 

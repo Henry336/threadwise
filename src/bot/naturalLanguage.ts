@@ -153,7 +153,7 @@ export function registerNaturalLanguage(bot: Bot, ai: AiProvider): void {
 
       if (await handleCaptureCorrection(ctx, ai, user, text)) return;
 
-      if (await handleNaturalCommand(ctx, ai, text)) {
+      if (await handleNaturalCommand(ctx, ai, user, text)) {
         return;
       }
 
@@ -416,5 +416,5 @@ async function handlePendingMenuInput(
         ? "search images "
         : "search ";
   clearMenuInput(user.id, actorId);
-  return handleNaturalCommand(ctx, ai, `${prefix}${text}`);
+  return handleNaturalCommand(ctx, ai, user, `${prefix}${text}`);
 }
