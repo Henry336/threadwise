@@ -1,3 +1,9 @@
+/**
+ * Process entry point (`npm start` runs dist/main.js). Builds the AI provider, the Threadwise bot
+ * and the optional Beacon bot, starts every background loop, then either registers Telegram
+ * webhooks and starts the HTTP server (production on Render) or uses long polling (local dev).
+ */
+
 import { beaconConfig, env } from "./config/env";
 import { createHash } from "node:crypto";
 import { createAiProvider } from "./ai";
@@ -22,6 +28,12 @@ import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bo
 import { startDailyBriefLoop } from "./bot/dailyBriefs";
 import { startTaskDraftExpiryLoop } from "./bot/todayExpiry";
 
+/**
+ * Starts everything in order. Background loops are database-driven, so a restart loses nothing.
+ * With WEBHOOK_URL set it refuses to start without WEBHOOK_SECRET_TOKEN, because the webhook must
+ * be authenticated. Beacon gets its own webhook path and a secret derived from its token. Shutdown
+ * on SIGINT/SIGTERM stops the loops, the server, both bots and the database connection.
+ */
 async function main() {
   const ai = createAiProvider();
   const bot = createThreadwiseBot(env.TELEGRAM_BOT_TOKEN, ai);

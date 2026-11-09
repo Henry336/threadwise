@@ -1,3 +1,9 @@
+/**
+ * The Fastify HTTP server. It hosts the Telegram webhooks, the dashboard API (src/dashboard),
+ * /health for release checks, token-protected admin endpoints, and the Google Calendar OAuth callback.
+ * main.ts calls startServer only in webhook mode.
+ */
+
 import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -18,6 +24,12 @@ import {
   serverIngressRateLimitPolicy,
 } from "./security/sharedRateLimit";
 import { codexWorkerRoutes, excelOAuthRoutes } from "./sideProjectRoutes";
+/**
+ * Registers every route and starts listening. Routes without their own limit (admin, OAuth,
+ * side projects) share a per-IP rate limit. The dashboard API and the
+ * webhooks are skipped because they apply their own limits, and /health stays open for deploy checks. Admin endpoints answer 404 to a
+ * wrong token so they do not reveal that they exist.
+ */
 export async function startServer(
   bot: Bot,
   ai: AiProvider,
@@ -181,6 +193,12 @@ export async function startServer(
   return server;
 }
 
+/**
+ * Adds a webhook route that only accepts requests carrying Telegram's secret header
+ * (set through setWebhook's `secret_token`). Wrong or missing secrets get an opaque 404, then a
+ * per-sender rate limit runs before grammY handles the update. This closed the unauthenticated
+ * webhook found in the August 2026 security audit.
+ */
 export function registerAuthenticatedTelegramWebhook(
   server: FastifyInstance,
   options: {
@@ -214,6 +232,10 @@ export function registerAuthenticatedTelegramWebhook(
   });
 }
 
+/**
+ * Constant-time secret comparison. Both values are hashed first so they have equal length,
+ * which timingSafeEqual requires, and the comparison time does not reveal the secret's length.
+ */
 function secureTokenEqual(actualToken: string | undefined, expectedToken: string | undefined): boolean {
   if (!actualToken || !expectedToken) return false;
   const actual = createHash("sha256").update(actualToken).digest();
