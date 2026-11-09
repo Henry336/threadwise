@@ -34,6 +34,7 @@ import {
 import { buildStudyAttentionSnapshot, buildStudyWeeklyPreview } from "../services/studyAttention";
 import { studyCanvasConfigured, studyCanvasStatus, syncStudyCanvas } from "../services/studyCanvas";
 import { extractTextFromImage, MAX_IMAGE_BYTES } from "../services/imageOcr";
+import { downloadTelegramFile, TelegramFileError } from "../services/telegramFiles";
 import { parseStudyNaturalLanguage, type StudyNaturalIntent } from "../services/studyNaturalLanguage";
 import { markdownForTelegram } from "../services/studyMarkdown";
 import {
@@ -1155,12 +1156,14 @@ async function extractPendingImageText(
 ) {
   if (!pending.telegramFileId) throw new StudyModeError("That image is no longer available.", "not_found");
   if (pending.fileSize && pending.fileSize > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
-  const file = await ctx.api.getFile(pending.telegramFileId);
-  if (!file.file_path) throw new StudyModeError("Telegram could not load that image. Try again.", "invalid");
-  const response = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram download failed (${response.status}).`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_IMAGE_BYTES) throw new StudyModeError("That image is too large for text extraction.", "invalid");
+  let buffer: Buffer;
+  try {
+    ({ bytes: buffer } = await downloadTelegramFile(env.TELEGRAM_BOT_TOKEN, pending.telegramFileId, { maxBytes: MAX_IMAGE_BYTES }));
+  } catch (error) {
+    if (!(error instanceof TelegramFileError)) throw error;
+    if (error.reason === "too_large") throw new StudyModeError("That image is too large for text extraction.", "invalid");
+    throw new StudyModeError("Telegram could not load that image. Try again.", "invalid");
+  }
   const settings = await prisma.userSettings.findUnique({ where: { userId: workspace.ownerUserId } });
   const languages = ocrLanguagesForCaption(pending.sourceText ?? "", settings?.ocrLanguages ?? "eng");
   return extractTextFromImage(buffer, languages);

@@ -1,5 +1,5 @@
 import { RecurrenceRule, TaskStatus, type PrismaClient, type UserSettings } from "@prisma/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The task services the dashboard delegates status changes to use the shared Prisma client.
 const servicePrisma = vi.hoisted(() => ({
@@ -83,6 +83,10 @@ function storedImage(mimeType = "image/png") {
 }
 
 describe("dashboard data security", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("canonicalizes legacy one-digit quiet hours at the API boundary", () => {
     expect(settingsView({ ...settings, quietHoursStart: "3:00", quietHoursEnd: "6:00" } as UserSettings)).toMatchObject({
       quietHoursStart: "03:00",
@@ -343,7 +347,8 @@ describe("dashboard data security", () => {
         headers: { "content-type": "image/png", "content-length": "4" }
       }));
 
-    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher);
+    vi.stubGlobal("fetch", fetcher);
+    const result = await loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database);
 
     expect(result).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     expect(imageFindFirst).toHaveBeenCalledWith({
@@ -469,7 +474,8 @@ describe("dashboard data security", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, result: { file_path: "documents/a.svg" } }), { status: 200 }))
       .mockResolvedValueOnce(new Response("<svg/>", { status: 200, headers: { "content-type": "image/svg+xml" } }));
 
-    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database, fetcher))
+    vi.stubGlobal("fetch", fetcher);
+    await expect(loadDashboardImageContent("123456789", "IMG-1", "bot-secret", database))
       .rejects.toBeInstanceOf(DashboardUnsupportedMediaError);
   });
 

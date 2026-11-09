@@ -10,6 +10,7 @@ import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { handleMicrosoftOAuthCallback } from "./services/excel";
 import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
 import { appVersion } from "./services/version";
+import { downloadTelegramFile, TelegramFileError } from "./services/telegramFiles";
 import { env, privateCodexConfig } from "./config/env";
 import { CODEX_TASK_SYNC_PUBLIC_KEY_DER_BASE64 } from "./config/codexTaskSyncPublicKey";
 import {
@@ -302,17 +303,13 @@ export async function startServer(
       return reply.code(413).send({ error: "attachment_too_large" });
     }
 
-    const telegramFile = await bot.api.getFile(attachment.telegramFileId);
-    if (!telegramFile.file_path) return reply.code(502).send({ error: "telegram_file_unavailable" });
-    const response = await fetch(`https://api.telegram.org/file/bot${options.telegramBotToken}/${telegramFile.file_path}`);
-    if (!response.ok) return reply.code(502).send({ error: "telegram_file_download_failed" });
-    const declaredLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_CODEX_ATTACHMENT_BYTES) {
-      return reply.code(413).send({ error: "attachment_too_large" });
-    }
-    const buffer = await responseBufferWithinLimit(response, MAX_CODEX_ATTACHMENT_BYTES);
-    if (!buffer) {
-      return reply.code(413).send({ error: "attachment_too_large" });
+    let buffer: Buffer;
+    try {
+      ({ bytes: buffer } = await downloadTelegramFile(options.telegramBotToken, attachment.telegramFileId, { maxBytes: MAX_CODEX_ATTACHMENT_BYTES }));
+    } catch (error) {
+      const reason = error instanceof TelegramFileError ? error.reason : "temporary";
+      if (reason === "too_large") return reply.code(413).send({ error: "attachment_too_large" });
+      return reply.code(502).send({ error: reason === "unavailable" ? "telegram_file_unavailable" : "telegram_file_download_failed" });
     }
     return reply
       .header("content-type", attachment.mimeType || "application/octet-stream")
@@ -887,27 +884,6 @@ function codexScope(config: { ownerTelegramId: string; telegramChatId: string })
     ownerTelegramId: config.ownerTelegramId,
     telegramChatId: config.telegramChatId
   };
-}
-
-async function responseBufferWithinLimit(response: Response, maxBytes: number): Promise<Buffer | undefined> {
-  if (!response.body) return Buffer.alloc(0);
-  const reader = response.body.getReader();
-  const chunks: Buffer[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) return Buffer.concat(chunks, total);
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        return undefined;
-      }
-      chunks.push(Buffer.from(value));
-    }
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 export async function* exactLengthStream(

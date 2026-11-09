@@ -14,6 +14,7 @@ import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import { nextPublicId } from "./publicIds";
 import { recordCreateUndo } from "./undo";
+import { downloadTelegramFile, TelegramFileError } from "./telegramFiles";
 
 export const TRANSCRIPTION_MODELS = [
   "gpt-4o-mini-transcribe",
@@ -190,7 +191,7 @@ export async function processVoiceTranscription(
     let rawTranscript = job.rawTranscript;
     const provider = providerFactory();
     if (rawTranscript === null) {
-      const bytes = await downloadTelegramAudio(api, botToken, job.telegramFileId, job.fileSize ?? undefined);
+      const bytes = await downloadTelegramAudio(botToken, job.telegramFileId, job.fileSize ?? undefined);
       rawTranscript = await transcribeWithValidation(provider, {
         bytes,
         fileName: transcriptionFileName(job.fileName, job.mimeType),
@@ -429,20 +430,18 @@ async function renewVoiceLease(jobId: string, processorId: string): Promise<void
   });
 }
 
-async function downloadTelegramAudio(api: Api, botToken: string, fileId: string, expectedSize?: number): Promise<Buffer> {
+/** Downloads a voice note through the shared Telegram download, capped at the transcription limit. */
+async function downloadTelegramAudio(botToken: string, fileId: string, expectedSize?: number): Promise<Buffer> {
   const initialError = voiceFileSizeError(expectedSize);
   if (initialError) throw new Error(initialError);
-  const file = await api.getFile(fileId);
-  if (!file.file_path) throw new Error("Telegram did not provide a downloadable path for this audio.");
-  const response = await fetch(`https://api.telegram.org/file/bot${botToken}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Telegram audio download failed (${response.status}).`);
-  const contentLength = Number(response.headers.get("content-length"));
-  const headerError = voiceFileSizeError(Number.isFinite(contentLength) ? contentLength : undefined);
-  if (headerError) throw new Error(headerError);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const actualError = voiceFileSizeError(bytes.length);
-  if (actualError) throw new Error(actualError);
-  return bytes;
+  try {
+    return (await downloadTelegramFile(botToken, fileId, { maxBytes: env.VOICE_TRANSCRIPTION_MAX_BYTES })).bytes;
+  } catch (error) {
+    if (error instanceof TelegramFileError && error.reason === "too_large") {
+      throw new Error(`This audio is above the configured ${formatMegabytes(env.VOICE_TRANSCRIPTION_MAX_BYTES)} transcription limit.`);
+    }
+    throw error;
+  }
 }
 
 async function completeVoiceJob(
