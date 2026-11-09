@@ -2,7 +2,7 @@ import type { Context } from "grammy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
-  auditLog: { findFirst: vi.fn(), update: vi.fn() },
+  auditLog: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   $transaction: vi.fn(),
 }));
 const groupWorkspaces = vi.hoisted(() => ({ isGroupManager: vi.fn() }));
@@ -86,6 +86,16 @@ describe("undo failures", () => {
 
     expect(message).toContain("Try /undo again");
     expect(db.auditLog.update).not.toHaveBeenCalled();
+  });
+
+  it("reports success when the undo committed before the error, instead of inviting a second /undo", async () => {
+    db.$transaction.mockRejectedValue(new Error("Connection terminated unexpectedly"));
+    db.auditLog.findUnique.mockResolvedValue({ action: "undone:rename" });
+
+    const message = await undoLastAction("user-1");
+
+    expect(message).toContain("Undone");
+    expect(message).not.toContain("Try /undo again");
   });
 
   it("retires the entry when its target row is gone, since a retry cannot succeed", async () => {

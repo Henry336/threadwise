@@ -363,6 +363,12 @@ export async function undoLastAction(userId: string, options: { actorTelegramId?
     }
   } catch (error) {
     if (!isPermanentUndoFailure(error)) {
+      // The error may have come after the commit (e.g. the connection dropped on COMMIT), so
+      // check before telling the user nothing changed; otherwise the next /undo reverses an older change.
+      if (await undoWasConsumed(entry.id)) {
+        logger.warn("Undo committed before an error; reporting success.", { entryId: entry.id, type, error: String(error) });
+        return `${bold("Undone")} Your last change was reversed.`;
+      }
       // A transient failure (for example the database dropping a connection) must not burn the
       // user's undo: the entry stays, so the next /undo tries the same change again.
       logger.error("Undo failed; keeping the entry for a retry.", { entryId: entry.id, type, error: String(error) });
@@ -594,8 +600,13 @@ async function undoArchive(entryId: string, payload: Record<string, unknown>): P
   });
 
   if (target.kind === "task" && archivedAt === null) {
-    const restored = await prisma.task.findUnique({ where: { id: target.id } });
-    if (restored) await syncTaskCalendarBestEffort(restored.userId, restored);
+    // The undo is already committed; a failed calendar refresh must not be reported as a failed undo.
+    try {
+      const restored = await prisma.task.findUnique({ where: { id: target.id } });
+      if (restored) await syncTaskCalendarBestEffort(restored.userId, restored);
+    } catch (error) {
+      logger.warn("Calendar sync after undo failed.", { taskId: target.id, error: String(error) });
+    }
   }
 
   return `${bold("Undone")} Restored ${code(target.publicId)} to active ${activeLabel(target.kind)}.`;
@@ -657,6 +668,16 @@ class UndoPayloadError extends Error {}
 function isPermanentUndoFailure(error: unknown): boolean {
   return error instanceof UndoPayloadError
     || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025");
+}
+
+/** Whether the entry was already retired; false if it cannot be read either, so the caller keeps it for a retry. */
+async function undoWasConsumed(entryId: string): Promise<boolean> {
+  try {
+    const current = await prisma.auditLog.findUnique({ where: { id: entryId }, select: { action: true } });
+    return Boolean(current && !current.action.startsWith(UNDO_PREFIX));
+  } catch {
+    return false;
+  }
 }
 
 /** Retires an entry outside a transaction (used when it cannot be applied). consumeUndo is the in-transaction twin. */
