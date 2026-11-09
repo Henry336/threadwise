@@ -17,7 +17,6 @@ import { startStudyNoteCaptureExpiryLoop } from "./services/studyResources";
 import { startStudyCaptureBatchLoop } from "./services/studyCaptureBatches";
 import { startStudyAnalysisLoop } from "./services/studyAnalysisRunner";
 import { startImageUploadBatchLoop } from "./services/imageUploadBatches";
-import { seedStudySmokeTestIfRequested } from "./services/studySmokeSeed";
 import { createBeaconBot, startBeaconCleanupLoop } from "./community";
 import { registerBeaconCommandMenus, registerThreadwiseCommandMenus } from "./bot/commandMenus";
 import { startDailyBriefLoop } from "./bot/dailyBriefs";
@@ -33,7 +32,6 @@ async function main() {
   const beaconWebhookSecret = beaconBot && env.BEACON_BOT_TOKEN
     ? createHash("sha256").update(`threadwise-beacon:${env.BEACON_BOT_TOKEN}`).digest("hex")
     : undefined;
-  await seedStudySmokeTestIfRequested();
   // Each entry is a stop function, or undefined when that loop is disabled by configuration.
   const stopLoops = [
     beaconBot ? startBeaconCleanupLoop() : undefined,

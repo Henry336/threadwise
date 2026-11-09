@@ -31,7 +31,6 @@ const envSchema = z.object({
   OPENAI_API_KEY: optional(z.string()),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_MODEL_FALLBACKS: z.string().default("gpt-5.5,gpt-5.4,gpt-5.4-nano"),
-  GEMINI_API_KEY: optional(z.string().min(8)),
   // Keep the durable queue responsive without continuously churning the remote database.
   // Explicit hosting configuration may lower this, but production-safe defaults must stand alone.
   STUDY_ANALYSIS_POLL_MS: z.coerce.number().int().min(5_000).max(60_000).default(60_000),
@@ -77,10 +76,7 @@ const envSchema = z.object({
   CANVAS_BASE_URL: z.string().url().default("https://canvas.nus.edu.sg/api/v1"),
   STUDY_CANVAS_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1_440).default(30),
   STUDY_TRANSIT_BASE_URL: z.string().url().default("https://improved-nextbus.vercel.app"),
-  STUDY_EXTERNAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(12_000),
-  // Owner-operated, date-bounded production smoke seed. It is ignored on every
-  // other local date and never contains credentials or user content.
-  STUDY_SMOKE_TEST_DATE: optional(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+  STUDY_EXTERNAL_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(12_000)
 }).superRefine((value, context) => {
   if (value.CONTENT_ENCRYPTION_MODE === "write" && !value.CONTENT_ENCRYPTION_KEY) {
     context.addIssue({
