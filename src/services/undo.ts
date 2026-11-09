@@ -7,6 +7,7 @@ import { isGroupManager } from "./groupWorkspaces";
 import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import { bold, code, h } from "../utils/html";
 import { syncTaskCalendarBestEffort } from "./googleCalendar";
+import { logger } from "../logger";
 
 const UNDO_PREFIX = "undoable:";
 
@@ -321,7 +322,14 @@ export async function undoLastAction(userId: string, options: { actorTelegramId?
     if (type === "reclassify") {
       return await undoReclassify(entry.id, payload);
     }
-  } catch {
+  } catch (error) {
+    if (!isPermanentUndoFailure(error)) {
+      // A transient failure (for example the database dropping a connection) must not burn the
+      // user's undo: the entry stays, so the next /undo tries the same change again.
+      logger.error("Undo failed; keeping the entry for a retry.", { entryId: entry.id, type, error: String(error) });
+      return "I couldn’t undo that just now, so I left your data exactly as it was. Try /undo again in a moment.";
+    }
+    logger.warn("Undo cannot be applied; retiring the entry.", { entryId: entry.id, type, error: String(error) });
     await markUndoConsumed(entry.id, type);
     return "I couldn’t undo that cleanly, so I left your data exactly as it was.";
   }
@@ -402,7 +410,7 @@ async function undoTaskState(entryId: string, payload: Record<string, unknown>):
   const target = targetFromPayload(payload);
   const status = taskStatusValue(payload.status);
   if (target.kind !== "task" || !status) {
-    throw new Error("Invalid task undo payload.");
+    throw new UndoPayloadError("Invalid task undo payload.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -425,7 +433,7 @@ async function undoTaskState(entryId: string, payload: Record<string, unknown>):
 async function undoSnooze(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   if (target.kind !== "task") {
-    throw new Error("Invalid snooze undo payload.");
+    throw new UndoPayloadError("Invalid snooze undo payload.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -446,7 +454,7 @@ async function undoRename(entryId: string, payload: Record<string, unknown>): Pr
   const target = targetFromPayload(payload);
   const previousTitle = stringValue(payload.previousTitle);
   if (!previousTitle) {
-    throw new Error("Invalid rename undo payload.");
+    throw new UndoPayloadError("Invalid rename undo payload.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -490,7 +498,7 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
       const current = await tx.idea.findFirst({ where: { id: target.id, archivedAt: null } });
       if (current) await tx.idea.update({ where: { id: current.id }, data: completeSearchableContentUpdate("Idea", current, { concept: previousValue ?? "", sourceText: previousValue ?? "" }) });
     } else {
-      throw new Error("Invalid field edit undo payload.");
+      throw new UndoPayloadError("Invalid field edit undo payload.");
     }
 
     await consumeUndo(tx, entryId, "field-edit");
@@ -502,7 +510,7 @@ async function undoFieldEdit(entryId: string, payload: Record<string, unknown>):
 async function undoImageCaption(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const id = stringValue(payload.targetId);
   const publicId = stringValue(payload.publicId);
-  if (!id || !publicId) throw new Error("Invalid image caption undo payload.");
+  if (!id || !publicId) throw new UndoPayloadError("Invalid image caption undo payload.");
   const previousCaption = nullableStringValue(payload.previousCaption);
   await prisma.$transaction(async (tx) => {
     const current = await tx.storedImage.findUnique({ where: { id } });
@@ -515,7 +523,7 @@ async function undoImageCaption(entryId: string, payload: Record<string, unknown
 async function undoReschedule(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   if (target.kind !== "task") {
-    throw new Error("Invalid reschedule undo payload.");
+    throw new UndoPayloadError("Invalid reschedule undo payload.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -595,7 +603,7 @@ async function undoNoteMerge(entryId: string, payload: Record<string, unknown>):
   const target = targetFromPayload(payload);
   const sourceNotes = sourceNotesFromPayload(payload.sourceNotes);
   if (target.kind !== "note" || sourceNotes.length === 0) {
-    throw new Error("Invalid merge undo payload.");
+    throw new UndoPayloadError("Invalid merge undo payload.");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -635,6 +643,18 @@ async function recordUndo(tx: Prisma.TransactionClient, userId: string, type: st
   });
 }
 
+/** Thrown when a stored undo entry is malformed; retrying it can never succeed. */
+class UndoPayloadError extends Error {}
+
+/**
+ * Whether an undo failure will repeat on every retry: the entry's payload is malformed, or the
+ * row it targets is gone (Prisma P2025). Anything else is treated as transient and retried.
+ */
+function isPermanentUndoFailure(error: unknown): boolean {
+  return error instanceof UndoPayloadError
+    || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025");
+}
+
 async function markUndoConsumed(entryId: string, type: string): Promise<void> {
   await prisma.auditLog.update({
     where: { id: entryId },
@@ -656,7 +676,7 @@ function targetFromPayload(payload: Record<string, unknown>): UndoTarget {
   const title = stringValue(payload.title);
 
   if (!kind || !id || !publicId || !title) {
-    throw new Error("Invalid undo target.");
+    throw new UndoPayloadError("Invalid undo target.");
   }
 
   return { kind, id, publicId, title };

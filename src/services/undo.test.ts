@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   auditLog: { findFirst: vi.fn(), update: vi.fn() },
+  $transaction: vi.fn(),
 }));
 const groupWorkspaces = vi.hoisted(() => ({ isGroupManager: vi.fn() }));
 
@@ -10,7 +11,8 @@ vi.mock("../db/prisma", () => ({ prisma: db }));
 vi.mock("./googleCalendar", () => ({ syncTaskCalendarBestEffort: vi.fn() }));
 vi.mock("./groupWorkspaces", () => groupWorkspaces);
 
-import { recordCreateUndo, undoLastActionForContext, withUndoActor } from "./undo";
+import { Prisma } from "@prisma/client";
+import { recordCreateUndo, undoLastAction, undoLastActionForContext, withUndoActor } from "./undo";
 
 function groupContext(fromId = 42): Context {
   return { chat: { id: -100, type: "supergroup" }, from: { id: fromId } } as unknown as Context;
@@ -63,5 +65,35 @@ describe("group undo ownership", () => {
     const where = (db.auditLog.findFirst.mock.calls[0]?.[0] as { where: object }).where;
     expect(where).not.toHaveProperty("metadata");
     expect(groupWorkspaces.isGroupManager).not.toHaveBeenCalled();
+  });
+});
+
+describe("undo failures", () => {
+  const renameEntry = {
+    id: "entry-1",
+    metadata: { type: "rename", targetKind: "task", targetId: "t1", publicId: "TASK-1", title: "New", previousTitle: "Old" },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    db.auditLog.findFirst.mockResolvedValue(renameEntry);
+  });
+
+  it("keeps the entry after a transient database error so the next /undo retries it", async () => {
+    db.$transaction.mockRejectedValue(new Error("Connection terminated unexpectedly"));
+
+    const message = await undoLastAction("user-1");
+
+    expect(message).toContain("Try /undo again");
+    expect(db.auditLog.update).not.toHaveBeenCalled();
+  });
+
+  it("retires the entry when its target row is gone, since a retry cannot succeed", async () => {
+    db.$transaction.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("Record not found", { code: "P2025", clientVersion: "test" }));
+
+    const message = await undoLastAction("user-1");
+
+    expect(message).toContain("couldn’t undo that cleanly");
+    expect(db.auditLog.update).toHaveBeenCalledWith({ where: { id: "entry-1" }, data: { action: "undone:rename" } });
   });
 });
