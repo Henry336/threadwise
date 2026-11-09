@@ -7,7 +7,6 @@ import {
   TaskStatus,
   type PrismaClient,
 } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { parseDueDate } from "../utils/dates";
@@ -291,7 +290,6 @@ export async function cancelTaskImport(
 export async function importReviewedTasks(
   importId: string,
   actor: CollaborationActor & { isManager: boolean },
-  ai: AiProvider,
   workspaceId?: string,
   database: PrismaClient = prisma,
 ): Promise<{ taskImport: TaskImportReview; imported: number; failed: number; skipped: number }> {

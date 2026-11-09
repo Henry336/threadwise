@@ -33,9 +33,16 @@ describe("settings updates", () => {
     vi.clearAllMocks();
   });
 
+  it("reports rejected input as not applied without writing", async () => {
+    for (const args of [["max", "0"], ["interval", "5"], ["timezone", "Atlantis"], ["quiet", "late"], ["dm", "maybe"], ["voice", "language", "english"], ["nonsense"]]) {
+      await expect(updateSetting("user-1", args)).resolves.toMatchObject({ applied: false });
+    }
+    expect(mocks.userSettingsUpdate).not.toHaveBeenCalled();
+  });
+
   it("stores custom quiet hours in canonical HH:mm form", async () => {
     await expect(updateSetting("user-1", ["quiet", "3:00", "6:00"]))
-      .resolves.toMatchObject({ message: expect.stringContaining("03:00-06:00") });
+      .resolves.toMatchObject({ applied: true, message: expect.stringContaining("03:00-06:00") });
 
     expect(mocks.userSettingsUpdate).toHaveBeenCalledWith({
       where: { userId: "user-1" },

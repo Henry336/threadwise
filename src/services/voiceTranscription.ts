@@ -8,7 +8,6 @@ import {
   type VoiceTranscriptionJob
 } from "@prisma/client";
 import type { Api } from "grammy";
-import type { AiProvider } from "../ai/types";
 import { env } from "../config/env";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
@@ -237,8 +236,7 @@ export async function transcribeWithValidation(
 
 export async function processRecoverableVoiceTranscriptions(
   api: Api,
-  botToken: string,
-  ai: AiProvider
+  botToken: string
 ): Promise<void> {
   const now = new Date();
   const job = await prisma.voiceTranscriptionJob.findFirst({

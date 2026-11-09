@@ -12,7 +12,7 @@ vi.mock("./googleCalendar", () => ({ syncTaskCalendarBestEffort: vi.fn() }));
 vi.mock("./groupWorkspaces", () => groupWorkspaces);
 
 import { Prisma } from "@prisma/client";
-import { recordCreateUndo, undoLastAction, undoLastActionForContext, withUndoActor } from "./undo";
+import { recordCreateUndo, undoLastAction, undoLastActionForContext, updateItemByKind, withUndoActor } from "./undo";
 
 function groupContext(fromId = 42): Context {
   return { chat: { id: -100, type: "supergroup" }, from: { id: fromId } } as unknown as Context;
@@ -95,5 +95,17 @@ describe("undo failures", () => {
 
     expect(message).toContain("couldn’t undo that cleanly");
     expect(db.auditLog.update).toHaveBeenCalledWith({ where: { id: "entry-1" }, data: { action: "undone:rename" } });
+  });
+});
+
+describe("updateItemByKind", () => {
+  it("routes each kind to its table and adds task-only columns only for tasks", async () => {
+    const tables = { task: { updateMany: vi.fn() }, note: { updateMany: vi.fn() }, idea: { updateMany: vi.fn() } };
+    const args = { where: { id: "x", archivedAt: null }, data: { archivedReason: "undo" }, taskData: { nextReminderAt: null } };
+    for (const kind of ["task", "note", "idea"] as const) await updateItemByKind(tables as never, kind, args);
+
+    expect(tables.task.updateMany).toHaveBeenCalledWith({ where: args.where, data: { archivedReason: "undo", nextReminderAt: null } });
+    expect(tables.note.updateMany).toHaveBeenCalledWith({ where: args.where, data: { archivedReason: "undo" } });
+    expect(tables.idea.updateMany).toHaveBeenCalledWith({ where: args.where, data: { archivedReason: "undo" } });
   });
 });

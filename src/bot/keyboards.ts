@@ -606,7 +606,8 @@ export function storedImageListKeyboard(
     const back = searchId ? `stored-image:search:${searchId}:${page}` : `stored-image:page:${page}`;
     return keyboard.row().text("‹ Back", back);
   }
-  const choose = searchId ? `stored-image:choose-search:${searchId}:${page}` : `stored-image:choose:${page}`;
+  // "pick", not "choose-search": with a 36-char search id the longer prefix passed Telegram's 64-byte limit.
+  const choose = searchId ? `stored-image:pick:${searchId}:${page}` : `stored-image:choose:${page}`;
   keyboard.text("Choose an image", choose)
     .url("View gallery ↗", workspaceId ? groupDashboardUrl(workspaceId, "images") : dashboardViewUrl("images"));
   if (totalPages > 1) {

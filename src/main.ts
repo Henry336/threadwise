@@ -43,7 +43,7 @@ async function main() {
     startCodexDeliveryLoop(bot),
     startGeminiIdeaDeliveryLoop(bot),
     startFileCourierDeliveryLoop(bot),
-    startVoiceCaptureRecoveryLoop(bot, ai, env.TELEGRAM_BOT_TOKEN),
+    startVoiceCaptureRecoveryLoop(bot, env.TELEGRAM_BOT_TOKEN),
     startStudyCanvasSyncLoop(),
     startStudyNoteCaptureExpiryLoop(bot),
     startStudyCaptureBatchLoop(bot),

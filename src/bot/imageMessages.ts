@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy";
 import type { AiProvider } from "../ai/types";
 import { createNote, formatNoteSavedAcknowledgement } from "../services/notes";
-import { createScheduledReminder, createTask, formatTaskSavedAcknowledgement } from "../services/tasks";
+import { saveTaskFromTelegram } from "./taskSaves";
 import { captionForStoredImage, createPendingImageCapture, extractTextFromImage, MAX_IMAGE_BYTES, parseImageCaptionIntent, type ImageIntent } from "../services/imageOcr";
 import { downloadTelegramFile, TelegramFileError } from "../services/telegramFiles";
 import { consumePendingImageUpload, createPendingImageUpload, discardPendingImageUpload, formatStoredImageSaved, savePendingImageUpload, updateStoredImageOcr } from "../services/storedImages";
@@ -12,7 +12,6 @@ import { bold, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/h
 import { isGroupChat, messageTargetsBot, prepareNaturalLanguageText } from "./groupRouting";
 import { editCancelKeyboard, imageReminderTimeKeyboard, imageTextActionsKeyboard, incomingImageKeyboard, menuBackKeyboard } from "./keyboards";
 import { formatOcrLanguages, ocrLanguagesForCaption } from "../utils/ocrLanguages";
-import { recordGroupTaskCreatedFromContext } from "../services/groupCollaboration";
 import { isNotFoundError, userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import {
@@ -241,18 +240,14 @@ async function processImageOcr(
     }
 
     if (intent === "task") {
-      const task = await createTask(user.id, extracted.text);
-      await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-      await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+      await saveTaskFromTelegram(ctx, user, extracted.text, { edit: true });
       return;
     }
 
     if (intent === "reminder") {
       const scheduledAt = parseDueDate(preparedCaption, user.settings.timezone);
       if (scheduledAt && scheduledAt.getTime() > Date.now()) {
-        const task = await createScheduledReminder(user.id, extracted.text, scheduledAt, ai);
-        await recordGroupTaskCreatedFromContext(ctx, user.id, task);
-        await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+        await saveTaskFromTelegram(ctx, user, extracted.text, { dueAt: scheduledAt, edit: true });
         return;
       }
     }

@@ -104,12 +104,12 @@ export function createThreadwiseBot(token: string, ai: AiProvider): Bot {
   registerStudyMode(bot);
   registerCommands(bot, ai);
   registerFileCourier(bot);
-  registerVoiceCapture(bot, ai, token);
+  registerVoiceCapture(bot, token);
   registerCodexMode(bot);
   registerGeminiIdeas(bot);
   registerGroupScheduling(bot);
   registerGroupTopics(bot);
-  registerTaskImports(bot, ai);
+  registerTaskImports(bot);
   registerCallbacks(bot, ai);
   registerImageMessages(bot, ai, token);
   registerNaturalLanguage(bot, ai);

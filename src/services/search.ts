@@ -1,5 +1,4 @@
 import { TaskStatus } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { cosineSimilarity, deterministicEmbedding } from "../utils/vector";
 

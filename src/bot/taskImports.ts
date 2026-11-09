@@ -1,6 +1,5 @@
 import { TaskImportItemStatus, TaskImportStatus, TaskStatus } from "@prisma/client";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
-import type { AiProvider } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { logger } from "../logger";
 import {
@@ -25,7 +24,7 @@ import { taskCreationOptionsFromContext } from "./taskMentions";
 
 export const TASK_IMPORT_PAGE_SIZE = 6;
 
-export function registerTaskImports(bot: Bot, ai: AiProvider): void {
+export function registerTaskImports(bot: Bot): void {
   bot.command("todo", async (ctx) => {
     if (!isGroupChat(ctx) || !ctx.from) return;
     const body = typeof ctx.match === "string" ? ctx.match.trim() : "";
@@ -49,7 +48,7 @@ export function registerTaskImports(bot: Bot, ai: AiProvider): void {
     const action = ctx.match[1]?.toLowerCase();
     const importId = ctx.match[2];
     if (!importId || (action !== "import" && action !== "cancel" && action !== "refresh")) return;
-    await handleTaskImportCallback(ctx, ai, action, importId);
+    await handleTaskImportCallback(ctx, action, importId);
   });
 
   bot.callbackQuery(/^ti:page:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
@@ -123,7 +122,6 @@ async function handleTaskImportPageCallback(ctx: Context, importId: string, requ
 
 async function handleTaskImportCallback(
   ctx: Context,
-  ai: AiProvider,
   action: "import" | "cancel" | "refresh",
   importId: string,
 ): Promise<void> {
@@ -152,7 +150,7 @@ async function handleTaskImportCallback(
     }
 
     await ctx.answerCallbackQuery({ text: "Importing tasks…" });
-    const result = await importReviewedTasks(importId, actor, ai);
+    const result = await importReviewedTasks(importId, actor);
     if (result.failed > 0) {
       await editOrReplyHtml(ctx, [
         bold("Some tasks need another look"),

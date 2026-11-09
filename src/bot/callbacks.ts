@@ -1,10 +1,10 @@
 import type { Bot, Context } from "grammy";
-import { GroupActivityType, TaskStatus } from "@prisma/client";
+import { saveTaskFromTelegram } from "./taskSaves";
 import type { AiProvider } from "../ai/types";
 import { ensureUser } from "../services/users";
-import { cancelTask, completeTask, dismissTaskReminders, findTaskReference, formatTaskSavedAcknowledgement, restoreCompletedTask, snoozeTask, createScheduledReminder, createTask } from "../services/tasks";
+import { dismissTaskReminders, findTaskReference, formatTaskAlreadyCompleted, restoreCompletedTask } from "../services/tasks";
 import { formatReminderMessage } from "../services/reminders";
-import { consumePendingCapture, findPendingCapture, ignorePendingCapture, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
+import { consumePendingCapture, findPendingCapture, ignorePendingCapture, pendingCaptureTaskOptions, rememberPendingCaptureReminderPrompt } from "../services/pendingCaptures";
 import { createIdea, formatIdeaSavedAcknowledgement, scoreIdea } from "../services/ideas";
 import { archiveNote, createNote, findAnyNote, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatPinnedItems, listPinnedItems, pinItem } from "../services/pins";
@@ -17,11 +17,12 @@ import { formatIdeaScore, formatSearchResultsPage, formatTaskDetail } from "./fo
 import { awaitImageReminderTime, consumePendingImageCapture, discardPendingImageCapture, findPendingImageCapture } from "../services/imageOcr";
 import { calendarConfigured, calendarConnectionStatus, createCalendarConnectUrl, disconnectCalendar, formatCalendarStatus, removeTaskFromGoogleCalendar, syncEligibleTasksToGoogleCalendar, syncTaskToGoogleCalendar } from "../services/googleCalendar";
 import { prisma } from "../db/prisma";
-import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml } from "../utils/html";
+import { bold, code, editOrReplyHtml, editOrReplyText, h, replyHtml, replyInChunks } from "../utils/html";
+import { calendarTaskConnectCard } from "./calendarReplies";
 import { archivedKindsKeyboard, archivedPageKeyboard, calendarSettingsKeyboard, calendarTaskKeyboard, captureConfirmationKeyboard, captureTypeKeyboard, disconnectIntegrationKeyboard, editCancelKeyboard, groupHelpTopicsKeyboard, groupImagesModeKeyboard, groupLibraryMenuKeyboard, groupMoreMenuKeyboard, groupSettingsModeKeyboard, groupStartMenuKeyboard, groupTaskActionsKeyboard, helpTopicsKeyboard, ideaBriefKeyboard, ideasModeKeyboard, imageReminderTimeKeyboard, imagesModeKeyboard, integrationsSettingsKeyboard, menuBackKeyboard, menuInputCancelKeyboard, notesModeKeyboard, noteMergePreviewKeyboard, privacySettingsKeyboard, regionSettingsKeyboard, reminderActionsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchModeKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingInputKeyboard, settingsModeKeyboard, startMenuKeyboard, storedImageDeleteKeyboard, taskActionsKeyboard, taskCancelCalendarKeyboard, tasksModeKeyboard, undoKeyboard, voiceSettingsKeyboard, type GroupTaskAudience, type SettingChoiceField } from "./keyboards";
 import { cancelBulkAction, confirmBulkAction, formatBulkActionResult } from "../services/bulkActions";
 import { isActiveListKind, replyActiveList, replyActiveListWithMessage } from "./activeLists";
-import { replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
+import { formatStoredImageDeletePrompt, replyStoredImage, replyStoredImageList, replyStoredImageSearch } from "./storedImageReplies";
 import { deleteStoredImage, findStoredImageById } from "../services/storedImages";
 import { formatGroupCommandReference, formatGroupHelpGuide, formatGroupHelpTopic, formatGroupMainMenuText, formatGroupPrivacyText, formatHelpGuide, formatHelpTopic, formatMainMenuText } from "./help";
 import { formatRegionSettings, formatReminderSettings, formatSettings, formatVoiceSettings, updateSetting } from "../services/settings";
@@ -32,9 +33,10 @@ import { appendListOrigin, listOrigin, rememberListOrigin } from "./navigationSt
 import { cancelTransientInteractions } from "./interactions";
 import { isGroupChat } from "./groupRouting";
 import { groupWorkspaceForContext, isGroupManager } from "../services/groupWorkspaces";
-import { collaborationActorFromContext, recordGroupTaskActivity } from "../services/groupCollaboration";
-import { claimGroupTask } from "../services/groupTaskPolicy";
-import { assertGroupTaskActionForContext, groupTaskKeyboardAccess } from "./groupTaskAccess";
+import { collaborationActorFromContext } from "../services/groupCollaboration";
+import { claimGroupTask, GroupTaskPermissionError } from "../services/groupTaskPolicy";
+import { assertGroupTaskActionForContext, groupTaskKeyboardAccess, taskCommandActorFromContext } from "./groupTaskAccess";
+import { executeTaskCommand, type TaskCommandInput, type TaskCommandResult } from "../services/taskCommands";
 import { userFacingError } from "./errorResponses";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { convergeTaskControlSurface } from "../services/taskControlSurfaces";
@@ -70,7 +72,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
   bot.callbackQuery(/^item:(task|note|idea):edit:(.+)$/, async (ctx) => handleItemEdit(ctx, ctx.match[1]!, ctx.match[2]!, "title"));
   bot.callbackQuery(/^merge:(confirm|retry|cancel):(.+)$/, async (ctx) => handleNoteMergeCallback(ctx, ai, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery(/^archived:(notes|ideas|tasks):(\d+)$/, async (ctx) => handleArchivedPage(ctx, ctx.match[1]!, ctx.match[2]!));
-  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ai, ctx.match[1]!, ctx.match[2]!));
+  bot.callbackQuery(/^search:([^:]+):(\d+)$/, async (ctx) => handleSearchPage(ctx, ctx.match[1]!, ctx.match[2]!));
   bot.callbackQuery("undo:last", async (ctx) => handleUndoLast(ctx));
   bot.callbackQuery("edit:cancel", async (ctx) => handleEditCancel(ctx));
   bot.callbackQuery(/^capture:(task|reminder|idea|note|choose|back|ignore):(.+)$/, async (ctx) => {
@@ -105,7 +107,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const page = await replyStoredImageList(ctx, user.id, user.settings.timezone, Number(ctx.match[1]), true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${page}` });
   });
-  bot.callbackQuery(/^stored-image:choose-search:([^:]+):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^stored-image:pick:([^:]+):(\d+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
     const result = await replyStoredImageSearch(ctx, user.id, "", user.settings.timezone, Number(ctx.match[2]), ctx.match[1]!, "all", true, true);
     await ctx.answerCallbackQuery({ text: `Choose from page ${result.page}` });
@@ -125,9 +127,7 @@ export function registerCallbacks(bot: Bot, ai: AiProvider): void {
     const user = await ensureUser(ctx);
     const image = await findStoredImageById(user.id, ctx.match[1]!);
     await ctx.answerCallbackQuery({ text: "Please confirm" });
-    await editOrReplyHtml(ctx, `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nThis removes Threadwise's saved reference and searchable text.`, {
-      reply_markup: storedImageDeleteKeyboard(image.id)
-    });
+    await editOrReplyHtml(ctx, formatStoredImageDeletePrompt(image), { reply_markup: storedImageDeleteKeyboard(image.id) });
   });
   bot.callbackQuery(/^stored-image:delete-(confirm|cancel):(.+)$/, async (ctx) => {
     const user = await ensureUser(ctx);
@@ -508,22 +508,10 @@ async function handleImageAction(ctx: Context, ai: AiProvider, action: string, p
       await editOrReplyQuietAcknowledgementHtml(ctx, formatNoteSavedAcknowledgement(note));
       return;
     }
-    const task = await createTask(user.id, consumed.extractedText);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, consumed.extractedText, { edit: true });
   } catch (error) {
     await ctx.answerCallbackQuery({ text: "Action expired or failed" });
     await editOrReplyText(ctx, userFacingError(error, "I couldn't finish that image action."), { reply_markup: menuBackKeyboard() });
-  }
-}
-
-async function replyInChunks(ctx: Context, text: string) {
-  const maxLength = 3800;
-  for (let start = 0; start < text.length; start += maxLength) {
-    await ctx.reply(text.slice(start, start + maxLength));
   }
 }
 
@@ -547,29 +535,16 @@ async function handleTaskClaim(ctx: Context, taskId: string) {
 async function handleTaskDone(ctx: Context, taskId: string, dueMs: string | undefined) {
   const shownDueAt = dueMs ? new Date(Number(dueMs)) : undefined;
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx)) {
-    try {
-      await assertGroupTaskActionForContext(ctx, user.id, taskId, "complete");
-    } catch (error) {
-      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot complete that task.").slice(0, 180), show_alert: true });
-      return;
-    }
-  }
-  const completion = await completeTask(user.id, taskId, shownDueAt);
-  // A recurring task stays OPEN, so "already completed" here means this card is for an
-  // occurrence that has already moved on (stale card or double tap), not a finished task.
-  if (completion.alreadyCompleted && completion.task.status !== TaskStatus.DONE) {
+  const completion = await executeButtonTaskCommand(ctx, user.id, { action: "complete", ref: taskId, expectedDueAt: shownDueAt }, "You cannot complete that task.");
+  if (!completion || completion.action !== "complete") return;
+  if (completion.status === "stale") {
     await ctx.answerCallbackQuery({ text: "This card is out of date. Open the task to see when it's next due.", show_alert: true });
     return;
   }
-  if (completion.alreadyCompleted) {
+  if (completion.status === "already-completed") {
     await ctx.answerCallbackQuery({ text: "Already completed" });
-    await editOrReplyHtml(ctx, `${bold("Already complete")}\n${h(completion.task.title)}\nNeed it back? Restore it below.`, { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
+    await editOrReplyHtml(ctx, formatTaskAlreadyCompleted(completion.task), { reply_markup: restoreCompletedTaskKeyboard(completion.task.id) });
     return;
-  }
-  if (isGroupChat(ctx)) {
-    const actor = collaborationActorFromContext(ctx);
-    await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_COMPLETED, completion.task, `${actor.displayName} completed ${completion.task.publicId}.`);
   }
   await ctx.answerCallbackQuery({ text: "Completed" });
   const controlSurface = await replyActiveListWithMessage(
@@ -603,15 +578,9 @@ async function handleTaskRestore(ctx: Context, taskId: string) {
 
 async function handleTaskSnooze(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx)) {
-    try {
-      await assertGroupTaskActionForContext(ctx, user.id, taskId, "snooze");
-    } catch (error) {
-      await ctx.answerCallbackQuery({ text: userFacingError(error, "You cannot snooze that task.").slice(0, 180), show_alert: true });
-      return;
-    }
-  }
-  const task = await snoozeTask(user.id, taskId, "1h");
+  const snoozed = await executeButtonTaskCommand(ctx, user.id, { action: "snooze", ref: taskId, duration: "1h" }, "You cannot snooze that task.");
+  if (!snoozed) return;
+  const { task } = snoozed;
   await ctx.answerCallbackQuery({ text: "Snoozed 1 hour" });
   const card = await buildItemCard(user.id, "task", task.publicId, user.settings.timezone, "⏰ Snoozed for an hour", false);
   const keyboard = isGroupChat(ctx) ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true) : card.keyboard;
@@ -682,15 +651,10 @@ async function handleTaskCalendar(ctx: Context, taskId: string) {
       await ctx.answerCallbackQuery({ text: "Add a due date first.", show_alert: true });
       return;
     }
-    const status = await calendarConnectionStatus(user.id);
-    if (!status.connected) {
-      if (!calendarConfigured()) throw new Error("Google Calendar connection setup is not available right now.");
-      const chatId = ctx.chat ? String(ctx.chat.id) : user.telegramId;
-      const connectUrl = await createCalendarConnectUrl(user.id, chatId, { taskId: task.id });
-      await ctx.answerCallbackQuery({ text: status.reconnectRequired ? "Reconnect Calendar" : "Connect Calendar once" });
-      await editOrReplyHtml(ctx, `${bold("📅 Add to Google Calendar")}\n${h(task.title)}\n${status.reconnectRequired ? "Your saved authorization expired or was revoked. Reconnect once; this reminder will be added after approval." : "Connect once; this reminder will be added automatically after approval."}`, {
-        reply_markup: calendarTaskKeyboard(task, connectUrl)
-      });
+    const connect = await calendarTaskConnectCard(user.id, ctx.chat ? String(ctx.chat.id) : user.telegramId, task);
+    if (connect) {
+      await ctx.answerCallbackQuery({ text: connect.reconnectRequired ? "Reconnect Calendar" : "Connect Calendar once" });
+      await editOrReplyHtml(ctx, connect.text, { reply_markup: connect.keyboard });
       return;
     }
     if (!task.calendarEventId) {
@@ -778,14 +742,15 @@ async function showCalendarPanel(ctx: Context, userId: string, chatId: string, n
 
 async function handleTaskCancel(ctx: Context, taskId: string) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
-  const task = await findTaskReference(user.id, taskId);
-  if (!isGroupChat(ctx) && task.calendarEventId) {
-    await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
-    await editOrReplyHtml(ctx, `${bold("Cancel this task?")}\n${h(task.title)}\nIt also has a Google Calendar event.`, { reply_markup: taskCancelCalendarKeyboard(task.id) });
-    return;
+  if (!isGroupChat(ctx)) {
+    const task = await findTaskReference(user.id, taskId);
+    if (task.calendarEventId) {
+      await ctx.answerCallbackQuery({ text: "Choose what happens to the event" });
+      await editOrReplyHtml(ctx, `${bold("Cancel this task?")}\n${h(task.title)}\nIt also has a Google Calendar event.`, { reply_markup: taskCancelCalendarKeyboard(task.id) });
+      return;
+    }
   }
-  await cancelTask(user.id, taskId);
+  if (!(await executeButtonTaskCommand(ctx, user.id, { action: "cancel", ref: taskId }, "That action is not available to you."))) return;
   await ctx.answerCallbackQuery({ text: "Canceled task" });
   await replyActiveList(
     ctx,
@@ -799,9 +764,9 @@ async function handleTaskCancel(ctx: Context, taskId: string) {
 
 async function handleTaskCancelConfirmed(ctx: Context, taskId: string, removeEvent: boolean) {
   const { interactionUser, taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  if (isGroupChat(ctx) && !(await allowGroupTaskAction(ctx, user.id, taskId, "manage"))) return;
-  const task = await findTaskReference(user.id, taskId);
-  await cancelTask(user.id, taskId);
+  const canceled = await executeButtonTaskCommand(ctx, user.id, { action: "cancel", ref: taskId }, "That action is not available to you.");
+  if (!canceled) return;
+  const { task } = canceled;
   let eventRemoved = false;
   if (removeEvent && task.calendarEventId) {
     try {
@@ -891,7 +856,7 @@ async function handleEditCancel(ctx: Context) {
   await editOrReplyText(ctx, canceled ? "Edit canceled. Everything is unchanged." : "There isn’t an edit waiting right now.", { reply_markup: menuBackKeyboard() });
 }
 
-async function handleSearchPage(ctx: Context, ai: AiProvider, pendingId: string, pageText: string) {
+async function handleSearchPage(ctx: Context, pendingId: string, pageText: string) {
   const page = Number(pageText);
   if (!Number.isInteger(page) || page < 1) return;
 
@@ -1040,6 +1005,20 @@ async function groupTaskKeyboardForContext(
   );
 }
 
+/**
+ * Runs a task command from a button through the shared executor. A group policy refusal is
+ * answered as an alert on the tapped button and returns undefined; other errors reach bot.catch.
+ */
+async function executeButtonTaskCommand(ctx: Context, userId: string, command: TaskCommandInput, refusal: string): Promise<TaskCommandResult | undefined> {
+  try {
+    return await executeTaskCommand({ ...command, userId, actor: taskCommandActorFromContext(ctx), source: "button" });
+  } catch (error) {
+    if (!(error instanceof GroupTaskPermissionError)) throw error;
+    await ctx.answerCallbackQuery({ text: userFacingError(error, refusal).slice(0, 180), show_alert: true });
+    return undefined;
+  }
+}
+
 async function allowGroupTaskAction(
   ctx: Context,
   ownerUserId: string,
@@ -1142,12 +1121,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
       return;
     }
     await ctx.answerCallbackQuery({ text: "Saving reminder" });
-    const task = await createScheduledReminder(user.id, claimed.sourceText, dueAt, ai);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, timezone));
+    await saveTaskFromTelegram(ctx, user, claimed.sourceText, { dueAt, options: pendingCaptureTaskOptions(claimed), edit: true });
     return;
   }
 
@@ -1159,12 +1133,7 @@ async function handleCapture(ctx: Context, ai: AiProvider, action: string, pendi
   await ctx.answerCallbackQuery({ text: "Saving" });
 
   if (action === "task") {
-    const task = await createTask(user.id, pending.sourceText);
-    if (isGroupChat(ctx)) {
-      const actor = collaborationActorFromContext(ctx);
-      await recordGroupTaskActivity(user.id, actor, GroupActivityType.TASK_CREATED, task, `${actor.displayName} added ${task.publicId}: ${task.title}.`);
-    }
-    await editOrReplyQuietAcknowledgementHtml(ctx, formatTaskSavedAcknowledgement(task, user.settings.timezone));
+    await saveTaskFromTelegram(ctx, user, pending.sourceText, { options: pendingCaptureTaskOptions(pending), edit: true });
     return;
   }
 

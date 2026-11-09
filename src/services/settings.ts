@@ -8,10 +8,13 @@ import { formatOcrLanguages, normalizeOcrLanguages } from "../utils/ocrLanguages
 import { normalizeClock } from "../utils/clock";
 import { normalizeTranscriptionModel } from "./voiceTranscription";
 
+/** Outcome of a settings change: applied is false when the input was rejected, so callers never infer failure from the wording. */
 export type SettingsUpdateResult = {
+  applied: boolean;
   message: string;
 };
 
+/** Applies one settings change from command-style arguments and reports whether it took effect. */
 export async function updateSetting(userId: string, args: string[]): Promise<SettingsUpdateResult> {
   const [field, ...rest] = args;
   const setting = field?.toLowerCase();
@@ -19,6 +22,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
 
   if (!setting) {
     return {
+      applied: false,
       message:
         "Try: read images in Burmese, change timezone to Myanmar, remind me again every 3 hours, or quiet hours off."
     };
@@ -34,23 +38,23 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         : voiceValue.toLowerCase() === "light"
           ? VoiceCleanupMode.LIGHT
           : undefined;
-      if (!cleanupMode) return { message: "Choose light or verbatim. Try: /settings voice cleanup light" };
+      if (!cleanupMode) return { applied: false, message: "Choose light or verbatim. Try: /settings voice cleanup light" };
       await prisma.userSettings.update({ where: { userId }, data: { voiceCleanupMode: cleanupMode } });
-      return { message: `Voice cleanup set to ${cleanupMode === VoiceCleanupMode.LIGHT ? "light" : "verbatim"}. Raw transcripts are always preserved.` };
+      return { applied: true, message: `Voice cleanup set to ${cleanupMode === VoiceCleanupMode.LIGHT ? "light" : "verbatim"}. Raw transcripts are always preserved.` };
     }
     if (normalizedField === "model") {
       const model = normalizeTranscriptionModel(voiceValue);
-      if (!model) return { message: "Choose fast or accuracy. Try: /settings voice model accuracy" };
+      if (!model) return { applied: false, message: "Choose fast or accuracy. Try: /settings voice model accuracy" };
       await prisma.userSettings.update({ where: { userId }, data: { voiceTranscriptionModel: model } });
-      return { message: `Voice transcription model set to ${model}.` };
+      return { applied: true, message: `Voice transcription model set to ${model}.` };
     }
     if (normalizedField === "language") {
       const language = /^(?:auto|off|none)$/i.test(voiceValue) ? null : voiceValue.toLowerCase();
       if (language !== null && !/^[a-z]{2}$/.test(language)) {
-        return { message: "Use a two-letter ISO-639-1 language hint such as en, my, or ms, or choose auto." };
+        return { applied: false, message: "Use a two-letter ISO-639-1 language hint such as en, my, or ms, or choose auto." };
       }
       await prisma.userSettings.update({ where: { userId }, data: { voiceLanguageHint: language } });
-      return { message: language ? `Voice language hint set to ${language}.` : "Voice language detection set to automatic." };
+      return { applied: true, message: language ? `Voice language hint set to ${language}.` : "Voice language detection set to automatic." };
     }
     if (["audio", "audio-files", "documents"].includes(normalizedField ?? "")) {
       const enabled = /^(?:on|yes|true|enabled)$/i.test(voiceValue)
@@ -58,13 +62,14 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         : /^(?:off|no|false|disabled)$/i.test(voiceValue)
           ? false
           : undefined;
-      if (enabled === undefined) return { message: "Choose on or off. Try: /settings voice audio on" };
+      if (enabled === undefined) return { applied: false, message: "Choose on or off. Try: /settings voice audio on" };
       await prisma.userSettings.update({ where: { userId }, data: { voiceAutoTranscribeAudio: enabled } });
-      return { message: enabled
+      return { applied: true, message: enabled
         ? "Supported audio files will now be transcribed automatically. Telegram voice messages are always transcribed."
         : "Ordinary audio files will not be transcribed automatically. Telegram voice messages are still transcribed." };
     }
     return {
+      applied: false,
       message: [
         "Voice settings:",
         "/settings voice cleanup light|verbatim",
@@ -78,7 +83,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
   if (setting === "interval") {
     const minutes = Number(value);
     if (!Number.isInteger(minutes) || minutes < 15) {
-      return { message: "Pick a whole-number reminder interval of at least 15 minutes." };
+      return { applied: false, message: "Pick a whole-number reminder interval of at least 15 minutes." };
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -103,18 +108,18 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     });
 
     const maxNote = result.raisedMax ? ` Daily reminder safety limit raised to ${result.maxRemindersPerDay} so frequent reminders can actually repeat.` : "";
-    return { message: `Open tasks will remind you again every ${minutes} minutes until they are done. Updated ${result.updatedTasks} open task${result.updatedTasks === 1 ? "" : "s"}.${maxNote}` };
+    return { applied: true, message: `Open tasks will remind you again every ${minutes} minutes until they are done. Updated ${result.updatedTasks} open task${result.updatedTasks === 1 ? "" : "s"}.${maxNote}` };
   }
 
   if (setting === "timezone") {
     if (!value) {
-      return { message: `Send it like this: change timezone to Singapore, change timezone to Myanmar, or /settings timezone Asia/Singapore\nExamples: ${formatTimezoneExamples()}` };
+      return { applied: false, message: `Send it like this: change timezone to Singapore, change timezone to Myanmar, or /settings timezone Asia/Singapore\nExamples: ${formatTimezoneExamples()}` };
     }
 
     const parsed = parseTimezone(value);
     if (!parsed.ok) {
       const suggestion = parsed.suggestion ? ` Did you mean ${parsed.suggestion}?` : "";
-      return { message: `I don't recognize that timezone.${suggestion}\nTry a country/city name like Myanmar, Yangon, Singapore, or Malaysia. IANA names like ${formatTimezoneExamples()} also work.` };
+      return { applied: false, message: `I don't recognize that timezone.${suggestion}\nTry a country/city name like Myanmar, Yangon, Singapore, or Malaysia. IANA names like ${formatTimezoneExamples()} also work.` };
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -135,25 +140,25 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
     });
 
     const aliasNote = parsed.wasAlias ? ` (${value} -> ${parsed.timezone})` : "";
-    return { message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders.` };
+    return { applied: true, message: `Timezone set to ${parsed.timezone}${aliasNote}. Rechecked ${result} open task${result === 1 ? "" : "s"} for reminders.` };
   }
 
   if (setting === "currency" || setting === "expense-currency") {
     const currency = normalizeCurrency(value);
     if (!currency) {
-      return { message: `I don't recognize that currency. Try an ISO code or name such as SGD, USD, MMK/kyat, MYR/ringgit, THB/baht, EUR, GBP, JPY, or INR. Common codes: ${COMMON_CURRENCIES.join(", ")}.` };
+      return { applied: false, message: `I don't recognize that currency. Try an ISO code or name such as SGD, USD, MMK/kyat, MYR/ringgit, THB/baht, EUR, GBP, JPY, or INR. Common codes: ${COMMON_CURRENCIES.join(", ")}.` };
     }
     await prisma.userSettings.update({ where: { userId }, data: { expenseCurrency: currency } });
-    return { message: `Default expense currency set to ${currency}. You can still specify a different currency in any expense or receipt correction.` };
+    return { applied: true, message: `Default expense currency set to ${currency}. You can still specify a different currency in any expense or receipt correction.` };
   }
 
   if (setting === "ocr" || setting === "ocr-language" || setting === "image-language") {
     const languages = normalizeOcrLanguages(value);
     if (!languages) {
-      return { message: "Choose English, Burmese, or English + Burmese. Try: /settings ocr Burmese" };
+      return { applied: false, message: "Choose English, Burmese, or English + Burmese. Try: /settings ocr Burmese" };
     }
     await prisma.userSettings.update({ where: { userId }, data: { ocrLanguages: languages } });
-    return { message: `Image text extraction set to ${formatOcrLanguages(languages)}. This uses bundled local OCR and no API key.` };
+    return { applied: true, message: `Image text extraction set to ${formatOcrLanguages(languages)}. This uses bundled local OCR and no API key.` };
   }
 
   if (setting === "dm" || setting === "direct-nudges" || setting === "private-nudges") {
@@ -163,14 +168,14 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         ? false
         : undefined;
     if (enabled === undefined) {
-      return { message: "Choose on or off. Try: /settings dm on" };
+      return { applied: false, message: "Choose on or off. Try: /settings dm on" };
     }
     const owner = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (owner.telegramId.startsWith("chat:")) {
-      return { message: "Private nudges are a personal setting. Open Threadwise in a private chat and send /settings dm on." };
+      return { applied: false, message: "Private nudges are a personal setting. Open Threadwise in a private chat and send /settings dm on." };
     }
     await prisma.userSettings.update({ where: { userId }, data: { directNudgesEnabled: enabled } });
-    return { message: enabled
+    return { applied: true, message: enabled
       ? "Private assignee nudges are on. When a group task assigned to you is due, Threadwise will also DM you."
       : "Private assignee nudges are off. Group reminders will continue normally." };
   }
@@ -182,30 +187,30 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         return rescheduleOpenTasksForSettings(tx, userId, settings);
       });
 
-      return { message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
+      return { applied: true, message: `Quiet hours turned off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
     }
 
     const start = normalizeClock(rest[0]);
     const end = normalizeClock(rest[1]);
     if (!start || !end) {
-      return { message: "Send it like this: /settings quiet 22:00 08:00 or /settings quiet off" };
+      return { applied: false, message: "Send it like this: /settings quiet 22:00 08:00 or /settings quiet off" };
     }
 
     const updatedTasks = await prisma.$transaction(async (tx) => {
       const settings = await tx.userSettings.update({ where: { userId }, data: { quietHoursStart: start, quietHoursEnd: end } });
       return rescheduleOpenTasksForSettings(tx, userId, settings);
     });
-    return { message: `Quiet hours set to ${start}-${end}. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
+    return { applied: true, message: `Quiet hours set to ${start}-${end}. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"} for reminders.` };
   }
 
   if (setting === "max") {
     const max = Number(value);
     if (!Number.isInteger(max) || max < 1) {
-      return { message: "Pick at least 1 reminder per day." };
+      return { applied: false, message: "Pick at least 1 reminder per day." };
     }
 
     await prisma.userSettings.update({ where: { userId }, data: { maxRemindersPerDay: max } });
-    return { message: `Daily reminder safety limit set to ${max}. This only caps reminder messages; normal commands and saved items still work.` };
+    return { applied: true, message: `Daily reminder safety limit set to ${max}. This only caps reminder messages; normal commands and saved items still work.` };
   }
 
   if (setting === "due-nudge" || setting === "duenudge" || setting === "nudge") {
@@ -215,12 +220,12 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         return rescheduleOpenTasksForSettings(tx, userId, settings);
       });
 
-      return { message: `Early warnings for exact-time reminders are off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
+      return { applied: true, message: `Early warnings for exact-time reminders are off. Rechecked ${updatedTasks} open task${updatedTasks === 1 ? "" : "s"}.` };
     }
 
     const minutes = Number(value);
     if (!Number.isInteger(minutes) || minutes < 1) {
-      return { message: "Pick a whole number of minutes for early warnings, or say: turn due nudge off." };
+      return { applied: false, message: "Pick a whole number of minutes for early warnings, or say: turn due nudge off." };
     }
 
     const updatedTasks = await prisma.$transaction(async (tx) => {
@@ -228,7 +233,7 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
       return rescheduleOpenTasksForSettings(tx, userId, settings);
     });
 
-    return { message: `Exact-time reminders will start warning you ${minutes} minutes before they are due, then keep reminding until done.` };
+    return { applied: true, message: `Exact-time reminders will start warning you ${minutes} minutes before they are due, then keep reminding until done.` };
   }
 
   if (setting === "mode" || setting === "digest" || setting === "compact") {
@@ -239,13 +244,13 @@ export async function updateSetting(userId: string, args: string[]): Promise<Set
         ? ReminderMode.INDIVIDUAL
         : undefined;
     if (!reminderMode) {
-      return { message: "Choose compact or detailed reminders. Try: use compact reminders, or /settings mode detailed" };
+      return { applied: false, message: "Choose compact or detailed reminders. Try: use compact reminders, or /settings mode detailed" };
     }
     await prisma.userSettings.update({ where: { userId }, data: { reminderMode } });
-    return { message: reminderMode === ReminderMode.DIGEST ? "Reminder messages set to compact mode." : "Reminder messages set to detailed mode." };
+    return { applied: true, message: reminderMode === ReminderMode.DIGEST ? "Reminder messages set to compact mode." : "Reminder messages set to detailed mode." };
   }
 
-  return { message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
+  return { applied: false, message: `I don't know the setting "${field}" yet. Try /settings for examples.` };
 }
 
 export async function formatSettings(_userId: string): Promise<string> {

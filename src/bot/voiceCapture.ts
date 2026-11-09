@@ -1,6 +1,5 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { VoiceCleanupMode, VoiceTranscriptionStatus } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { logger } from "../logger";
 import { ensureUser } from "../services/users";
 import {
@@ -20,9 +19,9 @@ import {
 } from "../services/voiceTranscription";
 import { startLoop, type StopLoop } from "../utils/loop";
 
-export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string): void {
+export function registerVoiceCapture(bot: Bot, botToken: string): void {
   bot.on("message:voice", async (ctx) => {
-    await queueVoiceFromContext(ctx, ai, botToken, {
+    await queueVoiceFromContext(ctx, botToken, {
       telegramFileId: ctx.message.voice.file_id,
       telegramFileUniqueId: ctx.message.voice.file_unique_id,
       sourceKind: "VOICE",
@@ -38,7 +37,7 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
       await next();
       return;
     }
-    await queueVoiceFromContext(ctx, ai, botToken, {
+    await queueVoiceFromContext(ctx, botToken, {
       telegramFileId: ctx.message.audio.file_id,
       telegramFileUniqueId: ctx.message.audio.file_unique_id,
       sourceKind: "AUDIO",
@@ -68,7 +67,7 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
       await next();
       return;
     }
-    await queueVoiceFromContext(ctx, ai, botToken, media, user);
+    await queueVoiceFromContext(ctx, botToken, media, user);
   });
 
   bot.callbackQuery(/^voice:raw:([0-9a-f-]+):(\d+)$/, async (ctx) => {
@@ -123,11 +122,11 @@ export function registerVoiceCapture(bot: Bot, ai: AiProvider, botToken: string)
 }
 
 /** Finishes voice transcriptions interrupted by a restart and delivers any undelivered results. */
-export function startVoiceCaptureRecoveryLoop(bot: Bot, ai: AiProvider, botToken: string): StopLoop {
+export function startVoiceCaptureRecoveryLoop(bot: Bot, botToken: string): StopLoop {
   // Voice submissions are processed immediately in their handler. This is a
   // restart-recovery sweep, not a hot queue poll.
   return startLoop("Voice capture recovery", 60_000, async () => {
-    await processRecoverableVoiceTranscriptions(bot.api, botToken, ai);
+    await processRecoverableVoiceTranscriptions(bot.api, botToken);
     await deliverVoiceTranscriptionResults(bot);
   }, { runImmediately: true });
 }
@@ -170,7 +169,6 @@ export async function deliverVoiceTranscriptionResults(bot: Bot): Promise<void> 
 
 async function queueVoiceFromContext(
   ctx: Context,
-  ai: AiProvider,
   botToken: string,
   media: VoiceMedia,
   existingUser?: Awaited<ReturnType<typeof ensureUser>>

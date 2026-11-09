@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Prisma, TaskStatus } from "@prisma/client";
+import { Prisma, TaskStatus, type PrismaClient } from "@prisma/client";
 import type { Context } from "grammy";
 import { prisma } from "../db/prisma";
 import { isGroupChat } from "../bot/groupRouting";
@@ -21,6 +21,26 @@ type UndoTarget = {
 };
 
 type UndoLogPayload = Prisma.InputJsonObject;
+
+/**
+ * Updates one task, note or idea by kind, using the columns the three tables share
+ * (archive state, pin). `taskData` adds task-only columns such as status and reminder
+ * times when the kind is "task". It replaces the per-kind if-chains in undo and
+ * capture reclassification, so the three tables cannot be handled differently by mistake.
+ */
+export function updateItemByKind(
+  db: Prisma.TransactionClient | PrismaClient,
+  kind: UndoTargetKind,
+  args: {
+    where: { id: string; userId?: string; archivedAt?: null; archivedReason?: string };
+    data: { archivedAt?: Date | null; archivedReason?: string | null; pinnedAt?: Date | null };
+    taskData?: Prisma.TaskUpdateManyMutationInput;
+  },
+): Promise<Prisma.BatchPayload> {
+  if (kind === "task") return db.task.updateMany({ where: args.where, data: { ...args.data, ...args.taskData } });
+  if (kind === "note") return db.note.updateMany({ where: args.where, data: args.data });
+  return db.idea.updateMany({ where: args.where, data: args.data });
+}
 
 // The Telegram user whose update is being handled. Group changes are all owned by the
 // synthetic `chat:<id>` user, so this is the only record of which member made them.
@@ -344,35 +364,21 @@ async function undoReclassify(entryId: string, payload: Record<string, unknown>)
   const originalState = asRecord(payload.original);
 
   await prisma.$transaction(async (tx) => {
-    const archivedAt = new Date();
-    if (replacement.kind === "task") {
-      await tx.task.updateMany({
-        where: { id: replacement.id, archivedAt: null },
-        data: { archivedAt, archivedReason: "undo", status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
-      });
-    } else if (replacement.kind === "note") {
-      await tx.note.updateMany({ where: { id: replacement.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
-    } else {
-      await tx.idea.updateMany({ where: { id: replacement.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
-    }
-
-    if (original.kind === "task") {
-      await tx.task.updateMany({
-        where: { id: original.id, archivedReason: "reclassified" },
-        data: {
-          archivedAt: null,
-          archivedReason: null,
-          status: taskStatusValue(originalState.status) ?? TaskStatus.OPEN,
-          completedAt: nullableDateValue(originalState.completedAt),
-          nextReminderAt: nullableDateValue(originalState.nextReminderAt),
-          snoozedUntil: nullableDateValue(originalState.snoozedUntil),
-        },
-      });
-    } else if (original.kind === "note") {
-      await tx.note.updateMany({ where: { id: original.id, archivedReason: "reclassified" }, data: { archivedAt: null, archivedReason: null } });
-    } else {
-      await tx.idea.updateMany({ where: { id: original.id, archivedReason: "reclassified" }, data: { archivedAt: null, archivedReason: null } });
-    }
+    await updateItemByKind(tx, replacement.kind, {
+      where: { id: replacement.id, archivedAt: null },
+      data: { archivedAt: new Date(), archivedReason: "undo" },
+      taskData: { status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
+    });
+    await updateItemByKind(tx, original.kind, {
+      where: { id: original.id, archivedReason: "reclassified" },
+      data: { archivedAt: null, archivedReason: null },
+      taskData: {
+        status: taskStatusValue(originalState.status) ?? TaskStatus.OPEN,
+        completedAt: nullableDateValue(originalState.completedAt),
+        nextReminderAt: nullableDateValue(originalState.nextReminderAt),
+        snoozedUntil: nullableDateValue(originalState.snoozedUntil),
+      },
+    });
     await consumeUndo(tx, entryId, "reclassify");
   });
 
@@ -382,23 +388,11 @@ async function undoReclassify(entryId: string, payload: Record<string, unknown>)
 async function undoCreate(entryId: string, payload: Record<string, unknown>): Promise<string> {
   const target = targetFromPayload(payload);
   await prisma.$transaction(async (tx) => {
-    const archivedAt = new Date();
-    if (target.kind === "task") {
-      await tx.task.updateMany({
-        where: { id: target.id, archivedAt: null },
-        data: {
-          archivedAt,
-          archivedReason: "undo",
-          status: TaskStatus.CANCELED,
-          nextReminderAt: null,
-          snoozedUntil: null
-        }
-      });
-    } else if (target.kind === "note") {
-      await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
-    } else {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { archivedAt, archivedReason: "undo" } });
-    }
+    await updateItemByKind(tx, target.kind, {
+      where: { id: target.id, archivedAt: null },
+      data: { archivedAt: new Date(), archivedReason: "undo" },
+      taskData: { status: TaskStatus.CANCELED, nextReminderAt: null, snoozedUntil: null },
+    });
 
     await consumeUndo(tx, entryId, "create");
   });
@@ -549,13 +543,7 @@ async function undoPin(entryId: string, payload: Record<string, unknown>): Promi
   const previousPinnedAt = dateValue(payload.previousPinnedAt);
 
   await prisma.$transaction(async (tx) => {
-    if (target.kind === "task") {
-      await tx.task.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
-    } else if (target.kind === "note") {
-      await tx.note.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
-    } else {
-      await tx.idea.updateMany({ where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
-    }
+    await updateItemByKind(tx, target.kind, { where: { id: target.id, archivedAt: null }, data: { pinnedAt: previousPinnedAt } });
 
     await consumeUndo(tx, entryId, "pin");
   });
@@ -571,22 +559,7 @@ async function undoArchive(entryId: string, payload: Record<string, unknown>): P
   const archivedReason = nullableStringValue(payload.archivedReason);
 
   await prisma.$transaction(async (tx) => {
-    if (target.kind === "note") {
-      await tx.note.updateMany({
-        where: { id: target.id },
-        data: { archivedAt, archivedReason }
-      });
-    } else if (target.kind === "idea") {
-      await tx.idea.updateMany({
-        where: { id: target.id },
-        data: { archivedAt, archivedReason }
-      });
-    } else {
-      await tx.task.updateMany({
-        where: { id: target.id },
-        data: { archivedAt, archivedReason }
-      });
-    }
+    await updateItemByKind(tx, target.kind, { where: { id: target.id }, data: { archivedAt, archivedReason } });
 
     await consumeUndo(tx, entryId, "archive");
   });

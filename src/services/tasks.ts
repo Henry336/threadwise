@@ -1,5 +1,4 @@
 import { RecurrenceRule, TaskAssigneeStatus, TaskAudience, TaskStatus } from "@prisma/client";
-import type { AiProvider } from "../ai/types";
 import { structureTaskDeterministically } from "../ai/deterministic";
 import { prisma } from "../db/prisma";
 import { formatDateTimeForUser, formatRecurrenceRule, nextRecurringDueAt, parseDueDate, parseDurationMinutes, parseRecurrencePattern, recurrenceDayOfMonth, stripRecurrenceText } from "../utils/dates";
@@ -155,7 +154,7 @@ export async function createTask(userId: string, sourceText: string, options: Ta
  * two cannot drift: same parsing, assignees, recurrence, calendar link and
  * first reminder time.
  */
-export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, ai: AiProvider, options: TaskCreationOptions = {}) {
+export async function createScheduledReminder(userId: string, sourceText: string, scheduledAt: Date, options: TaskCreationOptions = {}) {
   return createTask(userId, sourceText, { ...options, dueAt: scheduledAt });
 }
 

@@ -290,7 +290,7 @@ export function registerDashboardRoute(server: FastifyInstance, options: Dashboa
     const { id } = dashboardIdParamsSchema.parse(request.params);
     const taskImport = await getTaskImportReview(id, scope.workspace.id);
     const actor = await dashboardTaskImportActor(scope, taskImport, options.telegramBotToken);
-    return importReviewedTasks(id, actor, options.ai, scope.workspace.id);
+    return importReviewedTasks(id, actor, scope.workspace.id);
   }, "import_reviewed_tasks"));
 
   server.post("/api/v1/dashboard/task-imports/:id/cancel", async (request, reply) => run(request, reply, async (_telegramId, scope) => {
