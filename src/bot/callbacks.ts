@@ -45,7 +45,11 @@ import { formatCaptureReview, formatCaptureTypeChoice, formatReminderTimePrompt,
 import { parseDueDate } from "../utils/dates";
 
 export function registerCallbacks(bot: Bot, ai: AiProvider): void {
-  bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):(.+)$/, async (ctx) => handleLegacyTaskAssignmentAction(ctx, ctx.match[2]));
+  // Cards sent before August still carry these buttons; answer them instead of leaving a spinner.
+  bot.callbackQuery(/^task:(accept|block|decline|unblock|handoff):/, async (ctx) => ctx.answerCallbackQuery({
+    text: "Assignments now take effect immediately. Open the task again for its current controls.",
+    show_alert: true,
+  }));
   bot.callbackQuery(/^task:claim:(.+)$/, async (ctx) => handleTaskClaim(ctx, ctx.match[1]));
   bot.callbackQuery(/^task:done:([^:]+)(?::(\d+))?$/, async (ctx) => handleTaskDone(ctx, ctx.match[1], ctx.match[2]));
   bot.callbackQuery(/^task:restore:(.+)$/, async (ctx) => handleTaskRestore(ctx, ctx.match[1]));
@@ -527,30 +531,6 @@ async function replyInChunks(ctx: Context, text: string) {
   }
 }
 
-async function handleLegacyTaskAssignmentAction(ctx: Context, taskId: string | undefined) {
-  if (!taskId || !isGroupChat(ctx)) return;
-  const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
-  try {
-    const task = await findTaskReference(user.id, taskId);
-    const keyboard = await groupTaskKeyboardForContext(ctx, user.id, task.id, true);
-    await ctx.answerCallbackQuery({ text: "Assignments now take effect immediately." });
-    const card = await buildItemCard(
-      user.id,
-      "task",
-      task.publicId,
-      user.settings.timezone,
-      "Assignments now take effect immediately. Use the current task controls below.",
-      false,
-    );
-    await editOrReplyHtml(ctx, card.text, { reply_markup: keyboard });
-  } catch (error) {
-    await ctx.answerCallbackQuery({
-      text: userFacingError(error, "I couldn't update that assignment.").slice(0, 180),
-      show_alert: true,
-    });
-  }
-}
-
 async function handleTaskClaim(ctx: Context, taskId: string | undefined) {
   if (!taskId || !isGroupChat(ctx)) return;
   const { taskUser: user } = await taskCallbackUsers(ctx, taskId);
@@ -678,7 +658,7 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
     if (expanded) {
       const keyboard = includeCollaboration
         ? await groupTaskKeyboardForContext(ctx, user.id, task.id, true, `task:view-summary:${task.id}`)
-        : taskActionsKeyboard(task, true, false).row().text("‹ Reminder", `task:view-summary:${task.id}`);
+        : taskActionsKeyboard(task, true).row().text("‹ Reminder", `task:view-summary:${task.id}`);
       await ctx.answerCallbackQuery({ text: "Full reminder" });
       await editOrReplyHtml(ctx, formatTaskDetail(task, timezone), { reply_markup: keyboard });
       return;
@@ -689,7 +669,7 @@ async function handleTaskReminderView(ctx: Context, taskId: string | undefined, 
     await editOrReplyHtml(ctx, formatReminderMessage(task, { timezone, reminderMode }), {
       reply_markup: includeCollaboration
         ? await groupTaskKeyboardForContext(ctx, user.id, task.id, false)
-        : reminderActionsKeyboard(task, false)
+        : reminderActionsKeyboard(task)
     });
   } catch (error) {
     await ctx.answerCallbackQuery({

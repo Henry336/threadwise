@@ -322,18 +322,13 @@ export function taskDoneCallbackData(task: TaskActionTarget): string {
   return task.dueAt ? `task:done:${task.id}:${task.dueAt.getTime()}` : `task:done:${task.id}`;
 }
 
-export function taskActionsKeyboard(
-  task: TaskActionTarget,
-  includeBack = true,
-  _includeCollaboration = false,
-  includeFullReminder = false
-): InlineKeyboard {
+export function taskActionsKeyboard(task: TaskActionTarget, includeBack = true): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   const keyboard = new InlineKeyboard()
     .text("✅ Done", taskDoneCallbackData(task))
     .text("⏰ Snooze", `task:snooze:${taskId}`)
     .row();
-  keyboard.webApp(includeFullReminder ? "View task ↗" : "Manage task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }));
+  keyboard.webApp("Manage task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }));
   if (includeBack) keyboard.text("‹ Tasks", "menu:tasks");
   return keyboard;
 }
@@ -363,7 +358,7 @@ export function groupTaskActionsKeyboard(
   return keyboard;
 }
 
-export function reminderActionsKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
+export function reminderActionsKeyboard(task: TaskActionTarget): InlineKeyboard {
   const taskId = typeof task === "string" ? task : task.id;
   // Reminder destinations can be either a private chat or a group. Telegram
   // rejects Mini App (`web_app`) buttons outside private chats with
@@ -374,19 +369,9 @@ export function reminderActionsKeyboard(task: TaskActionTarget, includeCollabora
     .row()
     .url("View task ↗", dashboardViewUrl("tasks", { kind: "task", id: taskId }))
     .text("‹ Tasks", "menu:tasks");
-  void includeCollaboration;
   return keyboard
     .row()
     .text("Dismiss reminders", `task:dismiss-reminders:${taskId}`);
-}
-
-export function taskCreatedKeyboard(task: TaskActionTarget, includeCollaboration = false): InlineKeyboard {
-  return taskActionsKeyboard(task, false, includeCollaboration)
-    .text("↩️ Undo save", "undo:last");
-}
-
-export function addTaskCollaborationActions(keyboard: InlineKeyboard, taskId: string): InlineKeyboard {
-  return keyboard.row().text("View assignment", `task:view-full:${taskId}`);
 }
 
 export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigation?: ActiveListNavigation, selecting = false): InlineKeyboard | undefined {
@@ -409,11 +394,6 @@ export function taskListKeyboard(tasks: TaskListItem[], maxButtons = 3, navigati
   appendActiveListNavigation(keyboard, navigation);
 
   return keyboard;
-}
-
-export function itemCreatedKeyboard(kind: Exclude<ItemKind, "task">, item: ItemActionTarget): InlineKeyboard {
-  return itemActionsKeyboard(kind, item, false)
-    .text("↩️ Undo save", "undo:last");
 }
 
 export function undoKeyboard(label = "↩️ Undo"): InlineKeyboard {

@@ -1,5 +1,5 @@
 export type ListKind = "tasks" | "notes" | "ideas";
-export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "privacy" | "commands";
+export type NaturalHelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
 export function parseListRequest(text: string): ListKind | undefined {
   const normalized = normalize(text);
@@ -210,14 +210,6 @@ function helpTopicFromText(text: string): NaturalHelpTopic | undefined {
 
   if (/(?:image|images|photo|photos|picture|pictures|screenshot|ocr|extract text|read receipt)/.test(normalized)) {
     return "images";
-  }
-
-  if (/(?:excel|spreadsheet|workbook|microsoft|onedrive|sync expense)/.test(normalized)) {
-    return "excel";
-  }
-
-  if (/(?:expense|expenses|receipt|receipts|spending|spent|purchase|purchases)/.test(normalized)) {
-    return "expenses";
   }
 
   if (/(?:search|find|review|pins|pinned|archived|archives)/.test(normalized)) {

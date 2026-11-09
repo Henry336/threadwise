@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RecurrenceRule, TaskStatus } from "@prisma/client";
 import { formatIdeaScore, formatOpenTasks, formatTaskDetail } from "./formatters";
 import { archivedPageKeyboard, ideasModeKeyboard, incomingImageKeyboard, itemListKeyboard, noteMergePreviewKeyboard, regionSettingsKeyboard, reminderSettingsKeyboard, restoreCompletedTaskKeyboard, searchPageKeyboard, settingChoicesKeyboard, settingsModeKeyboard, startMenuKeyboard, taskListKeyboard } from "./keyboards";
-import { formatCommandReference, formatHelpPage, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
+import { formatCommandReference, formatHelpGuide, formatHelpTopic, formatStartShortcutText, HELP_COMMANDS } from "./help";
 import { formatTaskAlreadyCompleted, formatTaskCompleted, formatTaskCreated, formatTaskSavedAcknowledgement } from "../services/tasks";
 import { formatNoteDetail, formatNoteSavedAcknowledgement } from "../services/notes";
 import { formatIdeaDetail, formatIdeaSavedAcknowledgement } from "../services/ideas";
@@ -322,7 +322,7 @@ describe("bot formatter behaviour", () => {
   });
 
   it("keeps the help page within Telegram's message limit and hides frozen surfaces", () => {
-    const message = formatHelpPage(1);
+    const message = formatHelpGuide();
 
     expect(message).not.toContain("Expenses");
     expect(message).not.toContain("Excel");

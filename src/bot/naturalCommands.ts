@@ -151,11 +151,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
     return true;
   }
 
-  if (isGroupChat(ctx) && /^(?:show |list |open )?(?:blocked tasks|blockers|what(?:'s| is) blocked)$/.test(lower)) {
-    await ctx.reply("Blocked is no longer a task status. Keep blockers in each task's details so the assignment remains clear.");
-    return true;
-  }
-
   const listKind = parseListRequest(lower);
   if (listKind === "tasks") {
     await replyActiveList(ctx, user, "tasks");
@@ -375,14 +370,7 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
   if (taskDetailMatch?.[1]) {
     try {
       const task = await findTaskReference(user.id, normalizePublicId(taskDetailMatch[1]));
-      await replyControlCardHtml(ctx, formatTaskDetail(task, user.settings.timezone, user.settings
-        ? {
-            reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
-            maxRemindersPerDay: user.settings.maxRemindersPerDay,
-            quietHoursStart: user.settings.quietHoursStart,
-            quietHoursEnd: user.settings.quietHoursEnd
-          }
-        : undefined), { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForNaturalCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) });
+      await replyControlCardHtml(ctx, formatTaskDetail(task, user.settings.timezone), { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForNaturalCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) });
     } catch (error) {
       if (!isNotFoundError(error)) throw error;
       await ctx.reply("I couldn't find that task. tasks will show the current list.");
@@ -395,30 +383,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
   if (isGroupChat(ctx) && claimMatch?.[1]) {
     const task = await claimGroupTask(user.id, claimMatch[1], collaborationActorFromContext(ctx));
     await replyHtml(ctx, `${bold("Task claimed")} ${code(task.publicId)}\n${h(task.title)}`);
-    return true;
-  }
-
-  const assignmentStatusMatch = trimmed.match(/^(?:accept|acknowledge)\s+(?:the\s+)?(?:assignment\s+for\s+)?(?:task\s+)?(\S+)$/i)
-    ?? trimmed.match(/^i(?:'m|\s+am)\s+(?:on|taking|handling)\s+(?:task\s+)?(\S+)$/i);
-  const declineAssignmentMatch = trimmed.match(/^(?:decline|pass on|cannot take|can't take)\s+(?:the\s+)?(?:assignment\s+for\s+)?(?:task\s+)?(\S+)(?:\s+(?:because|since)\s+(.+))?$/i);
-  const blockAssignmentMatch = trimmed.match(/^(?:block|mark)\s+(?:task\s+)?(\S+)\s+(?:as\s+)?blocked(?:\s+(?:because|on|by)\s+(.+))?$/i)
-    ?? trimmed.match(/^block\s+(?:task\s+)?(\S+)(?:\s+(?:because|on|by)\s+(.+))?$/i)
-    ?? trimmed.match(/^i(?:'m|\s+am)\s+blocked\s+(?:on\s+)?(?:task\s+)?(\S+)(?:\s+(?:because|by)\s+(.+))?$/i);
-  const unblockAssignmentMatch = trimmed.match(/^(?:unblock|clear\s+(?:the\s+)?blocker\s+(?:on|for))\s+(?:task\s+)?(\S+)$/i);
-  if (isGroupChat(ctx) && assignmentStatusMatch?.[1]) {
-    await ctx.reply("Assignments now take effect immediately. Use “claim TASK-1” only when a task is unassigned.");
-    return true;
-  }
-  if (isGroupChat(ctx) && declineAssignmentMatch?.[1]) {
-    await ctx.reply("Declining assignments was removed. Ask the task creator or a current group administrator to reassign it.");
-    return true;
-  }
-  if (isGroupChat(ctx) && blockAssignmentMatch?.[1]) {
-    await ctx.reply("Blocked is no longer an assignment state. Add the blocker to the task details so the work stays assigned.");
-    return true;
-  }
-  if (isGroupChat(ctx) && unblockAssignmentMatch?.[1]) {
-    await ctx.reply("Blocked is no longer an assignment state. Edit the task details when the blocker is resolved.");
     return true;
   }
 
@@ -458,12 +422,6 @@ export async function handleNaturalCommand(ctx: Context, ai: AiProvider, user: T
     await assertNaturalGroupTaskAction(ctx, user.id, rescheduleMatch[1], "manage");
     const task = await rescheduleTask(user.id, normalizePublicId(rescheduleMatch[1]), rescheduleMatch[2]);
     await replyHtml(ctx, `${bold("📅 Schedule updated")} ${code(task.publicId)} ${h(task.title)}\n${task.dueAt ? `${bold("Due")} ${h(formatDateTimeForUser(task.dueAt, user.settings.timezone))}` : `${bold("Due")} none`}\n${code("/undo")} restores the previous schedule.`, { reply_markup: undoKeyboard("↩️ Undo reschedule") });
-    return true;
-  }
-
-  const handoffMatch = trimmed.match(/^(?:hand\s*off|handover|pass)\s+(?:task\s+)?(\S+)\s+to\s+(.+)$/i);
-  if (isGroupChat(ctx) && handoffMatch?.[1] && handoffMatch[2]) {
-    await ctx.reply("Task handoffs were removed. The task creator or a current Telegram group administrator can reassign it with “assign TASK-1 to @username”.");
     return true;
   }
 

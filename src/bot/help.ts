@@ -15,7 +15,7 @@ type HelpSection = {
   commands: string[];
 };
 
-export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "expenses" | "excel" | "search" | "settings" | "cleanup" | "privacy" | "commands";
+export type HelpTopic = "general" | "reminders" | "notes" | "ideas" | "images" | "search" | "settings" | "cleanup" | "privacy" | "commands";
 
 export const HELP_COMMANDS: HelpCommand[] = [
   { command: "/help", description: "Show the natural-language capability guide.", example: "/help" },
@@ -167,33 +167,6 @@ const HELP_SECTIONS: HelpSection[] = [
     commands: ["No command needed: attach an image and choose a button.", "/images passport", "/search images electricity bill", "/image IMG-2", "/image caption IMG-2 July bill", "/image delete IMG-2", "/settings ocr English and Burmese"]
   },
   {
-    topic: "expenses",
-    title: "💰 Expenses",
-    description: "Save manual spending or receipt results in Threadwise, confirm/edit fields, and browse 10 newest-first rows per page.",
-    natural: [
-      "spent $18.40 on lunch at Toast Box today using Visa",
-      "record an expense of SGD 25 for groceries",
-      "change currency of EXP-2 to USD",
-      "show my expenses today",
-      "what did I spend this month",
-      "show expenses for June 2026"
-    ],
-    commands: ["/expense spent $18.40 on lunch", "/expense edit EXP-2 currency USD", "/expenses", "/expenses today", "/expenses this month", "/expenses 2026"]
-  },
-  {
-    topic: "excel",
-    title: "📊 Excel",
-    description: "Threadwise always keeps the expense record. Excel is an optional export or synchronized OneDrive workbook.",
-    natural: [
-      "connect my Microsoft Excel",
-      "create my expense workbook",
-      "sync my expenses to Excel",
-      "download my expenses as Excel",
-      "show my Excel status"
-    ],
-    commands: ["/excel"]
-  },
-  {
     topic: "search",
     title: "🔎 Find And Review",
     description: "Search saved items, review open loops, and see pinned or archived items.",
@@ -286,7 +259,6 @@ export function formatGroupHelpTopic(topic: HelpTopic, botUsername?: string): st
   if (topic === "general") return formatGroupHelpGuide(botUsername);
   if (topic === "commands") return formatGroupCommandReference();
   if (topic === "privacy") return formatGroupPrivacyText();
-  if (topic === "excel" || topic === "expenses") return formatGroupHelpGuide(botUsername);
   if (topic === "settings") {
     return [
       bold("Group settings"),
@@ -375,8 +347,6 @@ export function formatPrivacyText(): string {
   ].join("\n");
 }
 
-export const HELP_TEXT = formatHelpGuide();
-
 export function formatHelpGuide(): string {
   return [
     bold("Threadwise help"),
@@ -393,15 +363,6 @@ export function formatHelpGuide(): string {
   ].join("\n");
 }
 
-function formatHelpSectionSummary(section: HelpSection): string {
-  return [
-    bold(section.title),
-    section.description,
-    section.natural[0] ? `Try: ${code(section.natural[0])}` : undefined,
-    `More: ${code(`/help ${section.topic}`)}`
-  ].filter(Boolean).join("\n");
-}
-
 export function formatHelpTopic(topic: HelpTopic): string {
   if (topic === "commands") {
     return formatCommandReference();
@@ -413,10 +374,6 @@ export function formatHelpTopic(topic: HelpTopic): string {
 
   if (topic === "privacy") {
     return formatPrivacyText();
-  }
-
-  if (topic === "expenses" || topic === "excel") {
-    return formatHelpGuide();
   }
 
   const section = HELP_SECTIONS.find((item) => item.topic === topic);
@@ -447,29 +404,8 @@ export function formatCommandReference(): string {
   ].join("\n\n");
 }
 
-export function formatHelpPage(_page = 1): string {
-  return formatHelpGuide();
-}
-
-export function helpTotalPages(_pageSize = 0): number {
-  return 1;
-}
-
 function sortedHelpCommands(): HelpCommand[] {
   return [...HELP_COMMANDS].sort((a, b) => a.command.localeCompare(b.command));
-}
-
-function formatHelpSection(section: HelpSection): string {
-  return [
-    bold(section.title),
-    section.description,
-    "",
-    bold("Try saying"),
-    ...section.natural.map((example) => code(example)),
-    "",
-    bold("Slash equivalents"),
-    ...section.commands.map((example) => code(example))
-  ].join("\n");
 }
 
 function formatHelpCommand(item: HelpCommand): string {

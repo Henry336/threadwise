@@ -109,7 +109,6 @@ export function registerCommands(bot: Bot, ai: AiProvider): void {
   bot.command("unassign", async (ctx) => handleUnassign(ctx));
   bot.command("claim", async (ctx) => handleClaim(ctx));
   bot.command("mytasks", async (ctx) => handleMyGroupTasks(ctx));
-  bot.command(["accept", "decline", "block", "unblock", "handoff"], async (ctx) => handleLegacyAssignmentCommand(ctx));
   bot.command("undo", async (ctx) => handleUndo(ctx));
   bot.command(["rename", "edit"], async (ctx) => handleRename(ctx));
   bot.command(["pin", "star", "important"], async (ctx) => handlePin(ctx, true));
@@ -377,14 +376,7 @@ async function handleTaskDetail(ctx: Context) {
     const task = await findTaskReference(user.id, normalizePublicId(id));
     await replyControlCardHtml(
       ctx,
-      formatTaskDetail(task, user.settings.timezone, user.settings
-        ? {
-            reminderIntervalMinutes: user.settings.reminderIntervalMinutes,
-            maxRemindersPerDay: user.settings.maxRemindersPerDay,
-            quietHoursStart: user.settings.quietHoursStart,
-            quietHoursEnd: user.settings.quietHoursEnd
-          }
-        : undefined),
+      formatTaskDetail(task, user.settings.timezone),
       { reply_markup: isGroupChat(ctx) ? await groupTaskKeyboardForCommand(ctx, user.id, task.id) : taskActionsKeyboard(task, true) }
     );
   } catch (error) {
@@ -544,17 +536,6 @@ async function handleClaim(ctx: Context) {
   } catch (error) {
     await ctx.reply(userFacingError(error, "I couldn't claim that task."));
   }
-}
-
-async function handleLegacyAssignmentCommand(ctx: Context) {
-  const command = (ctx.message?.text ?? "").match(/^\/([a-z-]+)/i)?.[1] ?? "assignment";
-  await ctx.reply(
-    command === "accept"
-      ? "Assignments now take effect immediately. Use /claim TASK-1 only when a task is unassigned."
-      : command === "handoff"
-        ? "Task handoffs were removed. The task creator or a current Telegram group administrator can reassign it with /assign TASK-1 @username."
-        : "Accept, decline, and blocked assignment states were removed. Add blockers to the task details instead; the task creator or a current group administrator can edit them."
-  );
 }
 
 async function assertCommandGroupTaskAction(

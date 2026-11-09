@@ -26,16 +26,8 @@ export function formatOpenTasks(
   ].join("\n\n");
 }
 
-export type ReminderSettingsView = {
-  reminderIntervalMinutes: number;
-  maxRemindersPerDay: number;
-  quietHoursStart?: string | null;
-  quietHoursEnd?: string | null;
-};
-
-export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", settings?: ReminderSettingsView): string {
+export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC"): string {
   const timezone = task.timezone ?? fallbackTimezone;
-  void settings;
   const description = withoutRepeatedTitle(task.title, task.description || task.sourceText);
   const metadata = [
     task.status === "DONE" ? "✅ Completed" : task.status === "CANCELED" ? "🗑 Cancelled" : undefined,
@@ -53,21 +45,6 @@ export function formatTaskDetail(task: TaskListItem, fallbackTimezone = "UTC", s
     description ? h(truncate(description, 700)) : undefined,
     metadata
   ]);
-}
-
-export function formatSearchResults(results: SearchResult[], label?: string): string {
-  if (results.length === 0) {
-    return label ? `Nothing close in ${label} yet—try another phrase.` : "Nothing close yet—try another phrase.";
-  }
-
-  return [
-    bold(label ? `🔎 Search results: ${label}` : "🔎 Search results"),
-    "",
-    ...results.map((result) => {
-      const percent = Math.round(result.score * 100);
-      return `${code(result.publicId)} ${bold(result.title)}\n${italic(`${result.kind}, ${percent}% match`)}\n${h(truncate(result.summary, 160))}`;
-    })
-  ].join("\n\n");
 }
 
 export function formatSearchResultsPage(results: SearchResult[], page: number, pageSize: number, label?: string): string {

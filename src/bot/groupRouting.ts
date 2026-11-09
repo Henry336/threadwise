@@ -178,14 +178,6 @@ function mentionRegex(username: string, global = false): RegExp {
   return new RegExp(`(^|\\s)@${escapeRegExp(username.replace(/^@/, ""))}(?=$|[\\s,.:;!?])`, global ? "ig" : "i");
 }
 
-function botLikeMention(text: string): boolean {
-  return /(^|\s)@[A-Za-z0-9_]*bot\b/i.test(text);
-}
-
-function stripBotLikeMentions(text: string): string {
-  return text.replace(/(^|\s)@[A-Za-z0-9_]*bot\b(?:\s*[,.:;!?])?/ig, " ");
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

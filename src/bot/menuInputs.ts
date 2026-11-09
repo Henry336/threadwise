@@ -21,6 +21,7 @@ type PendingMenuInput = {
 };
 
 const INPUT_TTL_MS = 15 * 60_000;
+// In memory by design: a deploy or restart drops pending menu prompts, and the user just taps the menu again.
 const pendingInputs = new Map<string, PendingMenuInput>();
 
 export function beginMenuInput(userId: string, actorTelegramId: string | number, action: MenuInputAction): void {
