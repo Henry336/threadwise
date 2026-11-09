@@ -3,7 +3,7 @@ import { shouldUseAiForNoteStructure, structureNoteDeterministically } from "../
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
 import { prisma } from "../db/prisma";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
@@ -13,9 +13,8 @@ export async function createNote(userId: string, sourceText: string, ai: AiProvi
   const structured = shouldUseAiForNoteStructure(sourceText)
     ? await ai.structureNote(sourceText)
     : structureNoteDeterministically(sourceText);
-  const publicId = await nextPublicId(userId, "NOTE");
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "NOTE", async (tx, publicId) => {
     const note = await tx.note.create({
       data: {
         userId,

@@ -1,7 +1,7 @@
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
 import { formatDateTimeForUser } from "../utils/dates";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordImageCaptionUndo } from "./undo";
 import { completeSearchableContentUpdate, contentMatchesQuery, encryptedSearchClause } from "../security/contentEncryption";
 
@@ -42,8 +42,7 @@ export async function savePendingImageUpload(userId: string, id: string) {
     await prisma.pendingImageUpload.delete({ where: { id: pending.id } });
     return { image: existing, duplicate: true };
   }
-  const publicId = await nextPublicId(userId, "IMG");
-  const image = await prisma.$transaction(async (tx) => {
+  const image = await createWithPublicId(userId, "IMG", async (tx, publicId) => {
     const saved = await tx.storedImage.create({
       data: {
         userId,

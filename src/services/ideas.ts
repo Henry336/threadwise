@@ -3,16 +3,15 @@ import { completeSearchableContentUpdate } from "../security/contentEncryption";
 import type { AiProvider, IdeaScore } from "../ai/types";
 import { bold, code, h, italic } from "../utils/html";
 import { truncate } from "../utils/text";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo } from "./undo";
 import { fieldHtml, joinBlocks } from "../utils/messageFormat";
 import type { ListPageInfo } from "./listPagination";
 
 export async function createIdea(userId: string, sourceText: string, ai: AiProvider) {
   const structured = await ai.structureIdea(sourceText);
-  const publicId = await nextPublicId(userId, "IDEA");
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "IDEA", async (tx, publicId) => {
     const idea = await tx.idea.create({
       data: {
         userId,

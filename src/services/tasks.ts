@@ -7,7 +7,7 @@ import { bold, code, h } from "../utils/html";
 import { field, fieldHtml, joinBlocks, stableChoice } from "../utils/messageFormat";
 import { createGoogleCalendarUrl } from "./calendar";
 import { removeTaskFromGoogleCalendar, syncTaskCalendarBestEffort } from "./googleCalendar";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { initialTaskReminderAt } from "./reminders";
 import { cancelPendingTaskReminderSchedules, restoreFutureTaskReminderSchedules } from "./taskReminderSchedules";
 import { recordArchiveUndo, recordCreateUndo, recordFieldEditUndo, recordRenameUndo, recordRescheduleUndo, recordSnoozeUndo, recordTaskStateUndo } from "./undo";
@@ -103,7 +103,6 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
     ?? parseDueDate(recurrenceCleanedText, settings.timezone);
   const title = options.titleOverride?.trim() || structured.title;
   const initialStatus = options.initialStatus ?? TaskStatus.OPEN;
-  const publicId = await nextPublicId(userId, "TASK");
   const now = new Date();
   const nextReminderAt = initialStatus === TaskStatus.OPEN
     ? initialTaskReminderAt({ now, dueAt, dueNudgeMinutes: settings.dueNudgeMinutes, intervalMinutes: settings.reminderIntervalMinutes })
@@ -117,7 +116,7 @@ export async function createTask(userId: string, sourceText: string, ai: AiProvi
       })
     : undefined;
 
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await createWithPublicId(userId, "TASK", async (tx, publicId) => {
     const task = await tx.task.create({
       data: {
         userId,
@@ -164,7 +163,6 @@ export async function createScheduledReminder(userId: string, sourceText: string
   const recurrence = parseRecurrencePattern(prepared.text);
   const recurrenceCleanedText = recurrence ? stripRecurrenceText(prepared.text) : prepared.text;
   const structured = structureTaskDeterministically(recurrenceCleanedText);
-  const publicId = await nextPublicId(userId, "TASK");
   const calendarUrl = createGoogleCalendarUrl({
     title: structured.title,
     details: structured.description ?? sourceText,
@@ -172,7 +170,7 @@ export async function createScheduledReminder(userId: string, sourceText: string
     timezone: settings.timezone
   });
 
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await createWithPublicId(userId, "TASK", async (tx, publicId) => {
     const task = await tx.task.create({
       data: {
         userId,

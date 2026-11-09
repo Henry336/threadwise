@@ -2,7 +2,7 @@ import type { Note } from "@prisma/client";
 import type { AiProvider, MergedNotePreview, NoteForMerge } from "../ai/types";
 import { prisma } from "../db/prisma";
 import { bold, code, h } from "../utils/html";
-import { nextPublicId } from "./publicIds";
+import { createWithPublicId } from "./publicIds";
 import { findNoteReference } from "./notes";
 import { recordNoteMergeUndo } from "./undo";
 
@@ -81,10 +81,9 @@ export async function confirmNoteMerge(userId: string, pendingId: string, ai: Ai
   });
   const preview = asMergedNotePreview(pending.preview);
   const sourceNotes = await notesByIds(userId, pending.sourceNoteIds);
-  const publicId = await nextPublicId(userId, "NOTE");
   const archivedAt = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  return createWithPublicId(userId, "NOTE", async (tx, publicId) => {
     const mergedNote = await tx.note.create({
       data: {
         userId,
