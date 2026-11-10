@@ -235,6 +235,18 @@ describe("dashboard data security", () => {
     expect(servicePrisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("refuses to reopen a task that is not completed", async () => {
+    servicePrisma.$transaction.mockClear();
+    const database = {
+      user: { findUnique: userFindUnique() },
+      task: { findFirst: vi.fn(async () => ({ id: "task-1", status: TaskStatus.CANCELED, updatedAt: new Date() })) }
+    } as unknown as PrismaClient;
+
+    await expect(updateDashboardTask("123456789", "TASK-1", { status: TaskStatus.OPEN }, database))
+      .rejects.toThrow("Only a completed task can be reopened.");
+    expect(servicePrisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("archives dashboard tasks with undo metadata without destroying their reminder schedule", async () => {
     const nextReminderAt = new Date("2026-07-18T08:57:00.000Z");
     const task = {

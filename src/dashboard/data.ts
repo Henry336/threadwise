@@ -712,7 +712,7 @@ async function changeDashboardTaskStatus(
     throw new DashboardValidationError("Change a task's status on its own, without other edits.");
   }
   if (input.status === TaskStatus.DONE) {
-    // Passing the due time the dashboard saw makes a stale or double tick a no-op.
+    // The due time read at the start of this request: if another tap advanced the task meanwhile, this one is a no-op.
     await completeTask(userId, task.id, task.recurrenceRule && task.dueAt ? task.dueAt : undefined);
   } else if (input.status === TaskStatus.CANCELED) {
     await cancelTask(userId, task.id);
