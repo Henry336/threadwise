@@ -273,6 +273,8 @@ export async function saveImageUploadBatch(userId: string, token: string) {
           ? await tx.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId } })
           : undefined;
         if (existing) {
+          // A deleted (archived) copy comes back instead of a second row for the same file.
+          if (existing.archivedAt) await tx.storedImage.update({ where: { id: existing.id }, data: { archivedAt: null } });
           images.push({ publicId: existing.publicId, caption: existing.caption, duplicate: true });
           continue;
         }

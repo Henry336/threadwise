@@ -1122,7 +1122,7 @@ export async function deleteDashboardExpense(telegramId: string, id: string, dat
 }
 
 async function scopedImage(database: PrismaClient, userId: string, id: string) {
-  const image = await database.storedImage.findFirst({ where: { userId, OR: itemReference(id) } });
+  const image = await database.storedImage.findFirst({ where: { userId, archivedAt: null, OR: itemReference(id) } });
   if (!image) throw new DashboardItemNotFoundError();
   return image;
 }
@@ -1145,6 +1145,7 @@ export async function listDashboardImages(
   const user = await userContext(telegramId, database);
   const where: Prisma.StoredImageWhereInput = {
     userId: user.id,
+    archivedAt: null,
     ...(options.q ? { OR: withEncryptedSearch("StoredImage", options.q, [{ caption: { contains: options.q, mode: "insensitive" } }, { fileName: { contains: options.q, mode: "insensitive" } }, { ocrText: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, images] = await Promise.all([
@@ -1199,11 +1200,11 @@ export async function updateDashboardImage(
   return imageView(updated);
 }
 
-/** Hard-deletes the owner's stored image record. The file itself lives on Telegram's servers. */
+/** Deletes the owner's image by archiving it, so its IMG id is never reused. The file itself lives on Telegram's servers. */
 export async function deleteDashboardImage(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
-  await database.storedImage.delete({ where: { id: image.id } });
+  await database.storedImage.update({ where: { id: image.id }, data: { archivedAt: new Date() } });
 }
 
 export type DashboardImageContent = { bytes: Uint8Array; contentType: string };
@@ -1336,7 +1337,7 @@ export async function searchDashboard(
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("image") ? database.storedImage.findMany({
-      where: { userId: user.id, OR: withEncryptedSearch("StoredImage", query, [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }]) },
+      where: { userId: user.id, archivedAt: null, OR: withEncryptedSearch("StoredImage", query, [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("expense") ? database.expense.findMany({

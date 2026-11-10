@@ -233,7 +233,7 @@ export async function getDashboardSnapshot(
       take: DASHBOARD_LIST_LIMIT
     }),
     database.storedImage.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, archivedAt: null },
       select: {
         id: true,
         publicId: true,

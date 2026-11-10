@@ -353,7 +353,7 @@ describe("dashboard data security", () => {
 
     expect(result).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     expect(imageFindFirst).toHaveBeenCalledWith({
-      where: { userId: "user-1", OR: [{ id: "IMG-1" }, { publicId: "IMG-1" }] }
+      where: { userId: "user-1", archivedAt: null, OR: [{ id: "IMG-1" }, { publicId: "IMG-1" }] }
     });
     expect(fetcher.mock.calls[0]?.[0]).toContain("file_id=private-file-id");
     expect(fetcher.mock.calls[1]?.[0]).toContain("photos/private%20image.png");

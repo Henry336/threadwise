@@ -156,7 +156,7 @@ async function findEditableItem(userId: string, kind: EditableItemKind, itemId: 
   }
 
   if (kind === "image") {
-    const image = await prisma.storedImage.findFirstOrThrow({ where: { userId, id: itemId } });
+    const image = await prisma.storedImage.findFirstOrThrow({ where: { userId, id: itemId, archivedAt: null } });
     return { kind, id: image.id, publicId: image.publicId, title: image.caption || image.fileName || "Saved image", field: "caption" };
   }
 
