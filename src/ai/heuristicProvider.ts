@@ -288,7 +288,7 @@ function cleanDetail(detail: string): string {
 function inferConnections(noteTexts: string[], notes: NoteForMerge[]): string[] {
   const connections = sharedTerms(noteTexts).slice(0, 3).map((term) => {
     const ids = notes.filter((_, index) => termsOf(noteTexts[index] ?? "").has(term)).map((note) => note.publicId);
-    return `${formatList(ids)} all mention "${term}".`;
+    return `${formatList(ids)} ${ids.length === 2 ? "both" : "all"} mention "${term}".`;
   });
   if (connections.length === 0 && notes.length > 1) {
     connections.push("The notes seem to belong together because they describe related lessons or observations that should be reviewed in one place.");
@@ -319,10 +319,13 @@ function sharedTerms(noteTexts: string[]): string[] {
   return [...counts].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]).map(([term]) => term);
 }
 
-/** Capitalised words that look like people's names: inside a sentence, never its first word. */
+const NAME = String.raw`[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?`;
+/** "by Ana", "with Ana and Ben", "by both Ana and Ben", "Ana said": only attributed names count, not Monday or Canvas. */
+const ATTRIBUTED_NAMES = new RegExp(String.raw`\b(?:by|from|with|according to)\s+(?:both\s+)?(${NAME})(?:\s+and\s+(${NAME}))?|\b(${NAME})\s+(?:said|says|mentioned|suggested|recommended|told|asked)\b`, "g");
+
+/** People the notes attribute something to, so the merge can ask what each of them said. */
 function namedPeople(text: string): string[] {
-  const names = text.split(/[.!?\n]|->/).flatMap((sentence) =>
-    [...sentence.trim().matchAll(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/g)].filter((match) => match.index > 0).map((match) => match[0]));
+  const names = [...text.matchAll(ATTRIBUTED_NAMES)].flatMap((match) => [match[1], match[2], match[3]]).filter((name): name is string => Boolean(name));
   return [...new Set(names)];
 }
 

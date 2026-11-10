@@ -34,7 +34,17 @@ describe("HeuristicAiProvider", () => {
     ]);
 
     expect(preview.body).toContain("tomato");
-    expect(preview.connections[0]).toBe('NOTE-1 and NOTE-2 all mention "tomato".');
+    expect(preview.connections[0]).toBe('NOTE-1 and NOTE-2 both mention "tomato".');
+    expect(preview.possibleMissingContext).toEqual([]);
+  });
+
+  it("does not mistake weekdays or product names for people", async () => {
+    const provider = new HeuristicAiProvider();
+    const preview = await provider.mergeNotes([
+      note("NOTE-1", "Submit the Canvas quiz on Monday before the Telegram reminder"),
+      note("NOTE-2", "Ask on Telegram whether the Canvas quiz moved to Tuesday"),
+    ]);
+
     expect(preview.possibleMissingContext).toEqual([]);
   });
 });

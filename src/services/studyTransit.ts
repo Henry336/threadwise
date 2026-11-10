@@ -511,7 +511,7 @@ export async function estimateStudyJourneyByStops(
     ? await findStudyOrigin(workspace.id, originReference)
     : await currentStudyOrigin(workspace);
   if (!origin?.providerStopId) throw new StudyModeError("Add a travel origin first.", "invalid");
-  const response = await planStopJourney(origin.providerStopId, destinationStopId);
+  const response = await planStopJourney(origin, destinationStopId);
   const stops = await listStudyTransitStops();
   const destination = stops.find((stop) => stop.id === destinationStopId);
   if (!destination) throw new StudyModeError("That destination stop is no longer available.", "not_found");
@@ -929,10 +929,19 @@ function estimatedRideMinutes(journey: Journey): number {
   return Math.max(5, journey.legs.reduce((sum, leg) => sum + Math.max(1, (leg.stops?.length ?? 2) - 1) * 3, 0));
 }
 
-/** Plans a ride between two stops (v1 POST /journeys). Alternatives come back ranked best-first. */
-async function planStopJourney(fromStopId: string, toStopId: string): Promise<JourneySearchResponse> {
+/**
+ * Plans a ride between two stops (v1 POST /journeys). With the origin's own coordinates the provider
+ * also ranks nearby stops worth walking to. Alternatives come back ranked best-first.
+ */
+async function planStopJourney(origin: StudyLocationOrigin, toStopId: string): Promise<JourneySearchResponse> {
   const data = await transitRequest<JourneySearchResponse>("journeys", {
-    body: { origin: { kind: "stop", id: fromStopId }, destination: { kind: "stop", id: toStopId } },
+    body: {
+      origin: { kind: "stop", id: origin.providerStopId },
+      destination: { kind: "stop", id: toStopId },
+      ...(origin.latitude !== null && origin.longitude !== null
+        ? { originCoordinates: { latitude: origin.latitude, longitude: origin.longitude } }
+        : {}),
+    },
   });
   return {
     journey: data.journey ?? null,
@@ -1019,7 +1028,7 @@ async function estimateJourneyToPlace(origin: StudyLocationOrigin, place: StudyP
     .slice(0, place.kind === "stop" ? 1 : 3);
   if (!candidates.length) throw new StudyModeError(`${place.displayName} has no nearby NUS bus stop.`, "not_found");
   const searches = await Promise.allSettled(candidates.map(async (destinationStop) => {
-    const response = await planStopJourney(origin.providerStopId!, destinationStop.id);
+    const response = await planStopJourney(origin, destinationStop.id);
     return journeyEstimate(origin, destinationStop, response, place);
   }));
   const viable = searches

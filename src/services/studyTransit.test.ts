@@ -120,7 +120,11 @@ describe("study travel timing", () => {
     const journey = await estimateStudyJourney({ id: "study-1" } as never, "venue:COM3", "origin-1");
     const journeyCall = fetchMock.mock.calls.find(([input]) => String(input).includes("/api/v1/journeys"));
     expect(journeyCall?.[1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String(journeyCall?.[1]?.body))).toEqual({ origin: { kind: "stop", id: "PGP" }, destination: { kind: "stop", id: "COM3-STOP" } });
+    expect(JSON.parse(String(journeyCall?.[1]?.body))).toEqual({
+      origin: { kind: "stop", id: "PGP" },
+      destination: { kind: "stop", id: "COM3-STOP" },
+      originCoordinates: { latitude: 1.2901, longitude: 103.7812 },
+    });
     expect(journey).toMatchObject({
       live: true,
       transfers: 1,

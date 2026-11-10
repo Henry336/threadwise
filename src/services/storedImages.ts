@@ -45,20 +45,17 @@ export async function discardPendingImageUpload(userId: string, id: string): Pro
 
 /**
  * Turns a pending upload into a StoredImage (IMG-n), deleting the pending row in the same transaction.
- * If the same Telegram file (by unique id) is already saved, returns that image as a duplicate instead,
- * bringing it back first if it had been deleted (archived).
+ * If the same Telegram file (by unique id) is already in the library, returns that image as a duplicate
+ * instead. A deleted (archived) copy does not count, so sending it again saves a new image.
  */
 export async function savePendingImageUpload(userId: string, id: string) {
   const pending = await findPendingImageUpload(userId, id);
   const existing = pending.telegramUniqueId
-    ? await prisma.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId } })
+    ? await prisma.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId, archivedAt: null } })
     : undefined;
   if (existing) {
-    const [image] = await prisma.$transaction([
-      prisma.storedImage.update({ where: { id: existing.id }, data: { archivedAt: null } }),
-      prisma.pendingImageUpload.delete({ where: { id: pending.id } }),
-    ]);
-    return { image, duplicate: true };
+    await prisma.pendingImageUpload.delete({ where: { id: pending.id } });
+    return { image: existing, duplicate: true };
   }
   const image = await createWithPublicId(userId, "IMG", async (tx, publicId) => {
     const saved = await tx.storedImage.create({

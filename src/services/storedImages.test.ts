@@ -22,13 +22,13 @@ describe("stored image deletion", () => {
     expect(db.storedImage.delete).not.toHaveBeenCalled();
   });
 
-  it("brings a deleted image back when the same file is saved again", async () => {
+  it("ignores a deleted copy when the same file is sent again, so the new save is not swallowed", async () => {
     db.pendingImageUpload.findFirstOrThrow.mockResolvedValue({ id: "pending-1", telegramUniqueId: "uniq-1" });
-    db.storedImage.findFirst.mockResolvedValue({ id: "img-1", publicId: "IMG-1", archivedAt: new Date() });
+    db.storedImage.findFirst.mockResolvedValue(null);
 
-    const result = await savePendingImageUpload("user-1", "pending-1");
+    await savePendingImageUpload("user-1", "pending-1").catch(() => undefined);
 
-    expect(db.storedImage.update).toHaveBeenCalledWith({ where: { id: "img-1" }, data: { archivedAt: null } });
-    expect(result).toMatchObject({ duplicate: true, image: { publicId: "IMG-1", archivedAt: null } });
+    expect(db.storedImage.findFirst).toHaveBeenCalledWith({ where: { userId: "user-1", telegramUniqueId: "uniq-1", archivedAt: null } });
+    expect(db.storedImage.update).not.toHaveBeenCalled();
   });
 });
