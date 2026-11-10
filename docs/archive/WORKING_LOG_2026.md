@@ -10,6 +10,12 @@ Paths in old entries are as they were written; finished reports have since moved
 
 ## Working log
 
+- **2026-11-11 (Claude, review leftovers released):** Backend v0.37.0 (PR #47, merge `69e0531`)
+  and dashboard v0.11.0 (PR #16). Saved images are archived instead of deleted, bus routing uses the
+  Improved NextBus v1 API, the no-AI note merge works from the notes' own words, Study dialogs and dates
+  use the shared modal hook and workspace timezone, and retired Expenses/Excel proxy routes are gone.
+  Three rounds of independent review. Not yet smoke-tested in real Telegram.
+
 - **2026-11-09 (Claude, review fixes released):** Every change agreed in the 2026-11-01 review
   shipped as backend v0.36.0 (PR #46, merge `1558e14`, covering #32-#45) and dashboard PR #15
   (merge `ecee370`, covering #14). Four rounds of independent agent review; fixes from them cover

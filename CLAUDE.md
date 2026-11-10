@@ -6,8 +6,8 @@ then follow the pointers below.
 
 ## Current state
 
-- Backend v0.36.0 is live: merge `1558e1448806` (PR #46, every 2026-11-01 review fix; see CHANGELOG).
-- Dashboard is live at merge `ecee370` (PR #15, includes #14) on Vercel; `package.json` still says 0.10.2.
+- Backend v0.37.0 is live: merge `69e05317d663` (PR #47, the review leftovers; see CHANGELOG).
+- Dashboard v0.11.0 is live on Vercel (PR #16).
 - The plan of work is [`docs/REVIEW_2026-11-01.md`](docs/REVIEW_2026-11-01.md), section 10. Phases 1-2
   are done; Phase 3 waits on the product decision in section 9.
 - The Daily Tech Brief (a side project) runs as a Claude scheduled task on the owner's laptop.
