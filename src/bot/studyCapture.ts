@@ -708,7 +708,7 @@ export async function handleExtendedStudyCallback(
     if (action === "ocr") {
       await editOrReplyHtml(ctx, `${bold("Extracting text")}\nThis can take a moment.`);
       try {
-        const extracted = await extractPendingImageText(ctx, workspace, pending);
+        const extracted = await extractPendingImageText(workspace, pending);
         await updateStudyPendingCaptureOcr(workspace.id, token, extracted.text, extracted.confidence);
         await showImageCaptureActions(ctx, workspace, token, true, true);
       } catch (error) {
@@ -1237,7 +1237,6 @@ async function saveStudyMedia(ctx: Context, workspace: StudyWorkspace, module: S
  * owner's configured languages. Only done when the owner asks for text extraction.
  */
 async function extractPendingImageText(
-  ctx: Context,
   workspace: StudyWorkspace,
   pending: Awaited<ReturnType<typeof findStudyPendingCapture>>,
 ) {

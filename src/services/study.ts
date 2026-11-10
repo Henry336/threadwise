@@ -46,6 +46,9 @@ export const STUDY_METHODS: Record<string, string[]> = {
   CFG1004: ["Bounded completion session"],
 };
 
+/** Modules whose study methods include timed practice; only these get the "no timed practice this week" nudge. */
+export const TIMED_PRACTICE_MODULE_CODES = Object.keys(STUDY_METHODS).filter((code) => STUDY_METHODS[code]?.includes("Timed mixed problems"));
+
 /**
  * The one error type for Study rules. Its message is safe to show the owner, and `code`
  * lets the bot and dashboard map it to a reply or HTTP status.
@@ -1051,7 +1054,7 @@ export async function buildStudyDashboard(workspace: StudyWorkspace, now = new D
 }
 
 /** Up to 50 open items of active modules, soonest due first (undated last). */
-export async function upcomingStudyItems(workspaceId: string, now = new Date()) {
+export async function upcomingStudyItems(workspaceId: string) {
   return prisma.studyItem.findMany({
     where: { workspaceId, module: { active: true }, status: { in: [StudyItemStatus.OPEN, StudyItemStatus.IN_PROGRESS] } },
     include: { module: true },
@@ -1406,7 +1409,7 @@ export function deriveOverallStatus(statuses: StudyTrafficLight[]): StudyTraffic
   return StudyTrafficLight.UNASSESSED;
 }
 
-/** Flags CS2100/CS2102 when no timed practice session happened this week, once timed practice has begun. */
+/** Flags a timed-practice module (TIMED_PRACTICE_MODULE_CODES) with no timed session this week, once timed practice has begun. */
 export function isTimedPracticeMissing(
   moduleCode: string,
   currentWeek: number,
@@ -1414,7 +1417,7 @@ export function isTimedPracticeMissing(
   sessions: Array<{ timed: boolean }>,
 ): boolean {
   return currentWeek >= startWeek
-    && (moduleCode === "CS2100" || moduleCode === "CS2102")
+    && TIMED_PRACTICE_MODULE_CODES.includes(moduleCode)
     && !sessions.some((session) => session.timed);
 }
 

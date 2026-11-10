@@ -712,7 +712,7 @@ async function changeDashboardTaskStatus(
     throw new DashboardValidationError("Change a task's status on its own, without other edits.");
   }
   if (input.status === TaskStatus.DONE) {
-    // Passing the due time the dashboard saw makes a stale or double tick a no-op.
+    // The due time read at the start of this request: if another tap advanced the task meanwhile, this one is a no-op.
     await completeTask(userId, task.id, task.recurrenceRule && task.dueAt ? task.dueAt : undefined);
   } else if (input.status === TaskStatus.CANCELED) {
     await cancelTask(userId, task.id);
@@ -1122,7 +1122,7 @@ export async function deleteDashboardExpense(telegramId: string, id: string, dat
 }
 
 async function scopedImage(database: PrismaClient, userId: string, id: string) {
-  const image = await database.storedImage.findFirst({ where: { userId, OR: itemReference(id) } });
+  const image = await database.storedImage.findFirst({ where: { userId, archivedAt: null, OR: itemReference(id) } });
   if (!image) throw new DashboardItemNotFoundError();
   return image;
 }
@@ -1145,6 +1145,7 @@ export async function listDashboardImages(
   const user = await userContext(telegramId, database);
   const where: Prisma.StoredImageWhereInput = {
     userId: user.id,
+    archivedAt: null,
     ...(options.q ? { OR: withEncryptedSearch("StoredImage", options.q, [{ caption: { contains: options.q, mode: "insensitive" } }, { fileName: { contains: options.q, mode: "insensitive" } }, { ocrText: { contains: options.q, mode: "insensitive" } }]) } : {})
   };
   const [total, images] = await Promise.all([
@@ -1199,11 +1200,11 @@ export async function updateDashboardImage(
   return imageView(updated);
 }
 
-/** Hard-deletes the owner's stored image record. The file itself lives on Telegram's servers. */
+/** Deletes the owner's image by archiving it, so its IMG id is never reused. The file itself lives on Telegram's servers. */
 export async function deleteDashboardImage(telegramId: string, id: string, database: PrismaClient = prisma): Promise<void> {
   const user = await userContext(telegramId, database);
   const image = await scopedImage(database, user.id, id);
-  await database.storedImage.delete({ where: { id: image.id } });
+  await database.storedImage.update({ where: { id: image.id }, data: { archivedAt: new Date() } });
 }
 
 export type DashboardImageContent = { bytes: Uint8Array; contentType: string };
@@ -1336,7 +1337,7 @@ export async function searchDashboard(
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("image") ? database.storedImage.findMany({
-      where: { userId: user.id, OR: withEncryptedSearch("StoredImage", query, [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }]) },
+      where: { userId: user.id, archivedAt: null, OR: withEncryptedSearch("StoredImage", query, [{ caption: { contains: query, mode: "insensitive" } }, { fileName: { contains: query, mode: "insensitive" } }, { ocrText: { contains: query, mode: "insensitive" } }]) },
       orderBy: { updatedAt: "desc" }, take: limit
     }) : [],
     wanted("expense") ? database.expense.findMany({
@@ -1458,7 +1459,7 @@ export async function exportDashboardData(telegramId: string, database: PrismaCl
     database.note.findMany({ where: { userId: user.id }, select: { publicId: true, title: true, body: true, summary: true, tags: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
     database.idea.findMany({ where: { userId: user.id }, select: { publicId: true, title: true, concept: true, problem: true, targetUser: true, type: true, status: true, tags: true, marketNotes: true, dos: true, donts: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
     database.expense.findMany({ where: { userId: user.id }, select: { publicId: true, merchant: true, transactionAt: true, category: true, description: true, subtotal: true, tax: true, discount: true, total: true, currency: true, paymentMethod: true, sourceType: true, notes: true, excelSyncedAt: true, createdAt: true, updatedAt: true } }),
-    database.storedImage.findMany({ where: { userId: user.id }, select: { publicId: true, mediaKind: true, mimeType: true, fileName: true, caption: true, ocrText: true, ocrConfidence: true, createdAt: true, updatedAt: true } }),
+    database.storedImage.findMany({ where: { userId: user.id }, select: { publicId: true, mediaKind: true, mimeType: true, fileName: true, caption: true, ocrText: true, ocrConfidence: true, archivedAt: true, createdAt: true, updatedAt: true } }),
     database.reflection.findMany({ where: { userId: user.id }, select: { publicId: true, situation: true, balancedView: true, immediateAction: true, keepInMind: true, risks: true, pinnedAt: true, archivedAt: true, createdAt: true, updatedAt: true } }),
     database.calendarConnection.findUnique({ where: { userId: user.id }, select: { calendarEmail: true, createdAt: true } }),
     database.microsoftConnection.findUnique({ where: { userId: user.id }, select: { microsoftEmail: true, workbookName: true, tableName: true, createdAt: true } })

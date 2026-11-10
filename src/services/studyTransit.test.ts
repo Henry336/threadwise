@@ -7,6 +7,7 @@ import {
   isStudyTravelMuted,
   normalizeStudyPlaceQuery,
   searchStudyOriginPlaces,
+  searchStudyVenues,
 } from "./studyTransit";
 
 describe("study travel timing", () => {
@@ -36,10 +37,19 @@ describe("study travel timing", () => {
     expect(normalizeStudyPlaceQuery("Kent Ridge MRT station")).toBe("Kent Ridge MRT");
   });
 
+  it("passes on the provider's rate limit with its Retry-After wait", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "rate_limited", message: "Slow down" }, meta: {} }), {
+      status: 429,
+      headers: { "content-type": "application/json", "retry-after": "30" },
+    })));
+
+    await expect(searchStudyVenues("COM3")).rejects.toThrow("Improved NextBus is busy. Try again in 30 seconds.");
+  });
+
   it("falls back to selectable direct bus-stop matches", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
-      return new Response(JSON.stringify(url.includes("/api/stops") ? {
+      return new Response(JSON.stringify({ data: url.includes("/api/v1/stops") ? {
         stops: [{
           id: "stop-pgp",
           title: "Prince George's Park",
@@ -47,7 +57,7 @@ describe("study travel timing", () => {
           busStopCode: "PGP",
           coordinates: { latitude: 1.2901, longitude: 103.7812 },
         }],
-      } : { venues: [] }), { status: 200, headers: { "content-type": "application/json" } });
+      } : { places: [] }, meta: {} }), { status: 200, headers: { "content-type": "application/json" } });
     }));
 
     await expect(searchStudyOriginPlaces("PGPR")).resolves.toEqual([expect.objectContaining({
@@ -73,23 +83,24 @@ describe("study travel timing", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: Parameters<typeof fetch>[0]) => {
+    const fetchMock = vi.fn().mockImplementation(async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
-      if (url.includes("/api/venues/COM3")) return Response.json({
+      if (url.includes("/api/v1/places/search")) return Response.json({ data: { places: [{
         id: "COM3",
         name: "COM3",
         coordinates: { latitude: 1.2948, longitude: 103.7736 },
-        nearbyStops: [{ id: "COM3-STOP", title: "COM 3", coordinates: { latitude: 1.294, longitude: 103.773 }, distanceMetres: 120 }],
-      });
-      if (url.includes("/api/directions")) return Response.json({
+      }] }, meta: {} });
+      if (url.includes("/api/v1/stops/nearby")) return Response.json({ data: {
+        stops: [{ id: "COM3-STOP", title: "COM 3", coordinates: { latitude: 1.294, longitude: 103.773 }, distanceMetres: 120 }],
+      }, meta: {} });
+      if (url.includes("/api/v1/journeys")) return Response.json({ meta: {}, data: {
         journey: null,
         alternatives: [{
           journey: {
             fromStop: { id: "PGP", title: "Prince George's Park", coordinates: { latitude: 1.2901, longitude: 103.7812 } },
             toStop: { id: "COM3-STOP", title: "COM 3", coordinates: { latitude: 1.294, longitude: 103.773 } },
             transfers: 1,
-            status: "live",
-            message: "Live route",
+            freshness: "live",
             legs: [
               { service: "R2", fromStop: { id: "PGP", title: "Prince George's Park", coordinates: { latitude: 1.2901, longitude: 103.7812 } }, toStop: { id: "HSSML", title: "Opp HSSML", coordinates: { latitude: 1.293, longitude: 103.776 } }, nextArrival: { minutes: 2, display: "2 min" } },
               { service: "D2", fromStop: { id: "HSSML", title: "Opp HSSML", coordinates: { latitude: 1.293, longitude: 103.776 } }, toStop: { id: "COM3-STOP", title: "COM 3", coordinates: { latitude: 1.294, longitude: 103.773 } }, nextArrival: { minutes: 5, display: "5 min" } },
@@ -100,13 +111,20 @@ describe("study travel timing", () => {
           estimatedTotalMinutes: 14,
         }],
         recommendations: [],
-        directAvailable: false,
         message: "Live route",
-      });
+      } });
       return new Response(null, { status: 404 });
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const journey = await estimateStudyJourney({ id: "study-1" } as never, "venue:COM3", "origin-1");
+    const journeyCall = fetchMock.mock.calls.find(([input]) => String(input).includes("/api/v1/journeys"));
+    expect(journeyCall?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(journeyCall?.[1]?.body))).toEqual({
+      origin: { kind: "stop", id: "PGP" },
+      destination: { kind: "stop", id: "COM3-STOP" },
+      originCoordinates: { latitude: 1.2901, longitude: 103.7812 },
+    });
     expect(journey).toMatchObject({
       live: true,
       transfers: 1,
@@ -132,7 +150,7 @@ describe("study travel timing", () => {
     } as never);
     vi.spyOn(prisma.studyWorkspace, "findUnique").mockResolvedValue({ activeOriginId: "origin-1", activeOriginUntil: new Date(Date.now() + 60_000) } as never);
     vi.spyOn(prisma.studyLocationOrigin, "findFirst").mockResolvedValue(origin);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "offline" }), {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "upstream_unavailable", message: "offline" }, meta: {} }), {
       status: 503,
       headers: { "content-type": "application/json" },
     })));

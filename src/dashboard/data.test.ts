@@ -235,6 +235,18 @@ describe("dashboard data security", () => {
     expect(servicePrisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("refuses to reopen a task that is not completed", async () => {
+    servicePrisma.$transaction.mockClear();
+    const database = {
+      user: { findUnique: userFindUnique() },
+      task: { findFirst: vi.fn(async () => ({ id: "task-1", status: TaskStatus.CANCELED, updatedAt: new Date() })) }
+    } as unknown as PrismaClient;
+
+    await expect(updateDashboardTask("123456789", "TASK-1", { status: TaskStatus.OPEN }, database))
+      .rejects.toThrow("Only a completed task can be reopened.");
+    expect(servicePrisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("archives dashboard tasks with undo metadata without destroying their reminder schedule", async () => {
     const nextReminderAt = new Date("2026-07-18T08:57:00.000Z");
     const task = {
@@ -353,7 +365,7 @@ describe("dashboard data security", () => {
 
     expect(result).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), contentType: "image/png" });
     expect(imageFindFirst).toHaveBeenCalledWith({
-      where: { userId: "user-1", OR: [{ id: "IMG-1" }, { publicId: "IMG-1" }] }
+      where: { userId: "user-1", archivedAt: null, OR: [{ id: "IMG-1" }, { publicId: "IMG-1" }] }
     });
     expect(fetcher.mock.calls[0]?.[0]).toContain("file_id=private-file-id");
     expect(fetcher.mock.calls[1]?.[0]).toContain("photos/private%20image.png");

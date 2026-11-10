@@ -1990,6 +1990,8 @@ model StoredImage {
   searchTokens     String[]  @default([])
   ocrConfidence    Float?
   pinnedAt         DateTime?
+  /// Set by delete: images are archived like notes and tasks, so IMG ids are never reused.
+  archivedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

@@ -52,7 +52,7 @@ describe("Telegram task import progressive disclosure", () => {
   });
 
   it("offers one exact review link and two immediate decisions", () => {
-    const keyboard = taskImportPreviewKeyboard(reviewWithItems(8), 0);
+    const keyboard = taskImportPreviewKeyboard(reviewWithItems(8));
     expect(keyboard.inline_keyboard).toHaveLength(2);
     expect(keyboard.inline_keyboard.flat().map((button) => button.text)).toEqual(["Review & edit ↗", "Import", "Cancel"]);
     expect(JSON.stringify(keyboard.inline_keyboard)).toContain("import%3D11111111-1111-4111-8111-111111111111");

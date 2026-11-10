@@ -531,8 +531,10 @@ function automaticReminderWrites(
 }
 
 // shortcut: consecutive failed sends per task live in memory, so a restart restarts the backoff
-// at two minutes. Persist a counter on Task if restarts ever become frequent.
+// at two minutes. Persist a counter on Task if restarts ever become frequent. Entries for tasks that
+// were completed while failing are never cleared one by one, so the map is reset past a size cap.
 const failedTaskAttempts = new Map<string, number>();
+const MAX_TRACKED_FAILED_TASKS = 5_000;
 
 /**
  * Reschedules tasks after a failed send: the Study Calendar backoff, then every six hours, so a
@@ -544,6 +546,7 @@ async function retryTasksLater(tasks: ReminderTask[], now: Date, error: unknown)
   const permanent = isPermanentTelegramDeliveryError(error);
   await Promise.all(tasks.map((task) => {
     const attempt = (failedTaskAttempts.get(task.id) ?? 0) + 1;
+    if (failedTaskAttempts.size >= MAX_TRACKED_FAILED_TASKS) failedTaskAttempts.clear();
     failedTaskAttempts.set(task.id, attempt);
     if (permanent) logger.warn("Telegram refused a reminder; retrying in six hours.", { taskId: task.id, attempt });
     return prisma.task.update({

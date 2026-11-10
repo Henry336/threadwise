@@ -13,7 +13,7 @@ import { registerDashboardRoute } from "./dashboard/route";
 import { logger } from "./logger";
 import { handleCalendarOAuthCallback } from "./services/googleCalendar";
 import { microsoftExcelConfigured } from "./services/excel";
-import { getReminderDiagnostics, runReminderPass } from "./services/reminders";
+import { getReminderDiagnostics, runReminderPass, runStudyReminderLoopPass } from "./services/reminders";
 import { appVersion } from "./services/version";
 import { env, privateCodexConfig } from "./config/env";
 import { escapeHtml, headerToken, isAdminAuthorized } from "./security/http";
@@ -131,6 +131,8 @@ export async function startServer(
     }
 
     try {
+      // Study runs in its own loop now, so the manual trigger runs both passes.
+      await runStudyReminderLoopPass(bot);
       const reminders = await runReminderPass(bot, "manual");
       return {
         ok: true,

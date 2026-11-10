@@ -3,6 +3,7 @@
  * downloadable .ics file. Task cards, capture drafts, and the dashboard use these as the
  * zero-setup fallback. The OAuth-backed sync that writes events directly lives in googleCalendar.ts.
  */
+import { randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
 
 type CalendarInput = {
@@ -43,7 +44,7 @@ export function createIcs(input: CalendarInput): string {
     "VERSION:2.0",
     "PRODID:-//Threadwise//Threadwise Bot//EN",
     "BEGIN:VEVENT",
-    `UID:${cryptoRandomId()}@threadwise`,
+    `UID:${randomUUID()}@threadwise`,
     `DTSTAMP:${stamp}`,
     `DTSTART:${start.toFormat("yyyyLLdd'T'HHmmss'Z'")}`,
     `DTEND:${end.toFormat("yyyyLLdd'T'HHmmss'Z'")}`,
@@ -61,10 +62,5 @@ function formatGoogleDate(value: DateTime): string {
 /** Escapes the characters that iCalendar text values treat as syntax (backslash, newline, comma, semicolon). */
 function escapeIcs(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
-}
-
-/** Short non-cryptographic id for the .ics UID; despite the name it uses Math.random. */
-function cryptoRandomId(): string {
-  return Math.random().toString(36).slice(2, 12);
 }
 

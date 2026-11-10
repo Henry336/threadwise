@@ -28,7 +28,6 @@ import { groupTaskImportReviewUrl } from "./links";
 import { editOrReplyQuietAcknowledgementHtml } from "./quietAcknowledgements";
 import { taskCreationOptionsFromContext } from "./taskMentions";
 
-export const TASK_IMPORT_PAGE_SIZE = 6;
 
 /**
  * Registers group /todo, the TODO:/ACTION ITEMS: heading detector, and the ti: review buttons.
@@ -60,18 +59,6 @@ export function registerTaskImports(bot: Bot): void {
     if (!importId || (action !== "import" && action !== "cancel" && action !== "refresh")) return;
     await handleTaskImportCallback(ctx, action, importId);
   });
-
-  bot.callbackQuery(/^ti:page:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
-    const importId = ctx.match[1];
-    const page = Number(ctx.match[2]);
-    if (!importId || !Number.isSafeInteger(page) || page < 0) return;
-    await handleTaskImportPageCallback(ctx, importId, page);
-  });
-
-  bot.callbackQuery(/^ti:pageinfo:([0-9a-f-]+):(\d+)$/i, async (ctx) => {
-    const page = Number(ctx.match[2]);
-    await ctx.answerCallbackQuery({ text: Number.isSafeInteger(page) ? `Page ${page + 1}` : "Task review" });
-  });
 }
 
 /**
@@ -99,7 +86,7 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
       telegramThreadId: "message_thread_id" in ctx.message ? ctx.message.message_thread_id : undefined,
     });
     const message = await replyHtml(ctx, formatTaskImportPreviewHtml(taskImport, user.settings.timezone), {
-      reply_markup: taskImportPreviewKeyboard(taskImport, 0),
+      reply_markup: taskImportPreviewKeyboard(taskImport),
     }) as { message_id?: number };
     if (message.message_id) {
       try {
@@ -110,29 +97,6 @@ async function prepareTaskImport(ctx: Context, sourceText: string): Promise<void
     }
   } catch (error) {
     await ctx.reply(error instanceof TaskImportError ? error.message : userFacingError(error, "I couldn't prepare that TODO list. Check the formatting and try again."));
-  }
-}
-
-/** Redraws the review card for a page button, after checking the review belongs to this exact group. */
-async function handleTaskImportPageCallback(ctx: Context, importId: string, requestedPage: number): Promise<void> {
-  if (!ctx.from) return;
-  try {
-    const taskImport = await getTaskImportReview(importId);
-    if (!isGroupChat(ctx) || !taskImportBelongsToChat(taskImport.workspace.telegramChatId, ctx.chat?.id)) {
-      throw new TaskImportError("This review belongs to another group.", "forbidden");
-    }
-    const page = clampTaskImportPage(taskImport, requestedPage);
-    await ctx.answerCallbackQuery({ text: `Page ${page + 1} of ${taskImportPageCount(taskImport)}` });
-    await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
-      reply_markup: taskImportPreviewKeyboard(taskImport, page),
-    });
-  } catch (error) {
-    const message = error instanceof TaskImportError ? error.message : userFacingError(error, "That review page couldn't be opened just now.");
-    try {
-      await ctx.answerCallbackQuery({ text: message.slice(0, 180), show_alert: true });
-    } catch {
-      await ctx.reply(message);
-    }
   }
 }
 
@@ -159,7 +123,7 @@ async function handleTaskImportCallback(
       if (!sender && !isManager) throw new TaskImportError("Only the sender or a group administrator can open this review.", "forbidden");
       await ctx.answerCallbackQuery({ text: "Review refreshed" });
       await editOrReplyHtml(ctx, formatTaskImportPreviewHtml(taskImport, await importTimezone(taskImport.ownerUserId)), {
-        reply_markup: taskImportPreviewKeyboard(taskImport, 0),
+        reply_markup: taskImportPreviewKeyboard(taskImport),
       });
       return;
     }
@@ -176,7 +140,7 @@ async function handleTaskImportCallback(
       await editOrReplyHtml(ctx, [
         bold("Some tasks need another look"),
         `${result.imported} imported · ${result.failed} need review${result.skipped ? ` · ${result.skipped} skipped` : ""}`,
-      ].join("\n"), { reply_markup: taskImportPreviewKeyboard(result.taskImport, 0) });
+      ].join("\n"), { reply_markup: taskImportPreviewKeyboard(result.taskImport) });
       return;
     }
     await editOrReplyQuietAcknowledgementHtml(
@@ -222,9 +186,9 @@ export function formatTaskImportPreviewHtml(taskImport: TaskImportReview, timezo
 
 /**
  * Review card buttons: the dashboard editor link, plus Import (or Retry ready rows) and Cancel while
- * the review is still open. The page argument is currently unused; the card has no page buttons.
+ * the review is still open.
  */
-export function taskImportPreviewKeyboard(taskImport: TaskImportReview, _requestedPage = 0): InlineKeyboard {
+export function taskImportPreviewKeyboard(taskImport: TaskImportReview): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   keyboard.url("Review & edit ↗", groupTaskImportReviewUrl(taskImport.workspaceId, taskImport.id)).row();
   if (taskImport.status === TaskImportStatus.PENDING || taskImport.status === TaskImportStatus.PARTIAL) {
@@ -236,14 +200,6 @@ export function taskImportPreviewKeyboard(taskImport: TaskImportReview, _request
 
 function includedTaskImportItems(taskImport: TaskImportReview): TaskImportReview["items"] {
   return taskImport.items.filter((item) => item.included && item.status !== TaskImportItemStatus.SKIPPED);
-}
-
-export function taskImportPageCount(taskImport: TaskImportReview): number {
-  return Math.max(1, Math.ceil(includedTaskImportItems(taskImport).length / TASK_IMPORT_PAGE_SIZE));
-}
-
-function clampTaskImportPage(taskImport: TaskImportReview, requestedPage: number): number {
-  return Math.min(Math.max(0, Math.trunc(requestedPage)), taskImportPageCount(taskImport) - 1);
 }
 
 /** "@alice + Design team" style label from the stored assignee JSON and team owner. */

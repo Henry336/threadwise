@@ -137,7 +137,7 @@ export function startVoiceCaptureRecoveryLoop(bot: Bot, botToken: string): StopL
   // Voice submissions are processed immediately in their handler. This is a
   // restart-recovery sweep, not a hot queue poll.
   return startLoop("Voice capture recovery", 60_000, async () => {
-    await processRecoverableVoiceTranscriptions(bot.api, botToken);
+    await processRecoverableVoiceTranscriptions(botToken);
     await deliverVoiceTranscriptionResults(bot);
   }, { runImmediately: true });
 }
@@ -220,7 +220,7 @@ async function queueVoiceFromContext(
     `🎙️ Transcription started\nModel: ${settings.voiceTranscriptionModel}\nCleanup: ${settings.voiceCleanupMode === VoiceCleanupMode.VERBATIM ? "verbatim" : "light"}`
   );
   await saveVoiceAcknowledgement(queued.job.id, acknowledgement.message_id);
-  void processVoiceTranscription(queued.job.id, ctx.api, botToken)
+  void processVoiceTranscription(queued.job.id, botToken)
     .catch((error) => logger.error("Immediate voice capture processing failed.", { jobId: queued.job.id, error: String(error) }));
 }
 

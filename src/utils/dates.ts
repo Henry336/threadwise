@@ -98,7 +98,7 @@ export function parseDueDate(input: string, timezone: string, now: Date = new Da
     }
   }
 
-  const clockOnly = parseClockOnly(text, base);
+  const clockOnly = parseClockOnly(text);
   if (clockOnly) {
     const scheduled = withOptionalTime(base, clockOnly.hour, clockOnly.minute, clockOnly.meridiem);
     return (scheduled <= base ? scheduled.plus({ days: 1 }) : scheduled).toJSDate();
@@ -531,7 +531,7 @@ function parseMonthlyDay(text: string, base: DateTime): DateTime | undefined {
     ?? text.match(/\bmonthly\s+(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b/);
   const day = Number(dayMatch?.[1]);
   if (!Number.isInteger(day) || day < 1 || day > 31) return undefined;
-  const clock = parseClockOnly(text, base);
+  const clock = parseClockOnly(text);
   for (let monthsToAdd = 0; monthsToAdd < 24; monthsToAdd += 1) {
     const month = base.plus({ months: monthsToAdd });
     let scheduled = withOptionalTime(month.set({ day }), clock?.hour, clock?.minute, clock?.meridiem);
@@ -579,7 +579,7 @@ function monthDayDateTime(input: {
  * Finds a clock time on its own: "at 7", "5:30pm", "half past six". Rejects impossible values
  * such as 13pm.
  */
-function parseClockOnly(text: string, base: DateTime): { hour: string; minute?: string; meridiem?: string } | undefined {
+function parseClockOnly(text: string): { hour: string; minute?: string; meridiem?: string } | undefined {
   const spoken = text.match(/\b(half|quarter)\s+(past|to)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)?\b/);
   if (spoken?.[1] && spoken[2] && spoken[3]) {
     const rawHour = clockWordValue(spoken[3]);
@@ -647,7 +647,7 @@ function parseRelativeDayPart(text: string, base: DateTime): DateTime | undefine
   const explicitDay = match[1];
   const hour = part === "morning" ? 9 : part === "afternoon" ? 14 : part === "evening" ? 18 : 20;
   const dayBase = explicitDay === "tomorrow" ? base.plus({ days: 1 }) : base;
-  const explicitClock = parseClockOnly(text, base);
+  const explicitClock = parseClockOnly(text);
   let scheduled = explicitClock
     ? withOptionalTime(dayBase, explicitClock.hour, explicitClock.minute, explicitClock.meridiem)
     : dayBase.set({ hour, minute: 0, second: 0, millisecond: 0 });

@@ -127,16 +127,17 @@ export class HeuristicAiProvider implements AiProvider {
     const noteTexts = notes.map((note) => cleanNoteText(note.sourceText || note.body || note.summary));
     const combined = noteTexts.join("\n");
     const details = noteTexts.flatMap(extractNoteDetails);
-    const title = inferMergedTitle(combined, notes);
-    const theme = inferMergeTheme(combined);
-    const body = formatMergedBody(theme, details, combined, Boolean(previousPreview), attempt);
+    const shared = sharedTerms(noteTexts);
+    const title = inferMergedTitle(notes);
+    const theme = inferMergeTheme(shared);
+    const body = formatMergedBody(theme, details, Boolean(previousPreview), attempt);
 
     return {
       title,
       body,
       summary: summarize(theme, 180),
       tags: [],
-      connections: inferConnections(combined, notes),
+      connections: inferConnections(noteTexts, notes),
       preservedDetails: notes.map((note) => `${note.publicId}: ${summarize(formatRoughNote(note.sourceText || note.body), 180)}`),
       possibleMissingContext: inferMissingContext(combined, attempt)
     };
@@ -240,72 +241,26 @@ function extractNoteDetails(text: string): string[] {
   return details.length ? details : [formatted];
 }
 
-/**
- * Merged note title. The keyword themes (product, client, sales, technical) match the example
- * notes in heuristicProvider.test.ts; anything else joins the source titles.
- */
-function inferMergedTitle(text: string, notes: NoteForMerge[]): string {
-  const lower = text.toLowerCase();
-  const hasProduct = hasTerm(lower, "product manager") || hasTerm(lower, "software design") || hasTerm(lower, "product");
-  const hasClient = hasTerm(lower, "client") || hasTerm(lower, "closed deals") || hasTerm(lower, "needs");
-  const hasSales = hasTerm(lower, "selling") || hasTerm(lower, "closed deals") || hasTerm(lower, "sales");
-  const hasTechnical = hasTerm(lower, "api") || hasTerm(lower, "documentation") || hasTerm(lower, "documentations");
-
-  if (hasProduct && hasClient && hasSales) {
-    return hasTechnical ? "Client-Facing Product And Sales Lessons" : "Client-Facing Product Lessons";
-  }
-
-  if (hasProduct && hasTechnical) {
-    return "Product Work And Technical Translation";
-  }
-
-  if (hasSales && hasClient) {
-    return "Sales Calls And Client Discovery Lessons";
-  }
-
+/** Merged note title: the source notes' own titles joined, so it always reflects their content. */
+function inferMergedTitle(notes: NoteForMerge[]): string {
   const titles = notes.map((note) => inferNoteTitle(note.sourceText || note.title)).filter(Boolean);
   return summarize(titles.join(" + "), 80) || "Merged Note";
 }
 
-/**
- * Opening paragraph for a merged note, chosen from the same keyword themes as inferMergedTitle.
- */
-function inferMergeTheme(text: string): string {
-  const lower = text.toLowerCase();
-  const hasProduct = hasTerm(lower, "product manager") || hasTerm(lower, "software design") || hasTerm(lower, "product");
-  const hasClient = hasTerm(lower, "client") || hasTerm(lower, "closed deals") || hasTerm(lower, "needs");
-  const hasSales = hasTerm(lower, "selling") || hasTerm(lower, "closed deals") || hasTerm(lower, "sales");
-  const hasTechnical = hasTerm(lower, "api") || hasTerm(lower, "documentation") || hasTerm(lower, "documentations");
-
-  if (hasProduct && hasClient && hasSales) {
-    return [
-      "These notes point toward a client-facing product path:",
-      "learning from closed-deal calls, understanding client needs, shaping software around those needs, and communicating personal value well.",
-      hasTechnical ? "The technical side is less about isolated coding and more about translating needs into documentation, API decisions, and implementation direction." : undefined
-    ]
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  if (hasProduct && hasTechnical) {
-    return "These notes connect product thinking with technical translation: understanding what people need, then turning that into documentation, system design, and implementation choices.";
-  }
-
-  if (hasSales && hasClient) {
-    return "These notes connect sales learning with client understanding: observe how needs are surfaced, how value is communicated, and how closed deals are discussed.";
-  }
-
-  return "These notes were merged because they appear to describe related observations that should be easier to revisit together.";
+/** Opening paragraph for a merged note, naming the words the notes share when there are any. */
+function inferMergeTheme(shared: string[]): string {
+  return shared.length
+    ? `These notes belong together: they keep returning to ${formatList(shared.slice(0, 3))}.`
+    : "These notes were merged because they appear to describe related observations that should be easier to revisit together.";
 }
 
 /**
  * Lays out the merged note: theme, key points, why it matters, and a refinement line on retries.
  */
-function formatMergedBody(theme: string, details: string[], text: string, isRetry: boolean, attempt: number): string {
+function formatMergedBody(theme: string, details: string[], isRetry: boolean, attempt: number): string {
   const bullets = [...new Set(details.map(cleanDetail))]
     .filter((detail) => detail.length > 0)
     .slice(0, 7);
-  const whyItMatters = inferWhyItMatters(text);
 
   return [
     theme,
@@ -314,7 +269,7 @@ function formatMergedBody(theme: string, details: string[], text: string, isRetr
     ...bullets.map((detail) => `- ${detail}`),
     "",
     "Why this matters:",
-    whyItMatters,
+    "The separate observations are more useful in one place, where the relationship between them is visible.",
     isRetry ? ["", `Refinement pass ${attempt}: tightened the connections and checked that concrete details from the source notes were still represented.`].join("\n") : undefined
   ]
     .filter(Boolean)
@@ -329,76 +284,64 @@ function cleanDetail(detail: string): string {
   return capitalize(cleaned.replace(/[.。]$/, ""));
 }
 
-function inferWhyItMatters(text: string): string {
-  const lower = text.toLowerCase();
-  if (hasTerm(lower, "product manager") || hasTerm(lower, "software design")) {
-    return "This gives a clearer picture of the kind of work to learn from: a blend of product discovery, solution design, technical coordination, and self-presentation.";
-  }
-
-  if (hasTerm(lower, "selling") || hasTerm(lower, "closed deals")) {
-    return "This is worth revisiting because it turns scattered advice into a practical learning focus: watch how value is communicated and how trust is built.";
-  }
-
-  return "This is worth keeping as one note because the separate observations are more useful when the relationship between them is visible.";
-}
-
-/**
- * Connection lines for the merge preview, based on keyword themes, with a generic line when
- * none match and there are several notes.
- */
-function inferConnections(text: string, notes: NoteForMerge[]): string[] {
-  const lower = text.toLowerCase();
-  const connections: string[] = [];
-
-  if (hasTerm(lower, "closed deals") && (hasTerm(lower, "client") || hasTerm(lower, "clients"))) {
-    connections.push("Joining closed-deal calls is a way to learn client discovery in practice, not just sales technique.");
-  }
-
-  if ((hasTerm(lower, "product manager") || hasTerm(lower, "software design")) && hasTerm(lower, "api")) {
-    connections.push("The product-manager-like role bridges non-technical client conversations with technical artifacts such as documentation and API decisions.");
-  }
-
-  if (hasTerm(lower, "selling yourself") && (hasTerm(lower, "mentioned by both") || mentionedByMultiplePeople(text))) {
-    connections.push("Selling yourself appears as a repeated signal from more than one person, so it is probably a career skill to practice deliberately.");
-  }
-
+/** One line per word that appears in two or more notes, naming those notes; a generic line otherwise. */
+function inferConnections(noteTexts: string[], notes: NoteForMerge[]): string[] {
+  const connections = sharedTerms(noteTexts).slice(0, 3).map((term) => {
+    const ids = notes.filter((_, index) => termsOf(noteTexts[index] ?? "").has(term)).map((note) => note.publicId);
+    return `${formatList(ids)} ${ids.length === 2 ? "both" : "all"} mention "${term}".`;
+  });
   if (connections.length === 0 && notes.length > 1) {
     connections.push("The notes seem to belong together because they describe related lessons or observations that should be reviewed in one place.");
   }
-
   return connections;
 }
 
-/**
- * Questions about context the merged note may lack. The named people come from the example notes
- * in heuristicProvider.test.ts. Capped at four.
- */
+/** Questions about context the merged note may lack: what named people said, and balance on retries. Capped at four. */
 function inferMissingContext(text: string, attempt: number): string[] {
   const missing: string[] = [];
-  const lower = text.toLowerCase();
-
-  if (hasTerm(lower, "matthias")) {
-    missing.push("What specific behaviors or questions from Matthias's calls should be copied?");
-  }
-
-  if (hasTerm(lower, "ma brenda") || hasTerm(lower, "selling yourself")) {
-    missing.push("What exactly did Matthias or Ma Brenda say about selling yourself?");
-  }
-
-  if (attempt > 1) {
-    missing.push("Check whether the refined version overemphasizes one note compared with the others.");
-  }
-
+  const people = namedPeople(text);
+  if (people.length) missing.push(`What exactly did ${formatList(people.slice(0, 3), "or")} say or do that is worth keeping?`);
+  if (attempt > 1) missing.push("Check whether the refined version overemphasizes one note compared with the others.");
   return missing.slice(0, 4);
 }
 
+const STOP_WORDS = new Set("about after again also because been before being both could does doing from have into just like make more most much need only other over really should some something such than that their them then there these they thing think this those through very want what when where which while will with would your".split(" "));
+
+/** Lowercase words of five or more letters, minus common filler, in one note. */
+function termsOf(text: string): Set<string> {
+  return new Set((text.toLowerCase().match(/[a-z]{5,}/g) ?? []).filter((word) => !STOP_WORDS.has(word)));
+}
+
+/** Words that appear in at least two of the notes, most widely shared first. */
+function sharedTerms(noteTexts: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const text of noteTexts) for (const term of termsOf(text)) counts.set(term, (counts.get(term) ?? 0) + 1);
+  return [...counts].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]).map(([term]) => term);
+}
+
+// One or two capitalised words on the same line (notes are joined with newlines, so names never span them).
+const NAME = String.raw`[A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+)?`;
 /**
- * Rough check for two or more different capitalized names in the text.
+ * Only phrases that attribute something to a person count: "mentioned by both Ana and Ben",
+ * "working with Ana", "according to Ana", "Ana said". Plain "by Friday" or "from Canvas" do not.
  */
-function mentionedByMultiplePeople(text: string): boolean {
-  const names = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/g) ?? [];
-  const uniqueNames = new Set(names.filter((name) => !["Product Manager", "Learn These", "Selling Yourself"].includes(name)));
-  return uniqueNames.size >= 2;
+const ATTRIBUTED_NAMES = new RegExp(String.raw`\b(?:(?:mentioned|suggested|recommended|said|told|advised|explained) by|according to|(?:working|calls?|met|meeting|talked|spoke|chatted) with|(?:talked|spoke) to)[ \t]+(?:both[ \t]+)?(${NAME})(?:[ \t]+and[ \t]+(${NAME}))?|\b(${NAME})[ \t]+(?:said|says|mentioned|suggested|recommended|told|asked)\b(?![ \t]+by\b)`, "g");
+/** Capitalised words that start "X said" without being a person. */
+const NOT_PEOPLE = new Set("I He She It They We You This That Someone Everyone Today Yesterday Tomorrow Then Monday Tuesday Wednesday Thursday Friday Saturday Sunday".split(" "));
+
+/** People the notes attribute something to, so the merge can ask what each of them said. */
+function namedPeople(text: string): string[] {
+  const names = [...text.matchAll(ATTRIBUTED_NAMES)]
+    .flatMap((match) => [match[1], match[2], match[3]])
+    // "Yesterday Ben" keeps Ben; a lone "He" or "Friday" is dropped.
+    .map((name) => name?.split(/[ \t]+/).filter((word) => !NOT_PEOPLE.has(word)).join(" "))
+    .filter((name): name is string => Boolean(name));
+  return [...new Set(names)];
+}
+
+function formatList(items: string[], conjunction = "and"): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
 }
 
 function capitalize(text: string): string {

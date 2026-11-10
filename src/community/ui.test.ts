@@ -151,6 +151,7 @@ function report(overrides: Partial<CommunityReport> = {}): CommunityReport {
     reportedDisplayName: "Member",
     evidenceText: "Flagged evidence",
     reason: "Member report",
-    reportCount: 2
+    reportCount: 2,
+    ...overrides
   } as unknown as CommunityReport;
 }

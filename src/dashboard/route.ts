@@ -870,7 +870,10 @@ function searchKinds(value: string | undefined): DashboardSearchKind[] {
 function friendlyValidationMessage(error: ZodError): string {
   const issue = error.issues[0];
   if (!issue) return "Check the highlighted fields and try again.";
-  if (issue.code !== "invalid_type") return issue.message;
+  // A schema's own message is already worded for people; zod 4's defaults ("Too big: expected string to
+  // have <=500 characters") are not, so those get a field-named sentence instead.
+  const zodDefault = /^(Too big|Too small|Invalid)\b/u.test(issue.message);
+  if (issue.code !== "invalid_type" && !zodDefault) return issue.message;
   const key = String(issue.path.at(-1) ?? "field");
   const labels: Record<string, string> = {
     customTypeLabel: "Custom type",
@@ -881,6 +884,8 @@ function friendlyValidationMessage(error: ZodError): string {
     defaultOriginId: "Usual origin",
   };
   const label = labels[key] ?? key.replace(/([a-z])([A-Z])/gu, "$1 $2").replace(/^./u, (value) => value.toUpperCase());
+  if (issue.code === "too_big") return `${label} is too long or too large. Shorten it, then try again.`;
+  if (issue.code === "too_small") return `${label} is too short or too small. Add to it, then try again.`;
   return `${label} has an invalid value. Clear it or enter a valid value, then try again.`;
 }
 

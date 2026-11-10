@@ -45,12 +45,13 @@ export async function discardPendingImageUpload(userId: string, id: string): Pro
 
 /**
  * Turns a pending upload into a StoredImage (IMG-n), deleting the pending row in the same transaction.
- * If the same Telegram file (by unique id) is already saved, returns that image as a duplicate instead.
+ * If the same Telegram file (by unique id) is already in the library, returns that image as a duplicate
+ * instead. A deleted (archived) copy does not count, so sending it again saves a new image.
  */
 export async function savePendingImageUpload(userId: string, id: string) {
   const pending = await findPendingImageUpload(userId, id);
   const existing = pending.telegramUniqueId
-    ? await prisma.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId } })
+    ? await prisma.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId, archivedAt: null } })
     : undefined;
   if (existing) {
     await prisma.pendingImageUpload.delete({ where: { id: pending.id } });
@@ -84,12 +85,12 @@ export async function consumePendingImageUpload(userId: string, id: string) {
 
 /** One page of the library, starred first then newest, with the page clamped to a real page. */
 export async function listStoredImages(userId: string, requestedPage = 1) {
-  const totalItems = await prisma.storedImage.count({ where: { userId } });
+  const totalItems = await prisma.storedImage.count({ where: { userId, archivedAt: null } });
   const totalPages = Math.max(1, Math.ceil(totalItems / IMAGE_PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.trunc(requestedPage) || 1), totalPages);
   const offset = (page - 1) * IMAGE_PAGE_SIZE;
   const images = await prisma.storedImage.findMany({
-    where: { userId },
+    where: { userId, archivedAt: null },
     orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }],
     skip: offset,
     take: IMAGE_PAGE_SIZE
@@ -138,6 +139,7 @@ export async function searchStoredImages(userId: string, query: string, requeste
   );
   const where = {
     userId,
+    archivedAt: null,
     OR: encrypted ? [...fields, encrypted] : fields
   };
   const totalItems = await prisma.storedImage.count({ where });
@@ -155,16 +157,16 @@ export async function findStoredImageReference(userId: string, reference: string
   const activeIndex = Number(normalized);
   if (Number.isInteger(activeIndex) && activeIndex > 0) {
     const images = await prisma.storedImage.findMany({
-      where: { userId }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: activeIndex - 1, take: 1
+      where: { userId, archivedAt: null }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], skip: activeIndex - 1, take: 1
     });
     if (!images[0]) throw new Error(`No saved image numbered ${activeIndex}. Run /images to see your images.`);
     return images[0];
   }
-  return prisma.storedImage.findFirstOrThrow({ where: { userId, publicId: normalized.toUpperCase() } });
+  return prisma.storedImage.findFirstOrThrow({ where: { userId, publicId: normalized.toUpperCase(), archivedAt: null } });
 }
 
 export async function findStoredImageById(userId: string, id: string) {
-  return prisma.storedImage.findFirstOrThrow({ where: { id, userId } });
+  return prisma.storedImage.findFirstOrThrow({ where: { id, userId, archivedAt: null } });
 }
 
 /** Changes a caption and records the old one for Undo; search tokens are rebuilt from the whole record. */
@@ -180,7 +182,7 @@ export async function updateStoredImageCaption(userId: string, reference: string
 
 /** Attaches OCR text to a saved image so it becomes searchable. Returns count 0 if the image is gone. Not undoable. */
 export async function updateStoredImageOcr(userId: string, id: string, text: string, confidence: number) {
-  const image = await prisma.storedImage.findFirst({ where: { id, userId } });
+  const image = await prisma.storedImage.findFirst({ where: { id, userId, archivedAt: null } });
   if (!image) return { count: 0 };
   await prisma.storedImage.update({
     where: { id: image.id },
@@ -190,12 +192,12 @@ export async function updateStoredImageOcr(userId: string, id: string, text: str
 }
 
 /**
- * Permanently deletes the image row (images are not archived like notes and tasks). The bot asks
- * for confirmation before calling this. Returns the deleted row for the confirmation message.
+ * Deletes an image from the library by archiving it, like notes and tasks, so its IMG id is never
+ * reused. The bot asks for confirmation before calling this. Returns the row for the confirmation message.
  */
 export async function deleteStoredImage(userId: string, id: string) {
   const image = await findStoredImageById(userId, id);
-  await prisma.storedImage.delete({ where: { id: image.id } });
+  await prisma.storedImage.update({ where: { id: image.id }, data: { archivedAt: new Date() } });
   return image;
 }
 

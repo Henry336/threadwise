@@ -270,7 +270,8 @@ export async function saveImageUploadBatch(userId: string, token: string) {
       const images: Array<{ publicId: string; caption: string | null; duplicate: boolean }> = [];
       for (const pending of current.uploads) {
         const existing = pending.telegramUniqueId
-          ? await tx.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId } })
+          // A deleted (archived) copy does not count, so sending the file again saves a new image.
+          ? await tx.storedImage.findFirst({ where: { userId, telegramUniqueId: pending.telegramUniqueId, archivedAt: null } })
           : undefined;
         if (existing) {
           images.push({ publicId: existing.publicId, caption: existing.caption, duplicate: true });

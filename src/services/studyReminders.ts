@@ -1,6 +1,6 @@
 /**
- * Proactive Study reminders. The main reminder loop (reminders.ts) calls runStudyReminderPass once per
- * tick after normal task reminders. Each pass derives candidates from PostgreSQL (weekly preview and
+ * Proactive Study reminders. A separate loop (startStudyReminderLoop in reminders.ts) calls
+ * runStudyReminderPass once per tick, apart from the normal task reminders. Each pass derives candidates from PostgreSQL (weekly preview and
  * review, Canvas problems, mistake reattempts, red modules, near deadlines, timetable alerts, missing
  * timed practice), then sends them to the bound Study group. There are no in-memory timers: dedupe
  * rows and per-occurrence sequence rows make every pass restart-safe. The acknowledge and mute helpers
@@ -23,7 +23,7 @@ import { logger } from "../logger";
 import { isWithinQuietHours, startOfUserDay } from "../utils/dates";
 import { bold, code, h, HTML_REPLY } from "../utils/html";
 import { studyDashboardItemUrl } from "../bot/links";
-import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek, studyScheduleOccursOnDate } from "./study";
+import { academicWeekNumber, academicWeekRange, activeStudyWorkspace, ensureStudyWeek, studyScheduleOccursOnDate, TIMED_PRACTICE_MODULE_CODES } from "./study";
 import { buildStudyWeeklyPreview } from "./studyAttention";
 import { hasTrustedStudyDeadline } from "./studyDeadlineTrust";
 import { buildStudyDeparturePlan, isStudyTravelMuted } from "./studyTransit";
@@ -219,7 +219,7 @@ async function recordReminderHealth(
  * timetable part also writes: it upserts a travel state from a live route plan, creates or adjusts the
  * per-occurrence reminder sequence, and stops sequences for classes that already started.
  * Timetable alerts are only considered within four hours of the start. Untrusted Canvas deadlines are
- * skipped. Timed-practice nudges are hardcoded to the owner's modules CS2100 and CS2102.
+ * skipped. Timed-practice nudges cover the modules in TIMED_PRACTICE_MODULE_CODES.
  */
 export async function collectStudyReminderCandidates(workspace: StudyWorkspace, now = new Date()): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
@@ -456,7 +456,7 @@ export async function collectStudyReminderCandidates(workspace: StudyWorkspace, 
   }
   if (weekNumber >= workspace.timedPracticeStartWeek && local.weekday === 7 && local.hour >= 18) {
     const range = academicWeekRange(workspace, weekNumber);
-    const technical = await prisma.studyModule.findMany({ where: { workspaceId: workspace.id, code: { in: ["CS2100", "CS2102"] }, active: true } });
+    const technical = await prisma.studyModule.findMany({ where: { workspaceId: workspace.id, code: { in: TIMED_PRACTICE_MODULE_CODES }, active: true } });
     for (const module of technical) {
       const logged = await prisma.studySession.count({ where: { moduleId: module.id, timed: true, startedAt: { gte: range.start, lte: range.end } } });
       if (!logged) {
