@@ -67,7 +67,7 @@ export type StudyJourneyAlternative = {
   finalWalkMinutes: number;
   totalMinutes: number;
 };
-// The types below mirror the Improved NextBus "directions" response shape.
+// The types below mirror the Improved NextBus v1 "journeys" response (inside its `data` envelope).
 type JourneyLeg = {
   service: string;
   fromStop: TransitStop;
@@ -75,14 +75,13 @@ type JourneyLeg = {
   stops?: TransitStop[];
   nextArrival?: { minutes: number; display: string } | null;
 };
-type Journey = { fromStop: TransitStop; toStop: TransitStop; legs: JourneyLeg[]; transfers: number; status: string; message: string };
+type Journey = { fromStop: TransitStop; toStop: TransitStop; legs: JourneyLeg[]; transfers: number; freshness?: string };
 type JourneyAlternative = { journey: Journey; liveWaitMinutes: number | null; estimatedRideMinutes: number; estimatedTotalMinutes: number | null };
 type BoardingRecommendation = { boardingStop: TransitStop; walkingDistanceMetres: number; estimatedWalkMinutes: number; journey: Journey };
 type JourneySearchResponse = {
   journey: Journey | null;
   alternatives: JourneyAlternative[];
   recommendations: BoardingRecommendation[];
-  directAvailable: boolean;
   message: string;
 };
 
@@ -149,17 +148,35 @@ export class StudyPlaceAmbiguityError extends StudyModeError {
 export async function searchStudyVenues(query: string, limit = 8): Promise<TransitVenue[]> {
   const value = query.trim();
   if (!value) throw new StudyModeError("Give me a campus venue to search for.", "invalid");
-  const result = await transitGet<{ venues: TransitVenue[] }>("venues", { q: value, limit: String(Math.min(20, Math.max(1, limit))) });
-  return result.venues ?? [];
+  const result = await transitRequest<{ places: TransitVenue[] }>("places/search", { query: { q: value, limit: String(Math.min(20, Math.max(1, limit))) } });
+  return result.places ?? [];
 }
 
+/**
+ * One campus place plus its closest stops. v1 has no place-by-id route, so this searches by the id
+ * (an exact id match is required) and then asks for the stops nearest the place's coordinates.
+ */
 export async function getStudyVenue(venueId: string): Promise<TransitVenueDetail> {
-  return transitGet<TransitVenueDetail>(`venues/${encodeURIComponent(venueId)}`);
+  const { places } = await transitRequest<{ places: TransitVenue[] }>("places/search", { query: { q: venueId, limit: "5" } });
+  const venue = (places ?? []).find((place) => place.id === venueId);
+  if (!venue) throw new StudyModeError("That campus place is no longer listed by Improved NextBus.", "not_found");
+  const { stops } = await transitRequest<{ stops: Array<TransitStop & { distanceMetres: number }> }>("stops/nearby", {
+    query: { latitude: String(venue.coordinates.latitude), longitude: String(venue.coordinates.longitude), limit: "5" },
+  });
+  return { ...venue, nearbyStops: stops ?? [] };
 }
 
+/** Every campus stop (33 today, one page); follows the cursor for up to five pages in case that grows. */
 export async function listStudyTransitStops(): Promise<TransitStop[]> {
-  const result = await transitGet<{ stops: TransitStop[] }>("stops");
-  return result.stops ?? [];
+  const stops: TransitStop[] = [];
+  let cursor: string | null | undefined;
+  for (let page = 0; page < 5; page += 1) {
+    const result = await transitRequest<{ stops: TransitStop[]; nextCursor?: string | null }>("stops", { query: { limit: "100", ...(cursor ? { cursor } : {}) } });
+    stops.push(...(result.stops ?? []));
+    cursor = result.nextCursor;
+    if (!cursor) break;
+  }
+  return stops;
 }
 
 /** Rewrites a known nickname (e.g. "pgpr") to its search term; otherwise just collapses whitespace. */
@@ -494,13 +511,7 @@ export async function estimateStudyJourneyByStops(
     ? await findStudyOrigin(workspace.id, originReference)
     : await currentStudyOrigin(workspace);
   if (!origin?.providerStopId) throw new StudyModeError("Add a travel origin first.", "invalid");
-  const response = await transitGet<JourneySearchResponse>("directions", {
-    fromStopId: origin.providerStopId,
-    toStopId: destinationStopId,
-    ...(origin.latitude !== null && origin.longitude !== null
-      ? { latitude: String(origin.latitude), longitude: String(origin.longitude) }
-      : {}),
-  });
+  const response = await planStopJourney(origin.providerStopId, destinationStopId);
   const stops = await listStudyTransitStops();
   const destination = stops.find((stop) => stop.id === destinationStopId);
   if (!destination) throw new StudyModeError("That destination stop is no longer available.", "not_found");
@@ -858,7 +869,7 @@ function journeyEstimate(origin: StudyLocationOrigin, destinationStop: TransitSt
     finalWalkMinutes: finishWalk,
     walkMinutes: firstWalk + finishWalk,
     totalMinutes: firstWalk + (wait ?? 0) + ride + finishWalk,
-    freshness: journey.status,
+    freshness: journey.freshness ?? "estimated",
     updatedAt: new Date(),
     live: wait !== undefined,
   });
@@ -918,21 +929,49 @@ function estimatedRideMinutes(journey: Journey): number {
   return Math.max(5, journey.legs.reduce((sum, leg) => sum + Math.max(1, (leg.stops?.length ?? 2) - 1) * 3, 0));
 }
 
+/** Plans a ride between two stops (v1 POST /journeys). Alternatives come back ranked best-first. */
+async function planStopJourney(fromStopId: string, toStopId: string): Promise<JourneySearchResponse> {
+  const data = await transitRequest<JourneySearchResponse>("journeys", {
+    body: { origin: { kind: "stop", id: fromStopId }, destination: { kind: "stop", id: toStopId } },
+  });
+  return {
+    journey: data.journey ?? null,
+    alternatives: (data.alternatives ?? []).filter((alternative) => alternative.journey),
+    recommendations: (data.recommendations ?? []).filter((recommendation) => recommendation.journey),
+    message: data.message ?? "",
+  };
+}
+
 /**
- * The only HTTP call to Improved NextBus (GET under /api on STUDY_TRANSIT_BASE_URL). Enforces the
- * configured timeout and converts every failure, including timeouts, into a user-facing StudyModeError.
+ * The only HTTP call to Improved NextBus (v1, under /api/v1 on STUDY_TRANSIT_BASE_URL): GET with
+ * `query`, or POST with a JSON `body`. Unwraps the `{ data, meta }` envelope, reads `{ error }`
+ * failures and Retry-After on 429, sends the optional STUDY_TRANSIT_API_KEY, enforces the configured
+ * timeout, and turns every failure into a user-facing StudyModeError.
  */
-async function transitGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  const url = new URL(`/api/${path.replace(/^\//, "")}`, env.STUDY_TRANSIT_BASE_URL);
-  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+async function transitRequest<T>(path: string, options: { query?: Record<string, string>; body?: unknown } = {}): Promise<T> {
+  const url = new URL(`/api/v1/${path.replace(/^\//, "")}`, env.STUDY_TRANSIT_BASE_URL);
+  for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (env.STUDY_TRANSIT_API_KEY) headers.Authorization = `Bearer ${env.STUDY_TRANSIT_API_KEY}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.STUDY_EXTERNAL_REQUEST_TIMEOUT_MS);
   timeout.unref?.();
   try {
-    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-    const value = await response.json().catch(() => ({})) as { error?: string } & T;
-    if (!response.ok) throw new Error(value.error || `Improved NextBus returned ${response.status}.`);
-    return value;
+    const response = await fetch(url, {
+      method: options.body === undefined ? "GET" : "POST",
+      headers,
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      signal: controller.signal,
+    });
+    const value = await response.json().catch(() => ({})) as { data?: T; error?: { code?: string; message?: string } };
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      throw new StudyModeError(`Improved NextBus is busy. Try again in ${Number.isFinite(retryAfter) && retryAfter > 0 ? `${retryAfter} seconds` : "a minute"}.`, "invalid");
+    }
+    if (!response.ok) throw new Error(value.error?.message || `Improved NextBus returned ${response.status}.`);
+    if (value.data === undefined) throw new Error("Improved NextBus sent an unexpected response.");
+    return value.data;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new StudyModeError("Improved NextBus took too long to respond. Try again shortly.", "invalid");
@@ -980,13 +1019,7 @@ async function estimateJourneyToPlace(origin: StudyLocationOrigin, place: StudyP
     .slice(0, place.kind === "stop" ? 1 : 3);
   if (!candidates.length) throw new StudyModeError(`${place.displayName} has no nearby NUS bus stop.`, "not_found");
   const searches = await Promise.allSettled(candidates.map(async (destinationStop) => {
-    const response = await transitGet<JourneySearchResponse>("directions", {
-      fromStopId: origin.providerStopId!,
-      toStopId: destinationStop.id,
-      ...(origin.latitude !== null && origin.longitude !== null
-        ? { latitude: String(origin.latitude), longitude: String(origin.longitude) }
-        : {}),
-    });
+    const response = await planStopJourney(origin.providerStopId!, destinationStop.id);
     return journeyEstimate(origin, destinationStop, response, place);
   }));
   const viable = searches
