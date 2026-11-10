@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Review leftovers (v0.37.0)
+- Deleting a saved image archives it (new nullable `StoredImage.archivedAt`, additive migration), so
+  IMG ids are never reused; saving the same Telegram file again brings it back.
+- Study bus routing uses the Improved NextBus v1 API (`places/search`, `stops/nearby`, `POST journeys`,
+  `{data, meta}` envelope, `Retry-After`); optional `STUDY_TRANSIT_API_KEY` raises the rate limit.
+- The heuristic note-merge fallback works from the notes themselves instead of keywords and names
+  tuned to its test examples. `.ics` UIDs use `randomUUID`.
+- `noUnusedParameters` is on. The dead TODO-review page callbacks are gone. zod's default validation
+  wording is replaced by a field-named sentence. `/admin/reminders/run` runs the Study pass again.
+- Timed-practice modules come from the study-methods table instead of hardcoded codes; group Today on
+  the dashboard uses the owner's timezone, like the bot.
+
 ### Review follow-through (v0.36.0)
 - Fixes from the 2026-11-01 review (`docs/REVIEW_2026-11-01.md`): Done on a recurring task can no
   longer skip an occurrence; dashboard completion uses the task services; group `/undo` reverses only
