@@ -13,7 +13,7 @@ import { groupWorkspaceForContext } from "../services/groupWorkspaces";
 
 /** The confirmation text shown before deleting a saved image, the same from a button, /image or text. */
 export function formatStoredImageDeletePrompt(image: { publicId: string; caption?: string | null; fileName?: string | null }): string {
-  return `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nIt leaves your saved images and search. An archived copy stays with your account until you delete your data.`;
+  return `${bold("⚠️ Delete saved image?")}\n${code(image.publicId)} ${h(image.caption || image.fileName || "Saved image")}\nIt is removed from your saved images and search. An archived copy stays with your account until you delete your data.`;
 }
 
 /**

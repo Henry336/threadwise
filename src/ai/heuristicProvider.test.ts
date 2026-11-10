@@ -47,6 +47,24 @@ describe("HeuristicAiProvider", () => {
 
     expect(preview.possibleMissingContext).toEqual([]);
   });
+
+  it.each([
+    ["Due by Friday with Google Calendar", "Pulled from Canvas, he said"],
+    ["He said submit it", "It says page 3"],
+    ["Notes mentioned by Ana", "Canvas due later"],
+  ])("asks only about real attributed people: %s / %s", async (first, second) => {
+    const preview = await new HeuristicAiProvider().mergeNotes([note("NOTE-1", first), note("NOTE-2", second)]);
+    const question = preview.possibleMissingContext.join(" ");
+
+    for (const notAPerson of ["Friday", "Google", "Canvas", "He", "It"]) expect(question).not.toContain(`did ${notAPerson}`);
+    if (first.includes("Ana")) expect(question).toBe("What exactly did Ana say or do that is worth keeping?");
+  });
+
+  it("names both people in \"Ana said\" and \"Yesterday Ben said\" without the time word", async () => {
+    const preview = await new HeuristicAiProvider().mergeNotes([note("NOTE-1", "Ana said start early"), note("NOTE-2", "Yesterday Ben said wait")]);
+
+    expect(preview.possibleMissingContext).toEqual(["What exactly did Ana or Ben say or do that is worth keeping?"]);
+  });
 });
 
 function note(publicId: string, text: string) {

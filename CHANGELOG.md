@@ -4,7 +4,7 @@
 
 ### Review leftovers (v0.37.0)
 - Deleting a saved image archives it (new nullable `StoredImage.archivedAt`, additive migration), so
-  IMG ids are never reused; saving the same Telegram file again brings it back.
+  IMG ids are never reused; sending the same Telegram file again saves it as a new image.
 - Study bus routing uses the Improved NextBus v1 API (`places/search`, `stops/nearby`, `POST journeys`,
   `{data, meta}` envelope, `Retry-After`); optional `STUDY_TRANSIT_API_KEY` raises the rate limit.
 - The heuristic note-merge fallback works from the notes themselves instead of keywords and names

@@ -319,13 +319,23 @@ function sharedTerms(noteTexts: string[]): string[] {
   return [...counts].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1]).map(([term]) => term);
 }
 
-const NAME = String.raw`[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?`;
-/** "by Ana", "with Ana and Ben", "by both Ana and Ben", "Ana said": only attributed names count, not Monday or Canvas. */
-const ATTRIBUTED_NAMES = new RegExp(String.raw`\b(?:by|from|with|according to)\s+(?:both\s+)?(${NAME})(?:\s+and\s+(${NAME}))?|\b(${NAME})\s+(?:said|says|mentioned|suggested|recommended|told|asked)\b`, "g");
+// One or two capitalised words on the same line (notes are joined with newlines, so names never span them).
+const NAME = String.raw`[A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+)?`;
+/**
+ * Only phrases that attribute something to a person count: "mentioned by both Ana and Ben",
+ * "working with Ana", "according to Ana", "Ana said". Plain "by Friday" or "from Canvas" do not.
+ */
+const ATTRIBUTED_NAMES = new RegExp(String.raw`\b(?:(?:mentioned|suggested|recommended|said|told|advised|explained) by|according to|(?:working|calls?|met|meeting|talked|spoke|chatted) with|(?:talked|spoke) to)[ \t]+(?:both[ \t]+)?(${NAME})(?:[ \t]+and[ \t]+(${NAME}))?|\b(${NAME})[ \t]+(?:said|says|mentioned|suggested|recommended|told|asked)\b(?![ \t]+by\b)`, "g");
+/** Capitalised words that start "X said" without being a person. */
+const NOT_PEOPLE = new Set("I He She It They We You This That Someone Everyone Today Yesterday Tomorrow Then Monday Tuesday Wednesday Thursday Friday Saturday Sunday".split(" "));
 
 /** People the notes attribute something to, so the merge can ask what each of them said. */
 function namedPeople(text: string): string[] {
-  const names = [...text.matchAll(ATTRIBUTED_NAMES)].flatMap((match) => [match[1], match[2], match[3]]).filter((name): name is string => Boolean(name));
+  const names = [...text.matchAll(ATTRIBUTED_NAMES)]
+    .flatMap((match) => [match[1], match[2], match[3]])
+    // "Yesterday Ben" keeps Ben; a lone "He" or "Friday" is dropped.
+    .map((name) => name?.split(/[ \t]+/).filter((word) => !NOT_PEOPLE.has(word)).join(" "))
+    .filter((name): name is string => Boolean(name));
   return [...new Set(names)];
 }
 
